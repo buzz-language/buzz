@@ -1,0 +1,147 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "buzz",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "storage_types"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#punctuation"
+		},
+		{
+			"include": "#numeric"
+		},
+		{
+			"include": "#comment"
+		},
+		{
+			"include": "#identifier"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.buzz",
+					"match": "\\b(in|while|if|else|fun|return|switch|default|break|continue|for)\\b"
+				},
+				{
+					"name": "keyword.operator.assignment.buzz",
+					"match": "(=|\\+=|\\-=|\\/=|\\*=)"
+				},
+				{
+					"name": "keyword.operator.logical.buzz",
+					"match": "(!|and|or|\\?\\?)"
+				},
+				{
+					"name": "keyword.operator.closure.dart",
+					"match": "(->)"
+				},
+				{
+					"name": "keyword.operator.arithmetic.buzz",
+					"match": "(\\+|\\-|\\/|%|\\*)"
+				},
+				{
+					"name": "keyword.operator.comparison.buzz",
+					"match": "(==|!=|<=?|>=?)"
+				},
+				{
+					"name": "keyword.declaration.dart",
+					"match": "\\b(enum|object)\\b"
+				},
+				{
+					"name": "constant.language.buzz",
+					"match": "\\b(true|false|null)\\b"
+				},
+				{
+					"name": "storage.type.built-in.primitive.buzz",
+					"match": "\\b(str|num|bool)\\b"
+				}
+			]
+		},
+		"string-interp": {
+			"patterns": [
+				{
+					"name": "string.interpolated.expression.buzz",
+					"begin": "\\{",
+					"end": "\\}",
+					"patterns": [
+						{
+							"include": "#identifier"
+						},
+						{
+							"include": "#keywords"
+						},
+						{
+							"include": "#numeric"
+						},
+						{
+							"include": "#punctuation"
+						},
+						{
+							"include": "#strings"
+						}
+					]
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.buzz",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.buzz",
+					"match": "\\\\."
+				},
+				{
+					"include": "#string-interp"
+				}
+			]
+		},
+		"numeric": {
+			"name": "numeric.buzz",
+			"patterns": [
+				{
+					"name": "constant.numeric.buzz",
+					"match": "[1-9][0-9]*(\\.[0-9]+)?"
+				}
+			]
+		},
+		"comment": {
+			"name": "comment.line.buzz",
+			"match": "\\|[^\n]*"
+		},
+		"identifier": {
+			"name": "entity.name.buzz",
+			"match": "\\b[a-zA-Z]+\\b"
+		},
+		"punctuation": {
+			"patterns": [
+				{
+					"name": "punctuation.comma.buzz",
+					"match": ","
+				},
+				{
+					"name": "punctuation.terminator.buzz",
+					"match": ";"
+				},
+				{
+					"name": "punctuation.dot.buzz",
+					"match": "\\."
+				},
+				{
+					"name": "punctuation.buzz",
+					"match": "(:)"
+				}
+			]
+		}
+	},
+	"scopeName": "source.buzz"
+}
