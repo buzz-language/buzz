@@ -156,10 +156,10 @@ final class Scanner {
         
         if isEOF() {
             errors.append(.unterminatedString(line: current.line, column: current.column))
+        } else {
+            // Closing "
+            advance()
         }
-        
-        // Closing "
-        advance()
         
         // Trim quotes
         let start = source.index(source.startIndex, offsetBy: current.start + 1)
