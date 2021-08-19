@@ -50,6 +50,8 @@ pub const Scanner = struct {
             self.current.start = self.current.offset;
             try self.scanToken();
         }
+
+        // TODO: print errors
     }
 
     fn scanToken(self: *Self) !void {

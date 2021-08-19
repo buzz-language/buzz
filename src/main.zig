@@ -1,5 +1,5 @@
 const std = @import("std");
-const Scanner = @import("./scanner.zig").Scanner;
+const Parser = @import("./parser.zig").Parser;
 
 pub fn main() !void {
     var file = std.fs.cwd().openFile("design/example.buzz", .{}) catch {
@@ -14,8 +14,8 @@ pub fn main() !void {
 
     _ = try file.readAll(source);
 
-    var scanner = Scanner.init(std.heap.c_allocator, source);
-    defer scanner.deinit();
+    var parser = Parser.init(std.heap.c_allocator, source);
+    defer parser.deinit();
 
-    try scanner.scan();
+    try parser.parse();
 }

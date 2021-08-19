@@ -6,3 +6,6 @@
 - Close integration with the system (maybe having it be a candidate for shell scripting?)
 - Easy string manipulations
 - Could run in a VM at first, and then target LLVM (but how to do GC then?)
+
+# Ideas
+- Use http://c9x.me/compile/doc/il.html ?

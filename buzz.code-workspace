@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../zsettlers"
+		},
+		{
+			"path": "../incoming/craftinginterpreters"
 		}
 	],
 	"settings": {}
