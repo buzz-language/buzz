@@ -180,7 +180,7 @@ final class Scanner {
     }
     
     private func peekNext() -> Character {
-        if (current.offset + 1 > source.count) {
+        if (current.offset + 1 >= source.count) {
             return Character("\0")
         }
         
