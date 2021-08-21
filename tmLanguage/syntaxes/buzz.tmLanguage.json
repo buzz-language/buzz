@@ -19,9 +19,6 @@
 		},
 		{
 			"include": "#comment"
-		},
-		{
-			"include": "#identifier"
 		}
 	],
 	"repository": {
@@ -37,7 +34,7 @@
 				},
 				{
 					"name": "keyword.operator.logical.buzz",
-					"match": "(!|and|or|\\?\\?)"
+					"match": "\\b(!|and|or|xor|\\?\\?)\\b"
 				},
 				{
 					"name": "keyword.operator.closure.dart",
@@ -45,23 +42,27 @@
 				},
 				{
 					"name": "keyword.operator.arithmetic.buzz",
-					"match": "(\\+|\\-|\\/|%|\\*)"
+					"match": "(\\+|\\-|\\/|%|\\*|>>|<<)"
 				},
 				{
 					"name": "keyword.operator.comparison.buzz",
-					"match": "(==|!=|<=?|>=?)"
+					"match": "(==|!=|<=?|>=?|\\bis\\b)"
 				},
 				{
 					"name": "keyword.declaration.dart",
-					"match": "\\b(enum|object)\\b"
+					"match": "\\b(enum|object|class)\\b"
 				},
 				{
 					"name": "constant.language.buzz",
 					"match": "\\b(true|false|null)\\b"
 				},
 				{
+					"name": "variable.language.this.buzz",
+					"match": "\\bthis\\b"
+				},
+				{
 					"name": "storage.type.built-in.primitive.buzz",
-					"match": "\\b(str|num|bool)\\b"
+					"match": "\\b(str|num|bool|type|byte)\\b"
 				}
 			]
 		},
@@ -141,6 +142,10 @@
 					"match": "(:)"
 				}
 			]
+		},
+		"builtins": {
+			"match": "\\b(assert|print)\\b",
+			"name": "support.function.buzz"
 		}
 	},
 	"scopeName": "source.buzz"

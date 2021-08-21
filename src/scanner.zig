@@ -162,7 +162,13 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        try self.addToken(.String, if (self.current.offset - self.current.start > 0) self.source[(self.current.start + 1)..(self.current.offset - 1)] else null, null);
+        try self.addToken(
+            .String,
+            if (self.current.offset - self.current.start > 0)
+                self.source[(self.current.start + 1)..(self.current.offset - 1)]
+            else null,
+            null
+        );
     }
 
     fn isEOF(self: *Self) bool {

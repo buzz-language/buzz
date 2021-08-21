@@ -5,6 +5,10 @@ num aNumber = 12;          | That way we can align them neatly
 bool aBoolean = true;      | Only boolean can be used as conditions
 str? aStringNullable;      | We have null-safety, default value is null
 num? aNumNullable = null;  | null represents no-value
+byte aByte = 0b10110110    | A byte
+byte aByte = 0xFEDA15
+byte aByte = 234
+type myType = str;         | Type are first-class 
 
 | OPERATORS
 
@@ -35,6 +39,13 @@ false and b; | -> b
 a or false;  | -> a
 !a;
 
+| Bitwise (same as boolean operators but since operands are `byte`s the semantic is bitwise operations)
+aByte and anotherByte;
+aByte or anotherByte;
+aByte xor anotherByte;
+aByte >> anotherByte;
+aByte << anotherByte;
+
 | Concatenation
 "hello" + " world";                                                   | -> "hello world"
 [int][1, 2, 3] + [int][4, 5, 6];                                      | -> [1, 2, 3, 4, 5, 6]
@@ -43,6 +54,9 @@ a or false;  | -> a
 | Interpolation
 str name = "john";
 print("hello {name} {12 + 5}"); | -> "hello john"
+
+| Instance of
+aString is str; | -> true
 
 | DATA STRUCTURES
 
@@ -111,16 +125,12 @@ switch (expression) {
 
 | FUNCTIONS
 
-fun aFunction(str hello, num world) > str {  | Basic function definition
-    print(hello);
+fun aFunction(str hello, num world, num? wat) > str {  | Basic function definition
 }
 
 fun multipleReturns() > {str name, str me} { | You can return multiple values but you have to name them
     | It's effectively like returning a map but we statically checks that it matches the definition
-    return {
-        name: "hello",
-        me: "world"
-    }; 
+    return name: "hello", me: "world";
 }
 
 (str name) -> print(name) | Arrow function
@@ -135,9 +145,9 @@ fun call(void Function() fn) { | Function as first class objects
     fn();
 }
 
-aStr = aFunction(hello: "hi there", world: 1) | Function parameters are always named
+aStr = aFunction(hello: "hi there", world: 1) | Function parameters are always named, order doesn't matter, optional can be omitted
 aFunction("hi there")                         | Unless there's only one, then you can omit it
-aFunction(hello: "hi there")                  | But naming it still works     
+aFunction(hello: "hi there")                  | But naming it still works
 
 | ENUMS
 
@@ -164,12 +174,30 @@ for (MyEnum value in MyEnum) {
 
 | CLASSES
 
+| Simple inheritance, no notion of private/public (at least at first)
+
 12.13.abs;               | Basic types are objects.
 abs(12.13) == 12.13.abs; | Self-call à la Lua but it works for everything
 
 object MyObject { | A class that can't be inherited from (struct in C, struct in Swift)
-    str name;     | Properties
+    str name;     | Properties. You can't add any dynamically
     num? age;
 
-    fun sayHello()
+    | An implicit constructor is provided with named parameters
+    MyObject(str name, num? age); | Optional can be omited
+
+    | Method
+    fun sayHello() {
+        print(hello);
+    }
+}
+
+class MyClass { | Like `object` but can be extended
+    str name;
+}
+
+class MyOtherClass < MyClass { | MyOtherClass inherits from MyClass
+    fun printName() {
+        print(this.name);
+    }
 }

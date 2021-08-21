@@ -10,5 +10,15 @@
 			"path": "../incoming/craftinginterpreters"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"files.associations": {
+			"string.h": "c",
+			"common.h": "c",
+			"compiler.h": "c",
+			"debug.h": "c",
+			"object.h": "c",
+			"memory.h": "c",
+			"vm.h": "c"
+		}
+	}
 }
