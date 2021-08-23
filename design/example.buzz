@@ -5,8 +5,8 @@ num aNumber = 12;          | That way we can align them neatly
 bool aBoolean = true;      | Only boolean can be used as conditions
 str? aStringNullable;      | We have null-safety, default value is null
 num? aNumNullable = null;  | null represents no-value
-byte aByte = 0b10110110    | A byte
-byte aByte = 0xFEDA15
+byte aByte = 0b10110110     | A byte
+byte aByte = 0xFE
 byte aByte = 234
 type myType = str;         | Type are first-class 
 
@@ -18,6 +18,7 @@ type myType = str;         | Type are first-class
 12 * 12;
 12 / 12;
 12 % 12;
+-12;
 
 | Relational
 a == b; | only allowed for variables of the same type, no coercion
@@ -27,6 +28,7 @@ a >= b;
 a < b;
 a <= b;
 a ?? b; | if a is null then b
+!a;
 
 "abc" < "def";
 1 < 3;
@@ -90,7 +92,7 @@ aNum--;
 
 if (expression) {
     | do something
-} (expression) { | No need for a `else` keyword
+} else if (expression) { | No need for a `else` keyword
     | do something
 } else {
     | do something
@@ -99,6 +101,10 @@ if (expression) {
 while (expression) {
     | do something
 }
+
+do {
+
+} until (expression)
 
 for (num i = 0; i < 10; i++) {
     | do something
@@ -118,7 +124,7 @@ switch (expression) {
         break;
     expressionB:
         statement;
-        continue;
+        break;
     default:
         statement;
 }
@@ -128,22 +134,19 @@ switch (expression) {
 fun aFunction(str hello, num world, num? wat) > str {  | Basic function definition
 }
 
-fun multipleReturns() > {str name, str me} { | You can return multiple values but you have to name them
-    | It's effectively like returning a map but we statically checks that it matches the definition
-    return name: "hello", me: "world";
-}
-
-(str name) -> print(name) | Arrow function
+(num age) -> age * 2; | Arrow function
 
 (str name, num age) {     | Anonymous function
     print("{name} is {age} years old");
 
     return age * 2;
+};
+
+fun call(Function(str, num) > str fn) { | Function as first class objects
+    fn("hello", 12);
 }
 
-fun call(void Function() fn) { | Function as first class objects
-    fn();
-}
+call((str hello, num age) > str -> "{hello} i'm {age} years old");
 
 aStr = aFunction(hello: "hi there", world: 1) | Function parameters are always named, order doesn't matter, optional can be omitted
 aFunction("hi there")                         | Unless there's only one, then you can omit it
@@ -151,18 +154,21 @@ aFunction(hello: "hi there")                  | But naming it still works
 
 | ENUMS
 
-enum num MyEnum {
-    one,
+enum MyEnum {  | `enum MyEnum` == `enum num MyEnum`
+    one,       | but values are assigned automatically starting from 0
     two,
-    three,
-    mine = 10
+    three
 }
 
-MyEnum.two == 2;
+enum num MyEnum { | If you specify a type, you have to provide all values
+    one = 1,
+    two = 2,
+    three = 3,
+}
 
 enum str MyEnum {
-    hello,
-    world,
+    hello = "cia",
+    world = "mundo",
     name = "joe"
 }
 
