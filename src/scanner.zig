@@ -8,6 +8,8 @@ const TokenType = tk.TokenType;
 pub const LexicalError = error {
     UnterminatedString,
     UnexpectedCharacter,
+    MalformedBinary,
+    MalformedHexa,
 };
 
 pub const SourceLocation = struct {
@@ -30,9 +32,11 @@ pub const Scanner = struct {
         .column = 0,
         .offset = 0,
     },
+    allocator: *Allocator,
 
     pub fn init(allocator: *Allocator, source: []u8) Self {
         return Self{
+            .allocator = allocator,
             .source = source,
             .errors = std.ArrayList(LexicalError).init(allocator),
             .tokens = std.ArrayList(Token).init(allocator),
@@ -61,48 +65,77 @@ pub const Scanner = struct {
                     _ = self.advance();
                 }
             },
-            '[' => try self.addToken(.LeftBracket, null, null),
-            ']' => try self.addToken(.RightBracket, null, null),
-            '(' => try self.addToken(.LeftParen, null, null),
-            ')' => try self.addToken(.RightParen, null, null),
-            '{' => try self.addToken(.LeftBrace, null, null),
-            '}' => try self.addToken(.RightBrace, null, null),
-            ',' => try self.addToken(.Comma, null, null),
-            ';' => try self.addToken(.Semicolon, null, null),
-            '>' => try self.addToken(if (self.match('=')) .GreaterEqual else .Greater, null, null),
-            '<' => try self.addToken(if (self.match('=')) .LessEqual else .Less, null, null),
+            '[' => try self.addToken(.LeftBracket, null, null, null),
+            ']' => try self.addToken(.RightBracket, null, null, null),
+            '(' => try self.addToken(.LeftParen, null, null, null),
+            ')' => try self.addToken(.RightParen, null, null, null),
+            '{' => try self.addToken(.LeftBrace, null, null, null),
+            '}' => try self.addToken(.RightBrace, null, null, null),
+            ',' => try self.addToken(.Comma, null, null, null),
+            ';' => try self.addToken(.Semicolon, null, null, null),
+            '.' => try self.addToken(.Dot, null, null, null),
+            '>' => {
+                if (self.match('>')) {
+                    try self.addToken(.ShiftRight, null, null, null);
+                } else if (self.match('=')) {
+                    try self.addToken(.GreaterEqual, null, null, null);
+                } else {
+                    try self.addToken(.Greater, null, null, null);
+                }
+            },
+            '<' => {
+                if (self.match('<')) {
+                    try self.addToken(.ShiftLeft, null, null, null);
+                } else if (self.match('=')) {
+                    try self.addToken(.LessEqual, null, null, null);
+                } else {
+                    try self.addToken(.Less, null, null, null);
+                }
+            },
             '+' => {
                 if (self.match('+')) {
-                    try self.addToken(.Increment, null, null);
+                    try self.addToken(.Increment, null, null, null);
                 } else if (self.match('=')) {
-                    try self.addToken(.PlusEqual, null, null);
+                    try self.addToken(.PlusEqual, null, null, null);
                 } else {
-                    try self.addToken(.Plus, null, null);
+                    try self.addToken(.Plus, null, null, null);
                 }
             },
             '-' => {
                 if (self.match('-')) {
-                    try self.addToken(.Decrement, null, null);
+                    try self.addToken(.Decrement, null, null, null);
                 } else if (self.match('=')) {
-                    try self.addToken(.MinusEqual, null, null);
+                    try self.addToken(.MinusEqual, null, null, null);
+                } else if (self.match('>')) {
+                    try self.addToken(.Arrow, null, null, null);
                 } else {
-                    try self.addToken(.Minus, null, null);
+                    try self.addToken(.Minus, null, null, null);
                 }
             },
-            '*' => try self.addToken(if (self.match('=')) .StarEqual else .Star, null, null),
-            '/' => try self.addToken(if (self.match('=')) .SlashEqual else .Slash, null, null),
-            '%' => try self.addToken(.Percent, null, null),
-            '?' => try self.addToken(if (self.match('?')) .QuestionQuestion else .Question, null, null),
-            '!' => try self.addToken(if (self.match('=')) .BangEqual else .Bang, null, null),
-            ':' => try self.addToken(.Colon, null, null),
-            '=' => try self.addToken(if (self.match('=')) .EqualEqual else .Equal, null, null),
+            '*' => try self.addToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
+            '/' => try self.addToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
+            '%' => try self.addToken(.Percent, null, null, null),
+            '?' => try self.addToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
+            '!' => try self.addToken(if (self.match('=')) .BangEqual else .Bang, null, null, null),
+            ':' => try self.addToken(.Colon, null, null, null),
+            '=' => try self.addToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '\n' => {
                 self.current.line += 1;
                 self.current.column = 0;
             },
             '\"' => self.string(),
-            'a'...'z', 'A'...'Z' => self.identifier(),
-            '0'...'9' => self.number(),
+            'b' => if (isNumber(self.peek())) self.binary() else self.identifier(),
+            'a', 'c'...'z', 'A'...'Z' => self.identifier(),
+            '0' => {
+                if (self.match('x')) {
+                    try self.hexa();
+                } else if (self.match('b')) {
+                    try self.binary();
+                } else {
+                    try self.number();
+                }
+            },
+            '1'...'9' => try self.number(),
             else => try self.errors.append(LexicalError.UnexpectedCharacter)
         };
     }
@@ -125,9 +158,9 @@ pub const Scanner = struct {
         const keywordOpt = tk.isKeyword(literal);
 
         if (keywordOpt) |keyword| {
-            try self.addToken(keyword, literal, null);
+            try self.addToken(keyword, literal, null, null);
         } else {
-            try self.addToken(.Identifier, literal, null);
+            try self.addToken(.Identifier, literal, null, null);
         }
     }
     
@@ -144,7 +177,43 @@ pub const Scanner = struct {
             }
         }
 
-        try self.addToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]));
+        try self.addToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]), null);
+    }
+
+    fn binary(self: *Self) !void {
+        var peeked: u8 = self.peek();
+        while (peeked == '0' or peeked == '1') {
+            _ = self.advance();
+
+            peeked = self.peek();
+        }
+
+        if (self.current.offset - self.current.start != 10) {
+            try self.errors.append(LexicalError.MalformedBinary);
+
+            return;
+        }
+
+        try self.addToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
+    }
+
+    fn hexa(self: *Self) !void {
+        _ = self.advance(); // Consume 'x'
+
+        var peeked: u8 = self.peek();
+        while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F')) {
+            _ = self.advance();
+
+            peeked = self.peek();
+        }
+
+        if (self.current.offset - self.current.start != 4) {
+            try self.errors.append(LexicalError.MalformedHexa);
+
+            return;
+        }
+
+        try self.addToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
     }
 
     fn string(self: *Self) !void {
@@ -167,6 +236,7 @@ pub const Scanner = struct {
             if (self.current.offset - self.current.start > 0)
                 self.source[(self.current.start + 1)..(self.current.offset - 1)]
             else null,
+            null,
             null
         );
     }
@@ -213,25 +283,17 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn addToken(self: *Self, token_type: TokenType, literal_string: ?[]u8, literal_number: ?f64) !void {
+    fn addToken(self: *Self, token_type: TokenType, literal_string: ?[]u8, literal_number: ?f64, literal_byte: ?u8) !void {
         const token = Token {
             .token_type = token_type,
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,
             .literal_number = literal_number,
+            .literal_byte = literal_byte,
             .line = self.current.line,
             .column = self.current.column,
         };
 
         try self.tokens.append(token);
-
-        std.debug.print("{}:{} {} <{s}> (\"{s}\", {})\n", .{
-            token.line,
-            token.column,
-            token.token_type,
-            token.lexeme,
-            token.literal_string,
-            token.literal_number
-        });
     }
 };

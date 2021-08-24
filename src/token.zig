@@ -9,6 +9,7 @@ pub const TokenType = enum {
     RightParen,       // )
     LeftBrace,        // {
     RightBrace,       // }
+    Dot,              // .
     Comma,            // ,
     Semicolon,        // ;
     Greater,          // >
@@ -22,6 +23,7 @@ pub const TokenType = enum {
     Bang,             // !
     Colon,            // :
     Equal,            // =
+
     EqualEqual,       // ==
     BangEqual,        // !=
     GreaterEqual,     // >=
@@ -33,26 +35,46 @@ pub const TokenType = enum {
     SlashEqual,       // /=
     Increment,        // ++
     Decrement,        // --
+    
     Arrow,            // ->
+    
     True,             // true
     False,            // false
     Null,             // null
+
+    Str,              // str
+    Num,              // num
+    Byte,             // byte
+    Type,             // type
+    Bool,             // bool
+
+    ShiftRight,       // >>
+    ShiftLeft,        // <<
+    Xor,              // xor
     Or,               // or
     And,              // and
+
     Return,           // return
     If,               // if
     Else,             // else
+    Do,               // do
+    Until,            // until
     While,            // while
     For,              // for
     Switch,           // switch
     Break,            // break
-    Continue,         // continue
     Default,          // default
-    Fun,              // fun
     In,               // in
+    Is,               // is
     Number,           // 123
     String,           // "hello"
     Identifier,       // anIdentifier
+
+    Fun,              // fun
+    Object,           // object
+    Class,            // class
+    Enum,             // enum
+
     Eof,              // EOF
 };
 
@@ -75,6 +97,7 @@ pub const Keywords = [_]TokenType{
     .In,
 };
 
+// TODO: must be a way to write that more elegantly
 pub fn isKeyword(literal: []u8) ?TokenType {
     if (mem.eql(u8, literal, "true")) {
         return .True;
@@ -124,10 +147,6 @@ pub fn isKeyword(literal: []u8) ?TokenType {
         return .Break;
     }
 
-    if (mem.eql(u8, literal, "continue")) {
-        return .Continue;
-    }
-
     if (mem.eql(u8, literal, "default")) {
         return .Default;
     }
@@ -139,7 +158,54 @@ pub fn isKeyword(literal: []u8) ?TokenType {
     if (mem.eql(u8, literal, "in")) {
         return .In;
     }
+
+    if (mem.eql(u8, literal, "str")) {
+        return .Str;
+    }
+
+    if (mem.eql(u8, literal, "num")) {
+        return .Num;
+    }
+
+    if (mem.eql(u8, literal, "byte")) {
+        return .Byte;
+    }
     
+    if (mem.eql(u8, literal, "type")) {
+        return .Type;
+    }
+
+    if (mem.eql(u8, literal, "bool")) {
+        return .Bool;
+    }
+
+    if (mem.eql(u8, literal, "xor")) {
+        return .Xor;
+    }
+
+    if (mem.eql(u8, literal, "do")) {
+        return .Do;
+    }
+
+    if (mem.eql(u8, literal, "until")) {
+        return .Until;
+    }
+
+    if (mem.eql(u8, literal, "is")) {
+        return .Is;
+    }
+
+    if (mem.eql(u8, literal, "object")) {
+        return .Object;
+    }
+
+    if (mem.eql(u8, literal, "class")) {
+        return .Class;
+    }
+
+    if (mem.eql(u8, literal, "enum")) {
+        return .Enum;
+    }
 
     return null;
 }
@@ -150,6 +216,7 @@ pub const Token = struct {
     // Literal is either a string or a number
     literal_string: ?[]u8,
     literal_number: ?f64,
+    literal_byte: ?u8,
     line: usize,
     column: usize,
 };
