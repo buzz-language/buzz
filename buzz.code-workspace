@@ -18,7 +18,11 @@
 			"debug.h": "c",
 			"object.h": "c",
 			"memory.h": "c",
-			"vm.h": "c"
+			"vm.h": "c",
+			"iterator": "c",
+			"memory": "c",
+			"__availability": "c",
+			"complex": "c"
 		}
 	}
 }
