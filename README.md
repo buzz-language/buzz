@@ -9,3 +9,7 @@
 
 # Ideas
 - Use http://c9x.me/compile/doc/il.html ?
+
+# Resources
+- utf8: https://github.com/jecolon/ziglyph
+- treesitter: https://github.com/tree-sitter/tree-sitter

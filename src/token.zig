@@ -47,6 +47,7 @@ pub const TokenType = enum {
     Byte,             // byte
     Type,             // type
     Bool,             // bool
+    Function,         // Function
 
     ShiftRight,       // >>
     ShiftLeft,        // <<
@@ -95,6 +96,7 @@ pub const Keywords = [_]TokenType{
     .Default,
     .Fun,
     .In,
+    .Function,
 };
 
 // TODO: must be a way to write that more elegantly
