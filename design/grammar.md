@@ -44,14 +44,16 @@ subscript      -> <primary>\[<expression>\]
 primary        -> <literal> | \(<expression>\) | super\.<identifier> | <identifier>
 
 literal        -> \b(true|false|null|this)\b | <number> | <string> | <type> | <structure>
-structure      -> (\[<type\])?\[<arguments>?\] | (\{<type>, <type>\})?\{ <literal>: <expression> \}
+structure      -> (<list_type>)?\[<arguments>?\] | (<map_type>)?\{ <literal>: <expression> \}
 string         -> "([^"]+ | {<expression>})*"
 number         -> ([1-9][0-9]*(\.[0-9]+)? | 0b[0-1]{8} | 0x[0-9A-F]{2})
 identifier     -> \b[a-zA-Z_][a-zA-Z0-9_]+\b
 
 # Utility
-type           -> \b(str|num|bool|byte|type|<funType>|<identifier>|\[<type\]|\{<type>, <type>\})\??\b
-funType        -> Function(<parameters>?) (> <type>)?
+type           -> \b(str|num|bool|byte|type|<fun_type>|<identifier>|<list_type>|<map_type>)\?\b
+fun_type       -> Function(<parameters>?) (> <type>)?
+list_type      -> \[<type>\]
+map_type       -> \{<type>, <type>\}
 block          -> { <statement>* }
 body           -> { (<variable>|<function>)* }
 parameters     -> <type> <identifier>(, <type> <identifier>)*
