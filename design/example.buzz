@@ -60,6 +60,15 @@ print("hello {name} {12 + 5}"); | -> "hello john"
 | Instance of
 aString is str; | -> true
 
+| Optional unwraping
+[str]? yo = ["hello"];
+yo!        | force unwrap (can we do without?)
+yo?[0]     | graceful access
+yo?.sort()
+if (yo != null) {
+    | yo is now promoted to a non-optional
+}
+
 | DATA STRUCTURES
 
 [num] aList = [1, 2.12, 3]; | We can't have mixed content lists

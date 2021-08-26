@@ -25,7 +25,7 @@ return         -> return <expression>?;
 
 # Expressions (the fuzzy part tbh)
 expression     -> <assignment> | <is>
-assignment     -> ((<call> | <reference> | <primary>)\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
+assignment     -> ((<call> | <reference> | <primary>)(\?|!)?\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
 is             -> <null_or> (is <null_or>)*
 null_or        -> <logic_or> (\?\? <logic_or>)*
 logic_or       -> <logic_and> (or <logic_and>)*
@@ -39,8 +39,8 @@ factor         -> <operand> ((/|*|%) <operand>)*
 operand        -> <unary> | <call> | <reference> | <subscript> | <primary>
 unary          -> (!|-|--|++)(<call> | <reference> | <subscript> | <primary>) | (<call> | <reference> | <subscript> | <primary>)(--|++)
 call           -> <primary>\(<arguments>?\)
-reference      -> <primary>\.<identifier>
-subscript      -> <primary>\[<expression>\]
+reference      -> <primary>(\?|!)?\.<identifier>
+subscript      -> <primary>(\?|!)?\[<expression>\]
 primary        -> <literal> | \(<expression>\) | super\.<identifier> | <identifier>
 
 literal        -> \b(true|false|null|this)\b | <number> | <string> | <type> | <structure>
