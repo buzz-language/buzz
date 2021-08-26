@@ -1,44 +1,33 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "wtf zig" {
+test "slice.len type?" {
+    const hello: []const u8 = "hello";
 
-    const RandomStruct = struct {
-        age: f32,
-        dies: f32
+    std.debug.warn("\nslice.len is a {s}\n", .{@TypeOf(hello.len)});
+}
+
+test "pointers behave like C" {
+    var array = [_]u8{ 1, 2, 3, 4 };
+    var ptr: [*]u8 = array[0..];
+
+    std.debug.warn("\n{}, {}, {}, {}\n", .{
+        (ptr)[0],
+        (ptr + 1)[0],
+        (ptr + 2)[0],
+        (ptr + 3)[0],
+    });
+}
+
+test "How are enum printed?" {
+    const OpCode = enum(u8) {
+        OP_CONSTANT,
+        OP_NULL,
+        OP_TRUE,
+        OP_FALSE,
+        OP_POP,
     };
 
-    // const Type = enum {
-    //     Bool,
-    //     Struct,
-    // };
 
-    // const TypeUnion = union(Type) {
-    //     Bool = bool,
-    //     Struct = *RandomStruct
-    // };
-
-    const rand: RandomStruct = .{
-        .age = 12,
-        .dies = 90
-    };
-
-    const rand2: RandomStruct = .{
-        .age = 12,
-        .dies = 90
-    };
-
-    // const myBool: TypeUnion = .{
-    //     .Bool = false
-    // };
-
-    // const myStruct: TypeUnion = .{
-    //     .Struct = &rand
-    // };
-
-    // const myOtherStruct: TypeUnion = .{
-    //     .Struct = &rand2
-    // };
-
-    assert(rand == rand2);
+    std.debug.warn("\nSome -> {}\n", .{ OpCode.OP_CONSTANT });
 }

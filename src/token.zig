@@ -77,6 +77,7 @@ pub const TokenType = enum {
     Enum,             // enum
 
     Eof,              // EOF
+    Error,            // Error
 };
 
 pub const Keywords = [_]TokenType{
@@ -216,9 +217,13 @@ pub const Token = struct {
     token_type: TokenType,
     lexeme: []u8,
     // Literal is either a string or a number
-    literal_string: ?[]u8,
-    literal_number: ?f64,
-    literal_byte: ?u8,
+    literal_string: ?[]u8 = null,
+    literal_number: ?f64 = null,
+    literal_byte: ?u8 = null,
     line: usize,
     column: usize,
+
+    pub fn copyStringLiteral(allocator: *Allocator) !*ObjString {
+        unreachable;
+    }
 };

@@ -1,9 +1,9 @@
 const std = @import("std");
 const compiler = @import("./compiler.zig");
-const value = @import("./value.zig");
-const ValueType = value.ValueType;
+const _value = @import("./value.zig");
+const Value = _value.Value;
 
-pub const OpCode = enum {
+pub const OpCode = enum(u8) {
     OP_CONSTANT,
     OP_NULL,
     OP_TRUE,
@@ -61,10 +61,41 @@ pub const OpCode = enum {
 
 /// A chunk of code to execute
 pub const Chunk = struct {
+    const Self = @This();
+
     /// List of opcodes to execute
-    code: []OpCode,
+    code: std.ArrayList(OpCode),
+    /// List of lines
+    lines: std.ArrayList(u32),
     /// List of constants defined in this chunck
-    constants: std.ArrayList(ValueType),
+    constants: std.ArrayList(Value),
 
     // TODO: correlate opcodes and line number in source code
+
+    pub fn init(allocator: *Allocator) Self {
+        return .{
+            .code = std.ArrayList(OpCode).init(allocator),
+            .constants = std.ArrayList(Value).init(allocator),
+            .lines = std.ArrayList(u32).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.code.deinit();
+        self.constants.deinit();
+        self.lines.deinit();
+    }
+
+    pub fn write(self: *Self, byte: OpCode, line: u32) !void {
+        _ = try self.code.addOne(byte);
+        _ = try self.lines.addOne(line);
+    }
+
+    pub fn addConstant(self: *Self, vm: *VM, value: Value) !usize {
+        try vm.push(value);
+        try self.constants.addOne(value);
+        try vm.pop();
+
+        return self.constants.items.len;
+    }
 };

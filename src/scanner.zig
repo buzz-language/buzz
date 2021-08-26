@@ -5,13 +5,6 @@ const tk = @import("./token.zig");
 const Token = tk.Token;
 const TokenType = tk.TokenType;
 
-pub const LexicalError = error {
-    UnterminatedString,
-    UnexpectedCharacter,
-    MalformedBinary,
-    MalformedHexa,
-};
-
 pub const SourceLocation = struct {
     start: usize,
     line: usize,
@@ -24,120 +17,121 @@ pub const Scanner = struct {
     const Self = @This();
 
     source: []u8,
-    errors: std.ArrayList(LexicalError),
-    tokens: std.ArrayList(Token),
     current: SourceLocation = .{
         .start = 0,
         .line = 0,
         .column = 0,
         .offset = 0,
     },
-    allocator: *Allocator,
 
     pub fn init(allocator: *Allocator, source: []u8) Self {
         return Self{
-            .allocator = allocator,
             .source = source,
-            .errors = std.ArrayList(LexicalError).init(allocator),
-            .tokens = std.ArrayList(Token).init(allocator),
         };
     }
-    
 
-    pub fn deinit(self: *Self) void {
-        self.errors.deinit();
-        self.tokens.deinit();
-    }
+    pub fn scanToken(self: *Self) void {
+        self.skipWhitespaces();
 
-    pub fn scan(self: *Self) !void {
-        while (!self.isEOF()) {
-            self.current.start = self.current.offset;
-            try self.scanToken();
+        self.current.start = self.current.offset;
+
+        if (self.isEOF()) {
+            return self.makeToken(.Eof, null, null, null);
         }
 
-        // TODO: print errors
-    }
-
-    fn scanToken(self: *Self) !void {
-        try switch (self.advance()) {
-            '|' => {
-                while(self.peek() != '\n' and !self.isEOF()) {
-                    _ = self.advance();
-                }
-            },
-            '[' => try self.addToken(.LeftBracket, null, null, null),
-            ']' => try self.addToken(.RightBracket, null, null, null),
-            '(' => try self.addToken(.LeftParen, null, null, null),
-            ')' => try self.addToken(.RightParen, null, null, null),
-            '{' => try self.addToken(.LeftBrace, null, null, null),
-            '}' => try self.addToken(.RightBrace, null, null, null),
-            ',' => try self.addToken(.Comma, null, null, null),
-            ';' => try self.addToken(.Semicolon, null, null, null),
-            '.' => try self.addToken(.Dot, null, null, null),
-            '>' => {
-                if (self.match('>')) {
-                    try self.addToken(.ShiftRight, null, null, null);
-                } else if (self.match('=')) {
-                    try self.addToken(.GreaterEqual, null, null, null);
-                } else {
-                    try self.addToken(.Greater, null, null, null);
-                }
-            },
-            '<' => {
-                if (self.match('<')) {
-                    try self.addToken(.ShiftLeft, null, null, null);
-                } else if (self.match('=')) {
-                    try self.addToken(.LessEqual, null, null, null);
-                } else {
-                    try self.addToken(.Less, null, null, null);
-                }
-            },
-            '+' => {
-                if (self.match('+')) {
-                    try self.addToken(.Increment, null, null, null);
-                } else if (self.match('=')) {
-                    try self.addToken(.PlusEqual, null, null, null);
-                } else {
-                    try self.addToken(.Plus, null, null, null);
-                }
-            },
-            '-' => {
-                if (self.match('-')) {
-                    try self.addToken(.Decrement, null, null, null);
-                } else if (self.match('=')) {
-                    try self.addToken(.MinusEqual, null, null, null);
-                } else if (self.match('>')) {
-                    try self.addToken(.Arrow, null, null, null);
-                } else {
-                    try self.addToken(.Minus, null, null, null);
-                }
-            },
-            '*' => try self.addToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
-            '/' => try self.addToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
-            '%' => try self.addToken(.Percent, null, null, null),
-            '?' => try self.addToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
-            '!' => try self.addToken(if (self.match('=')) .BangEqual else .Bang, null, null, null),
-            ':' => try self.addToken(.Colon, null, null, null),
-            '=' => try self.addToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
-            '\n' => {
-                self.current.line += 1;
-                self.current.column = 0;
-            },
-            '\"' => self.string(),
+        switch (self.advance()) {
             'b' => if (isNumber(self.peek())) self.binary() else self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => self.identifier(),
             '0' => {
                 if (self.match('x')) {
-                    try self.hexa();
+                    return try self.hexa();
                 } else if (self.match('b')) {
-                    try self.binary();
+                    return try self.binary();
                 } else {
-                    try self.number();
+                    return try self.number();
                 }
             },
-            '1'...'9' => try self.number(),
-            else => try self.errors.append(LexicalError.UnexpectedCharacter)
-        };
+            '1'...'9' => return try self.number(),
+
+            '[' => return self.makeToken(.LeftBracket, null, null, null),
+            ']' => return self.makeToken(.RightBracket, null, null, null),
+            '(' => return self.makeToken(.LeftParen, null, null, null),
+            ')' => return self.makeToken(.RightParen, null, null, null),
+            '{' => return self.makeToken(.LeftBrace, null, null, null),
+            '}' => return self.makeToken(.RightBrace, null, null, null),
+            ',' => return self.makeToken(.Comma, null, null, null),
+            ';' => return self.makeToken(.Semicolon, null, null, null),
+            '.' => return self.makeToken(.Dot, null, null, null),
+            '>' => {
+                if (self.match('>')) {
+                    return self.makeToken(.ShiftRight, null, null, null);
+                } else if (self.match('=')) {
+                    return self.makeToken(.GreaterEqual, null, null, null);
+                } else {
+                    return self.makeToken(.Greater, null, null, null);
+                }
+            },
+            '<' => {
+                if (self.match('<')) {
+                    return self.makeToken(.ShiftLeft, null, null, null);
+                } else if (self.match('=')) {
+                    return self.makeToken(.LessEqual, null, null, null);
+                } else {
+                    return self.makeToken(.Less, null, null, null);
+                }
+            },
+            '+' => {
+                if (self.match('+')) {
+                    return self.makeToken(.Increment, null, null, null);
+                } else if (self.match('=')) {
+                    return self.makeToken(.PlusEqual, null, null, null);
+                } else {
+                    return self.makeToken(.Plus, null, null, null);
+                }
+            },
+            '-' => {
+                if (self.match('-')) {
+                    return self.makeToken(.Decrement, null, null, null);
+                } else if (self.match('=')) {
+                    return self.makeToken(.MinusEqual, null, null, null);
+                } else if (self.match('>')) {
+                    return self.makeToken(.Arrow, null, null, null);
+                } else {
+                    return self.makeToken(.Minus, null, null, null);
+                }
+            },
+            '*' => return self.makeToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
+            '/' => return self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
+            '%' => return self.makeToken(.Percent, null, null, null),
+            '?' => return self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
+            '!' => return self.makeToken(if (self.match('=')) .BangEqual else .Bang, null, null, null),
+            ':' => return self.makeToken(.Colon, null, null, null),
+            '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
+            '\"' => return self.string(),
+
+            else => return self.makeToken(.Error, "Unexpected character.".*, null, null)
+        }
+    }
+
+    fn skipWhitespaces(self: *Self) void {
+        while (true) {
+            var char: u8 = self.peek();
+
+            switch (char) {
+                ' ', '\r', '\t' => _ = self.advance(),
+                '\n' => {
+                    self.current.line += 1;
+                    self.current.column = 0;
+                    _ = self.advance();
+                },
+                '|' => {
+                    while(self.peek() != '\n' and !self.isEOF()) {
+                        _ = self.advance();
+                    }
+                },
+                else => return
+            }
+        }
     }
 
     fn isNumber(char:  u8) bool { 
@@ -149,7 +143,7 @@ pub const Scanner = struct {
             or (char >= 'A' and char <= 'Z');
     }
 
-    fn identifier(self: *Self) !void {
+    fn identifier(self: *Self) !Token {
         while (isLetter(self.peek())) {
             _ = self.advance();
         }
@@ -158,13 +152,13 @@ pub const Scanner = struct {
         const keywordOpt = tk.isKeyword(literal);
 
         if (keywordOpt) |keyword| {
-            try self.addToken(keyword, literal, null, null);
+            return self.makeToken(keyword, literal, null, null);
         } else {
-            try self.addToken(.Identifier, literal, null, null);
+            return self.makeToken(.Identifier, literal, null, null);
         }
     }
     
-    fn number(self: *Self) !void {
+    fn number(self: *Self) !Token {
         while (isNumber(self.peek())) {
             _ = self.advance();
         }
@@ -177,10 +171,10 @@ pub const Scanner = struct {
             }
         }
 
-        try self.addToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]), null);
+        return self.makeToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]), null);
     }
 
-    fn binary(self: *Self) !void {
+    fn binary(self: *Self) !Token {
         var peeked: u8 = self.peek();
         while (peeked == '0' or peeked == '1') {
             _ = self.advance();
@@ -189,15 +183,13 @@ pub const Scanner = struct {
         }
 
         if (self.current.offset - self.current.start != 10) {
-            try self.errors.append(LexicalError.MalformedBinary);
-
-            return;
+            return self.makeToken(.Error, "Malformed binary number.".*, null, null);
         }
 
-        try self.addToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
+        return self.makeToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
     }
 
-    fn hexa(self: *Self) !void {
+    fn hexa(self: *Self) !Token {
         _ = self.advance(); // Consume 'x'
 
         var peeked: u8 = self.peek();
@@ -208,30 +200,28 @@ pub const Scanner = struct {
         }
 
         if (self.current.offset - self.current.start != 4) {
-            try self.errors.append(LexicalError.MalformedHexa);
-
-            return;
+            return self.makeToken(.Error, "Malformed hexadecimal number.".*, null, null);
         }
 
-        try self.addToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
+        return self.makeToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
     }
 
-    fn string(self: *Self) !void {
+    fn string(self: *Self) !Token {
         while (self.peek() != '"' and !self.isEOF()) {
             if (self.peek() == '\n') {
-                try self.errors.append(LexicalError.UnterminatedString);
+                return self.makeToken(.Error, "Unterminated string.".*, null, null);
             }
 
             _ = self.advance();
         }
 
         if (self.isEOF()) {
-            try self.errors.append(LexicalError.UnterminatedString);
+            return self.makeToken(.Error, "Unterminated string.".*, null, null);
         } else {
             _ = self.advance();
         }
 
-        try self.addToken(
+        return self.makeToken(
             .String,
             if (self.current.offset - self.current.start > 0)
                 self.source[(self.current.start + 1)..(self.current.offset - 1)]
@@ -283,8 +273,8 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn addToken(self: *Self, token_type: TokenType, literal_string: ?[]u8, literal_number: ?f64, literal_byte: ?u8) !void {
-        const token = Token {
+    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]u8, literal_number: ?f64, literal_byte: ?u8) Token {
+        return Token {
             .token_type = token_type,
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,
@@ -293,7 +283,5 @@ pub const Scanner = struct {
             .line = self.current.line,
             .column = self.current.column,
         };
-
-        try self.tokens.append(token);
     }
 };

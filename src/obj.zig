@@ -1,6 +1,8 @@
 const std = @import("std");
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const StringArrayHashMap = std.StringArrayHashMap;
-const Chunck = @import("./chunck.zig").Chunck;
+const Chunk = @import("./chunck.zig").Chunk;
 
 pub const ObjType = enum {
     String,
@@ -85,7 +87,18 @@ pub const ObjClosure = struct {
     },
 
     function: *ObjFunction,
-    upvalues: []*ObjUpValue,
+    upvalues: std.ArrayList(*ObjUpValue),
+
+    pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {
+        return .{
+            .function = function,
+            .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upValueCount),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -111,8 +124,15 @@ pub const ObjFunction = struct {
     name: *ObjString,
     parameters: StringArrayHashMap(*ObjTypeDef),
     return_type: *ObjTypeDef,
-    chunk: Chunck,
+    chunk: Chunk,
     upValueCount: u8,
+
+    pub fn init(allocator: *Allocator) Self {
+        return .{
+            .parameters = StringArrayHashMap(*ObjTypeDef).init(allocator),
+            .chunk = Chunk.init(allocator),
+        };
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
