@@ -32,7 +32,8 @@ pub const VM = struct {
 
     bytes_allocated: usize = 0,
     next_gc: usize = 0,
-    objects: std.ArrayList(*Obj),
+    // TODO: replace with SinglyLinkedList(*Obj)
+    objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
     pub fn init(allocator: *Allocator) Self {
@@ -43,7 +44,6 @@ pub const VM = struct {
             .globals = std.StringArrayHashMap(Value).init(allocator),
             .strings = std.StringArrayHashMap(*ObjString).init(allocator),
             .open_upvalues = std.ArrayList(*ObjUpValue).init(allocator),
-            .objects = std.ArrayList(*Obj).init(allocator),
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
     }
@@ -54,7 +54,6 @@ pub const VM = struct {
         self.globals.deinit();
         self.strings.deinit();
         self.open_upvalues.deinit();
-        self.objects.deinit();
         self.gray_stack.deinit();
     }
 

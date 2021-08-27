@@ -22,7 +22,15 @@
 			"iterator": "c",
 			"memory": "c",
 			"__availability": "c",
-			"complex": "c"
+			"complex": "c",
+			"__bit_reference": "c",
+			"__hash_table": "c",
+			"__split_buffer": "c",
+			"array": "c",
+			"string": "c",
+			"string_view": "c",
+			"unordered_map": "c",
+			"vector": "c"
 		}
 	}
 }

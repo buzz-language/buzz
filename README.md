@@ -11,5 +11,6 @@
 - Use http://c9x.me/compile/doc/il.html ?
 
 # Resources
+- http://www.craftinginterpreters.com/contents.html
 - utf8: https://github.com/jecolon/ziglyph
 - treesitter: https://github.com/tree-sitter/tree-sitter

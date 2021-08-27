@@ -222,8 +222,4 @@ pub const Token = struct {
     literal_byte: ?u8 = null,
     line: usize,
     column: usize,
-
-    pub fn copyStringLiteral(allocator: *Allocator) !*ObjString {
-        unreachable;
-    }
 };

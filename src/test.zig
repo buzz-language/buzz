@@ -48,3 +48,48 @@ test "Iterate from end of slice" {
         if (i > 0) i -= 1 else break;
     }
 }
+
+test "What does a switch block returns?" {
+    const Yo = enum {
+        one, two, three
+    };
+
+    std.debug.warn("\n{}\n", .{
+        switch (Yo.one) {
+            .one => one: {
+                std.debug.warn("\n in my case, in my case\n", .{});
+
+                break :one 12;
+            },
+            else => 13
+        }
+    });
+}
+
+test "How can store sizeOf things" {
+    const Yo = struct {
+        lo: bool
+    };
+    
+    const size: usize = @sizeOf(Yo);
+
+    std.debug.warn("\nsize of Yo is {}\n", .{ size });
+}
+
+test "String hash map behave like expected" {
+    var map = std.StringArrayHashMap(bool).init(std.heap.c_allocator);
+    defer map.deinit();
+
+    try map.put("hello", true);
+
+    std.debug.warn("\nhello exists: {}\n", .{ map.get("hello") });
+
+    var dyn_string: []u8 = try std.heap.c_allocator.alloc(u8, 3);
+    defer std.heap.c_allocator.free(dyn_string);
+
+    _ = try std.fmt.bufPrint(dyn_string, "bye", .{});
+
+    try map.put(dyn_string, true);
+
+    std.debug.warn("\nbye exists: {}\n", .{ map.get("bye") });
+}

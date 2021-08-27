@@ -3,6 +3,8 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringArrayHashMap = std.StringArrayHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
+const VM = @import("./vm.zig").VM;
+const memory = @import("./memory.zig");
 
 pub const ObjType = enum {
     String,
@@ -22,10 +24,185 @@ pub const ObjType = enum {
     Native,
 };
 
+pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
+    var size: usize = 0;
+
+    var object: *Obj = switch (obj_type) {
+        .String => string: {
+            size = @sizeOf(*ObjString);
+            var obj: *ObjString = try memory.allocate(vm, *ObjString);
+            obj.obj = .{
+                .obj_type = .String,
+            };
+
+            break :string &obj.obj;
+        },
+        .Type => typeObj: {
+            size = @sizeOf(*ObjType);
+            var obj: *ObjType = try memory.allocate(vm, *ObjType);
+            obj.obj = .{
+                .obj_type = .Type,
+            };
+
+            break :typeObj &obj.obj;
+        },
+        .UpValue => upValue: {
+            size = @sizeOf(*ObjUpValue);
+            var obj: *ObjUpValue = try memory.allocate(vm, *ObjUpValue);
+            obj.obj = .{
+                .obj_type = .UpValue,
+            };
+
+            break :upValue &obj.obj;
+        },
+        .Closure => closure: {
+            size = @sizeOf(*ObjClosure);
+            var obj: *ObjClosure = try memory.allocate(vm, *ObjClosure);
+            obj.obj = .{
+                .obj_type = .Closure,
+            };
+
+            break :closure &obj.obj;
+        },
+        .Function => function: {
+            size = @sizeOf(*ObjFunction);
+            var obj: *ObjFunction = try memory.allocate(vm, *ObjFunction);
+            obj.obj = .{
+                .obj_type = .Function,
+            };
+
+            break :function &obj.obj;
+        },
+        .ClassInstance => classInstance: {
+            size = @sizeOf(*ObjClassInstance);
+            var obj: *ObjClassInstance = try memory.allocate(vm, *ObjClassInstance);
+            obj.obj = .{
+                .obj_type = .ClassInstance,
+            };
+
+            break :classInstance &obj.obj;
+        },
+        .ObjectInstance => objectInstance: {
+            size = @sizeOf(*ObjObjectInstance);
+            var obj: *ObjObjectInstance = try memory.allocate(vm, *ObjObjectInstance);
+            obj.obj = .{
+                .obj_type = .ObjectInstance,
+            };
+
+            break :objectInstance &obj.obj;
+        },
+        .Class => class: {
+            size = @sizeOf(*ObjClass);
+            var obj: *ObjClass = try memory.allocate(vm, *ObjClass);
+            obj.obj = .{
+                .obj_type = .Class,
+            };
+
+            break :class &obj.obj;
+        },
+        .Object => object: {
+            size = @sizeOf(*ObjObject);
+            var obj: *ObjObject = try memory.allocate(vm, *ObjObject);
+            obj.obj = .{
+                .obj_type = .Object,
+            };
+
+            break :object &obj.obj;
+        },
+        .List => list: {
+            size = @sizeOf(*ObjList);
+            var obj: *ObjList = try memory.allocate(vm, *ObjList);
+            obj.obj = .{
+                .obj_type = .List,
+            };
+
+            break :list &obj.obj;
+        },
+        .Map => map: {
+            size = @sizeOf(*ObjMap);
+            var obj: *ObjMap = try memory.allocate(vm, *ObjMap);
+            obj.obj = .{
+                .obj_type = .Map,
+            };
+
+            break :map &obj.obj;
+        },
+        .Enum => enumObj: {
+            size = @sizeOf(*ObjEnum);
+            var obj: *ObjEnum = try memory.allocate(vm, *ObjEnum);
+            obj.obj = .{
+                .obj_type = .Enum,
+            };
+
+            break :enumObj &obj.obj;
+        },
+        .EnumInstance => enumInstance: {
+            size = @sizeOf(*ObjEnumInstance);
+            var obj: *ObjEnumInstance = try memory.allocate(vm, *ObjEnumInstance);
+            obj.obj = .{
+                .obj_type = .EnumInstance,
+            };
+
+            break :enumInstance &obj.obj;
+        },
+        .Bound => bound: {
+            size = @sizeOf(*ObjBound);
+            var obj: *ObjBound = try memory.allocate(vm, *ObjBound);
+            obj.obj.obj_type = .Bound;
+
+            break :bound &obj.obj;
+        },
+        .Native => native: {
+            size = @sizeOf(*ObjNative);
+            var obj: *ObjNative = try memory.allocate(vm, *ObjNative);
+            obj.obj.obj_type = .Native;
+
+            break :native &obj.obj;
+        },
+    };
+
+    // Add new object at start of vm.objects linked list
+    object.next = vm.objects;
+    vm.objects = object;
+
+    vm.bytes_allocated += size;
+
+    if (vm.bytes_allocated > vm.next_gc) {
+        memory.collect_garbage();
+    }
+
+    return object;
+}
+
+pub fn allocateString(vm: *VM, chars: []u8) !*ObjString {
+    if (vm.strings.get(chars)) |interned| {
+        return interned;
+    } else {
+        var string: *ObjString = try allocateObject(vm, .String);
+
+        try vm.string.put(chars, string);
+
+        return string;
+    }
+}
+
+pub fn copyString(vm: *VM, chars: []u8) !*ObjString {
+    if (vm.strings.get(chars)) |interned| {
+        return interned;
+    }
+
+    var copy: []u8 = try memory.allocateMany(vm, u8, chars.len);
+    mem.copy(u8, copy, chars);
+
+    return try allocateString(vm, copy);
+}
+
 pub const Obj = struct {
     const Self = @This();
 
     obj_type: ObjType,
+    is_marked: bool = false,
+    next: ?*Obj = null,
 };
 
 /// A String

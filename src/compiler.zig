@@ -61,6 +61,7 @@ pub const ChunkCompiler = struct {
         };
 
         self.function.* = ObjFunction.init(allocator);
+        self.function.name = _obj.copyString(vm: *VM, chars: []u8)
 
         compiler.current = self;
 
