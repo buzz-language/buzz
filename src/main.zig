@@ -36,11 +36,11 @@ pub fn main() !void {
         });
     }
 
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
-
     var vm = VM.init(allocator);
     defer vm.deinit();
+
+    var compiler = Compiler.init(allocator, vm);
+    defer compiler.deinit();
 
     // TODO: print value
     if (try compiler.compile(source)) |function| {

@@ -5,6 +5,7 @@ const StringArrayHashMap = std.StringArrayHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
 const memory = @import("./memory.zig");
+const Value = @import("./value.zig").Value;
 
 pub const ObjType = enum {
     String,
@@ -302,7 +303,7 @@ pub const ObjFunction = struct {
     parameters: StringArrayHashMap(*ObjTypeDef),
     return_type: *ObjTypeDef,
     chunk: Chunk,
-    upValueCount: u8,
+    upValueCount: u8 = 0,
 
     pub fn init(allocator: *Allocator) Self {
         return .{
@@ -575,6 +576,7 @@ pub const ObjTypeDef = struct {
         Map,
         Function,
         Type, // Something that holds a type, not an actual type
+        Void,
     };
 
     pub const TypeUnion = union(Type) {
@@ -584,6 +586,7 @@ pub const ObjTypeDef = struct {
         Byte = u8,
         String = []u8,
         Type = bool,
+        Void = bool,
 
         // For those we check that the value is an instance of, because those are user defined types
         Class = *ObjClass,
@@ -604,7 +607,7 @@ pub const ObjTypeDef = struct {
     optional: bool,
     def_type: Type,
     /// Used when the type is not a basic type
-    resolved_type: ?TypeUnion,
+    resolved_type: ?TypeUnion = null,
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -625,7 +628,7 @@ pub const ObjTypeDef = struct {
         }
 
         switch (a) {
-            Bool, Number, Byte, String, Type => return true,
+            Bool, Number, Byte, String, Type, Void => return true,
 
             Class => a.Class == b.Class,
             Object => a.Object == b.Object,
@@ -678,6 +681,7 @@ pub const ObjTypeDef = struct {
             Byte => value == .Byte,
             String => value == .Obj and value.Obj.obj_type == .String,
             Type => value == .Obj and value.Obj.obj_type == .Type,
+            Void => value == .Null,
             Class => {
                 if (value != .Obj) {
                     return false;

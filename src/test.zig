@@ -93,3 +93,30 @@ test "String hash map behave like expected" {
 
     std.debug.warn("\nbye exists: {}\n", .{ map.get("bye") });
 }
+
+test "Is hash the same for 2 instance of a struct with same data?" {
+    const A = struct {
+        a: bool,
+        b: bool,
+        c: u8
+    };
+
+    var map = std.AutoArrayHashMap(A, *A).init(std.heap.c_allocator);
+    defer map.deinit();
+
+    var a: A = .{
+        .a = true,
+        .b = false,
+        .c = 1
+    };
+
+    var b: A = .{
+        .a = true,
+        .b = false,
+        .c = 1
+    };
+
+    try map.put(a, &a);
+
+    std.debug.warn("\nmap(b) == a ? {}\n", .{ map.get(b) == &a });
+}

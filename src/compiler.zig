@@ -5,7 +5,9 @@ const Allocator = mem.Allocator;
 const _chunk = @import("./chunk.zig");
 const _obj = @import("./obj.zig");
 const _token = @import("./token.zig");
+const _vm = @import("./vm.zig");
 
+const VM = _vm.VM;
 const OpCode = _chunk.OpCode;
 const ObjFunction = _obj.ObjFunction;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -46,33 +48,36 @@ pub const ChunkCompiler = struct {
     function: *ObjFunction,
     function_type: FunctionType,
 
-    locals: std.ArrayList(Local),
-
-    upvalues: std.ArrayList(UpValue),
+    locals: [255]Local,
+    local_count: u8 = 0,
+    upvalues: [255]UpValue,
     scope_depth: u32 = 0,
 
-    pub fn init(allocator: *Allocator, compiler: *Compiler, function_type: FunctionType) !Self {
+    pub fn init(compiler: *Compiler, function_type: FunctionType) !Self {
         var self: Self = .{
             .enclosing = compiler.current,
             .function_type = function_type,
-            .function = try allocator.create(ObjFunction),
-            .locals = std.ArrayList(Local).init(allocator),
-            .upvalues = std.ArrayList(UpValue).init(allocator),
+            .function = try _obj.allocateObject(compiler.vm, .Function),
         };
 
-        self.function.* = ObjFunction.init(allocator);
-        self.function.name = _obj.copyString(vm: *VM, chars: []u8)
+        self.function.* = ObjFunction.init(compiler.vm.allocator);
 
         compiler.current = self;
 
         if (function_type != .Script) {
-            compiler.current.?.function.name = compiler.parser.previous_token.copyStringLiteral(allocator);
+            self.function.name = _obj.copyString(compiler.vm, compiler.parser.previous_token.lexeme);
         }
 
         // First local is reserved for an eventual `this`
-        var local: Local = self.locals.items[0];
+        var local: *Local = &self.locals.items[self.local_count];
+        self.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
+        // TODO: when do we define, `this` typedef ?
+        local.type_def = compiler.vm.getTypeDef(.{
+            .def_type = .Void,
+            .optional = false,
+        });
 
         local.name = .{
             .token_type = .String,
@@ -102,16 +107,16 @@ pub const ParserState = struct {
 pub const Compiler = struct {
     const Self = @This();
 
-    allocator: *Allocator,
+    vm: *VM,
 
     scanner: ?Scanner = null,
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,  
     current_class: ?*ClassCompiler = null,
 
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(vm: *VM) Self {
         return .{
-            .allocator = allocator,
+            .vm = vm,
         };
     }
 
@@ -124,13 +129,13 @@ pub const Compiler = struct {
             self.scanner = null;
         }
 
-        self.scanner = Scanner.init(self.allocator, source);
+        self.scanner = Scanner.init(self.vm.allocator, source);
         defer {
             scanner.deinit();
             self.scanner = null;
         }
 
-        _ = try ChunkCompiler.init(allocator, self, .Script);
+        _ = try ChunkCompiler.init(self.vm.allocator, self, .Script);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
@@ -179,7 +184,7 @@ pub const Compiler = struct {
         self.parser.previous_token = self.parser.current_token;
 
         while (true) {
-            parser.current_token = self.scanner.scanToken();
+            parser.current_token = self.scanner.?.scanToken();
             if (parser.current_token.token_type != .Error) {
                 break;
             }

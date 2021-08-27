@@ -7,6 +7,7 @@ const Value = _value.Value;
 const ObjClosure = _obj.ObjClosure;
 const ObjFunction = _obj.ObjFunction;
 const ObjUpValue = _obj.ObjUpValue;
+const ObjTypeDef = _obj.ObjTypeDef;
 const OpCode = _chunk.OpCode;
 
 pub const CallFrame = struct {
@@ -19,6 +20,8 @@ pub const CallFrame = struct {
 const init_string: [4]u8 = "init".*;
 
 pub const VM = struct {
+    const Self = @This();
+
     allocator: *Allocator,
 
     frames: std.ArrayList(CallFrame),
@@ -27,7 +30,10 @@ pub const VM = struct {
     stack: [1000000]Value,
     stack_top: usize,
     globals: std.StringArrayHashMap(Value),
+    // Interned strings
     strings: std.StringArrayHashMap(*ObjString),
+    // Interned typedef
+    type_defs: std.AutoHashMap(ObjTypeDef, *ObjTypeDef),
     open_upvalues: std.ArrayList(*ObjUpValue),
 
     bytes_allocated: usize = 0,
@@ -43,6 +49,7 @@ pub const VM = struct {
             .stack = std.ArrayList(Value).init(allocator),
             .globals = std.StringArrayHashMap(Value).init(allocator),
             .strings = std.StringArrayHashMap(*ObjString).init(allocator),
+            .type_defs = std.AutoHashMap(ObjTypeDef, *ObjTypeDef).init(allocator),
             .open_upvalues = std.ArrayList(*ObjUpValue).init(allocator),
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
@@ -53,8 +60,22 @@ pub const VM = struct {
         self.stack.deinit();
         self.globals.deinit();
         self.strings.deinit();
+        self.type_defs.deinit();
         self.open_upvalues.deinit();
         self.gray_stack.deinit();
+    }
+
+    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+        if (self.type_defs.get(type_def)) |type_def_ptr| {
+            return type_def_ptr;
+        }
+
+        var type_def_ptr: *ObjTypeDef = try _obj.allocateObject(self, .Type);
+        type_def_ptr.* = type_def;
+
+        self.type_defs.put(type_def, type_def_ptr);
+
+        return type_def_ptr;
     }
 
     fn push(self: *Self, value: Value) void {
