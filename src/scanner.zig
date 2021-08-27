@@ -12,7 +12,7 @@ pub const SourceLocation = struct {
     offset: usize,
 };
 
-// TODO: utf8
+// TODO: iterate over utf8 grapheme instead of ascii characters
 pub const Scanner = struct {
     const Self = @This();
 

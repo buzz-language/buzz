@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringArrayHashMap = std.StringArrayHashMap;
-const Chunk = @import("./chunck.zig").Chunk;
+const Chunk = @import("./chunk.zig").Chunk;
 
 pub const ObjType = enum {
     String,

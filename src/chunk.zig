@@ -64,19 +64,19 @@ pub const Chunk = struct {
     const Self = @This();
 
     /// List of opcodes to execute
-    code: std.ArrayList(OpCode),
+    code: std.ArrayList(u8),
     /// List of lines
-    lines: std.ArrayList(u32),
-    /// List of constants defined in this chunck
+    lines: std.ArrayList(usize),
+    /// List of constants defined in this chunk
     constants: std.ArrayList(Value),
 
     // TODO: correlate opcodes and line number in source code
 
     pub fn init(allocator: *Allocator) Self {
         return .{
-            .code = std.ArrayList(OpCode).init(allocator),
+            .code = std.ArrayList(u8).init(allocator),
             .constants = std.ArrayList(Value).init(allocator),
-            .lines = std.ArrayList(u32).init(allocator),
+            .lines = std.ArrayList(usize).init(allocator),
         };
     }
 
@@ -86,14 +86,14 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write(self: *Self, byte: OpCode, line: u32) !void {
-        _ = try self.code.addOne(byte);
-        _ = try self.lines.addOne(line);
+    pub fn write(self: *Self, byte: u8, line: usize) !void {
+        _ = try self.code.append(byte);
+        _ = try self.lines.append(line);
     }
 
     pub fn addConstant(self: *Self, vm: *VM, value: Value) !usize {
         try vm.push(value);
-        try self.constants.addOne(value);
+        try self.constants.append(value);
         try vm.pop();
 
         return self.constants.items.len;

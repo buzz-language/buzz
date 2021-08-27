@@ -1,8 +1,8 @@
 ```bnf
-program        -> (<statement> | <declaration>)+ EOF
+program        -> <declaration>+ EOF
 
 # Declarations
-declaration    -> <variable> | <function> | <arrow_function> | <anon_function> | <class> | <object> | <enumeration>
+declaration    -> <statement> | <variable> | <function> | <arrow_function> | <anon_function> | <class> | <object> | <enumeration>
 
 variable       -> <type> <identifier> (= <expression>)? ;
 function       -> fun <identifier>\(<parameters>?\) (> <type>)? <block>

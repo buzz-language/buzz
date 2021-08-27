@@ -31,3 +31,20 @@ test "How are enum printed?" {
 
     std.debug.warn("\nSome -> {}\n", .{ OpCode.OP_CONSTANT });
 }
+
+test "Do i need to unwrap optional when printing" {
+    const hello: ?[]const u8 = "hello";
+
+    std.debug.warn("\n{s}\n", .{ hello });
+}
+
+test "Iterate from end of slice" {
+    var array = [_]u8{ 1, 2, 3, 4 };
+
+    var i: usize = array.len - 1;
+    while (i >= 0) {
+        std.debug.warn("\n{}\n", .{ array[i] });
+
+        if (i > 0) i -= 1 else break;
+    }
+}
