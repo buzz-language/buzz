@@ -1,11 +1,13 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const StringArrayHashMap = std.StringArrayHashMap;
+const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
 const memory = @import("./memory.zig");
-const Value = @import("./value.zig").Value;
+const _value = @import("./value.zig");
+const Value = _value.Value;
+const HashableValue = _value.HashableValue;
 
 pub const ObjType = enum {
     String,
@@ -22,7 +24,7 @@ pub const ObjType = enum {
     Enum,
     EnumInstance,
     Bound,
-    Native,
+    // Native,
 };
 
 pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
@@ -31,7 +33,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
     var object: *Obj = switch (obj_type) {
         .String => string: {
             size = @sizeOf(*ObjString);
-            var obj: *ObjString = try memory.allocate(vm, *ObjString);
+            var obj: *ObjString = try memory.allocate(vm, ObjString);
             obj.obj = .{
                 .obj_type = .String,
             };
@@ -39,8 +41,8 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
             break :string &obj.obj;
         },
         .Type => typeObj: {
-            size = @sizeOf(*ObjType);
-            var obj: *ObjType = try memory.allocate(vm, *ObjType);
+            size = @sizeOf(*ObjTypeDef);
+            var obj: *ObjTypeDef = try memory.allocate(vm, ObjTypeDef);
             obj.obj = .{
                 .obj_type = .Type,
             };
@@ -49,7 +51,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .UpValue => upValue: {
             size = @sizeOf(*ObjUpValue);
-            var obj: *ObjUpValue = try memory.allocate(vm, *ObjUpValue);
+            var obj: *ObjUpValue = try memory.allocate(vm, ObjUpValue);
             obj.obj = .{
                 .obj_type = .UpValue,
             };
@@ -58,7 +60,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Closure => closure: {
             size = @sizeOf(*ObjClosure);
-            var obj: *ObjClosure = try memory.allocate(vm, *ObjClosure);
+            var obj: *ObjClosure = try memory.allocate(vm, ObjClosure);
             obj.obj = .{
                 .obj_type = .Closure,
             };
@@ -67,7 +69,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Function => function: {
             size = @sizeOf(*ObjFunction);
-            var obj: *ObjFunction = try memory.allocate(vm, *ObjFunction);
+            var obj: *ObjFunction = try memory.allocate(vm, ObjFunction);
             obj.obj = .{
                 .obj_type = .Function,
             };
@@ -76,7 +78,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .ClassInstance => classInstance: {
             size = @sizeOf(*ObjClassInstance);
-            var obj: *ObjClassInstance = try memory.allocate(vm, *ObjClassInstance);
+            var obj: *ObjClassInstance = try memory.allocate(vm, ObjClassInstance);
             obj.obj = .{
                 .obj_type = .ClassInstance,
             };
@@ -85,7 +87,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .ObjectInstance => objectInstance: {
             size = @sizeOf(*ObjObjectInstance);
-            var obj: *ObjObjectInstance = try memory.allocate(vm, *ObjObjectInstance);
+            var obj: *ObjObjectInstance = try memory.allocate(vm, ObjObjectInstance);
             obj.obj = .{
                 .obj_type = .ObjectInstance,
             };
@@ -94,7 +96,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Class => class: {
             size = @sizeOf(*ObjClass);
-            var obj: *ObjClass = try memory.allocate(vm, *ObjClass);
+            var obj: *ObjClass = try memory.allocate(vm, ObjClass);
             obj.obj = .{
                 .obj_type = .Class,
             };
@@ -103,7 +105,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Object => object: {
             size = @sizeOf(*ObjObject);
-            var obj: *ObjObject = try memory.allocate(vm, *ObjObject);
+            var obj: *ObjObject = try memory.allocate(vm, ObjObject);
             obj.obj = .{
                 .obj_type = .Object,
             };
@@ -112,7 +114,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .List => list: {
             size = @sizeOf(*ObjList);
-            var obj: *ObjList = try memory.allocate(vm, *ObjList);
+            var obj: *ObjList = try memory.allocate(vm, ObjList);
             obj.obj = .{
                 .obj_type = .List,
             };
@@ -121,7 +123,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Map => map: {
             size = @sizeOf(*ObjMap);
-            var obj: *ObjMap = try memory.allocate(vm, *ObjMap);
+            var obj: *ObjMap = try memory.allocate(vm, ObjMap);
             obj.obj = .{
                 .obj_type = .Map,
             };
@@ -130,7 +132,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Enum => enumObj: {
             size = @sizeOf(*ObjEnum);
-            var obj: *ObjEnum = try memory.allocate(vm, *ObjEnum);
+            var obj: *ObjEnum = try memory.allocate(vm, ObjEnum);
             obj.obj = .{
                 .obj_type = .Enum,
             };
@@ -139,7 +141,7 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .EnumInstance => enumInstance: {
             size = @sizeOf(*ObjEnumInstance);
-            var obj: *ObjEnumInstance = try memory.allocate(vm, *ObjEnumInstance);
+            var obj: *ObjEnumInstance = try memory.allocate(vm, ObjEnumInstance);
             obj.obj = .{
                 .obj_type = .EnumInstance,
             };
@@ -148,18 +150,18 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
         },
         .Bound => bound: {
             size = @sizeOf(*ObjBound);
-            var obj: *ObjBound = try memory.allocate(vm, *ObjBound);
+            var obj: *ObjBound = try memory.allocate(vm, ObjBound);
             obj.obj.obj_type = .Bound;
 
             break :bound &obj.obj;
         },
-        .Native => native: {
-            size = @sizeOf(*ObjNative);
-            var obj: *ObjNative = try memory.allocate(vm, *ObjNative);
-            obj.obj.obj_type = .Native;
+        // .Native => native: {
+        //     size = @sizeOf(*ObjNative);
+        //     var obj: *ObjNative = try memory.allocate(vm, ObjNative);
+        //     obj.obj.obj_type = .Native;
 
-            break :native &obj.obj;
-        },
+        //     break :native &obj.obj;
+        // },
     };
 
     // Add new object at start of vm.objects linked list
@@ -169,25 +171,25 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
     vm.bytes_allocated += size;
 
     if (vm.bytes_allocated > vm.next_gc) {
-        memory.collect_garbage();
+        memory.collectGarbage(vm);
     }
 
     return object;
 }
 
-pub fn allocateString(vm: *VM, chars: []u8) !*ObjString {
+pub fn allocateString(vm: *VM, chars: []const u8) !*ObjString {
     if (vm.strings.get(chars)) |interned| {
         return interned;
     } else {
-        var string: *ObjString = try allocateObject(vm, .String);
+        var string: *ObjString = ObjString.cast(try allocateObject(vm, .String)).?;
 
-        try vm.string.put(chars, string);
+        try vm.strings.put(chars, string);
 
         return string;
     }
 }
 
-pub fn copyString(vm: *VM, chars: []u8) !*ObjString {
+pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
     if (vm.strings.get(chars)) |interned| {
         return interned;
     }
@@ -215,7 +217,7 @@ pub const ObjString = struct {
     },
 
     /// The actual string
-    string: []u8,
+    string: []const u8,
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -268,14 +270,14 @@ pub const ObjClosure = struct {
     upvalues: std.ArrayList(*ObjUpValue),
 
     pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {
-        return .{
+        return Self {
             .function = function,
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upValueCount),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        
+        self.upvalues.deinit();
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -300,15 +302,17 @@ pub const ObjFunction = struct {
     },
 
     name: *ObjString,
-    parameters: StringArrayHashMap(*ObjTypeDef),
+    parameters: StringHashMap(*ObjTypeDef),
     return_type: *ObjTypeDef,
     chunk: Chunk,
     upValueCount: u8 = 0,
 
-    pub fn init(allocator: *Allocator) Self {
-        return .{
-            .parameters = StringArrayHashMap(*ObjTypeDef).init(allocator),
-            .chunk = Chunk.init(allocator),
+    pub fn init(allocator: *Allocator, name: *ObjString, return_type: *ObjTypeDef) !Self {
+        return Self {
+            .name = name,
+            .return_type = return_type,
+            .parameters = StringHashMap(*ObjTypeDef).init(allocator),
+            .chunk = try Chunk.init(allocator),
         };
     }
 
@@ -336,7 +340,7 @@ pub const ObjClassInstance = struct {
     /// Class
     class: *ObjClass,
     /// Fields value
-    fields: StringArrayHashMap(Value),
+    fields: StringHashMap(Value),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -362,7 +366,7 @@ pub const ObjObjectInstance = struct {
     /// Object
     object: *ObjObject,
     /// Fields value
-    fields: StringArrayHashMap(Value),
+    fields: StringHashMap(Value),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -388,9 +392,9 @@ pub const ObjClass = struct {
     /// Class name
     name: *ObjString,
     /// Class methods
-    methods: StringArrayHashMap(*ObjFunction),
+    methods: StringHashMap(*ObjFunction),
     /// Class fields definition
-    fields: StringArrayHashMap(*ObjTypeDef),
+    fields: StringHashMap(*ObjTypeDef),
     /// Optional super class
     super: ?*ObjClass = null,
 
@@ -418,9 +422,9 @@ pub const ObjObject = struct {
     /// Object name
     name: *ObjString,
     /// Object methods
-    methods: StringArrayHashMap(*ObjFunction),
+    methods: StringHashMap(*ObjFunction),
     /// Object fields definition
-    fields: StringArrayHashMap(*ObjTypeDef),
+    fields: StringHashMap(*ObjTypeDef),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -472,7 +476,7 @@ pub const ObjMap = struct {
     key_type: *ObjTypeDef,
     value_type: *ObjTypeDef,
     // TODO: key can't be a Value: a *ObjString should not be a key, the []u8 inside should be the key
-    map: std.AutoArrayHashMap(Value, Value),
+    map: std.AutoArrayHashMap(HashableValue, Value),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -495,8 +499,9 @@ pub const ObjEnum = struct {
         .obj_type = .Enum
     },
 
+    name: *ObjString,
     enum_type: *ObjTypeDef,
-    map: std.StringArrayHashMap(Value),
+    map: std.StringHashMap(Value),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -581,22 +586,22 @@ pub const ObjTypeDef = struct {
 
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
-        Bool = bool,
-        Number = f64,
-        Byte = u8,
-        String = []u8,
-        Type = bool,
-        Void = bool,
+        Bool: bool,
+        Number: bool,
+        Byte: bool,
+        String: bool,
+        Type: bool,
+        Void: bool,
 
         // For those we check that the value is an instance of, because those are user defined types
-        Class = *ObjClass,
-        Object = *ObjObject,
-        Enum = *ObjEnum,
+        Class: *ObjClass,
+        Object: *ObjObject,
+        Enum: *ObjEnum,
 
         // For those we compare definitions, so we own those structs
-        List = ObjList,
-        Map = ObjMap,
-        Function = ObjFunction,
+        List: ObjList,
+        Map: ObjMap,
+        Function: ObjFunction,
     };
 
     obj: Obj = .{
@@ -608,6 +613,73 @@ pub const ObjTypeDef = struct {
     def_type: Type,
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
+
+    /// Beware: allocates a string, caller owns it
+    pub fn toString(self: Self, allocator: *Allocator) std.mem.Allocator.Error![]const u8 {
+        var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+
+        if (self.optional) {
+            try type_str.append('?');
+        }
+
+        switch (self.def_type) {
+            .Bool => try type_str.appendSlice("bool"),
+            .Number => try type_str.appendSlice("num"),
+            .Byte => try type_str.appendSlice("byte"),
+            .String => try type_str.appendSlice("str"),
+            .Class => try type_str.appendSlice(self.resolved_type.?.Class.name.string),
+            .Object => try type_str.appendSlice(self.resolved_type.?.Object.name.string),
+            .Enum => try type_str.appendSlice(self.resolved_type.?.Enum.name.string),
+            .List => {
+                var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
+                defer allocator.free(list_type);
+
+                try type_str.append('[');
+                try type_str.appendSlice(list_type);
+                try type_str.append(']');
+            },
+            .Map => {
+                var key_type = try self.resolved_type.?.Map.key_type.toString(allocator);
+                defer allocator.free(key_type);
+                var value_type = try self.resolved_type.?.Map.value_type.toString(allocator);
+                defer allocator.free(value_type);
+                
+                try type_str.append('{');
+                try type_str.appendSlice(key_type);
+                try type_str.append(',');
+                try type_str.appendSlice(value_type);
+                try type_str.append('}');
+            },
+            .Function => {
+                var function_def = self.resolved_type.?.Function;
+
+                try type_str.appendSlice("Function(");
+
+                var it = function_def.parameters.iterator();
+                while (it.next()) |kv| {
+                    var param_type = try kv.value_ptr.*.toString(allocator);
+                    defer allocator.free(param_type);
+
+                    try type_str.appendSlice(param_type);
+                    try type_str.append(',');
+                }
+
+                try type_str.append(')');
+
+                if (function_def.return_type.def_type != Type.Void) {
+                    var return_type = try self.resolved_type.?.Function.return_type.toString(allocator);
+                    defer allocator.free(return_type);
+
+                    try type_str.appendSlice(") > ");
+                    try type_str.appendSlice(return_type);
+                }
+            },
+            .Type => try type_str.appendSlice("type"),
+            else => {},
+        }
+
+        return type_str.items;
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -803,8 +875,8 @@ pub const ObjTypeDef = struct {
                 // Compare parameters
                 var it = instance.?.parameters.iterator();
                 while (it.next()) |kv| {
-                    if (self.resolved_type.Function.parameters.get(kv.key)) |value| {
-                        if (!kv.value.eql(value)) {
+                    if (self.resolved_type.Function.parameters.get(kv.key)) |pkv| {
+                        if (!kv.value.eql(pkv.value)) {
                             return false;
                         }
                     } else {

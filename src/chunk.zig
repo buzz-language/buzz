@@ -1,6 +1,9 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const compiler = @import("./compiler.zig");
 const _value = @import("./value.zig");
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
 const Value = _value.Value;
 
 pub const OpCode = enum(u8) {
@@ -63,6 +66,8 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
+    pub const max_constants: usize = 255;
+
     /// List of opcodes to execute
     code: std.ArrayList(u8),
     /// List of lines
@@ -72,10 +77,10 @@ pub const Chunk = struct {
 
     // TODO: correlate opcodes and line number in source code
 
-    pub fn init(allocator: *Allocator) Self {
-        return .{
+    pub fn init(allocator: *Allocator) !Self {
+        return Self {
             .code = std.ArrayList(u8).init(allocator),
-            .constants = std.ArrayList(Value).init(allocator),
+            .constants = try std.ArrayList(Value).initCapacity(allocator, max_constants),
             .lines = std.ArrayList(usize).init(allocator),
         };
     }
@@ -91,11 +96,11 @@ pub const Chunk = struct {
         _ = try self.lines.append(line);
     }
 
-    pub fn addConstant(self: *Self, vm: *VM, value: Value) !usize {
-        try vm.push(value);
+    pub fn addConstant(self: *Self, vm: *VM, value: Value) !u8 {
+        vm.push(value);
         try self.constants.append(value);
-        try vm.pop();
+        _ = vm.pop();
 
-        return self.constants.items.len;
+        return @intCast(u8, self.constants.items.len);
     }
 };

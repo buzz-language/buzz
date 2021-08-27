@@ -6,6 +6,7 @@ const _chunk = @import("./chunk.zig");
 const _obj = @import("./obj.zig");
 const _token = @import("./token.zig");
 const _vm = @import("./vm.zig");
+const _value = @import("./value.zig");
 
 const VM = _vm.VM;
 const OpCode = _chunk.OpCode;
@@ -14,6 +15,7 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = @import("./scanner.zig").Scanner;
+const Value = _value.Value;
 
 pub const FunctionType = enum {
   Function,
@@ -38,9 +40,6 @@ pub const ClassCompiler = struct {
     enclosing: ?*ClassCompiler
 };
 
-const this_string: [4]u8 = "this".*;
-const empty_string: [0]u8 = "".*;
-
 pub const ChunkCompiler = struct {
     const Self = @This();
 
@@ -55,43 +54,48 @@ pub const ChunkCompiler = struct {
 
     pub fn init(compiler: *Compiler, function_type: FunctionType) !Self {
         var self: Self = .{
+            .locals = [_]Local{ undefined } ** 255,
+            .upvalues = [_]UpValue{ undefined } ** 255,
             .enclosing = compiler.current,
             .function_type = function_type,
-            .function = try _obj.allocateObject(compiler.vm, .Function),
+            .function = ObjFunction.cast(try _obj.allocateObject(compiler.vm, .Function)).?,
         };
 
-        self.function.* = ObjFunction.init(compiler.vm.allocator);
+        self.function.* = try ObjFunction.init(
+            compiler.vm.allocator,
+            if (function_type != .Script)
+                try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
+            else try _obj.copyString(compiler.vm, VM.script_string),
+            // TODO: figure out from where we can get the return_type and parameters
+            try compiler.vm.getTypeDef(.{
+                .def_type = .Void,
+                .optional = false,
+            })
+        );
 
-        compiler.current = self;
-
-        if (function_type != .Script) {
-            self.function.name = _obj.copyString(compiler.vm, compiler.parser.previous_token.lexeme);
-        }
+        compiler.current = try compiler.vm.allocator.create(ChunkCompiler);
+        compiler.current.?.* = self;
 
         // First local is reserved for an eventual `this`
-        var local: *Local = &self.locals.items[self.local_count];
+        var local: *Local = &self.locals[self.local_count];
         self.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
         // TODO: when do we define, `this` typedef ?
-        local.type_def = compiler.vm.getTypeDef(.{
+        local.type_def = try compiler.vm.getTypeDef(.{
             .def_type = .Void,
             .optional = false,
         });
 
-        local.name = .{
+        local.name = Token {
             .token_type = .String,
-            .lexeme = if (function_type == .Function) &this_string orelse &empty_string,
-            .literal_string = if (function_type == .Function) &this_string orelse &empty_string,
+            .lexeme = if (function_type == .Function) VM.this_string else VM.empty_string,
+            .literal_string = if (function_type == .Function) VM.this_string else VM.empty_string,
             .line = 0,
             .column = 0,
         };
 
         return self;
-    }
-
-    pub fn deinit(self: *Self) void {
-
     }
 };
 
@@ -111,7 +115,7 @@ pub const Compiler = struct {
 
     scanner: ?Scanner = null,
     parser: ParserState = .{},
-    current: ?*ChunkCompiler = null,  
+    current: ?*ChunkCompiler = null,
     current_class: ?*ClassCompiler = null,
 
     pub fn init(vm: *VM) Self {
@@ -120,34 +124,29 @@ pub const Compiler = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
-    }
+    // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []u8) !?ObjFunction {
-        if (self.scanner) |scanner| {
-            scanner.deinit();
+    pub fn compile(self: *Self, source: []const u8) !?*ObjFunction {
+        if (self.scanner != null) {
             self.scanner = null;
         }
 
-        self.scanner = Scanner.init(self.vm.allocator, source);
-        defer {
-            scanner.deinit();
-            self.scanner = null;
-        }
+        self.scanner = Scanner.init(source);
+        defer self.scanner = null;
 
-        _ = try ChunkCompiler.init(self.vm.allocator, self, .Script);
+        _ = try ChunkCompiler.init(self, .Script);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
 
-        self.advance();
+        try self.advance();
 
         // Enter AST
-        while (!self.match(.Eof)) {
+        while (!(try self.match(.Eof))) {
             try self.declaration();
         }
 
-        var function: *ObjFunction = self.endCompiler();
+        var function: *ObjFunction = try self.endCompiler();
 
         return if (self.parser.had_error) null else function;
     }
@@ -162,7 +161,7 @@ pub const Compiler = struct {
         std.debug.warn("[{}:{}] Error", .{ token.line, token.column });
 
         if (token.token_type == .Eof) {
-            std.debug.warn(" at end");
+            std.debug.warn(" at end", .{});
         } else if (token.token_type != .Error) { // We report error to the token just before a .Error token
             std.debug.warn(" at '{s}'", .{ token.lexeme });
         }
@@ -173,29 +172,29 @@ pub const Compiler = struct {
     }
 
     fn reportError(self: *Self, message: []const u8) void {
-        errorAt(&self.parser.previous_token, message);
+        self.errorAt(&self.parser.previous_token.?, message);
     }
 
     fn reportErrorAtCurrent(self: *Self, message: []const u8) void {
-        errorAt(&self.parser.current_token, message);
+        self.errorAt(&self.parser.current_token.?, message);
     }
 
-    fn advance(self: *Self) void {
+    fn advance(self: *Self) !void {
         self.parser.previous_token = self.parser.current_token;
 
         while (true) {
-            parser.current_token = self.scanner.?.scanToken();
-            if (parser.current_token.token_type != .Error) {
+            self.parser.current_token = try self.scanner.?.scanToken();
+            if (self.parser.current_token.?.token_type != .Error) {
                 break;
             }
 
-            reportErrorAtCurrent(self.parser.current_token.literal_string orelse "Unknown error.");
+            self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
         }
     }
 
-    fn consume(self: *Self, token_type: TokenType, message: []const u8) void {
-        if (self.parser.current_token.token_type == token_type) {
-            self.advance();
+    fn consume(self: *Self, token_type: TokenType, message: []const u8) !void {
+        if (self.parser.current_token.?.token_type == token_type) {
+            try self.advance();
             return;
         }
         
@@ -203,154 +202,158 @@ pub const Compiler = struct {
     }
 
     fn check(self: *Self, token_type: TokenType) bool {
-        return self.parser.current_token.token_type == token_type;
+        return self.parser.current_token.?.token_type == token_type;
     }
 
-    fn match(self: *Self, token_type: TokenType) bool {
+    fn match(self: *Self, token_type: TokenType) !bool {
         if (!self.check(token_type)) {
             return false;
         }
 
-        self.advance();
+        try self.advance();
 
         return true;
     }
 
-    fn endCompiler(self: *Self) void {
-        self.emitReturn();
+    fn endCompiler(self: *Self) !*ObjFunction {
+        try self.emitReturn();
 
-        var function: *ObjFunction = self.current.function;
+        var function: *ObjFunction = self.current.?.function;
 
-        self.current = self.current.enclosing;
+        self.current = self.current.?.enclosing;
 
         return function;
     }
 
     // BYTE EMITTING
 
-    fn emitOpCode(code: OpCode) callconv(.Inline) void {
-        self.emitByte(@enumToInt(code));
+    fn emitOpCode(self: *Self, code: OpCode) callconv(.Inline) !void {
+        try self.emitByte(@enumToInt(code));
     }
 
-    fn emitByte(byte: u8) void {
-        self.current.function.chunk.write(byte, self.parser.previous.line);
+    fn emitByte(self: *Self, byte: u8) !void {
+        try self.current.?.function.chunk.write(byte, self.parser.previous_token.?.line);
     }
 
-    fn emitBytes(byte1: u8, byte2: u8) callconv(.Inline) void {
-        self.emitByte(byte1);
-        self.emitByte(byte2);
+    fn emitBytes(self: *Self, byte1: u8, byte2: u8) callconv(.Inline) !void {
+        try self.emitByte(byte1);
+        try self.emitByte(byte2);
     }
 
-    fn emitReturn(self: *Self) void {
-        if (self.current.function_type == .Initializer) {
-            self.emitBytes(@enumToInt(OpCode.OP_RETURN), 0);
+    fn emitReturn(self: *Self) !void {
+        if (self.current.?.function_type == .Initializer) {
+            try self.emitBytes(@enumToInt(OpCode.OP_RETURN), 0);
         } else {
-            self.emitOpCode(.OP_NULL);
+            try self.emitOpCode(.OP_NULL);
         }
 
-        self.emitOpCode(.OP_RETURN);
+        try self.emitOpCode(.OP_RETURN);
     }
 
     // AST NODES
 
     fn declaration(self: *Self) !void {
         // Things we can match with the first token
-        if (self.match(.Class)) {
-            self.classDeclaration();
-        } else if (self.match(.Object)) {
-            self.objectDeclaration();
-        } else if (self.match(.Enum)) {
-            self.enumDeclaration();
-        } else if (self.match(.Fun)) {
-            self.funDeclaration();
-        } else if (self.match(.Str)
-            or self.match(.Num)
-            or self.match(.Byte)
-            or self.match(.Bool)
-            or self.match(.Type)) {
+        if (try self.match(.Class)) {
+            // self.classDeclaration();
+        } else if (try self.match(.Object)) {
+            // self.objectDeclaration();
+        } else if (try self.match(.Enum)) {
+            // self.enumDeclaration();
+        } else if (try self.match(.Fun)) {
+            // self.funDeclaration();
+        } else if ((try self.match(.Str))
+            or (try self.match(.Num))
+            or (try self.match(.Byte))
+            or (try self.match(.Bool))
+            or (try self.match(.Type))) {
             try self.varDeclaration();
-        } else if (self.match(.LeftBracket)) {
-            self.listDeclaraction();
-        } else if (self.match(.LeftBrace)) {
-            self.mapDeclaraction();
-        } else if (self.match(.Function)) {
-            self.funVarDeclaraction();
-        } else if (self.match(.Identifier) and self.check(.Identifier)) {
-            self.instanceDeclaration();
+        } else if (try self.match(.LeftBracket)) {
+            // self.listDeclaraction();
+        } else if (try self.match(.LeftBrace)) {
+            // self.mapDeclaraction();
+        } else if (try self.match(.Function)) {
+            // self.funVarDeclaraction();
+        } else if ((try self.match(.Identifier)) and self.check(.Identifier)) {
+            // self.instanceDeclaration();
         } else {
-            self.statement();
+            // self.statement();
         }
     }
 
-    fn classDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn classDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn objectDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn objectDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn enumDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn enumDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn funDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn funDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
     fn varDeclaration(self: *Self) !void {
-        var var_type: TokenType = self.parser.previous_token;
+        // var var_type: TokenType = self.parser.previous_token;
 
         var global: u8 = try self.parseVariable("Expected variable name.");
 
-        if (self.match(.Equal)) {
-            self.expression();
+        if (try self.match(.Equal)) {
+            // self.expression();
         } else {
-            self.emitOpCode(.OP_NULL);
+            try self.emitOpCode(.OP_NULL);
         }
 
-        self.consume(.Semicolon, "Expected `;` after variable declaration.");
+        try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        self.defineVariable(global);
+        try self.defineVariable(global);
     }
 
-    fn listDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn listDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn mapDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn mapDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn funVarDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn funVarDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn instanceDeclaration(self: *Self) void {
-        unreachable;
-    }
+    // fn instanceDeclaration(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn statement(self: *Self) void {
-        unreachable;
-    }
+    // fn statement(self: *Self) void {
+    //     unreachable;
+    // }
 
-    fn expression(self: *Self) void {
+    // fn expression(self: *Self) void {
 
-    }
+    // }
 
     // LOCALS
 
     fn addLocal(self: *Self, name: Token) !void {
-        if (self.current.locals.items.len == 255) {
+        if (self.current.?.local_count == 255) {
             self.reportError("Too many local variables in scope.");
             return;
         }
 
-        try self.current.locals.append(.{
+        self.current.?.locals[self.current.?.local_count] = Local {
             .name = name,
             .depth = -1,
             .is_captured = false,
-        });
+            .type_def = try self.vm.getTypeDef(.{
+                .def_type = .Void,
+                .optional = false,
+            })
+        };
     }
 
     fn identifiersEqual(a: *Token, b: *Token) bool {
@@ -364,38 +367,51 @@ pub const Compiler = struct {
     // VARIABLES
 
     fn parseVariable(self: *Self, error_message: []const u8) !u8 {
-        self.consume(.Identifier, error_message);
+        try self.consume(.Identifier, error_message);
 
         try self.declareVariable();
 
-        if (self.current.scope_depth > 0) {
+        if (self.current.?.scope_depth > 0) {
             return 0;
         }
         
-        return self.identifierConstant(&self.parser.previous_token);
+        return try self.identifierConstant(&self.parser.previous_token.?);
     }
 
-    fn defineVariable(self: *Self, global: u8) void {
-        unreachable;
-    }
-
-    fn declareVariable(self: *Self) !void {
-        if (self.current.scope_depth == 0) {
+    fn markInitialized(self: *Self) void {
+        if (self.current.?.scope_depth == 0) {
             return;
         }
 
-        var name: *Token = &self.parser.previous_token;
+        self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+    }
+
+    fn defineVariable(self: *Self, global: u8) !void {
+        if (self.current.?.scope_depth > 0) {
+            self.markInitialized();
+            return;
+        }
+
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), global);
+    }
+
+    fn declareVariable(self: *Self) !void {
+        if (self.current.?.scope_depth == 0) {
+            return;
+        }
+
+        var name: *Token = &self.parser.previous_token.?;
 
         // Check a local with the same name doesn't exists
-        var i: usize = self.current.locals.len - 1;
+        var i: usize = self.current.?.locals.len - 1;
         while (i >= 0) {
-            var local: *Local = &self.current.locals[i];
+            var local: *Local = &self.current.?.locals[i];
 
-            if (local.depth != -1 and local.depth < self.current.scope_depth) {
+            if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
                 break;
             }
 
-            if (self.identifiersEqual(name, &local.name)) {
+            if (identifiersEqual(name, &local.name)) {
                 self.reportError("A variable with the same name already exists in this scope.");
             }
 
@@ -405,7 +421,19 @@ pub const Compiler = struct {
         try self.addLocal(name.*);
     }
 
-    fn identifierConstant(self: *Self, name: *Token) u8 {
-        unreachable;
+    fn makeConstant(self: *Self, value: Value) !u8 {
+        var constant: u8 = try self.current.?.function.chunk.addConstant(self.vm, value);
+        if (constant > _chunk.Chunk.max_constants) {
+            self.reportError("Too many constants in one chunk.");
+            return 0;
+        }
+
+        return constant;
+    }
+
+    fn identifierConstant(self: *Self, name: *Token) !u8 {
+        return try self.makeConstant(Value {
+            .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj()
+        });
     }
 };

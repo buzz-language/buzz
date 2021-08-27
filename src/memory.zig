@@ -1,3 +1,4 @@
+const std = @import("std");
 const VM = @import("./vm.zig").VM;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
@@ -31,5 +32,5 @@ pub fn free(vm: *VM, comptime T: type, pointer: *T) void {
 }
 
 pub fn collectGarbage(vm: *VM) void {
-    unreachable;
+    std.debug.warn("TODO: {}\n", .{vm});
 }

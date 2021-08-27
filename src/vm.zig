@@ -8,6 +8,8 @@ const ObjClosure = _obj.ObjClosure;
 const ObjFunction = _obj.ObjFunction;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjTypeDef = _obj.ObjTypeDef;
+const ObjString = _obj.ObjString;
+const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
 pub const CallFrame = struct {
@@ -17,47 +19,57 @@ pub const CallFrame = struct {
     slots: [*]Value,
 };
 
-const init_string: [4]u8 = "init".*;
-
 pub const VM = struct {
     const Self = @This();
+
+    pub const init_string: []const u8 = "init";
+    pub const this_string: []const u8 = "this";
+    pub const empty_string: []const u8 = "";
+    pub const script_string: []const u8 = "<script>";
+
+    pub const InterpretResult = enum {
+        Ok,
+        CompileError,
+        RuntimeError,
+    };
 
     allocator: *Allocator,
 
     frames: std.ArrayList(CallFrame),
 
     // TODO: put ta limit somewhere
-    stack: [1000000]Value,
-    stack_top: usize,
-    globals: std.StringArrayHashMap(Value),
+    stack: [100000]Value,
+    stack_top: usize = 0,
+    globals: std.StringHashMap(Value),
     // Interned strings
-    strings: std.StringArrayHashMap(*ObjString),
-    // Interned typedef
-    type_defs: std.AutoHashMap(ObjTypeDef, *ObjTypeDef),
+    strings: std.StringHashMap(*ObjString),
+    // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
+    type_defs: std.StringHashMap(*ObjTypeDef),
     open_upvalues: std.ArrayList(*ObjUpValue),
 
     bytes_allocated: usize = 0,
-    next_gc: usize = 0,
+    next_gc: usize = 1024 * 1024,
     // TODO: replace with SinglyLinkedList(*Obj)
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
     pub fn init(allocator: *Allocator) Self {
-        return .{
+        var self: Self = .{
             .allocator = allocator,
+            .stack = [_]Value { .{ .Null = null } } ** 100000,
             .frames = std.ArrayList(CallFrame).init(allocator),
-            .stack = std.ArrayList(Value).init(allocator),
-            .globals = std.StringArrayHashMap(Value).init(allocator),
-            .strings = std.StringArrayHashMap(*ObjString).init(allocator),
-            .type_defs = std.AutoHashMap(ObjTypeDef, *ObjTypeDef).init(allocator),
+            .globals = std.StringHashMap(Value).init(allocator),
+            .strings = std.StringHashMap(*ObjString).init(allocator),
+            .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .open_upvalues = std.ArrayList(*ObjUpValue).init(allocator),
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
+
+        return self;
     }
 
     pub fn deinit(self: *Self) void {
         self.frames.deinit();
-        self.stack.deinit();
         self.globals.deinit();
         self.strings.deinit();
         self.type_defs.deinit();
@@ -66,35 +78,38 @@ pub const VM = struct {
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        if (self.type_defs.get(type_def)) |type_def_ptr| {
+        var type_def_str: []const u8 = try type_def.toString(self.allocator);
+        defer self.allocator.free(type_def_str);
+
+        if (self.type_defs.get(type_def_str)) |type_def_ptr| {
             return type_def_ptr;
         }
 
-        var type_def_ptr: *ObjTypeDef = try _obj.allocateObject(self, .Type);
+        var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self, .Type)).?;
         type_def_ptr.* = type_def;
 
-        self.type_defs.put(type_def, type_def_ptr);
+        _ = try self.type_defs.put(type_def_str, type_def_ptr);
 
         return type_def_ptr;
     }
 
-    fn push(self: *Self, value: Value) void {
-        self.stack[self.stack_top] = Value;
+    pub fn push(self: *Self, value: Value) void {
+        self.stack[self.stack_top] = value;
         self.stack_top += 1;
     }
 
-    fn pop(self: *Self) Value {
+    pub fn pop(self: *Self) Value {
         self.stack_top -= 1;
         return self.stack[self.stack_top];
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction) !?Value {
+    pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {
         self.push(.{
             .Obj = function.toObj()
         });
 
-        var closure: *ObjClosure = try allocator.create(ObjClosure);
-        closure.* = ObjClosure.init(allocator);
+        var closure: *ObjClosure = try self.allocator.create(ObjClosure);
+        closure.* = try ObjClosure.init(self.allocator, function);
 
         _ = self.pop();
 
@@ -104,30 +119,41 @@ pub const VM = struct {
 
         _ = try self.call(closure, 0);
 
-        return try run();
+        return try self.run();
     }
 
-    fn readByte(self: *Self, frame: *CallFrame) callconv(.Inline) OpCode {
+    fn readByte(frame: *CallFrame) callconv(.Inline) u8 {
         // TODO: measure if [*]OpCode[0] is faster
-        var opcode: OpCode = frame.closure.function.chunk.code.items[frame.ip];
+        var byte: u8 = frame.closure.function.chunk.code.items[frame.ip];
+
+        frame.ip += 1;
+
+        return byte;
+    }
+
+    fn readOpCode(frame: *CallFrame) callconv(.Inline) OpCode {
+        // TODO: measure if [*]OpCode[0] is faster
+        var opcode: OpCode = @intToEnum(OpCode, frame.closure.function.chunk.code.items[frame.ip]);
 
         frame.ip += 1;
 
         return opcode;
     }
 
-    fn run(self: *Self) !void {
+    fn run(self: *Self) !InterpretResult {
         var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
 
         while (frame.ip < frame.closure.function.chunk.code.items.len) { // while (true) {
             // switch(self.readByte(frame)) {
             // }
-
-            std.debug.print("\n\t{}\t{}\n", .{ frame.ip, self.readByte(frame) });
+            
+            std.debug.print("\n\t{}\t{}", .{ frame.ip, readOpCode(frame) });
         }
+
+        return InterpretResult.Ok;
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8) bool {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !bool {
         if (arg_count != closure.function.parameters.count()) {
             // TODO: runtimeError("Expected %d arguments but got %d.", closure->function->arity, argCount);
             
@@ -136,10 +162,10 @@ pub const VM = struct {
         
         // TODO: do we check for stack overflow
 
-        var frame: *CallFrame = self.frames.add(.{
+        try self.frames.append(CallFrame {
             .closure = closure,
             .ip = 0,
-            .slots = self.stack[(self.stack_top - arg_count - 1)..]
+            .slots = @ptrCast([*]Value, self.stack[(self.stack_top - arg_count - 1)..]),
         });
 
         return true;

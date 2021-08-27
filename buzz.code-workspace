@@ -4,9 +4,6 @@
 			"path": "."
 		},
 		{
-			"path": "../zsettlers"
-		},
-		{
 			"path": "../incoming/craftinginterpreters"
 		}
 	],

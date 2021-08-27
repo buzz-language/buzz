@@ -101,7 +101,7 @@ pub const Keywords = [_]TokenType{
 };
 
 // TODO: must be a way to write that more elegantly
-pub fn isKeyword(literal: []u8) ?TokenType {
+pub fn isKeyword(literal: []const u8) ?TokenType {
     if (mem.eql(u8, literal, "true")) {
         return .True;
     }
@@ -215,9 +215,9 @@ pub fn isKeyword(literal: []u8) ?TokenType {
 
 pub const Token = struct {
     token_type: TokenType,
-    lexeme: []u8,
+    lexeme: []const u8,
     // Literal is either a string or a number
-    literal_string: ?[]u8 = null,
+    literal_string: ?[]const u8 = null,
     literal_number: ?f64 = null,
     literal_byte: ?u8 = null,
     line: usize,

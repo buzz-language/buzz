@@ -16,7 +16,7 @@ pub const SourceLocation = struct {
 pub const Scanner = struct {
     const Self = @This();
 
-    source: []u8,
+    source: []const u8,
     current: SourceLocation = .{
         .start = 0,
         .line = 0,
@@ -24,13 +24,13 @@ pub const Scanner = struct {
         .offset = 0,
     },
 
-    pub fn init(allocator: *Allocator, source: []u8) Self {
+    pub fn init(source: []const u8) Self {
         return Self{
             .source = source,
         };
     }
 
-    pub fn scanToken(self: *Self) void {
+    pub fn scanToken(self: *Self) !Token {
         self.skipWhitespaces();
 
         self.current.start = self.current.offset;
@@ -39,9 +39,9 @@ pub const Scanner = struct {
             return self.makeToken(.Eof, null, null, null);
         }
 
-        switch (self.advance()) {
-            'b' => if (isNumber(self.peek())) self.binary() else self.identifier(),
-            'a', 'c'...'z', 'A'...'Z' => self.identifier(),
+        return try switch (self.advance()) {
+            'b' => return if (isNumber(self.peek())) self.binary() else self.identifier(),
+            'a', 'c'...'z', 'A'...'Z' => return self.identifier(),
             '0' => {
                 if (self.match('x')) {
                     return try self.hexa();
@@ -109,8 +109,8 @@ pub const Scanner = struct {
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '\"' => return self.string(),
 
-            else => return self.makeToken(.Error, "Unexpected character.".*, null, null)
-        }
+            else => return self.makeToken(.Error, "Unexpected character.", null, null)
+        };
     }
 
     fn skipWhitespaces(self: *Self) void {
@@ -183,7 +183,7 @@ pub const Scanner = struct {
         }
 
         if (self.current.offset - self.current.start != 10) {
-            return self.makeToken(.Error, "Malformed binary number.".*, null, null);
+            return self.makeToken(.Error, "Malformed binary number.", null, null);
         }
 
         return self.makeToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
@@ -200,23 +200,28 @@ pub const Scanner = struct {
         }
 
         if (self.current.offset - self.current.start != 4) {
-            return self.makeToken(.Error, "Malformed hexadecimal number.".*, null, null);
+            return self.makeToken(.Error, "Malformed hexadecimal number.", null, null);
         }
 
-        return self.makeToken(.Byte, null, null, try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0));
+        return self.makeToken(
+            .Byte,
+            null,
+            null,
+            try std.fmt.parseInt(u8, self.source[self.current.start..self.current.offset], 0)
+        );
     }
 
     fn string(self: *Self) !Token {
         while (self.peek() != '"' and !self.isEOF()) {
             if (self.peek() == '\n') {
-                return self.makeToken(.Error, "Unterminated string.".*, null, null);
+                return self.makeToken(.Error, "Unterminated string.", null, null);
             }
 
             _ = self.advance();
         }
 
         if (self.isEOF()) {
-            return self.makeToken(.Error, "Unterminated string.".*, null, null);
+            return self.makeToken(.Error, "Unterminated string.", null, null);
         } else {
             _ = self.advance();
         }
@@ -273,7 +278,7 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]u8, literal_number: ?f64, literal_byte: ?u8) Token {
+    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_number: ?f64, literal_byte: ?u8) Token {
         return Token {
             .token_type = token_type,
             .lexeme = self.source[self.current.start..self.current.offset],

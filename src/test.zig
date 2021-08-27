@@ -77,14 +77,14 @@ test "How can store sizeOf things" {
 }
 
 test "String hash map behave like expected" {
-    var map = std.StringArrayHashMap(bool).init(std.heap.c_allocator);
+    var map = std.StringHashMap(bool).init(std.heap.c_allocator);
     defer map.deinit();
 
     try map.put("hello", true);
 
     std.debug.warn("\nhello exists: {}\n", .{ map.get("hello") });
 
-    var dyn_string: []u8 = try std.heap.c_allocator.alloc(u8, 3);
+    var dyn_string: []const u8 = try std.heap.c_allocator.alloc(u8, 3);
     defer std.heap.c_allocator.free(dyn_string);
 
     _ = try std.fmt.bufPrint(dyn_string, "bye", .{});
@@ -119,4 +119,22 @@ test "Is hash the same for 2 instance of a struct with same data?" {
     try map.put(a, &a);
 
     std.debug.warn("\nmap(b) == a ? {}\n", .{ map.get(b) == &a });
+}
+
+test "Can i use StringHashMap with a []const u8 as key?" {
+    var map = std.StringHashMap(bool).init(std.heap.c_allocator);
+    defer map.deinit();
+
+    try map.put("yolo", true);
+}
+
+fn say(hello: []const u8) void {
+    std.debug.warn("{s}\n", .{ hello });
+}
+
+test "Can i put a []u8 in a []const u8?" {
+    var str: []const u8 = try std.heap.c_allocator.alloc(u8, 5);
+    defer std.heap.c_allocator.free(str);
+
+    say(str);
 }
