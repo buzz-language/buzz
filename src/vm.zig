@@ -2,6 +2,7 @@ const std = @import("std");
 const _value = @import("./value.zig");
 const _obj = @import("./obj.zig");
 const _chunk = @import("./chunk.zig");
+const disassembler = @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
 const Value = _value.Value;
 const ObjClosure = _obj.ObjClosure;
@@ -38,7 +39,7 @@ pub const VM = struct {
     frames: std.ArrayList(CallFrame),
 
     // TODO: put ta limit somewhere
-    stack: [100000]Value,
+    stack: [1000000]Value,
     stack_top: usize = 0,
     globals: std.StringHashMap(Value),
     // Interned strings
@@ -56,7 +57,7 @@ pub const VM = struct {
     pub fn init(allocator: *Allocator) Self {
         var self: Self = .{
             .allocator = allocator,
-            .stack = [_]Value { .{ .Null = null } } ** 100000,
+            .stack = [_]Value { .{ .Null = null } } ** 1000000,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .globals = std.StringHashMap(Value).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
@@ -143,12 +144,12 @@ pub const VM = struct {
     fn run(self: *Self) !InterpretResult {
         var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
 
-        while (frame.ip < frame.closure.function.chunk.code.items.len) { // while (true) {
-            // switch(self.readByte(frame)) {
-            // }
-            
-            std.debug.print("\n\t{}\t{}", .{ frame.ip, readOpCode(frame) });
-        }
+        // while (frame.ip < frame.closure.function.chunk.code.items.len) { // while (true) {
+        //     switch(self.readByte(frame)) {
+        //     }
+        // }
+
+        try disassembler.disassembleChunk(&frame.closure.function.chunk, frame.closure.function.name.string);
 
         return InterpretResult.Ok;
     }

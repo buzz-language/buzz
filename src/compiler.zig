@@ -12,6 +12,7 @@ const VM = _vm.VM;
 const OpCode = _chunk.OpCode;
 const ObjFunction = _obj.ObjFunction;
 const ObjTypeDef = _obj.ObjTypeDef;
+const ObjString = _obj.ObjString;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = @import("./scanner.zig").Scanner;
@@ -52,7 +53,7 @@ pub const ChunkCompiler = struct {
     upvalues: [255]UpValue,
     scope_depth: u32 = 0,
 
-    pub fn init(compiler: *Compiler, function_type: FunctionType) !Self {
+    pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8) !Self {
         var self: Self = .{
             .locals = [_]Local{ undefined } ** 255,
             .upvalues = [_]UpValue{ undefined } ** 255,
@@ -61,11 +62,13 @@ pub const ChunkCompiler = struct {
             .function = ObjFunction.cast(try _obj.allocateObject(compiler.vm, .Function)).?,
         };
 
+        var file_name_string: ?*ObjString = if (file_name) |name| try _obj.copyString(compiler.vm, name) else null;
+
         self.function.* = try ObjFunction.init(
             compiler.vm.allocator,
             if (function_type != .Script)
                 try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
-            else try _obj.copyString(compiler.vm, VM.script_string),
+            else file_name_string orelse try _obj.copyString(compiler.vm, VM.script_string),
             // TODO: figure out from where we can get the return_type and parameters
             try compiler.vm.getTypeDef(.{
                 .def_type = .Void,
@@ -126,7 +129,7 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []const u8) !?*ObjFunction {
+    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8) !?*ObjFunction {
         if (self.scanner != null) {
             self.scanner = null;
         }
@@ -134,7 +137,7 @@ pub const Compiler = struct {
         self.scanner = Scanner.init(source);
         defer self.scanner = null;
 
-        _ = try ChunkCompiler.init(self, .Script);
+        _ = try ChunkCompiler.init(self, .Script, file_name);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
@@ -262,45 +265,70 @@ pub const Compiler = struct {
             // self.enumDeclaration();
         } else if (try self.match(.Fun)) {
             // self.funDeclaration();
-        } else if ((try self.match(.Str))
-            or (try self.match(.Num))
-            or (try self.match(.Byte))
-            or (try self.match(.Bool))
-            or (try self.match(.Type))) {
-            try self.varDeclaration();
+        } else if (try self.match(.Str)) {
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .String
+                    }
+                )
+            );
+        } else if (try self.match(.Num)) {
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Number
+                    }
+                )
+            );
+        } else if (try self.match(.Byte)) {
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Byte
+                    }
+                )
+            );
+        } else if (try self.match(.Bool)) {
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Bool
+                    }
+                )
+            );
+        } else if (try self.match(.Type)) {
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Type
+                    }
+                )
+            );
         } else if (try self.match(.LeftBracket)) {
             // self.listDeclaraction();
         } else if (try self.match(.LeftBrace)) {
             // self.mapDeclaraction();
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
-        } else if ((try self.match(.Identifier)) and self.check(.Identifier)) {
-            // self.instanceDeclaration();
+        } else if ((try self.match(.Identifier))) {
+            if (self.check(.Identifier)) {
+                // TODO: instance declaration, needs to retrieve the *ObjTypeDef
+            }
         } else {
             // self.statement();
         }
     }
 
-    // fn classDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
-
-    // fn objectDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
-
-    // fn enumDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
-
-    // fn funDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
-
-    fn varDeclaration(self: *Self) !void {
+    fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
         // var var_type: TokenType = self.parser.previous_token;
 
-        var global: u8 = try self.parseVariable("Expected variable name.");
+        var global: u8 = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             // self.expression();
@@ -313,33 +341,32 @@ pub const Compiler = struct {
         try self.defineVariable(global);
     }
 
-    // fn listDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
+    fn literal(self: *Self) !void {
+        switch (self.parser.previous_token.token_type) {
+            .False => try self.emitOpCode(.OP_FALSE),
+            .True => try self.emitOpCode(.OP_TRUE),
+            .Null => try self.emitOpCode(.OP_NULL),
+            else => return
+        }
+    }
 
-    // fn mapDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
+    fn number(self: *Self) !void {
+        var value: f64 = parser.previous_token.literal_number;
 
-    // fn funVarDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
+        try self.emitConstant(Value { .Number = value });
+    }
 
-    // fn instanceDeclaration(self: *Self) void {
-    //     unreachable;
-    // }
+    fn string(self: *Self) !void {
+        try self.emitConstant(Value { .Obj = try _obj.copyString(self.vm, parser.previous_token.lexeme) });
+    }
 
-    // fn statement(self: *Self) void {
-    //     unreachable;
-    // }
-
-    // fn expression(self: *Self) void {
-
-    // }
+    fn emitConstant(self: *Self, value: Value) !void {
+        try self.emitBytes(@enumToInt(OpCode.OP_CONSTANT), try self.makeConstant(value));
+    }
 
     // LOCALS
 
-    fn addLocal(self: *Self, name: Token) !void {
+    fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef) !void {
         if (self.current.?.local_count == 255) {
             self.reportError("Too many local variables in scope.");
             return;
@@ -349,11 +376,26 @@ pub const Compiler = struct {
             .name = name,
             .depth = -1,
             .is_captured = false,
-            .type_def = try self.vm.getTypeDef(.{
-                .def_type = .Void,
-                .optional = false,
-            })
+            .type_def = local_type
         };
+    }
+
+    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *Token) ?usize {
+        var i: usize = compiler.local_count;
+        while (i >= 0) {
+            var local: *Local = &compiler.locals[i];
+            if (self.identifiersEqual(name, &local.name)) {
+                if (local.depth == -1) {
+                    self.reportError("Can't read local variable in its own initializer.");
+                }
+
+                return i;
+            }
+
+            i -= 1;
+        }
+
+        return null;
     }
 
     fn identifiersEqual(a: *Token, b: *Token) bool {
@@ -366,10 +408,10 @@ pub const Compiler = struct {
 
     // VARIABLES
 
-    fn parseVariable(self: *Self, error_message: []const u8) !u8 {
+    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, error_message: []const u8) !u8 {
         try self.consume(.Identifier, error_message);
 
-        try self.declareVariable();
+        try self.declareVariable(variable_type);
 
         if (self.current.?.scope_depth > 0) {
             return 0;
@@ -395,7 +437,7 @@ pub const Compiler = struct {
         try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), global);
     }
 
-    fn declareVariable(self: *Self) !void {
+    fn declareVariable(self: *Self, variable_type: *ObjTypeDef) !void {
         if (self.current.?.scope_depth == 0) {
             return;
         }
@@ -418,7 +460,7 @@ pub const Compiler = struct {
             if (i > 0) i -= 1 else break;
         }
 
-        try self.addLocal(name.*);
+        try self.addLocal(name.*, variable_type);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {

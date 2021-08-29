@@ -3,10 +3,16 @@ const Allocator = std.mem.Allocator;
 const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
 
+// Using a global because of vm.stack which would overflow zig's stack
+var vm = VM.init(std.heap.c_allocator);
+
 pub fn main() !void {
+    defer vm.deinit();
+
     const allocator: *Allocator = std.heap.c_allocator;
 
-    var file = std.fs.cwd().openFile("samples/first.buzz", .{}) catch {
+    const file_name = "samples/first.buzz";
+    var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});
 
         return;
@@ -18,14 +24,11 @@ pub fn main() !void {
 
     _ = try file.readAll(source);
 
-    var vm = VM.init(allocator);
-    defer vm.deinit();
-
     var compiler = Compiler.init(&vm);
     // defer compiler.deinit();
 
     // TODO: print value
-    if (try compiler.compile(source)) |function| {
+    if (try compiler.compile(source, file_name)) |function| {
         _ = try vm.interpret(function);
     } else {
         // TODO: Print compile error

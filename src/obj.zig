@@ -182,8 +182,11 @@ pub fn allocateString(vm: *VM, chars: []const u8) !*ObjString {
         return interned;
     } else {
         var string: *ObjString = ObjString.cast(try allocateObject(vm, .String)).?;
+        string.string = chars;
 
+        vm.push(Value { .Obj = string.toObj() });
         try vm.strings.put(chars, string);
+        _ = vm.pop();
 
         return string;
     }
@@ -615,7 +618,7 @@ pub const ObjTypeDef = struct {
     resolved_type: ?TypeUnion = null,
 
     /// Beware: allocates a string, caller owns it
-    pub fn toString(self: Self, allocator: *Allocator) std.mem.Allocator.Error![]const u8 {
+    pub fn toString(self: Self, allocator: *Allocator) anyerror![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         if (self.optional) {
@@ -888,4 +891,58 @@ pub const ObjTypeDef = struct {
             },
         };
     }
+
 };
+
+pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
+    return switch (obj.obj_type) {
+        .String => try std.fmt.bufPrint(buf, "str \"{s}\"", .{ ObjString.cast(obj).?.string }),
+        .Type => {
+            // TODO: no use for typedef.toString to allocate a buffer
+            var type_str: []const u8 = try ObjTypeDef.cast(obj).?.toString(allocator);
+            defer allocator.free(type_str);
+
+            return try std.fmt.bufPrint(buf, "type {s}", .{ type_str });
+        },
+        .UpValue => {
+            var upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
+            var upvalue_str: []const u8 = try _value.valueToString(allocator, upvalue.closed orelse upvalue.location.*);
+            defer allocator.free(upvalue_str);
+
+            return try std.fmt.bufPrint(buf, "UpValue({s})", .{ upvalue_str });
+        },
+        .Closure => try std.fmt.bufPrint(buf, "Closure({s})", .{ ObjClosure.cast(obj).?.function.name.string }),
+        .Function => try std.fmt.bufPrint(buf, "Function({s})", .{ ObjFunction.cast(obj).?.name.string }),
+        .ClassInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjClassInstance.cast(obj).?.class.name.string }),
+        .ObjectInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjObjectInstance.cast(obj).?.object.name.string }),
+        .Class => try std.fmt.bufPrint(buf, "Class({s})", .{ ObjClass.cast(obj).?.name.string }),
+        .Object => try std.fmt.bufPrint(buf, "Object({s})", .{ ObjObject.cast(obj).?.name.string }),
+        .List => {
+            var list: *ObjList = ObjList.cast(obj).?;
+            var type_str: []const u8 = try list.item_type.toString(allocator);
+            defer allocator.free(type_str);
+
+            return try std.fmt.bufPrint(buf, "[{s}]", .{ type_str });
+        },
+        .Map => {
+            var list: *ObjMap = ObjMap.cast(obj).?;
+            var key_type_str: []const u8 = try list.key_type.toString(allocator);
+            defer allocator.free(key_type_str);
+            var value_type_str: []const u8 = try list.value_type.toString(allocator);
+            defer allocator.free(value_type_str);
+
+            return try std.fmt.bufPrint(buf, "<{s}, {s}>", .{ key_type_str, value_type_str });
+        },
+        .Enum => try std.fmt.bufPrint(buf, "Enum({s})", .{ ObjEnum.cast(obj).?.name.string }),
+        .EnumInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjEnumInstance.cast(obj).?.enum_ref.name.string }),
+        .Bound => {
+            var bound: *ObjBound = ObjBound.cast(obj).?;
+            var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);
+            defer allocator.free(receiver_str);
+
+            var closure_name: []const u8 =  ObjClosure.cast(obj).?.function.name.string;
+
+            return try std.fmt.bufPrint(buf, "bound {s} to {s}", .{ receiver_str, closure_name });
+        },
+    };
+}
