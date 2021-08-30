@@ -3,3 +3,4 @@ num? age = null;
 num distance = 123.24;
 bool isThere = true;
 byte aByte = 0xF4;
+| str reportMe = 13;

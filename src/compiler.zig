@@ -129,7 +129,7 @@ pub const Compiler = struct {
         Primary, // literal, (grouped expression), super.ref, identifier
     };
 
-    const ParseFn = fn (*Compiler, bool) anyerror!void;
+    const ParseFn = fn (*Compiler, bool, *ObjTypeDef) anyerror!void;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
@@ -255,7 +255,7 @@ pub const Compiler = struct {
 
         self.parser.panic_mode = true;
 
-        std.debug.warn("[{}:{}] Error", .{ token.line, token.column });
+        std.debug.warn("\u{001b}[31m[{}:{}] Error", .{ token.line + 1, token.column + 1 });
 
         if (token.token_type == .Eof) {
             std.debug.warn(" at end", .{});
@@ -263,7 +263,7 @@ pub const Compiler = struct {
             std.debug.warn(" at '{s}'", .{token.lexeme});
         }
 
-        std.debug.warn(": {s}\n", .{message});
+        std.debug.warn(": {s}\u{001b}[0m\n", .{message});
 
         self.parser.had_error = true;
     }
@@ -388,7 +388,7 @@ pub const Compiler = struct {
         return rules[@enumToInt(token)];
     }
 
-    fn parsePrecedence(self: *Self, precedence: Precedence) !void {
+    fn parsePrecedence(self: *Self, precedence: Precedence, expected_type: *ObjTypeDef) !void {
         _ = try self.advance();
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
@@ -398,12 +398,12 @@ pub const Compiler = struct {
         }
 
         var canAssign: bool = @enumToInt(precedence) <= @enumToInt(Precedence.Assignment);
-        try prefixRule.?(self, canAssign);
+        try prefixRule.?(self, canAssign, expected_type);
 
         while (@enumToInt(precedence) <= @enumToInt(getRule(self.parser.current_token.?.token_type).precedence)) {
             _ = try self.advance();
             var infixRule: ParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
-            try infixRule(self, canAssign);
+            try infixRule(self, canAssign, expected_type);
         }
 
         if (canAssign and (try self.match(.Equal))) {
@@ -411,8 +411,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn expression(self: *Self) !void {
-        try self.parsePrecedence(.Assignment);
+    fn expression(self: *Self, expected_type: *ObjTypeDef) !void {
+        try self.parsePrecedence(.Assignment, expected_type);
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
@@ -421,7 +421,7 @@ pub const Compiler = struct {
         var global: u8 = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
-            try self.expression();
+            try self.expression(var_type);
         } else {
             try self.emitOpCode(.OP_NULL);
         }
@@ -431,26 +431,52 @@ pub const Compiler = struct {
         try self.defineVariable(global);
     }
 
-    fn string(self: *Self, _: bool) anyerror!void {
-        try self.emitConstant(Value { .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj() });
+    fn string(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+        if (expected_type.def_type != .String) {
+            self.reportError("Expected type str.");
+        }
+
+        try self.emitConstant(Value {
+            .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
+        });
     }
 
-    fn literal(self: *Self, _: bool) anyerror!void {
+    fn literal(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
         switch (self.parser.previous_token.?.token_type) {
-            .False => try self.emitOpCode(.OP_FALSE),
-            .True => try self.emitOpCode(.OP_TRUE),
+            .False => {
+                if (expected_type.def_type != .Bool) {
+                    self.reportError("Expected type bool.");
+                }
+
+                try self.emitOpCode(.OP_FALSE);
+            },
+            .True => {
+                if (expected_type.def_type != .Bool) {
+                    self.reportError("Expected type bool.");
+                }
+
+                try self.emitOpCode(.OP_TRUE);
+            },
             .Null => try self.emitOpCode(.OP_NULL),
             else => return,
         }
     }
 
-    fn number(self: *Self, _: bool) anyerror!void {
+    fn number(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+        if (expected_type.def_type != .Number) {
+            self.reportError("Expected type num.");
+        }
+
         var value: f64 = self.parser.previous_token.?.literal_number.?;
 
         try self.emitConstant(Value{ .Number = value });
     }
 
-    fn byte(self: *Self, _: bool) anyerror!void {
+    fn byte(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+        if (expected_type.def_type != .Byte) {
+            self.reportError("Expected type num.");
+        }
+
         var value: u8 = self.parser.previous_token.?.literal_byte.?;
 
         try self.emitConstant(Value{ .Byte = value });
@@ -468,7 +494,12 @@ pub const Compiler = struct {
             return;
         }
 
-        self.current.?.locals[self.current.?.local_count] = Local{ .name = name, .depth = -1, .is_captured = false, .type_def = local_type };
+        self.current.?.locals[self.current.?.local_count] = Local{
+            .name = name,
+            .depth = -1,
+            .is_captured = false,
+            .type_def = local_type,
+        };
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *Token) ?usize {
