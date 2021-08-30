@@ -138,74 +138,74 @@ pub const Compiler = struct {
     };
 
     const rules = [_]ParseRule{
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Pipe
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftBracket
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightBracket
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftParen
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightParen
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftBrace
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightBrace
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Dot
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Comma
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Semicolon
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Greater
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Less
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Plus
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Minus
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Star
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Slash
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Percent
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Question
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Bang
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Colon
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Equal
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // EqualEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // BangEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // GreaterEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // LessEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // QuestionQuestion
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // PlusEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // MinusEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // StarEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // SlashEqual
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Increment
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Decrement
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Arrow
-        .{ .prefix = literal, .infix = null, .precedence = .None }, // True
-        .{ .prefix = literal, .infix = null, .precedence = .None }, // False
-        .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Str
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Num
-        .{ .prefix = byte,    .infix = null, .precedence = .None }, // Byte
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Type
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Bool
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Function
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // ShiftRight
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // ShiftLeft
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Xor
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Or
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // And
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Return
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // If
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Else
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Do
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Until
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // While
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // For
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Switch
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Break
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Default
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // In
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Is
-        .{ .prefix = number,  .infix = null, .precedence = .None }, // Number
-        .{ .prefix = string,  .infix = null, .precedence = .None }, // String
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Identifier
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Fun
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Object
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Class
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Enum
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Eof
-        .{ .prefix = null,    .infix = null, .precedence = .None }, // Error
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Pipe
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // LeftBracket
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // RightBracket
+        .{ .prefix = grouping, .infix = null, .precedence = .Call }, // LeftParen
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // RightParen
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // LeftBrace
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // RightBrace
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Dot
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Comma
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Semicolon
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Greater
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Less
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Plus
+        .{ .prefix = unary,    .infix = null, .precedence = .None }, // Minus
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Star
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Slash
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Percent
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Question
+        .{ .prefix = unary,    .infix = null, .precedence = .None }, // Bang
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Colon
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Equal
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // EqualEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // BangEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // GreaterEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // LessEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // QuestionQuestion
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // PlusEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // MinusEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // StarEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // SlashEqual
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Increment
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Decrement
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Arrow
+        .{ .prefix = literal,  .infix = null, .precedence = .None }, // True
+        .{ .prefix = literal,  .infix = null, .precedence = .None }, // False
+        .{ .prefix = literal,  .infix = null, .precedence = .None }, // Null
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Str
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Num
+        .{ .prefix = byte,     .infix = null, .precedence = .None }, // Byte
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Type
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Bool
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Function
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // ShiftRight
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // ShiftLeft
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Xor
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Or
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // And
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Return
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // If
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Else
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Do
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Until
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // While
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // For
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Switch
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Break
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Default
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // In
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Is
+        .{ .prefix = number,   .infix = null, .precedence = .None }, // Number
+        .{ .prefix = string,   .infix = null, .precedence = .None }, // String
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Identifier
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Fun
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Object
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Class
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Enum
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Eof
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Error
     };
 
     vm: *VM,
@@ -431,6 +431,18 @@ pub const Compiler = struct {
         try self.defineVariable(global);
     }
 
+    fn unary(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+        var operator_type: TokenType = self.parser.previous_token.?.token_type;
+        
+        try self.parsePrecedence(.Unary, expected_type);
+
+        switch (operator_type) {
+            .Bang => try self.emitOpCode(.OP_NOT),
+            .Minus => try self.emitOpCode(.OP_NEGATE),
+            else => {},
+        }
+    }
+
     fn string(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
         if (expected_type.def_type != .String) {
             self.reportError("Expected type str.");
@@ -439,6 +451,11 @@ pub const Compiler = struct {
         try self.emitConstant(Value {
             .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
         });
+    }
+
+    fn grouping(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+        try self.expression(expected_type);
+        try self.consume(.RightParen, "Expected ')' after expression.");
     }
 
     fn literal(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {

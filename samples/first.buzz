@@ -4,3 +4,6 @@ num distance = 123.24;
 bool isThere = true;
 byte aByte = 0xF4;
 | str reportMe = 13;
+num group = (12);
+bool notMe = !true;
+| bool reportMe = !false;
