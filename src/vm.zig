@@ -123,7 +123,7 @@ pub const VM = struct {
         return try self.run();
     }
 
-    fn readByte(frame: *CallFrame) callconv(.Inline) u8 {
+    inline fn readByte(frame: *CallFrame) u8 {
         // TODO: measure if [*]OpCode[0] is faster
         var byte: u8 = frame.closure.function.chunk.code.items[frame.ip];
 
@@ -132,7 +132,7 @@ pub const VM = struct {
         return byte;
     }
 
-    fn readOpCode(frame: *CallFrame) callconv(.Inline) OpCode {
+    inline fn readOpCode(frame: *CallFrame) OpCode {
         // TODO: measure if [*]OpCode[0] is faster
         var opcode: OpCode = @intToEnum(OpCode, frame.closure.function.chunk.code.items[frame.ip]);
 

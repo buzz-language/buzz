@@ -698,21 +698,21 @@ pub const ObjTypeDef = struct {
 
     // Compare two type definitions
     pub fn eqlTypeUnion(a: TypeUnion, b: TypeUnion) bool {
-        if (std.meta.Tag(a) != bstd.meta.Tag(b)) {
+        if (@as(Type, a) != @as(Type, b)) {
             return false;
         }
 
-        switch (a) {
-            Bool, Number, Byte, String, Type, Void => return true,
+        return switch (a) {
+            .Bool, .Number, .Byte, .String, .Type, .Void => return true,
 
-            Class => a.Class == b.Class,
-            Object => a.Object == b.Object,
-            Enum => a.Enum == b.Enum,
+            .Class => return a.Class == b.Class,
+            .Object => return a.Object == b.Object,
+            .Enum => return a.Enum == b.Enum,
 
-            List => a.List.item_type.eql(b.List.item_type),
-            Map => a.Map.key_type.eql(b.Map.key_type)
+            .List => return a.List.item_type.eql(b.List.item_type),
+            .Map => return a.Map.key_type.eql(b.Map.key_type)
                 and a.Map.value_type.eql(b.Map.value_type),
-            Function => {
+            .Function => {
                 // Compare return types
                 if (a.Function.return_type.eql(b.Function.return_type)) {
                     return false;
@@ -726,8 +726,8 @@ pub const ObjTypeDef = struct {
                 // Compare parameters
                 var it = a.Function.parameters.iterator();
                 while (it.next()) |kv| {
-                    if (b.Function.parameters.get(kv.key)) |value| {
-                        if (!kv.value.eql(value)) {
+                    if (b.Function.parameters.get(kv.key_ptr.*)) |value| {
+                        if (!kv.value_ptr.*.eql(value)) {
                             return false;
                         }
                     } else {
@@ -737,7 +737,7 @@ pub const ObjTypeDef = struct {
 
                 return true;
             }
-        }
+        };
     }
 
     // Compare two type definitions
@@ -745,7 +745,8 @@ pub const ObjTypeDef = struct {
         // TODO: if we ever put typedef in a set somewhere we could replace all this witha pointer comparison
         return self.optional == other.optional
             and self.def_type == other.def_type
-            and eqlTypeUnion(self.resolved_type, other.resolved_type);
+            and ((self.resolved_type == null and other.resolved_type == null)
+                or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
     }
 
     // Compare value type to this type definition

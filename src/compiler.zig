@@ -199,7 +199,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Is
         .{ .prefix = number,   .infix = null, .precedence = .None }, // Number
         .{ .prefix = string,   .infix = null, .precedence = .None }, // String
-        .{ .prefix = null,     .infix = null, .precedence = .None }, // Identifier
+        .{ .prefix = variable, .infix = null, .precedence = .None }, // Identifier
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Fun
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Object
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Class
@@ -453,6 +453,39 @@ pub const Compiler = struct {
         });
     }
 
+    fn namedVariable(self: *Self, name: Token, can_assign: bool, expected_type: *ObjTypeDef) anyerror!void {
+        var get_op: OpCode = undefined;
+        var set_op: OpCode = undefined;
+
+        var arg: ?usize = try self.resolveLocal(self.current.?, &name, expected_type);
+        if (arg != null) {
+            get_op = .OP_GET_LOCAL;
+            set_op = .OP_SET_LOCAL;
+        } else {
+            arg = try self.resolveUpvalue(self.current.?, &name, expected_type);
+            if (arg != null) {
+                get_op = .OP_GET_UPVALUE;
+                set_op = .OP_SET_UPVALUE;
+            } else {
+                arg  = try self.identifierConstant(&name);
+                get_op = .OP_GET_GLOBAL;
+                set_op = .OP_SET_GLOBAL;
+            }
+        }
+
+        if (can_assign and try self.match(.Equal)) {
+            try self.expression(expected_type);
+
+            try self.emitBytes(@enumToInt(set_op), @intCast(u8, arg.?));
+        } else {
+            try self.emitBytes(@enumToInt(get_op), @intCast(u8, arg.?));
+        }
+    }
+
+    fn variable(self: *Self, can_assign: bool, expected_type: *ObjTypeDef) anyerror!void {
+        try self.namedVariable(self.parser.previous_token.?, can_assign, expected_type);
+    }
+
     fn grouping(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
         try self.expression(expected_type);
         try self.consume(.RightParen, "Expected ')' after expression.");
@@ -519,25 +552,75 @@ pub const Compiler = struct {
         };
     }
 
-    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *Token) ?usize {
+    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token, expected_type: *ObjTypeDef) !?usize {
         var i: usize = compiler.local_count;
         while (i >= 0) {
             var local: *Local = &compiler.locals[i];
-            if (self.identifiersEqual(name, &local.name)) {
+            if (identifiersEqual(name, &local.name)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
+                }
+
+                if (!local.type_def.eql(expected_type)) {
+                    var local_type_str: []const u8 = try local.type_def.toString(self.vm.allocator);
+                    defer self.vm.allocator.free(local_type_str);
+                    var expected_type_str = try expected_type.toString(self.vm.allocator);
+                    defer self.vm.allocator.free(expected_type_str);
+                    var error_message: []u8 = try self.vm.allocator.alloc(u8, 1000);
+                    defer self.vm.allocator.free(error_message);
+
+                    _ = try std.fmt.bufPrint(error_message, "Expected local variable of type {s}, got {s}", .{ expected_type_str, local_type_str });
+
+                    self.reportError(error_message);
                 }
 
                 return i;
             }
 
-            i -= 1;
+            if (i == 0) {
+                break;
+            }
         }
 
         return null;
     }
 
-    fn identifiersEqual(a: *Token, b: *Token) bool {
+    fn addUpvalue(compiler: *ChunkCompiler, index: usize, is_local: bool) usize {
+        var upvalue_count: u8 = compiler.function.upValueCount;
+
+        var i: usize = 0;
+        while (i < upvalue_count) {
+            var upvalue: *UpValue = &compiler.upvalues[i];
+            if (upvalue.index == index and upvalue.is_local == is_local) {
+                return i;
+            }
+
+            i += 1;
+        }
+
+        unreachable;
+    }
+
+    fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: *const Token, expected_type: *ObjTypeDef) anyerror!?usize {
+        if (compiler.enclosing == null) {
+            return null;
+        }
+
+        var local: ?usize = try self.resolveLocal(compiler.enclosing.?, name, expected_type);
+        if (local) |resolved| {
+            compiler.enclosing.?.locals[resolved].is_captured = true;
+            return addUpvalue(compiler, resolved, true);
+        }
+
+        var upvalue: ?usize = try self.resolveUpvalue(compiler.enclosing.?, name, expected_type);
+        if (upvalue) |resolved| {
+            return addUpvalue(compiler, resolved, false);
+        }
+
+        return null;
+    }
+
+    fn identifiersEqual(a: *const Token, b: *const Token) bool {
         if (a.lexeme.len != b.lexeme.len) {
             return false;
         }
@@ -612,7 +695,7 @@ pub const Compiler = struct {
         return constant;
     }
 
-    fn identifierConstant(self: *Self, name: *Token) !u8 {
+    fn identifierConstant(self: *Self, name: *const Token) !u8 {
         return try self.makeConstant(Value{ .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj() });
     }
 };

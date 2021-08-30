@@ -14,13 +14,19 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
     }
 }
 
-pub fn simpleInstruction(code: OpCode, offset: usize) callconv(.Inline) usize {
+inline fn simpleInstruction(code: OpCode, offset: usize) usize {
     print("{} ", .{ code });
 
     return offset + 1;
 }
 
-pub fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+    var slot: u8 = chunk.code.items[offset + 1];
+    print("{} {}", .{ code, slot });
+    return offset + 2;
+}
+
+fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u8 = chunk.code.items[offset + 1];
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
@@ -30,7 +36,7 @@ pub fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     return offset + 2;
 }
 
-pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
+fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     print("\n{} ", .{ offset });
 
     if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset -1]) {
@@ -59,17 +65,18 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SHR,
         .OP_UNWRAP => simpleInstruction(instruction, offset),
 
-        .OP_GET_LOCAL => simpleInstruction(instruction, offset),
-        .OP_SET_LOCAL => simpleInstruction(instruction, offset),
-        .OP_GET_GLOBAL => simpleInstruction(instruction, offset),
+        .OP_GET_LOCAL,
+        .OP_SET_LOCAL,
+        .OP_GET_UPVALUE,
+        .OP_SET_UPVALUE => byteInstruction(instruction, chunk, offset),
         
         .OP_CONSTANT,
-        .OP_DEFINE_GLOBAL => {
+        .OP_DEFINE_GLOBAL,
+        .OP_GET_GLOBAL,
+        .OP_SET_GLOBAL => {
             return try constantInstruction(instruction, chunk, offset);
         },
-        .OP_SET_GLOBAL => simpleInstruction(instruction, offset),
-        .OP_GET_UPVALUE => simpleInstruction(instruction, offset),
-        .OP_SET_UPVALUE => simpleInstruction(instruction, offset),
+
         .OP_GET_PROPERTY => simpleInstruction(instruction, offset),
         .OP_SET_PROPERTY => simpleInstruction(instruction, offset),
         .OP_GET_SUBSCRIPT => simpleInstruction(instruction, offset),
