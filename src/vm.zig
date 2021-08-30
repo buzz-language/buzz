@@ -144,8 +144,14 @@ pub const VM = struct {
     fn run(self: *Self) !InterpretResult {
         var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
 
-        // while (frame.ip < frame.closure.function.chunk.code.items.len) { // while (true) {
-        //     switch(self.readByte(frame)) {
+        // while (true) {
+        //     var instruction: OpCode = readOpCode(frame);
+        //     switch(instruction) {
+        //         .OP_NULL => self.push(Value { .Null = null }),
+        //         .OP_TRUE => self.push(Value { .Boolean = true }),
+        //         .OP_FALSE => self.push(Value { .Boolean = false }),
+        //         .OP_POP => _ = self.pop(),
+        //         else => std.debug.warn("{} not implemented yet\n", .{ instruction })
         //     }
         // }
 

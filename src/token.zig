@@ -23,7 +23,6 @@ pub const TokenType = enum {
     Bang,             // !
     Colon,            // :
     Equal,            // =
-
     EqualEqual,       // ==
     BangEqual,        // !=
     GreaterEqual,     // >=
@@ -35,26 +34,21 @@ pub const TokenType = enum {
     SlashEqual,       // /=
     Increment,        // ++
     Decrement,        // --
-    
     Arrow,            // ->
-    
     True,             // true
     False,            // false
     Null,             // null
-
     Str,              // str
     Num,              // num
     Byte,             // byte
     Type,             // type
     Bool,             // bool
     Function,         // Function
-
     ShiftRight,       // >>
     ShiftLeft,        // <<
     Xor,              // xor
     Or,               // or
     And,              // and
-
     Return,           // return
     If,               // if
     Else,             // else
@@ -70,12 +64,10 @@ pub const TokenType = enum {
     Number,           // 123
     String,           // "hello"
     Identifier,       // anIdentifier
-
     Fun,              // fun
     Object,           // object
     Class,            // class
     Enum,             // enum
-
     Eof,              // EOF
     Error,            // Error
 };

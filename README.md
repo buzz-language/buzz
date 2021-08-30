@@ -25,4 +25,5 @@ OP_DEFINE_GLOBAL/LOCAL
 
 So all type resolution at runtime is just a global name resolution.
 
-Do we do some type checking at runtime? Or de we trust the compiler did all the necessary type checking at comptime? Since i put first-class types aside for now, we should not be able to refer to types by something else than a constant name. So no all type checking should be static?
+Do we do some type checking at runtime? Or de we trust the compiler did all the necessary type checking at comptime? Since i put first-class types aside for now, we should not be able to refer to types by something else than a constant name. So no all type checking should be static.
+Some instructions will end up doing some type checking but only to figure out what to do: OP_ADD will check if operands are numbers or strings etc.

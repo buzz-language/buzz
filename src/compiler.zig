@@ -19,17 +19,17 @@ const Scanner = @import("./scanner.zig").Scanner;
 const Value = _value.Value;
 
 pub const FunctionType = enum {
-  Function,
-  Initializer,
-  Method,
-  Script
+    Function,
+    Initializer,
+    Method,
+    Script
 };
 
 pub const Local = struct {
-   name: Token,
-   type_def: *ObjTypeDef,
-   depth: i32,
-   is_captured: bool
+    name: Token,
+    type_def: *ObjTypeDef,
+    depth: i32,
+    is_captured: bool
 };
 
 pub const UpValue = struct {
@@ -55,8 +55,8 @@ pub const ChunkCompiler = struct {
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8) !Self {
         var self: Self = .{
-            .locals = [_]Local{ undefined } ** 255,
-            .upvalues = [_]UpValue{ undefined } ** 255,
+            .locals = [_]Local{undefined} ** 255,
+            .upvalues = [_]UpValue{undefined} ** 255,
             .enclosing = compiler.current,
             .function_type = function_type,
             .function = ObjFunction.cast(try _obj.allocateObject(compiler.vm, .Function)).?,
@@ -64,17 +64,15 @@ pub const ChunkCompiler = struct {
 
         var file_name_string: ?*ObjString = if (file_name) |name| try _obj.copyString(compiler.vm, name) else null;
 
-        self.function.* = try ObjFunction.init(
-            compiler.vm.allocator,
-            if (function_type != .Script)
-                try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
-            else file_name_string orelse try _obj.copyString(compiler.vm, VM.script_string),
-            // TODO: figure out from where we can get the return_type and parameters
-            try compiler.vm.getTypeDef(.{
-                .def_type = .Void,
-                .optional = false,
-            })
-        );
+        self.function.* = try ObjFunction.init(compiler.vm.allocator, if (function_type != .Script)
+            try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
+        else
+            file_name_string orelse try _obj.copyString(compiler.vm, VM.script_string),
+        // TODO: figure out from where we can get the return_type and parameters
+        try compiler.vm.getTypeDef(.{
+            .def_type = .Void,
+            .optional = false,
+        }));
 
         compiler.current = try compiler.vm.allocator.create(ChunkCompiler);
         compiler.current.?.* = self;
@@ -90,7 +88,7 @@ pub const ChunkCompiler = struct {
             .optional = false,
         });
 
-        local.name = Token {
+        local.name = Token{
             .token_type = .String,
             .lexeme = if (function_type == .Function) VM.this_string else VM.empty_string,
             .literal_string = if (function_type == .Function) VM.this_string else VM.empty_string,
@@ -113,6 +111,102 @@ pub const ParserState = struct {
 
 pub const Compiler = struct {
     const Self = @This();
+
+    const Precedence = enum {
+        None,
+        Assignment, // =, -=, +=, *=, /=
+        Is, // is
+        NullOr, // ??
+        Or, // or
+        And, // and
+        Xor, // xor
+        Comparison, // ==, !=
+        Term, // +, -
+        Shift, // >>, <<
+        Factor, // /, *, %
+        Unary, // +, ++, -, --, !
+        Call, // call(), dot.ref, sub[script]
+        Primary, // literal, (grouped expression), super.ref, identifier
+    };
+
+    const ParseFn = fn (*Compiler, bool) anyerror!void;
+
+    const ParseRule = struct {
+        prefix: ?ParseFn,
+        infix: ?ParseFn,
+        precedence: Precedence,
+    };
+
+    const rules = [_]ParseRule{
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Pipe
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftBracket
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightBracket
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftParen
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightParen
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // LeftBrace
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // RightBrace
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Dot
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Comma
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Semicolon
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Greater
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Less
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Plus
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Minus
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Star
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Slash
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Percent
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Question
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Bang
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Colon
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Equal
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // EqualEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // BangEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // GreaterEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // LessEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // QuestionQuestion
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // PlusEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // MinusEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // StarEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // SlashEqual
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Increment
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Decrement
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Arrow
+        .{ .prefix = literal, .infix = null, .precedence = .None }, // True
+        .{ .prefix = literal, .infix = null, .precedence = .None }, // False
+        .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Str
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Num
+        .{ .prefix = byte,    .infix = null, .precedence = .None }, // Byte
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Type
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Bool
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Function
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // ShiftRight
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // ShiftLeft
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Xor
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Or
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // And
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Return
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // If
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Else
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Do
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Until
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // While
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // For
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Switch
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Break
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Default
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // In
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Is
+        .{ .prefix = number,  .infix = null, .precedence = .None }, // Number
+        .{ .prefix = string,  .infix = null, .precedence = .None }, // String
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Identifier
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Fun
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Object
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Class
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Enum
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Eof
+        .{ .prefix = null,    .infix = null, .precedence = .None }, // Error
+    };
 
     vm: *VM,
 
@@ -166,10 +260,10 @@ pub const Compiler = struct {
         if (token.token_type == .Eof) {
             std.debug.warn(" at end", .{});
         } else if (token.token_type != .Error) { // We report error to the token just before a .Error token
-            std.debug.warn(" at '{s}'", .{ token.lexeme });
+            std.debug.warn(" at '{s}'", .{token.lexeme});
         }
 
-        std.debug.warn(": {s}\n", .{ message });
+        std.debug.warn(": {s}\n", .{message});
 
         self.parser.had_error = true;
     }
@@ -200,7 +294,7 @@ pub const Compiler = struct {
             try self.advance();
             return;
         }
-        
+
         self.reportErrorAtCurrent(message);
     }
 
@@ -230,7 +324,7 @@ pub const Compiler = struct {
 
     // BYTE EMITTING
 
-    fn emitOpCode(self: *Self, code: OpCode) callconv(.Inline) !void {
+    inline fn emitOpCode(self: *Self, code: OpCode) !void {
         try self.emitByte(@enumToInt(code));
     }
 
@@ -238,7 +332,7 @@ pub const Compiler = struct {
         try self.current.?.function.chunk.write(byte, self.parser.previous_token.?.line);
     }
 
-    fn emitBytes(self: *Self, byte1: u8, byte2: u8) callconv(.Inline) !void {
+    inline fn emitBytes(self: *Self, byte1: u8, byte2: u8) !void {
         try self.emitByte(byte1);
         try self.emitByte(byte2);
     }
@@ -266,50 +360,15 @@ pub const Compiler = struct {
         } else if (try self.match(.Fun)) {
             // self.funDeclaration();
         } else if (try self.match(.Str)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .String
-                    }
-                )
-            );
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }));
         } else if (try self.match(.Num)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Number
-                    }
-                )
-            );
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }));
         } else if (try self.match(.Byte)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Byte
-                    }
-                )
-            );
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Byte }));
         } else if (try self.match(.Bool)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Bool
-                    }
-                )
-            );
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }));
         } else if (try self.match(.Type)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Type
-                    }
-                )
-            );
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }));
         } else if (try self.match(.LeftBracket)) {
             // self.listDeclaraction();
         } else if (try self.match(.LeftBrace)) {
@@ -325,13 +384,44 @@ pub const Compiler = struct {
         }
     }
 
+    inline fn getRule(token: TokenType) ParseRule {
+        return rules[@enumToInt(token)];
+    }
+
+    fn parsePrecedence(self: *Self, precedence: Precedence) !void {
+        _ = try self.advance();
+
+        var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
+        if (prefixRule == null) {
+            self.reportError("Expect expression");
+            return;
+        }
+
+        var canAssign: bool = @enumToInt(precedence) <= @enumToInt(Precedence.Assignment);
+        try prefixRule.?(self, canAssign);
+
+        while (@enumToInt(precedence) <= @enumToInt(getRule(self.parser.current_token.?.token_type).precedence)) {
+            _ = try self.advance();
+            var infixRule: ParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
+            try infixRule(self, canAssign);
+        }
+
+        if (canAssign and (try self.match(.Equal))) {
+            self.reportError("Invalid assignment target.");
+        }
+    }
+
+    fn expression(self: *Self) !void {
+        try self.parsePrecedence(.Assignment);
+    }
+
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
         // var var_type: TokenType = self.parser.previous_token;
 
         var global: u8 = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
-            // self.expression();
+            try self.expression();
         } else {
             try self.emitOpCode(.OP_NULL);
         }
@@ -341,23 +431,29 @@ pub const Compiler = struct {
         try self.defineVariable(global);
     }
 
-    fn literal(self: *Self) !void {
-        switch (self.parser.previous_token.token_type) {
+    fn string(self: *Self, _: bool) anyerror!void {
+        try self.emitConstant(Value { .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj() });
+    }
+
+    fn literal(self: *Self, _: bool) anyerror!void {
+        switch (self.parser.previous_token.?.token_type) {
             .False => try self.emitOpCode(.OP_FALSE),
             .True => try self.emitOpCode(.OP_TRUE),
             .Null => try self.emitOpCode(.OP_NULL),
-            else => return
+            else => return,
         }
     }
 
-    fn number(self: *Self) !void {
-        var value: f64 = parser.previous_token.literal_number;
+    fn number(self: *Self, _: bool) anyerror!void {
+        var value: f64 = self.parser.previous_token.?.literal_number.?;
 
-        try self.emitConstant(Value { .Number = value });
+        try self.emitConstant(Value{ .Number = value });
     }
 
-    fn string(self: *Self) !void {
-        try self.emitConstant(Value { .Obj = try _obj.copyString(self.vm, parser.previous_token.lexeme) });
+    fn byte(self: *Self, _: bool) anyerror!void {
+        var value: u8 = self.parser.previous_token.?.literal_byte.?;
+
+        try self.emitConstant(Value{ .Byte = value });
     }
 
     fn emitConstant(self: *Self, value: Value) !void {
@@ -372,12 +468,7 @@ pub const Compiler = struct {
             return;
         }
 
-        self.current.?.locals[self.current.?.local_count] = Local {
-            .name = name,
-            .depth = -1,
-            .is_captured = false,
-            .type_def = local_type
-        };
+        self.current.?.locals[self.current.?.local_count] = Local{ .name = name, .depth = -1, .is_captured = false, .type_def = local_type };
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *Token) ?usize {
@@ -416,7 +507,7 @@ pub const Compiler = struct {
         if (self.current.?.scope_depth > 0) {
             return 0;
         }
-        
+
         return try self.identifierConstant(&self.parser.previous_token.?);
     }
 
@@ -474,8 +565,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: *Token) !u8 {
-        return try self.makeConstant(Value {
-            .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj()
-        });
+        return try self.makeConstant(Value{ .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj() });
     }
 };

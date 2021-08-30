@@ -24,24 +24,24 @@ switch         -> switch \(<expression>\) { (<expression>: <statement>*)+ (defau
 return         -> return <expression>?;
 
 # Expressions (the fuzzy part tbh)
-expression     -> <assignment> | <is>
-assignment     -> ((<call> | <reference> | <primary>)(\?|!)?\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
-is             -> <null_or> (is <null_or>)*
-null_or        -> <logic_or> (\?\? <logic_or>)*
-logic_or       -> <logic_and> (or <logic_and>)*
-logic_and      -> <logic_xor> (and <logic_xor>)*
-logic_xor      -> <comparison> (and <comparison>)*
-equality       -> <comparison> ((==|!=) <comparison>)*
-comparison     -> <term> ((>|<|=>|<=) <term>)*
-term           -> <shift> ((+|-) <shift>)*
-shift          -> <factor> ((>>|<<) <factor>)*
-factor         -> <operand> ((/|*|%) <operand>)*
-operand        -> <unary> | <call> | <reference> | <subscript> | <primary>
-unary          -> (!|-|--|++)(<call> | <reference> | <subscript> | <primary>) | (<call> | <reference> | <subscript> | <primary>)(--|++)
-call           -> <primary>\(<arguments>?\)
-reference      -> <primary>(\?|!)?\.<identifier>
-subscript      -> <primary>(\?|!)?\[<expression>\]
-primary        -> <literal> | \(<expression>\) | super\.<identifier> | <identifier>
+14  expression     -> <assignment> | <is>
+13  assignment     -> ((<call> | <reference> | <primary>)(\?|!)?\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
+12  is             -> <null_or> (is <null_or>)*
+11  null_or        -> <logic_or> (\?\? <logic_or>)*
+10  logic_or       -> <logic_and> (or <logic_and>)*
+9   logic_and      -> <logic_xor> (and <logic_xor>)*
+8   logic_xor      -> <comparison> (xor <comparison>)*
+7   equality       -> <comparison> ((==|!=) <comparison>)*
+6   comparison     -> <term> ((>|<|=>|<=) <term>)*
+5   term           -> <shift> ((+|-) <shift>)*
+4   shift          -> <factor> ((>>|<<) <factor>)*
+3   factor         -> <operand> ((/|*|%) <operand>)*
+2   operand        -> <unary> | <call> | <reference> | <subscript> | <primary>
+    unary          -> (!|-|--|++)(<call> | <reference> | <subscript> | <primary>) | (<call> | <reference> | <subscript> | <primary>)(--|++)
+1   call           -> <primary>\(<arguments>?\)
+    reference      -> <primary>(\?|!)?\.<identifier>
+    subscript      -> <primary>(\?|!)?\[<expression>\]
+0   primary        -> <literal> | \(<expression>\) | super\.<identifier> | <identifier>
 
 literal        -> \b(true|false|null|this)\b | <number> | <string> | <type> | <structure>
 structure      -> (<list_type>)?\[<arguments>?\] | (<map_type>)?\{ <literal>: <expression> \}

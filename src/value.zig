@@ -17,7 +17,7 @@ pub const Value = union(ValueType) {
     Boolean: bool,
     Number: f64,
     Byte: u8,
-    Null: ?u8,
+    Null: ?bool,
     Obj: *Obj,
 };
 
@@ -25,7 +25,7 @@ pub const HashableValue = union(ValueType) {
     Boolean: bool,
     Number: i64,
     Byte: u8,
-    Null: ?u8,
+    Null: ?bool,
     Obj: *Obj
 };
 

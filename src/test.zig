@@ -84,7 +84,7 @@ test "String hash map behave like expected" {
 
     std.debug.warn("\nhello exists: {}\n", .{ map.get("hello") });
 
-    var dyn_string: []const u8 = try std.heap.c_allocator.alloc(u8, 3);
+    var dyn_string: []u8 = try std.heap.c_allocator.alloc(u8, 3);
     defer std.heap.c_allocator.free(dyn_string);
 
     _ = try std.fmt.bufPrint(dyn_string, "bye", .{});
@@ -137,4 +137,26 @@ test "Can i put a []u8 in a []const u8?" {
     defer std.heap.c_allocator.free(str);
 
     say(str);
+}
+
+test "How do first-class function work?" {
+    const A = struct {
+        say: fn ([]const u8) void,
+    };
+
+    const a: A = .{
+        .say = say
+    };
+
+    a.say("hello");
+}
+
+test "Where can i omit struct name ?" {
+    const A = struct {
+        hello: bool
+    };
+
+    const array = [_]A { .{ .hello = true } };
+
+    std.debug.warn("array[0] {}\n", .{array[0]});
 }

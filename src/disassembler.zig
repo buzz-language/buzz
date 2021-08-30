@@ -59,10 +59,11 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SHR,
         .OP_UNWRAP => simpleInstruction(instruction, offset),
 
-        .OP_CONSTANT => simpleInstruction(instruction, offset),
         .OP_GET_LOCAL => simpleInstruction(instruction, offset),
         .OP_SET_LOCAL => simpleInstruction(instruction, offset),
         .OP_GET_GLOBAL => simpleInstruction(instruction, offset),
+        
+        .OP_CONSTANT,
         .OP_DEFINE_GLOBAL => {
             return try constantInstruction(instruction, chunk, offset);
         },
