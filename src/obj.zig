@@ -743,14 +743,20 @@ pub const ObjTypeDef = struct {
     // Compare two type definitions
     pub fn eql(self: *Self, other: *Self) bool {
         // TODO: if we ever put typedef in a set somewhere we could replace all this witha pointer comparison
-        return self.optional == other.optional
-            and self.def_type == other.def_type
-            and ((self.resolved_type == null and other.resolved_type == null)
-                or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
+        return (self.optional and other.def_type == .Void) // Void is equal to any optional type
+            or (self.optional == other.optional
+                and self.def_type == other.def_type
+                and ((self.resolved_type == null and other.resolved_type == null)
+                    or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?)));
     }
 
     // Compare value type to this type definition
     pub fn is(self: *Self, value: Value) bool {
+        // Null is any optional type
+        if (self.optional and @as(ValueType, value) == .Null) {
+            return true;
+        }
+
         return switch (self.def_type) {
             Bool => value == .Bool,
             Number => value == .Number,

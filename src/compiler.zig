@@ -18,6 +18,10 @@ const TokenType = _token.TokenType;
 const Scanner = @import("./scanner.zig").Scanner;
 const Value = _value.Value;
 
+const CompileError = error {
+    Unrecoverable
+};
+
 pub const FunctionType = enum {
     Function,
     Initializer,
@@ -129,7 +133,7 @@ pub const Compiler = struct {
         Primary, // literal, (grouped expression), super.ref, identifier
     };
 
-    const ParseFn = fn (*Compiler, bool, *ObjTypeDef) anyerror!void;
+    const ParseFn = fn (*Compiler, bool) anyerror!*ObjTypeDef;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
@@ -276,6 +280,21 @@ pub const Compiler = struct {
         self.errorAt(&self.parser.current_token.?, message);
     }
 
+    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef) !void {
+        var expected_str: []const u8 = try expected_type.toString(self.vm.allocator);
+        var actual_str: []const u8 = try actual_type.toString(self.vm.allocator);
+        var error_message: []u8 = try self.vm.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
+        defer {
+            self.vm.allocator.free(error_message);
+            self.vm.allocator.free(expected_str);
+            self.vm.allocator.free(actual_str);
+        }
+
+        error_message = try std.fmt.bufPrint(error_message, "Expected type `{s}`, got `{s}`", .{ expected_str, actual_str });
+
+        self.reportError(error_message);
+    }
+
     fn advance(self: *Self) !void {
         self.parser.previous_token = self.parser.current_token;
 
@@ -388,38 +407,46 @@ pub const Compiler = struct {
         return rules[@enumToInt(token)];
     }
 
-    fn parsePrecedence(self: *Self, precedence: Precedence, expected_type: *ObjTypeDef) !void {
+    fn parsePrecedence(self: *Self, precedence: Precedence) !*ObjTypeDef {
         _ = try self.advance();
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
             self.reportError("Expect expression");
-            return;
+
+            // TODO: find a way to continue until synchronize
+            return CompileError.Unrecoverable;
         }
 
         var canAssign: bool = @enumToInt(precedence) <= @enumToInt(Precedence.Assignment);
-        try prefixRule.?(self, canAssign, expected_type);
+        var parsed_type: *ObjTypeDef = try prefixRule.?(self, canAssign);
 
         while (@enumToInt(precedence) <= @enumToInt(getRule(self.parser.current_token.?.token_type).precedence)) {
             _ = try self.advance();
             var infixRule: ParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
-            try infixRule(self, canAssign, expected_type);
+            parsed_type = try infixRule(self, canAssign);
         }
 
         if (canAssign and (try self.match(.Equal))) {
             self.reportError("Invalid assignment target.");
         }
+
+        return parsed_type;
     }
 
-    fn expression(self: *Self, expected_type: *ObjTypeDef) !void {
-        try self.parsePrecedence(.Assignment, expected_type);
+    fn expression(self: *Self) !*ObjTypeDef {
+        return try self.parsePrecedence(.Assignment);
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
         var constant: u8 = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
-            try self.expression(var_type);
+            var expr_type: *ObjTypeDef = try self.expression();
+
+            if (!var_type.eql(expr_type)) {
+                try self.reportTypeCheck(var_type, expr_type);
+            }
         } else {
             try self.emitOpCode(.OP_NULL);
         }
@@ -435,39 +462,49 @@ pub const Compiler = struct {
         try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_LOCAL), constant);
     }
 
-    fn unary(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+    fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var operator_type: TokenType = self.parser.previous_token.?.token_type;
         
-        try self.parsePrecedence(.Unary, expected_type);
+        var parsed_type: *ObjTypeDef = try self.parsePrecedence(.Unary);
 
         switch (operator_type) {
             .Bang => try self.emitOpCode(.OP_NOT),
             .Minus => try self.emitOpCode(.OP_NEGATE),
             else => {},
         }
+
+        return parsed_type;
     }
 
-    fn string(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
-        if (expected_type.def_type != .String) {
-            self.reportError("Expected type str.");
-        }
-
+    fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
         try self.emitConstant(Value {
             .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
         });
+
+        return try self.vm.getTypeDef(.{
+            .def_type = .String,
+            .optional = false,
+        });
     }
 
-    fn namedVariable(self: *Self, name: Token, can_assign: bool, expected_type: *ObjTypeDef) anyerror!void {
+    fn namedVariable(self: *Self, name: Token, can_assign: bool) anyerror!*ObjTypeDef {
         var get_op: OpCode = undefined;
         var set_op: OpCode = undefined;
 
-        var arg: ?usize = try self.resolveLocal(self.current.?, &name, expected_type);
-        if (arg != null) {
+        var var_def: *ObjTypeDef = undefined;
+
+        var arg: ?usize = try self.resolveLocal(self.current.?, &name);
+        if (arg) |resolved| {
+            // TODO: should resolveLocal return the local itself?
+            var_def = self.current.?.locals[resolved].type_def;
+
             get_op = .OP_GET_LOCAL;
             set_op = .OP_SET_LOCAL;
         } else {
-            arg = try self.resolveUpvalue(self.current.?, &name, expected_type);
-            if (arg != null) {
+            arg = try self.resolveUpvalue(self.current.?, &name);
+            if (arg) |resolved| {
+                var_def = self.current.?.locals[self.current.?.upvalues[resolved].index].type_def;
+
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
             } else {
@@ -477,67 +514,86 @@ pub const Compiler = struct {
 
                 self.reportError(error_str);
 
-                return;
+                return CompileError.Unrecoverable;
             }
         }
 
         if (can_assign and try self.match(.Equal)) {
-            try self.expression(expected_type);
+            var expr_type: *ObjTypeDef = try self.expression();
+
+            if (!expr_type.eql(var_def)) {
+                try self.reportTypeCheck(var_def, expr_type);
+            }
 
             try self.emitBytes(@enumToInt(set_op), @intCast(u8, arg.?));
         } else {
             try self.emitBytes(@enumToInt(get_op), @intCast(u8, arg.?));
         }
+
+        return var_def;
     }
 
-    fn variable(self: *Self, can_assign: bool, expected_type: *ObjTypeDef) anyerror!void {
-        try self.namedVariable(self.parser.previous_token.?, can_assign, expected_type);
+    fn variable(self: *Self, can_assign: bool) anyerror!*ObjTypeDef {
+        return try self.namedVariable(self.parser.previous_token.?, can_assign);
     }
 
-    fn grouping(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
-        try self.expression(expected_type);
+    fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        var parsed_type: *ObjTypeDef = try self.expression();
         try self.consume(.RightParen, "Expected ')' after expression.");
+
+        return parsed_type;
     }
 
-    fn literal(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
+    fn literal(self: *Self, _: bool) anyerror!*ObjTypeDef {
         switch (self.parser.previous_token.?.token_type) {
             .False => {
-                if (expected_type.def_type != .Bool) {
-                    self.reportError("Expected type bool.");
-                }
-
                 try self.emitOpCode(.OP_FALSE);
+
+                return try self.vm.getTypeDef(.{
+                    .def_type = .Bool,
+                    .optional = false,
+                });
             },
             .True => {
-                if (expected_type.def_type != .Bool) {
-                    self.reportError("Expected type bool.");
-                }
-
                 try self.emitOpCode(.OP_TRUE);
+
+                return try self.vm.getTypeDef(.{
+                    .def_type = .Bool,
+                    .optional = false,
+                });
             },
-            .Null => try self.emitOpCode(.OP_NULL),
-            else => return,
+            .Null => {
+                try self.emitOpCode(.OP_NULL);
+
+                return try self.vm.getTypeDef(.{
+                    .def_type = .Void,
+                    .optional = false,
+                });
+            },
+            else => unreachable,
         }
     }
 
-    fn number(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
-        if (expected_type.def_type != .Number) {
-            self.reportError("Expected type num.");
-        }
-
+    fn number(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var value: f64 = self.parser.previous_token.?.literal_number.?;
 
         try self.emitConstant(Value{ .Number = value });
+
+        return try self.vm.getTypeDef(.{
+            .def_type = .Number,
+            .optional = false,
+        });
     }
 
-    fn byte(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
-        if (expected_type.def_type != .Byte) {
-            self.reportError("Expected type num.");
-        }
-
+    fn byte(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var value: u8 = self.parser.previous_token.?.literal_byte.?;
 
         try self.emitConstant(Value{ .Byte = value });
+
+        return try self.vm.getTypeDef(.{
+            .def_type = .Byte,
+            .optional = false,
+        });
     }
 
     fn emitConstant(self: *Self, value: Value) !void {
@@ -562,26 +618,13 @@ pub const Compiler = struct {
         self.current.?.local_count += 1;
     }
 
-    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token, expected_type: *ObjTypeDef) !?usize {
+    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token) !?usize {
         var i: usize = compiler.local_count - 1;
         while (i >= 0) {
             var local: *Local = &compiler.locals[i];
             if (identifiersEqual(name, &local.name)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
-                }
-
-                if (!local.type_def.eql(expected_type)) {
-                    var local_type_str: []const u8 = try local.type_def.toString(self.vm.allocator);
-                    defer self.vm.allocator.free(local_type_str);
-                    var expected_type_str = try expected_type.toString(self.vm.allocator);
-                    defer self.vm.allocator.free(expected_type_str);
-                    var error_message: []u8 = try self.vm.allocator.alloc(u8, 1000);
-                    defer self.vm.allocator.free(error_message);
-
-                    error_message = try std.fmt.bufPrint(error_message, "Expected type `{s}` but local variable `{s}` is of type `{s}`.\x00", .{ expected_type_str, name.lexeme, local_type_str });
-
-                    self.reportError(error_message);
                 }
 
                 return i;
@@ -613,18 +656,18 @@ pub const Compiler = struct {
         unreachable;
     }
 
-    fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: *const Token, expected_type: *ObjTypeDef) anyerror!?usize {
+    fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: *const Token) anyerror!?usize {
         if (compiler.enclosing == null) {
             return null;
         }
 
-        var local: ?usize = try self.resolveLocal(compiler.enclosing.?, name, expected_type);
+        var local: ?usize = try self.resolveLocal(compiler.enclosing.?, name);
         if (local) |resolved| {
             compiler.enclosing.?.locals[resolved].is_captured = true;
             return addUpvalue(compiler, resolved, true);
         }
 
-        var upvalue: ?usize = try self.resolveUpvalue(compiler.enclosing.?, name, expected_type);
+        var upvalue: ?usize = try self.resolveUpvalue(compiler.enclosing.?, name);
         if (upvalue) |resolved| {
             return addUpvalue(compiler, resolved, false);
         }
