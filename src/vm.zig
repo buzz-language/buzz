@@ -5,6 +5,7 @@ const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
 const Value = _value.Value;
+const ValueType = _value.ValueType;
 const ObjClosure = _obj.ObjClosure;
 const ObjFunction = _obj.ObjFunction;
 const ObjUpValue = _obj.ObjUpValue;
@@ -41,7 +42,6 @@ pub const VM = struct {
     // TODO: put ta limit somewhere
     stack: [1000000]Value,
     stack_top: usize = 0,
-    globals: std.StringHashMap(Value),
     // Interned strings
     strings: std.StringHashMap(*ObjString),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
@@ -59,7 +59,6 @@ pub const VM = struct {
             .allocator = allocator,
             .stack = [_]Value { .{ .Null = null } } ** 1000000,
             .frames = std.ArrayList(CallFrame).init(allocator),
-            .globals = std.StringHashMap(Value).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .open_upvalues = std.ArrayList(*ObjUpValue).init(allocator),
@@ -71,7 +70,6 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.frames.deinit();
-        self.globals.deinit();
         self.strings.deinit();
 
         // TODO: key are strings on the heap so free them, does this work?
@@ -108,6 +106,10 @@ pub const VM = struct {
     pub fn pop(self: *Self) Value {
         self.stack_top -= 1;
         return self.stack[self.stack_top];
+    }
+
+    pub fn peek(self: *Self, distance: u32) Value {
+        return self.stack[self.stack_top - 1 - distance];
     }
 
     pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {
@@ -147,19 +149,58 @@ pub const VM = struct {
         return opcode;
     }
 
+    inline fn readConstant(frame: *CallFrame) Value {
+        return frame.closure.function.chunk.constants.items[readByte(frame)];
+    }
+
+    inline fn readString(frame: *CallFrame) *ObjString {
+        return ObjString.cast(readConstant(frame).Obj);
+    }
+
     fn run(self: *Self) !InterpretResult {
         var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
 
-        // while (true) {
-        //     var instruction: OpCode = readOpCode(frame);
-        //     switch(instruction) {
-        //         .OP_NULL => self.push(Value { .Null = null }),
-        //         .OP_TRUE => self.push(Value { .Boolean = true }),
-        //         .OP_FALSE => self.push(Value { .Boolean = false }),
-        //         .OP_POP => _ = self.pop(),
-        //         else => std.debug.warn("{} not implemented yet\n", .{ instruction })
-        //     }
-        // }
+        while (true) {
+            var instruction: OpCode = readOpCode(frame);
+            switch(instruction) {
+                .OP_NULL         => self.push(Value { .Null = null }),
+                .OP_TRUE         => self.push(Value { .Boolean = true }),
+                .OP_FALSE        => self.push(Value { .Boolean = false }),
+                .OP_POP          => _ = self.pop(),
+                .OP_NOT          => self.push(Value { .Boolean = isFalse(self.pop()) }),
+                .OP_DEFINE_LOCAL => frame.slots[readByte(frame)] = self.pop(),
+                .OP_GET_LOCAL    => self.push(frame.slots[readByte(frame)]),
+                .OP_SET_LOCAL    => frame.slots[readByte(frame)] = self.peek(0),
+                .OP_GET_UPVALUE  => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
+                .OP_SET_UPVALUE  => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
+                .OP_CONSTANT     => self.push(readConstant(frame)),
+                .OP_NEGATE       => {
+                    if (@as(ValueType, self.peek(0)) != .Number) {
+                        runtimeError("Operand must be a number.");
+
+                        return .RuntimeError;
+                    }
+
+                    self.push(Value{ .Number = -self.pop().Number });
+                },
+
+                // TODO: for now, used to debug
+                .OP_RETURN => {
+                    var value: []const u8 = try _value.valueToString(std.heap.c_allocator, self.pop());
+                    defer std.heap.c_allocator.free(value);
+
+                    std.debug.warn("\nReturned with: {s}\n", .{ value });
+
+                    std.os.exit(1);
+                },
+
+                else => {
+                    std.debug.warn("{} not yet implemented\n", .{ instruction });
+
+                    std.os.exit(1);
+                }
+            }
+        }
 
         try disassembler.disassembleChunk(&frame.closure.function.chunk, frame.closure.function.name.string);
 
@@ -182,5 +223,20 @@ pub const VM = struct {
         });
 
         return true;
+    }
+
+    fn isFalse(value: Value) bool {
+        if (@as(ValueType, value) != .Boolean) {
+            runtimeError("Expected boolean but got ...");
+        }
+
+        return value.Boolean == false;
+    }
+
+    fn runtimeError(error_message: []const u8) void {
+        // TODO
+        std.debug.warn("\u{001b}[31m{s}\u{001b}[0m\n", .{ error_message });
+
+        std.os.exit(1);
     }
 };

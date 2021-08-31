@@ -439,7 +439,7 @@ pub const Compiler = struct {
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
-        var constant: u8 = try self.parseVariable(var_type, "Expected variable name.");
+        var slot: usize = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             var expr_type: *ObjTypeDef = try self.expression();
@@ -453,13 +453,13 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineVariable(constant);
+        try self.defineVariable(slot);
     }
 
-    fn defineVariable(self: *Self, constant: u8) !void {
+    fn defineVariable(self: *Self, slot: usize) !void {
         self.markInitialized();
 
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_LOCAL), constant);
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_LOCAL), @intCast(u8, slot));
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
@@ -602,10 +602,10 @@ pub const Compiler = struct {
 
     // LOCALS
 
-    fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef) !void {
+    fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef) !usize {
         if (self.current.?.local_count == 255) {
             self.reportError("Too many local variables in scope.");
-            return;
+            return 0;
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
@@ -616,6 +616,8 @@ pub const Compiler = struct {
         };
 
         self.current.?.local_count += 1;
+
+        return self.current.?.local_count - 1;
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token) !?usize {
@@ -685,19 +687,17 @@ pub const Compiler = struct {
 
     // VARIABLES
 
-    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, error_message: []const u8) !u8 {
+    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, error_message: []const u8) !usize {
         try self.consume(.Identifier, error_message);
 
-        try self.declareVariable(variable_type);
-
-        return try self.identifierConstant(&self.parser.previous_token.?);
+        return try self.declareVariable(variable_type);
     }
 
     inline fn markInitialized(self: *Self) void {
         self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
     }
 
-    fn declareVariable(self: *Self, variable_type: *ObjTypeDef) !void {
+    fn declareVariable(self: *Self, variable_type: *ObjTypeDef) !usize {
         var name: *Token = &self.parser.previous_token.?;
 
         // Check a local with the same name doesn't exists
@@ -716,7 +716,7 @@ pub const Compiler = struct {
             if (i > 0) i -= 1 else break;
         }
 
-        try self.addLocal(name.*, variable_type);
+        return try self.addLocal(name.*, variable_type);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
