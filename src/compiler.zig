@@ -459,7 +459,7 @@ pub const Compiler = struct {
     fn defineVariable(self: *Self, slot: usize) !void {
         self.markInitialized();
 
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_LOCAL), @intCast(u8, slot));
+        try self.emitBytes(@enumToInt(OpCode.OP_SET_LOCAL), @intCast(u8, slot));
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {

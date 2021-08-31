@@ -168,7 +168,6 @@ pub const VM = struct {
                 .OP_FALSE        => self.push(Value { .Boolean = false }),
                 .OP_POP          => _ = self.pop(),
                 .OP_NOT          => self.push(Value { .Boolean = isFalse(self.pop()) }),
-                .OP_DEFINE_LOCAL => frame.slots[readByte(frame)] = self.pop(),
                 .OP_GET_LOCAL    => self.push(frame.slots[readByte(frame)]),
                 .OP_SET_LOCAL    => frame.slots[readByte(frame)] = self.peek(0),
                 .OP_GET_UPVALUE  => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),

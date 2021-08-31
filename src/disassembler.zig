@@ -70,7 +70,6 @@ fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_UPVALUE,
         .OP_SET_UPVALUE => byteInstruction(instruction, chunk, offset),
         
-        .OP_DEFINE_LOCAL,
         .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
 
         .OP_GET_PROPERTY => simpleInstruction(instruction, offset),

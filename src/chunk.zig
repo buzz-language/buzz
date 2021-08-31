@@ -13,7 +13,6 @@ pub const OpCode = enum(u8) {
     OP_FALSE,
     OP_POP,
     
-    OP_DEFINE_LOCAL,
     OP_GET_LOCAL,
     OP_SET_LOCAL,
     OP_GET_UPVALUE,
