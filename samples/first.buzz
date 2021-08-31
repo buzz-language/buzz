@@ -10,3 +10,7 @@ bool notMe = !true;
 | bool reportMe = !false;
 str bye = hello;
 | byte reportMe = hello;
+
+fun sayHello(str name, num age) {
+    num death = age;
+}

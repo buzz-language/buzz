@@ -46,7 +46,7 @@ pub const VM = struct {
     strings: std.StringHashMap(*ObjString),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
     type_defs: std.StringHashMap(*ObjTypeDef),
-    open_upvalues: std.ArrayList(*ObjUpValue),
+    open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
     next_gc: usize = 1024 * 1024,
@@ -61,7 +61,7 @@ pub const VM = struct {
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
-            .open_upvalues = std.ArrayList(*ObjUpValue).init(allocator),
+            .open_upvalues = null,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
 
@@ -79,7 +79,13 @@ pub const VM = struct {
         }
 
         self.type_defs.deinit();
-        self.open_upvalues.deinit();
+        
+        while (self.open_upvalues) |upvalue| {
+            self.open_upvalues = upvalue.next;
+
+            self.allocator.destroy(upvalue);
+        }
+
         self.gray_stack.deinit();
     }
 
@@ -160,6 +166,11 @@ pub const VM = struct {
     fn run(self: *Self) !InterpretResult {
         var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
 
+        try disassembler.disassembleChunk(
+            &frame.closure.function.chunk,
+            frame.closure.function.name.string
+        );
+
         while (true) {
             var instruction: OpCode = readOpCode(frame);
             switch(instruction) {
@@ -181,6 +192,24 @@ pub const VM = struct {
                     }
 
                     self.push(Value{ .Number = -self.pop().Number });
+                },
+                .OP_CLOSURE      => {
+                    var function: *ObjFunction = ObjFunction.cast(readConstant(frame).Obj).?;
+                    var closure: *ObjClosure = ObjClosure.cast(try _obj.allocateObject(self, .Closure)).?;
+                    closure.* = try ObjClosure.init(self.allocator, function);
+
+                    self.push(Value{ .Obj = closure.toObj() });
+
+                    for (closure.upvalues.items) |_, i| {
+                        var is_local: bool = readByte(frame) == 1;
+                        var index: u8 = readByte(frame);
+
+                        if (is_local) {
+                            closure.upvalues.items[i] = try self.captureUpvalue(&(frame.slots + index)[0]);
+                        } else {
+                            closure.upvalues.items[i] = frame.closure.upvalues.items[index];
+                        }
+                    }
                 },
 
                 // TODO: for now, used to debug
@@ -220,6 +249,31 @@ pub const VM = struct {
         });
 
         return true;
+    }
+
+    fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
+        var prev_upvalue: ?*ObjUpValue = null;
+        var upvalue: ?*ObjUpValue = self.open_upvalues;
+        while (upvalue != null and @ptrToInt(upvalue.?.location) > @ptrToInt(local)) {
+            prev_upvalue = upvalue;
+            upvalue = upvalue.?.next;
+        }
+
+        if (upvalue != null and upvalue.?.location == local) {
+            return upvalue.?;
+        }
+
+        var created_upvalue: *ObjUpValue = ObjUpValue.cast(try _obj.allocateObject(self, .UpValue)).?;
+        created_upvalue.* = ObjUpValue.init(local);
+        created_upvalue.next = upvalue;
+
+        if (prev_upvalue) |uprev_upvalue| {
+            uprev_upvalue.next = created_upvalue;
+        } else {
+            self.open_upvalues = created_upvalue;
+        }
+
+        return created_upvalue;
     }
 
     fn isFalse(value: Value) bool {

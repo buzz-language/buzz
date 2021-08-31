@@ -245,8 +245,16 @@ pub const ObjUpValue = struct {
 
     /// Slot on the stack
     location: *Value,
-    closed: ?Value = null,
+    closed: ?Value,
     next: ?*ObjUpValue = null,
+
+    pub fn init(slot: *Value) Self {
+        return Self {
+            .closed = null,
+            .location = slot,
+            .next = null
+        };
+    } 
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -275,7 +283,7 @@ pub const ObjClosure = struct {
     pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {
         return Self {
             .function = function,
-            .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upValueCount),
+            .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
     }
 
@@ -308,7 +316,7 @@ pub const ObjFunction = struct {
     parameters: StringHashMap(*ObjTypeDef),
     return_type: *ObjTypeDef,
     chunk: Chunk,
-    upValueCount: u8 = 0,
+    upvalue_count: u8 = 0,
 
     pub fn init(allocator: *Allocator, name: *ObjString, return_type: *ObjTypeDef) !Self {
         return Self {
@@ -587,6 +595,20 @@ pub const ObjTypeDef = struct {
         Void,
     };
 
+    pub const ListDef = struct {
+        item_type: *ObjTypeDef,
+    };
+
+    pub const MapDef = struct {
+        key_type: *ObjTypeDef,
+        value_type: *ObjTypeDef,
+    };
+
+    pub const FunctionDef = struct {
+        return_type: *ObjTypeDef,
+        parameters: StringHashMap(*ObjTypeDef),
+    };
+
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
         Bool: bool,
@@ -601,10 +623,10 @@ pub const ObjTypeDef = struct {
         Object: *ObjObject,
         Enum: *ObjEnum,
 
-        // For those we compare definitions, so we own those structs
-        List: ObjList,
-        Map: ObjMap,
-        Function: ObjFunction,
+        // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
+        List: ListDef,
+        Map: MapDef,
+        Function: FunctionDef,
     };
 
     obj: Obj = .{

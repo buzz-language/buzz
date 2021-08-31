@@ -13,6 +13,8 @@ const OpCode = _chunk.OpCode;
 const ObjFunction = _obj.ObjFunction;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
+const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = @import("./scanner.zig").Scanner;
@@ -72,7 +74,7 @@ pub const ChunkCompiler = struct {
             try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
         else
             file_name_string orelse try _obj.copyString(compiler.vm, VM.script_string),
-        // TODO: figure out from where we can get the return_type and parameters
+
         try compiler.vm.getTypeDef(.{
             .def_type = .Void,
             .optional = false,
@@ -341,6 +343,27 @@ pub const Compiler = struct {
         return function;
     }
 
+    inline fn beginScope(self: *Self) void {
+        self.current.?.scope_depth += 1;
+    }
+
+    fn endScope(self: *Self) void {
+        var current: *ChunkCompiler = self.current.?;
+
+        current.scope_depth -= 1;
+
+        while (current.local_count > 0
+            and current.locals[current.local_count - 1].depth > current.scope_depth) {
+            if (current.locals[current.local_count - 1].is_captured) {
+                try self.emitOpCode(.OP_CLOSE_UPVALUE);
+            } else {
+                try self.emitOpCode(.OP_POP);
+            }
+
+            current.local_count -= 1;
+        }
+    }
+
     // BYTE EMITTING
 
     inline fn emitOpCode(self: *Self, code: OpCode) !void {
@@ -377,7 +400,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
         } else if (try self.match(.Fun)) {
-            // self.funDeclaration();
+            try self.funDeclaration();
         } else if (try self.match(.Str)) {
             try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }));
         } else if (try self.match(.Num)) {
@@ -400,6 +423,80 @@ pub const Compiler = struct {
             }
         } else {
             // self.statement();
+        }
+    }
+
+    fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
+        if (try self.match(.Str)) {
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .String
+            });
+        } else if (try self.match(.Num)) {
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Number
+            });
+        } else if (try self.match(.Byte)) {
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Byte
+            });
+        } else if (try self.match(.Bool)) {
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Bool
+            });
+        } else if (try self.match(.Type)) {
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Type
+            });
+        } else if (try self.match(.LeftBracket)) {
+            var item_type: *ObjTypeDef = try self.parseTypeDef();
+
+            try self.consume(.RightBracket, "Expected `]` to end list type.");
+
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .List,
+                .resolved_type = ObjTypeDef.TypeUnion{
+                    .List = ObjTypeDef.ListDef {
+                        .item_type = item_type
+                    }
+                }
+            });
+        } else if (try self.match(.LeftBrace)) {
+            var key_type: *ObjTypeDef = try self.parseTypeDef();
+
+            try self.consume(.Comma, "Expected `,` after map key type.");
+
+            var value_type: *ObjTypeDef = try self.parseTypeDef();
+
+            try self.consume(.RightBrace, "Expected `}}` to end map type.");
+
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .List,
+                .resolved_type = ObjTypeDef.TypeUnion{
+                    .Map = ObjTypeDef.MapDef {
+                        .key_type = key_type,
+                        .value_type = value_type,
+                    }
+                }
+            });
+        } else if (try self.match(.Function)) {
+            unreachable;
+        } else if ((try self.match(.Identifier))) {
+            // TODO: here search for a local with that name end check it's a class/object/enum
+            unreachable;
+        } else {
+            self.reportErrorAtCurrent("Expected type definition.");
+
+            return try self.vm.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Void
+            });
         }
     }
 
@@ -436,6 +533,106 @@ pub const Compiler = struct {
 
     fn expression(self: *Self) !*ObjTypeDef {
         return try self.parsePrecedence(.Assignment);
+    }
+
+    fn block(self: *Self) anyerror!void {
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            try self.declaration();
+        }
+
+        try self.consume(.RightBrace, "Expected `}}` after block.");
+    }
+
+    fn function(self: *Self, function_type: FunctionType) !*ObjTypeDef {
+        var compiler: ChunkCompiler = try ChunkCompiler.init(self, function_type, null);
+        self.beginScope();
+
+        try self.consume(.LeftParen, "Expected `(` after function name.");
+
+        var parameters = StringHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var arity: usize = 0;
+        if (!self.check(.RightParen)) {
+            while (true) {
+                arity += 1;
+                if (arity > 255) {
+                    self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                }
+
+                var param_type: *ObjTypeDef = try self.parseTypeDef();
+                var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
+
+                var local: Local = self.current.?.locals[slot];
+                try parameters.put(local.name, local.type_def);
+
+                try self.defineVariable(slot);
+
+                if (!try self.match(.Comma)) break;
+            }
+        }
+
+        try self.consume(.RightParen, "Expected `)` after function parameters.");
+        
+        var return_type: *ObjTypeDef = undefined;
+        if (self.check(.Greater)) {
+            return_type = try self.parseTypeDef();
+        } else {
+            return_type = try self.vm.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Void
+                }
+            );
+        }
+
+        try self.consume(.LeftBrace, "Expected `{{` before function body.");
+        try self.block();
+
+        var new_function: *ObjFunction = try self.endCompiler();
+
+        if (return_type) |ureturn_type|  {
+            new_function.return_type = ureturn_type;
+        } 
+
+        try self.emitBytes(@enumToInt(OpCode.OP_CLOSURE), try self.makeConstant(Value { .Obj = new_function.toObj() }));
+
+        var i: usize = 0;
+        while (i < new_function.upvalue_count) : (i += 1) {
+            try self.emitByte(if (compiler.upvalues[i].is_local) 1 else 0);
+            try self.emitByte(compiler.upvalues[i].index);
+        }
+
+        return try self.vm.getTypeDef(.{
+            .optional = false,
+            .def_type = .Function,
+            .resolved_type = .{
+                .Function = ObjTypeDef.FunctionDef{
+                    .return_type = return_type,
+                    .parameters = parameters,
+                }
+            }
+        });
+    }
+
+    fn funDeclaration(self: *Self) !void {
+        var slot: usize = try self.parseVariable(
+            try self.vm.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Function
+                }
+            ),
+            "Expected function name."
+        );
+
+        try self.consume(.Identifier, "Expected function name.");
+        var name_token: Token = self.parser.previous_token.?;
+
+        self.markInitialized();
+
+        var function_def: *ObjTypeDef = try self.function(FunctionType.Function);
+
+        var slot: usize = try self.declareVariable(function_def, name_token);
+        try self.defineVariable(slot);
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
@@ -622,7 +819,7 @@ pub const Compiler = struct {
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token) !?usize {
         var i: usize = compiler.local_count - 1;
-        while (i >= 0) {
+        while (i >= 0) : (i -= 1) {
             var local: *Local = &compiler.locals[i];
             if (identifiersEqual(name, &local.name)) {
                 if (local.depth == -1) {
@@ -632,27 +829,21 @@ pub const Compiler = struct {
                 return i;
             }
 
-            if (i == 0) {
-                break;
-            }
-
-            i -= 1;
+            if (i == 0) break;
         }
 
         return null;
     }
 
     fn addUpvalue(compiler: *ChunkCompiler, index: usize, is_local: bool) usize {
-        var upvalue_count: u8 = compiler.function.upValueCount;
+        var upvalue_count: u8 = compiler.function.upvalue_count;
 
         var i: usize = 0;
-        while (i < upvalue_count) {
+        while (i < upvalue_count) : (i += 1) {
             var upvalue: *UpValue = &compiler.upvalues[i];
             if (upvalue.index == index and upvalue.is_local == is_local) {
                 return i;
             }
-
-            i += 1;
         }
 
         unreachable;
@@ -677,7 +868,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn identifiersEqual(a: *const Token, b: *const Token) bool {
+    fn identifiersEqual(a: Token, b: Token) bool {
         if (a.lexeme.len != b.lexeme.len) {
             return false;
         }
@@ -690,33 +881,33 @@ pub const Compiler = struct {
     fn parseVariable(self: *Self, variable_type: *ObjTypeDef, error_message: []const u8) !usize {
         try self.consume(.Identifier, error_message);
 
-        return try self.declareVariable(variable_type);
+        return try self.declareVariable(variable_type, null);
     }
 
     inline fn markInitialized(self: *Self) void {
         self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
     }
 
-    fn declareVariable(self: *Self, variable_type: *ObjTypeDef) !usize {
-        var name: *Token = &self.parser.previous_token.?;
+    fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token) !usize {
+        var name: Token = name_token orelse self.parser.previous_token.?;
 
         // Check a local with the same name doesn't exists
         var i: usize = self.current.?.locals.len - 1;
-        while (i >= 0) {
+        while (i >= 0) : (i -= 1) {
             var local: *Local = &self.current.?.locals[i];
 
             if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
                 break;
             }
 
-            if (identifiersEqual(name, &local.name)) {
+            if (identifiersEqual(name, local.name)) {
                 self.reportError("A variable with the same name already exists in this scope.");
             }
 
-            if (i > 0) i -= 1 else break;
+            if (i == 0) break;
         }
 
-        return try self.addLocal(name.*, variable_type);
+        return try self.addLocal(name, variable_type);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
