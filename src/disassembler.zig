@@ -15,14 +15,14 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
 }
 
 inline fn simpleInstruction(code: OpCode, offset: usize) usize {
-    print("{} ", .{ code });
+    print("{}\t", .{ code });
 
     return offset + 1;
 }
 
 fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     var slot: u8 = chunk.code.items[offset + 1];
-    print("{} {}", .{ code, slot });
+    print("{}\t{}", .{ code, slot });
     return offset + 2;
 }
 
@@ -31,18 +31,18 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
 
-    print("{s} {} {s}", .{ code, constant, value_str });
+    print("{}\t{} {s}", .{ code, constant, value_str });
 
     return offset + 2;
 }
 
 fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
-    print("\n{} ", .{ offset });
+    print("\n{:0>3} ", .{ offset });
 
     if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset -1]) {
-        print("| ", .{});
+        print("|   ", .{});
     } else {
-        print("{} ", .{ chunk.lines.items[offset] });
+        print("{:0>3} ", .{ chunk.lines.items[offset] });
     }
 
     const instruction: OpCode = @intToEnum(OpCode, chunk.code.items[offset]);
