@@ -201,8 +201,6 @@ pub const VM = struct {
             }
         }
 
-        try disassembler.disassembleChunk(&frame.closure.function.chunk, frame.closure.function.name.string);
-
         return InterpretResult.Ok;
     }
 

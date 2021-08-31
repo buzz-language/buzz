@@ -2,6 +2,8 @@ const std = @import("std");
 const print = std.debug.print;
 const _chunk = @import("./chunk.zig");
 const _value = @import("./value.zig");
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
 const Chunk = _chunk.Chunk;
 const OpCode = _chunk.OpCode;
 
@@ -36,7 +38,23 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     return offset + 2;
 }
 
-fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
+pub fn dumpStack(vm: *VM) !void {
+    print(" [ ", .{});
+
+    var i: usize = 0;
+    while (i < vm.stack_top) {
+        var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, vm.stack[i]);
+        defer std.heap.c_allocator.free(value_str);
+
+        print("{s} | ", .{ value_str });
+
+        i += 1;
+    }
+
+    print(" ]\n", .{});
+}
+
+pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     print("\n{:0>3} ", .{ offset });
 
     if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset -1]) {
