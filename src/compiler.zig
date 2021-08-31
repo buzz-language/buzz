@@ -416,9 +416,7 @@ pub const Compiler = struct {
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
-        // var var_type: TokenType = self.parser.previous_token;
-
-        var global: u8 = try self.parseVariable(var_type, "Expected variable name.");
+        var constant: u8 = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             try self.expression(var_type);
@@ -428,7 +426,13 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineVariable(global);
+        try self.defineVariable(constant);
+    }
+
+    fn defineVariable(self: *Self, constant: u8) !void {
+        self.markInitialized();
+
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_LOCAL), constant);
     }
 
     fn unary(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!void {
@@ -467,9 +471,13 @@ pub const Compiler = struct {
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
             } else {
-                arg  = try self.identifierConstant(&name);
-                get_op = .OP_GET_GLOBAL;
-                set_op = .OP_SET_GLOBAL;
+                var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
+                defer self.vm.allocator.free(error_str);
+                error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
+
+                self.reportError(error_str);
+
+                return;
             }
         }
 
@@ -550,10 +558,12 @@ pub const Compiler = struct {
             .is_captured = false,
             .type_def = local_type,
         };
+
+        self.current.?.local_count += 1;
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token, expected_type: *ObjTypeDef) !?usize {
-        var i: usize = compiler.local_count;
+        var i: usize = compiler.local_count - 1;
         while (i >= 0) {
             var local: *Local = &compiler.locals[i];
             if (identifiersEqual(name, &local.name)) {
@@ -569,7 +579,7 @@ pub const Compiler = struct {
                     var error_message: []u8 = try self.vm.allocator.alloc(u8, 1000);
                     defer self.vm.allocator.free(error_message);
 
-                    _ = try std.fmt.bufPrint(error_message, "Expected local variable of type {s}, got {s}", .{ expected_type_str, local_type_str });
+                    error_message = try std.fmt.bufPrint(error_message, "Expected type `{s}` but local variable `{s}` is of type `{s}`.\x00", .{ expected_type_str, name.lexeme, local_type_str });
 
                     self.reportError(error_message);
                 }
@@ -580,6 +590,8 @@ pub const Compiler = struct {
             if (i == 0) {
                 break;
             }
+
+            i -= 1;
         }
 
         return null;
@@ -635,35 +647,14 @@ pub const Compiler = struct {
 
         try self.declareVariable(variable_type);
 
-        if (self.current.?.scope_depth > 0) {
-            return 0;
-        }
-
         return try self.identifierConstant(&self.parser.previous_token.?);
     }
 
-    fn markInitialized(self: *Self) void {
-        if (self.current.?.scope_depth == 0) {
-            return;
-        }
-
+    inline fn markInitialized(self: *Self) void {
         self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
     }
 
-    fn defineVariable(self: *Self, global: u8) !void {
-        if (self.current.?.scope_depth > 0) {
-            self.markInitialized();
-            return;
-        }
-
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), global);
-    }
-
     fn declareVariable(self: *Self, variable_type: *ObjTypeDef) !void {
-        if (self.current.?.scope_depth == 0) {
-            return;
-        }
-
         var name: *Token = &self.parser.previous_token.?;
 
         // Check a local with the same name doesn't exists

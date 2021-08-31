@@ -678,7 +678,7 @@ pub const ObjTypeDef = struct {
                 }
             },
             .Type => try type_str.appendSlice("type"),
-            else => {},
+            .Void => try type_str.appendSlice("void"),
         }
 
         return type_str.items;

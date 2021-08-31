@@ -160,3 +160,15 @@ test "Where can i omit struct name ?" {
 
     std.debug.warn("array[0] {}\n", .{array[0]});
 }
+
+test "StringHashMap wat?" {
+    var map = std.StringArrayHashMap(bool).init(std.heap.c_allocator);
+    defer map.deinit();
+
+    try map.put("hello", true);
+
+    var hello = try std.heap.c_allocator.alloc(u8, 5);
+    _ = try std.fmt.bufPrint(hello, "hello", .{});
+
+    std.debug.warn("hello? {}\n", .{ map.get(hello) });
+}

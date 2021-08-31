@@ -73,6 +73,13 @@ pub const VM = struct {
         self.frames.deinit();
         self.globals.deinit();
         self.strings.deinit();
+
+        // TODO: key are strings on the heap so free them, does this work?
+        var it = self.type_defs.iterator();
+        while (it.next()) |kv| {
+            self.allocator.free(kv.key_ptr.*);
+        }
+
         self.type_defs.deinit();
         self.open_upvalues.deinit();
         self.gray_stack.deinit();
@@ -80,7 +87,6 @@ pub const VM = struct {
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         var type_def_str: []const u8 = try type_def.toString(self.allocator);
-        defer self.allocator.free(type_def_str);
 
         if (self.type_defs.get(type_def_str)) |type_def_ptr| {
             return type_def_ptr;

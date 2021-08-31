@@ -8,3 +8,4 @@ num group = (12);
 bool notMe = !true;
 | bool reportMe = !false;
 str bye = hello;
+| byte reportMe = hello;
