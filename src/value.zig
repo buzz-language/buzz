@@ -45,9 +45,9 @@ pub fn valueToString(allocator: *Allocator, value: Value) anyerror![]const u8 {
     var buf: []u8 = try allocator.alloc(u8, 1000);
 
     return switch (value) {
-        .Boolean => try std.fmt.bufPrint(buf, "bool {}", .{ value.Boolean }),
-        .Number => try std.fmt.bufPrint(buf, "num {}", .{ value.Number }),
-        .Byte => try std.fmt.bufPrint(buf, "byte {x}", .{ value.Byte }),
+        .Boolean => try std.fmt.bufPrint(buf, "bool: {}", .{ value.Boolean }),
+        .Number => try std.fmt.bufPrint(buf, "num: {}", .{ value.Number }),
+        .Byte => try std.fmt.bufPrint(buf, "byte: 0x{x}", .{ value.Byte }),
         .Null => try std.fmt.bufPrint(buf, "null", .{}),
 
         .Obj => try objToString(allocator, buf, value.Obj),

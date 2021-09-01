@@ -172,3 +172,9 @@ test "StringHashMap wat?" {
 
     std.debug.warn("hello? {}\n", .{ map.get(hello) });
 }
+
+test "Print a pointer" {
+    var i: usize = 12;
+
+    std.debug.warn("\n0x{x}\n", .{ @ptrToInt(&i) });
+}

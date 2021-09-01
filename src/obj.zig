@@ -925,45 +925,46 @@ pub const ObjTypeDef = struct {
 
 pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
     return switch (obj.obj_type) {
-        .String => try std.fmt.bufPrint(buf, "str \"{s}\"", .{ ObjString.cast(obj).?.string }),
+        .String => try std.fmt.bufPrint(buf, "str: \"{s}\"", .{ ObjString.cast(obj).?.string }),
         .Type => {
             // TODO: no use for typedef.toString to allocate a buffer
-            var type_str: []const u8 = try ObjTypeDef.cast(obj).?.toString(allocator);
+            var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?; 
+            var type_str: []const u8 = try type_def.toString(allocator);
             defer allocator.free(type_str);
 
-            return try std.fmt.bufPrint(buf, "type {s}", .{ type_str });
+            return try std.fmt.bufPrint(buf, "type: 0x{x} `{s}`", .{ @ptrToInt(type_def), type_str });
         },
         .UpValue => {
             var upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
             var upvalue_str: []const u8 = try _value.valueToString(allocator, upvalue.closed orelse upvalue.location.*);
             defer allocator.free(upvalue_str);
 
-            return try std.fmt.bufPrint(buf, "UpValue({s})", .{ upvalue_str });
+            return try std.fmt.bufPrint(buf, "upvalue: 0x{x} `{s}`", .{ @ptrToInt(upvalue), upvalue_str });
         },
-        .Closure => try std.fmt.bufPrint(buf, "Closure({s})", .{ ObjClosure.cast(obj).?.function.name.string }),
-        .Function => try std.fmt.bufPrint(buf, "Function({s})", .{ ObjFunction.cast(obj).?.name.string }),
-        .ClassInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjClassInstance.cast(obj).?.class.name.string }),
-        .ObjectInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjObjectInstance.cast(obj).?.object.name.string }),
-        .Class => try std.fmt.bufPrint(buf, "Class({s})", .{ ObjClass.cast(obj).?.name.string }),
-        .Object => try std.fmt.bufPrint(buf, "Object({s})", .{ ObjObject.cast(obj).?.name.string }),
+        .Closure => try std.fmt.bufPrint(buf, "closure: 0x{x} `{s}`", .{ @ptrToInt(ObjClosure.cast(obj).?), ObjClosure.cast(obj).?.function.name.string }),
+        .Function => try std.fmt.bufPrint(buf, "function: 0x{x} `{s}`", .{ @ptrToInt(ObjFunction.cast(obj).?), ObjFunction.cast(obj).?.name.string }),
+        .ClassInstance => try std.fmt.bufPrint(buf, "class instance: 0x{x} `{s}`", .{ @ptrToInt(ObjClassInstance.cast(obj).?), ObjClassInstance.cast(obj).?.class.name.string }),
+        .ObjectInstance => try std.fmt.bufPrint(buf, "object instance: 0x{x} `{s}`", .{ @ptrToInt(ObjObjectInstance.cast(obj).?), ObjObjectInstance.cast(obj).?.object.name.string }),
+        .Class => try std.fmt.bufPrint(buf, "class: 0x{x}`{s}`", .{ @ptrToInt(ObjClass.cast(obj).?), ObjClass.cast(obj).?.name.string }),
+        .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{ @ptrToInt(ObjObject.cast(obj).?), ObjObject.cast(obj).?.name.string }),
         .List => {
             var list: *ObjList = ObjList.cast(obj).?;
             var type_str: []const u8 = try list.item_type.toString(allocator);
             defer allocator.free(type_str);
 
-            return try std.fmt.bufPrint(buf, "[{s}]", .{ type_str });
+            return try std.fmt.bufPrint(buf, "array: 0x{x} [{s}]", .{ @ptrToInt(list), type_str });
         },
         .Map => {
-            var list: *ObjMap = ObjMap.cast(obj).?;
-            var key_type_str: []const u8 = try list.key_type.toString(allocator);
+            var map: *ObjMap = ObjMap.cast(obj).?;
+            var key_type_str: []const u8 = try map.key_type.toString(allocator);
             defer allocator.free(key_type_str);
-            var value_type_str: []const u8 = try list.value_type.toString(allocator);
+            var value_type_str: []const u8 = try map.value_type.toString(allocator);
             defer allocator.free(value_type_str);
 
-            return try std.fmt.bufPrint(buf, "<{s}, {s}>", .{ key_type_str, value_type_str });
+            return try std.fmt.bufPrint(buf, "map: 0x{x} <{s}, {s}>", .{ @ptrToInt(map), key_type_str, value_type_str });
         },
-        .Enum => try std.fmt.bufPrint(buf, "Enum({s})", .{ ObjEnum.cast(obj).?.name.string }),
-        .EnumInstance => try std.fmt.bufPrint(buf, "instance of {s}", .{ ObjEnumInstance.cast(obj).?.enum_ref.name.string }),
+        .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
+        .EnumInstance => try std.fmt.bufPrint(buf, "enum instance: 0x{x} `{s}`", .{ @ptrToInt(ObjEnumInstance.cast(obj).?), ObjEnumInstance.cast(obj).?.enum_ref.name.string }),
         .Bound => {
             var bound: *ObjBound = ObjBound.cast(obj).?;
             var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);
@@ -971,7 +972,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
 
             var closure_name: []const u8 =  ObjClosure.cast(obj).?.function.name.string;
 
-            return try std.fmt.bufPrint(buf, "bound {s} to {s}", .{ receiver_str, closure_name });
+            return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
         },
     };
 }
