@@ -16,3 +16,6 @@ fun sayHello(str name, num age) {
 }
 
 sayHello("Hello world !");
+
+| sayHello("Hello world", age: 12);
+| sayHello(age: 12, name: "Hello world");

@@ -714,6 +714,13 @@ pub const Compiler = struct {
             }
         }
 
+        if (parameter_keys.len != arg_count) {
+            var arity: []u8 = try self.vm.allocator.alloc(u8, 100);
+            defer self.vm.allocator.free(arity);
+
+            self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
+        }
+
         try self.consume(.RightParen, "Expected `)` after arguments.");
         return arg_count;
     }
