@@ -212,6 +212,9 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Error
+
+        // TODO: remove
+        .{ .prefix = null,     .infix = null, .precedence = .None }, // Print
     };
 
     vm: *VM,
@@ -422,8 +425,22 @@ pub const Compiler = struct {
                 // TODO: instance declaration, needs to retrieve the *ObjTypeDef
             }
         } else {
-            // self.statement();
+            try self.statement();
         }
+    }
+
+    fn statement(self: *Self) !void {
+        // TODO: remove
+        if (try self.match(.Print)) {
+            try self.printStatement();
+        }
+    }
+
+    // TODO: remove
+    fn printStatement(self: *Self) !void {
+        _ = try self.expression();
+        try self.consume(.Semicolon, "Expected `;` after value.");
+        try self.emitOpCode(.OP_PRINT);
     }
 
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {

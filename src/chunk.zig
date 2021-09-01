@@ -57,6 +57,9 @@ pub const OpCode = enum(u8) {
     OP_INHERIT,
     OP_METHOD,
     OP_PROPERTY,
+
+    // TODO: remove
+    OP_PRINT,
 };
 
 /// A chunk of code to execute

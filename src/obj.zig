@@ -514,7 +514,7 @@ pub const ObjEnum = struct {
     enum_type: *ObjTypeDef,
     // Maybe a waste to have 255, but we don't define many enum and they are long lived
     cases: [255]Value,
-    map: std.StringHashMap(u8),
+    names: [255][]const u8,
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -925,7 +925,7 @@ pub const ObjTypeDef = struct {
 
 pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
     return switch (obj.obj_type) {
-        .String => try std.fmt.bufPrint(buf, "str: \"{s}\"", .{ ObjString.cast(obj).?.string }),
+        .String => try std.fmt.bufPrint(buf, "{s}", .{ ObjString.cast(obj).?.string }),
         .Type => {
             // TODO: no use for typedef.toString to allocate a buffer
             var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?; 
@@ -964,7 +964,11 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             return try std.fmt.bufPrint(buf, "map: 0x{x} <{s}, {s}>", .{ @ptrToInt(map), key_type_str, value_type_str });
         },
         .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
-        .EnumInstance => try std.fmt.bufPrint(buf, "enum instance: 0x{x} `{s}`", .{ @ptrToInt(ObjEnumInstance.cast(obj).?), ObjEnumInstance.cast(obj).?.enum_ref.name.string }),
+        .EnumInstance => enum_instance: {
+            var instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
+
+            break :enum_instance try std.fmt.bufPrint(buf, "{s}.{s}", .{ instance.enum_ref.name.string, instance.enum_ref.names[instance.case] });
+        },
         .Bound => {
             var bound: *ObjBound = ObjBound.cast(obj).?;
             var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);

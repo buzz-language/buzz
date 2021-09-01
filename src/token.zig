@@ -70,6 +70,7 @@ pub const TokenType = enum {
     Enum,             // enum
     Eof,              // EOF
     Error,            // Error
+    Print,            // Print
 };
 
 pub const Keywords = [_]TokenType{
@@ -90,6 +91,7 @@ pub const Keywords = [_]TokenType{
     .Fun,
     .In,
     .Function,
+    .Print,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -200,6 +202,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "enum")) {
         return .Enum;
+    }
+
+    if (mem.eql(u8, literal, "print")) {
+        return .Print;
     }
 
     return null;

@@ -171,6 +171,7 @@ pub const VM = struct {
             &frame.closure.function.chunk,
             frame.closure.function.name.string
         );
+        std.debug.print("\n\n", .{});
 
         while (true) {
             var instruction: OpCode = readOpCode(frame);
@@ -223,6 +224,14 @@ pub const VM = struct {
                     std.os.exit(0);
                 },
 
+                // TODO: remove
+                .OP_PRINT => {
+                    var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());
+                    defer self.allocator.free(value_str);
+
+                    std.debug.print("{s}\n", .{ value_str });
+                },
+
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });
 
@@ -246,7 +255,7 @@ pub const VM = struct {
         try self.frames.append(CallFrame {
             .closure = closure,
             .ip = 0,
-            .slots = @ptrCast([*]Value, self.stack[(self.stack_top - arg_count - 1)..]),
+            .slots = @ptrCast([*]Value, self.stack[(self.stack_top - arg_count)..]),
         });
 
         return true;

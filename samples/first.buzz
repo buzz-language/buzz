@@ -12,5 +12,7 @@ str bye = hello;
 | byte reportMe = hello;
 
 fun sayHello(str name, num age) {
-    num death = age;
+    print name;
 }
+
+print hello;

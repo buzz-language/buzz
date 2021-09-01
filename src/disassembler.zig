@@ -140,5 +140,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_INHERIT => simpleInstruction(instruction, offset),
         .OP_METHOD => simpleInstruction(instruction, offset),
         .OP_PROPERTY => simpleInstruction(instruction, offset),
+
+        // TODO: remove
+        .OP_PRINT => simpleInstruction(instruction, offset),
     };
 }
