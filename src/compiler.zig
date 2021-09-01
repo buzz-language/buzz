@@ -136,10 +136,11 @@ pub const Compiler = struct {
     };
 
     const ParseFn = fn (*Compiler, bool) anyerror!*ObjTypeDef;
+    const InfixParseFn = fn (*Compiler, bool, *ObjTypeDef) anyerror!*ObjTypeDef;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
-        infix: ?ParseFn,
+        infix: ?InfixParseFn,
         precedence: Precedence,
     };
 
@@ -147,7 +148,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Pipe
         .{ .prefix = null,     .infix = null, .precedence = .None }, // LeftBracket
         .{ .prefix = null,     .infix = null, .precedence = .None }, // RightBracket
-        .{ .prefix = grouping, .infix = null, .precedence = .Call }, // LeftParen
+        .{ .prefix = grouping, .infix = call, .precedence = .Call }, // LeftParen
         .{ .prefix = null,     .infix = null, .precedence = .None }, // RightParen
         .{ .prefix = null,     .infix = null, .precedence = .None }, // LeftBrace
         .{ .prefix = null,     .infix = null, .precedence = .None }, // RightBrace
@@ -285,7 +286,7 @@ pub const Compiler = struct {
         self.errorAt(&self.parser.current_token.?, message);
     }
 
-    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef) !void {
+    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
         var expected_str: []const u8 = try expected_type.toString(self.vm.allocator);
         var actual_str: []const u8 = try actual_type.toString(self.vm.allocator);
         var error_message: []u8 = try self.vm.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
@@ -295,7 +296,7 @@ pub const Compiler = struct {
             self.vm.allocator.free(actual_str);
         }
 
-        error_message = try std.fmt.bufPrint(error_message, "Expected type `{s}`, got `{s}`", .{ expected_str, actual_str });
+        error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
 
         self.reportError(error_message);
     }
@@ -386,7 +387,7 @@ pub const Compiler = struct {
         if (self.current.?.function_type == .Initializer) {
             try self.emitBytes(@enumToInt(OpCode.OP_RETURN), 0);
         } else {
-            // try self.emitOpCode(.OP_NULL);
+            try self.emitOpCode(.OP_NULL);
         }
 
         try self.emitOpCode(.OP_RETURN);
@@ -420,10 +421,11 @@ pub const Compiler = struct {
             // self.mapDeclaraction();
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
-        } else if ((try self.match(.Identifier))) {
-            if (self.check(.Identifier)) {
-                // TODO: instance declaration, needs to retrieve the *ObjTypeDef
-            }
+        // TODO: matching a identifier here will prevent from parsing a statement that starts with an identifier (function call)
+        // } else if ((try self.match(.Identifier))) {
+        //     if (self.check(.Identifier)) {
+        //         // TODO: instance declaration, needs to retrieve the *ObjTypeDef
+        //     }
         } else {
             try self.statement();
         }
@@ -433,6 +435,8 @@ pub const Compiler = struct {
         // TODO: remove
         if (try self.match(.Print)) {
             try self.printStatement();
+        } else {
+            try self.expressionStatement();
         }
     }
 
@@ -537,8 +541,8 @@ pub const Compiler = struct {
 
         while (@enumToInt(precedence) <= @enumToInt(getRule(self.parser.current_token.?.token_type).precedence)) {
             _ = try self.advance();
-            var infixRule: ParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
-            parsed_type = try infixRule(self, canAssign);
+            var infixRule: InfixParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
+            parsed_type = try infixRule(self, canAssign, parsed_type);
         }
 
         if (canAssign and (try self.match(.Equal))) {
@@ -566,7 +570,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
-        var parameters = std.StringHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
         var arity: usize = 0;
         if (!self.check(.RightParen)) {
             while (true) {
@@ -662,7 +666,7 @@ pub const Compiler = struct {
             var expr_type: *ObjTypeDef = try self.expression();
 
             if (!var_type.eql(expr_type)) {
-                try self.reportTypeCheck(var_type, expr_type);
+                try self.reportTypeCheck(var_type, expr_type, "Wrong variable type");
             }
         } else {
             try self.emitOpCode(.OP_NULL);
@@ -673,10 +677,45 @@ pub const Compiler = struct {
         try self.defineVariable();
     }
 
-    fn defineVariable(self: *Self) !void {
-        self.markInitialized();
+    fn expressionStatement(self: *Self) !void {
+        _ = try self.expression();
+        try self.consume(.Semicolon, "Expected `;` after expression.");
+        try self.emitOpCode(.OP_POP);
+    }
 
-        // try self.emitBytes(@enumToInt(OpCode.OP_SET_LOCAL), @intCast(u8, slot));
+    inline fn defineVariable(self: *Self) !void {
+        self.markInitialized();
+    }
+
+    fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
+        var arg_count: u8 = 0;
+        var function_def: ObjTypeDef.FunctionDef = function_type.resolved_type.?.Function;
+        var parameters: std.StringArrayHashMap(*ObjTypeDef) = function_def.parameters;
+        var parameter_keys: [][]const u8 = parameters.keys();
+        
+        if (!self.check(.RightParen)) {
+            while (arg_count < parameter_keys.len) {
+                var expr_type: *ObjTypeDef = try self.expression();
+                var param_type: *ObjTypeDef = parameters.get(parameter_keys[arg_count]).?;
+
+                if (!param_type.eql(expr_type)) {
+                    try self.reportTypeCheck(param_type, expr_type, "Wrong argument type");
+                }
+
+                if (arg_count == 255) {
+                    self.reportError("Can't have more than 255 arguments.");
+                }
+
+                arg_count += 1;
+
+                if (!(try self.match(.Comma))) {
+                    break;
+                }
+            }
+        }
+
+        try self.consume(.RightParen, "Expected `)` after arguments.");
+        return arg_count;
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
@@ -739,7 +778,7 @@ pub const Compiler = struct {
             var expr_type: *ObjTypeDef = try self.expression();
 
             if (!expr_type.eql(var_def)) {
-                try self.reportTypeCheck(var_def, expr_type);
+                try self.reportTypeCheck(var_def, expr_type, "Wrong value type");
             }
 
             try self.emitBytes(@enumToInt(set_op), @intCast(u8, arg.?));
@@ -752,6 +791,13 @@ pub const Compiler = struct {
 
     fn variable(self: *Self, can_assign: bool) anyerror!*ObjTypeDef {
         return try self.namedVariable(self.parser.previous_token.?, can_assign);
+    }
+
+    fn call(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        var arg_count: u8 = try self.argumentList(expected_type);
+        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+
+        return expected_type.resolved_type.?.Function.return_type;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {

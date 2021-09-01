@@ -103,7 +103,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_JUMP_IF_FALSE => simpleInstruction(instruction, offset),
         .OP_LOOP => simpleInstruction(instruction, offset),
 
-        .OP_CALL => simpleInstruction(instruction, offset),
+        .OP_CALL => byteInstruction(instruction, chunk, offset),
         .OP_INVOKE => simpleInstruction(instruction, offset),
         .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 

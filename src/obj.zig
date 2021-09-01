@@ -606,7 +606,7 @@ pub const ObjTypeDef = struct {
 
     pub const FunctionDef = struct {
         return_type: *ObjTypeDef,
-        parameters: StringHashMap(*ObjTypeDef),
+        parameters: std.StringArrayHashMap(*ObjTypeDef),
     };
 
     pub const TypeUnion = union(Type) {

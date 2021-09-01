@@ -38,6 +38,7 @@ pub const VM = struct {
     allocator: *Allocator,
 
     frames: std.ArrayList(CallFrame),
+    frame_count: u64 = 0,
 
     // TODO: put ta limit somewhere
     stack: [1000000]Value,
@@ -165,13 +166,7 @@ pub const VM = struct {
     }
 
     fn run(self: *Self) !InterpretResult {
-        var frame: *CallFrame = &self.frames.items[self.frames.items.len - 1];
-
-        try disassembler.disassembleChunk(
-            &frame.closure.function.chunk,
-            frame.closure.function.name.string
-        );
-        std.debug.print("\n\n", .{});
+        var frame: *CallFrame = &self.frames.items[self.frame_count - 1];
 
         while (true) {
             var instruction: OpCode = readOpCode(frame);
@@ -213,19 +208,36 @@ pub const VM = struct {
                         }
                     }
                 },
+                .OP_CALL         => {
+                    var arg_count: u8 = readByte(frame);
+                    if (!(try self.callValue(self.peek(arg_count), arg_count))) {
+                        return .RuntimeError;
+                    }
+
+                    frame = &self.frames.items[self.frame_count - 1];
+                },
 
                 // TODO: for now, used to debug
-                .OP_RETURN => {
-                    var value: []const u8 = try _value.valueToString(std.heap.c_allocator, self.pop());
-                    defer std.heap.c_allocator.free(value);
+                .OP_RETURN       => {
+                    var result: Value = self.pop();
 
-                    std.debug.warn("\nReturned with: {s}\n", .{ value });
+                    self.closeUpValues(&frame.slots[0]);
 
-                    std.os.exit(0);
+                    self.frame_count -= 1;
+                    if (self.frame_count == 0) {
+                        _ = self.pop();
+                        return .Ok;
+                    }
+
+                    // TODO: find a more zig idiomatic way of doing this
+                    self.stack_top = @ptrToInt(&self.stack[self.stack_top]) - @ptrToInt(&frame.slots[0]);
+
+                    self.push(result);
+                    frame = &self.frames.items[self.frame_count - 1];
                 },
 
                 // TODO: remove
-                .OP_PRINT => {
+                .OP_PRINT        => {
                     var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());
                     defer self.allocator.free(value_str);
 
@@ -244,21 +256,59 @@ pub const VM = struct {
     }
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !bool {
-        if (arg_count != closure.function.parameters.count()) {
-            // TODO: runtimeError("Expected %d arguments but got %d.", closure->function->arity, argCount);
-            
-            return false;
-        }
+        // We don't type check or check arity becaus it was done at comptime
         
         // TODO: do we check for stack overflow
 
-        try self.frames.append(CallFrame {
+        var frame = CallFrame {
             .closure = closure,
             .ip = 0,
             .slots = @ptrCast([*]Value, self.stack[(self.stack_top - arg_count)..]),
-        });
+        };
+
+        if (self.frames.items.len <= self.frame_count) {
+            try self.frames.append(frame);
+        } else {
+            self.frames.items[self.frame_count] = frame;
+        }
+
+        self.frame_count += 1;
+
+        try disassembler.disassembleChunk(
+            &frame.closure.function.chunk,
+            frame.closure.function.name.string
+        );
+        std.debug.print("\n\n", .{});
 
         return true;
+    }
+
+    fn callValue(self: *Self, callee: Value, arg_count: u8) !bool {
+        var obj: *Obj = callee.Obj;
+        switch (obj.obj_type) {
+            .Bound => {
+                // TODO
+            },
+            .Class => {
+                // TODO
+            },
+            .Closure => {
+                return try self.call(ObjClosure.cast(obj).?, arg_count);
+            },
+            // .Native => {}
+            else => {}
+        }
+
+        return false;
+    }
+
+    fn closeUpValues(self: *Self, last: *Value) void {
+        while (self.open_upvalues != null and @ptrToInt(self.open_upvalues.?.location) >= @ptrToInt(last)) {
+            var upvalue: *ObjUpValue = self.open_upvalues.?;
+            upvalue.closed = upvalue.location.*;
+            upvalue.location = &upvalue.closed.?;
+            self.open_upvalues = upvalue.next;
+        }
     }
 
     fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
