@@ -564,7 +564,7 @@ pub const Compiler = struct {
                 var local: Local = self.current.?.locals[slot];
                 try parameters.put(local.name.lexeme, local.type_def);
 
-                try self.defineVariable(slot);
+                try self.defineVariable();
 
                 if (!try self.match(.Comma)) break;
             }
@@ -625,12 +625,12 @@ pub const Compiler = struct {
 
         var function_def: *ObjTypeDef = try self.function(FunctionType.Function);
 
-        var slot: usize = try self.declareVariable(function_def, name_token);
-        try self.defineVariable(slot);
+        _ = try self.declareVariable(function_def, name_token);
+        try self.defineVariable();
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
-        var slot: usize = try self.parseVariable(var_type, "Expected variable name.");
+        _ = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             var expr_type: *ObjTypeDef = try self.expression();
@@ -644,13 +644,13 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineVariable(slot);
+        try self.defineVariable();
     }
 
-    fn defineVariable(self: *Self, slot: usize) !void {
+    fn defineVariable(self: *Self) !void {
         self.markInitialized();
 
-        try self.emitBytes(@enumToInt(OpCode.OP_SET_LOCAL), @intCast(u8, slot));
+        // try self.emitBytes(@enumToInt(OpCode.OP_SET_LOCAL), @intCast(u8, slot));
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
