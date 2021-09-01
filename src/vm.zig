@@ -93,6 +93,7 @@ pub const VM = struct {
         var type_def_str: []const u8 = try type_def.toString(self.allocator);
 
         if (self.type_defs.get(type_def_str)) |type_def_ptr| {
+            self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
             return type_def_ptr;
         }
 
