@@ -512,7 +512,9 @@ pub const ObjEnum = struct {
 
     name: *ObjString,
     enum_type: *ObjTypeDef,
-    map: std.StringHashMap(Value),
+    // Maybe a waste to have 255, but we don't define many enum and they are long lived
+    cases: [255]Value,
+    map: std.StringHashMap(u8),
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -535,9 +537,7 @@ pub const ObjEnumInstance = struct {
     },
 
     enum_ref: *ObjEnum,
-    // TODO: will const be an issue here?
-    case: []const u8,
-    value: Value,
+    case: u8,
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
