@@ -2,10 +2,13 @@ const std = @import("std");
 const print = std.debug.print;
 const _chunk = @import("./chunk.zig");
 const _value = @import("./value.zig");
+const _obj = @import("./obj.zig");
 const _vm = @import("./vm.zig");
+
 const VM = _vm.VM;
 const Chunk = _chunk.Chunk;
 const OpCode = _chunk.OpCode;
+const ObjFunction = _obj.ObjFunction;
 
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
     print("=== {s} ===\n", .{ name });
@@ -104,7 +107,30 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_INVOKE => simpleInstruction(instruction, offset),
         .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 
-        .OP_CLOSURE => simpleInstruction(instruction, offset),
+        .OP_CLOSURE => closure: {
+            var off_offset: usize = offset;
+            off_offset += 1;
+            var constant: u8 = chunk.code.items[off_offset];
+            off_offset += 1;
+
+            var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
+            defer std.heap.c_allocator.free(value_str);
+
+            print("{}\t{} {s}", .{ instruction, constant, value_str });
+
+            var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].Obj).?;
+            var i: u8 = 0;
+            while (i < function.upvalue_count) : (i += 1) {
+                var is_local: bool = chunk.code.items[off_offset] == 1;
+                off_offset += 1;
+                var index: u8 = chunk.code.items[off_offset];
+                off_offset += 1;
+                print("\n{:0>3} |                         \t{s} {}\n", .{ off_offset - 2, if (is_local) "local  " else "upvalue", index });
+            }
+
+            break :closure off_offset;
+        },
+
         .OP_CLOSE_UPVALUE => simpleInstruction(instruction, offset),
 
         .OP_RETURN => simpleInstruction(instruction, offset),

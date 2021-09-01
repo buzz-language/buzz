@@ -219,7 +219,7 @@ pub const VM = struct {
 
                     std.debug.warn("\nReturned with: {s}\n", .{ value });
 
-                    std.os.exit(1);
+                    std.os.exit(0);
                 },
 
                 else => {

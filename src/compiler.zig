@@ -549,7 +549,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
-        var parameters = StringHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var parameters = std.StringHashMap(*ObjTypeDef).init(self.vm.allocator);
         var arity: usize = 0;
         if (!self.check(.RightParen)) {
             while (true) {
@@ -562,7 +562,7 @@ pub const Compiler = struct {
                 var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
 
                 var local: Local = self.current.?.locals[slot];
-                try parameters.put(local.name, local.type_def);
+                try parameters.put(local.name.lexeme, local.type_def);
 
                 try self.defineVariable(slot);
 
@@ -588,10 +588,7 @@ pub const Compiler = struct {
         try self.block();
 
         var new_function: *ObjFunction = try self.endCompiler();
-
-        if (return_type) |ureturn_type|  {
-            new_function.return_type = ureturn_type;
-        } 
+        new_function.return_type = return_type; 
 
         try self.emitBytes(@enumToInt(OpCode.OP_CLOSURE), try self.makeConstant(Value { .Obj = new_function.toObj() }));
 
@@ -601,29 +598,26 @@ pub const Compiler = struct {
             try self.emitByte(compiler.upvalues[i].index);
         }
 
-        return try self.vm.getTypeDef(.{
+        var function_typedef: ObjTypeDef = .{
             .optional = false,
             .def_type = .Function,
-            .resolved_type = .{
-                .Function = ObjTypeDef.FunctionDef{
-                    .return_type = return_type,
-                    .parameters = parameters,
-                }
-            }
-        });
+        };
+
+        var function_def: ObjTypeDef.FunctionDef = .{
+            .return_type = return_type,
+            .parameters = parameters,
+        };
+
+        var function_resolved_type: ObjTypeDef.TypeUnion = .{
+            .Function = function_def
+        };
+
+        function_typedef.resolved_type = function_resolved_type;
+
+        return try self.vm.getTypeDef(function_typedef);
     }
 
     fn funDeclaration(self: *Self) !void {
-        var slot: usize = try self.parseVariable(
-            try self.vm.getTypeDef(
-                .{
-                    .optional = false,
-                    .def_type = .Function
-                }
-            ),
-            "Expected function name."
-        );
-
         try self.consume(.Identifier, "Expected function name.");
         var name_token: Token = self.parser.previous_token.?;
 
@@ -690,7 +684,7 @@ pub const Compiler = struct {
 
         var var_def: *ObjTypeDef = undefined;
 
-        var arg: ?usize = try self.resolveLocal(self.current.?, &name);
+        var arg: ?usize = try self.resolveLocal(self.current.?, name);
         if (arg) |resolved| {
             // TODO: should resolveLocal return the local itself?
             var_def = self.current.?.locals[resolved].type_def;
@@ -698,7 +692,7 @@ pub const Compiler = struct {
             get_op = .OP_GET_LOCAL;
             set_op = .OP_SET_LOCAL;
         } else {
-            arg = try self.resolveUpvalue(self.current.?, &name);
+            arg = try self.resolveUpvalue(self.current.?, name);
             if (arg) |resolved| {
                 var_def = self.current.?.locals[self.current.?.upvalues[resolved].index].type_def;
 
@@ -817,11 +811,11 @@ pub const Compiler = struct {
         return self.current.?.local_count - 1;
     }
 
-    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: *const Token) !?usize {
+    fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
         var i: usize = compiler.local_count - 1;
         while (i >= 0) : (i -= 1) {
             var local: *Local = &compiler.locals[i];
-            if (identifiersEqual(name, &local.name)) {
+            if (identifiersEqual(name, local.name)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
                 }
@@ -849,7 +843,7 @@ pub const Compiler = struct {
         unreachable;
     }
 
-    fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: *const Token) anyerror!?usize {
+    fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: Token) anyerror!?usize {
         if (compiler.enclosing == null) {
             return null;
         }
