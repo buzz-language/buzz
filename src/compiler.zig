@@ -383,7 +383,7 @@ pub const Compiler = struct {
         if (self.current.?.function_type == .Initializer) {
             try self.emitBytes(@enumToInt(OpCode.OP_RETURN), 0);
         } else {
-            try self.emitOpCode(.OP_NULL);
+            // try self.emitOpCode(.OP_NULL);
         }
 
         try self.emitOpCode(.OP_RETURN);
@@ -618,14 +618,23 @@ pub const Compiler = struct {
     }
 
     fn funDeclaration(self: *Self) !void {
+        // Placeholder until `function()` provides all the necessary bits
+        var function_def_placeholder: ObjTypeDef = .{
+            .optional = false,
+            .def_type = .Function,
+        };
+        
         try self.consume(.Identifier, "Expected function name.");
         var name_token: Token = self.parser.previous_token.?;
+
+        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token);
 
         self.markInitialized();
 
         var function_def: *ObjTypeDef = try self.function(FunctionType.Function);
+        // Now that we have the full function type, get the local and update its type_def
+        self.current.?.locals[slot].type_def = function_def;
 
-        _ = try self.declareVariable(function_def, name_token);
         try self.defineVariable();
     }
 
