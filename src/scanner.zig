@@ -39,7 +39,8 @@ pub const Scanner = struct {
             return self.makeToken(.Eof, null, null, null);
         }
 
-        return try switch (self.advance()) {
+        var char: u8 = self.advance();
+        return try switch (char) {
             'b' => return if (isNumber(self.peek())) self.binary() else self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => return self.identifier(),
             '0' => {

@@ -46,7 +46,7 @@ pub fn valueToString(allocator: *Allocator, value: Value) anyerror![]const u8 {
 
     return switch (value) {
         .Boolean => try std.fmt.bufPrint(buf, "{}", .{ value.Boolean }),
-        .Number => try std.fmt.bufPrint(buf, "{}", .{ value.Number }),
+        .Number => try std.fmt.bufPrint(buf, "{d}", .{ value.Number }),
         .Byte => try std.fmt.bufPrint(buf, "0x{x}", .{ value.Byte }),
         .Null => try std.fmt.bufPrint(buf, "null", .{}),
 

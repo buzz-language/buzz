@@ -26,33 +26,41 @@ fn repl() !void {
     }
 }
 
+fn runFile(file_name: []const u8) !void {
+    const allocator: *Allocator = std.heap.c_allocator;
+    
+    var file = std.fs.cwd().openFile(file_name, .{}) catch {
+        std.debug.warn("File not found", .{});
+        return;
+    };
+    defer file.close();
+    
+    const source = try allocator.alloc(u8, (try file.stat()).size);
+    defer allocator.free(source);
+    
+    _ = try file.readAll(source);
+
+    // TODO: print value
+    if (try compiler.compile(source, file_name)) |function| {
+        _ = try vm.interpret(function);
+    } else {
+        // TODO: Print compile error
+    }
+}
+
 pub fn main() !void {
     defer vm.deinit();
 
-    // const allocator: *Allocator = std.heap.c_allocator;
+    var arg_it = try std.process.argsAlloc(std.heap.c_allocator);
+    defer std.process.argsFree(std.heap.c_allocator, arg_it);
 
-    // const file_name = "samples/first.buzz";
-    // var file = std.fs.cwd().openFile(file_name, .{}) catch {
-    //     std.debug.warn("File not found", .{});
+    for (arg_it) |arg, index| {
+        if (index > 0) {
+            try runFile(arg);
 
-    //     return;
-    // };
-    // defer file.close();
-
-    // const source = try allocator.alloc(u8, (try file.stat()).size);
-    // defer allocator.free(source);
-
-    // _ = try file.readAll(source);
-
-    // var compiler = Compiler.init(&vm);
-    // // defer compiler.deinit();
-
-    // // TODO: print value
-    // if (try compiler.compile(source, file_name)) |function| {
-    //     _ = try vm.interpret(function);
-    // } else {
-    //     // TODO: Print compile error
-    // }
+            return;
+        }
+    }
 
     try repl();
 }
