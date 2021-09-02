@@ -258,7 +258,7 @@ pub const Compiler = struct {
         return if (self.parser.had_error) null else function;
     }
 
-    fn errorAt(self: *Self, token: *Token, message: []const u8) void {
+    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) void {
         if (self.parser.panic_mode) {
             return;
         }
@@ -279,11 +279,11 @@ pub const Compiler = struct {
     }
 
     fn reportError(self: *Self, message: []const u8) void {
-        self.errorAt(&self.parser.previous_token.?, message);
+        self.reportErrorAt(&self.parser.previous_token.?, message);
     }
 
     fn reportErrorAtCurrent(self: *Self, message: []const u8) void {
-        self.errorAt(&self.parser.current_token.?, message);
+        self.reportErrorAt(&self.parser.current_token.?, message);
     }
 
     fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
