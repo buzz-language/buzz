@@ -958,7 +958,7 @@ pub const Compiler = struct {
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
-        var i: usize = compiler.local_count - 1;
+        var i: usize = std.math.max(compiler.local_count, 1) - 1;
         while (i >= 0) : (i -= 1) {
             var local: *Local = &compiler.locals[i];
             if (identifiersEqual(name, local.name)) {

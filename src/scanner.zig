@@ -237,7 +237,7 @@ pub const Scanner = struct {
     }
 
     fn isEOF(self: *Self) bool {
-        return self.current.offset >= self.source.len;
+        return self.current.offset >= self.source.len or self.source[self.current.offset] == 0;
     }
 
     fn peek(self: *Self) u8 {
