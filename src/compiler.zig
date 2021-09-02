@@ -435,6 +435,8 @@ pub const Compiler = struct {
         // TODO: remove
         if (try self.match(.Print)) {
             try self.printStatement();
+        } else if (try self.match(.Return)) {
+            try self.returnStatement();
         } else {
             try self.expressionStatement();
         }
@@ -445,6 +447,26 @@ pub const Compiler = struct {
         _ = try self.expression();
         try self.consume(.Semicolon, "Expected `;` after value.");
         try self.emitOpCode(.OP_PRINT);
+    }
+
+    fn returnStatement(self: *Self) !void {
+        // TODO: we allow return from top-level, but in that case we have to not emit the last OP_RETURN
+
+        if (try self.match(.Semicolon)) {
+            try self.emitReturn();
+        } else {
+            if (self.current.?.function_type == .Initializer) {
+                self.reportError("Can't return a value from an initializer.");
+            }
+
+            var return_type: *ObjTypeDef= try self.expression();
+            if (!self.current.?.function.return_type.eql(return_type)) {
+                try self.reportTypeCheck(self.current.?.function.return_type, return_type, "Return value");
+            }
+
+            try self.consume(.Semicolon, "Expected `;` after return value.");
+            try self.emitOpCode(.OP_RETURN);
+        }
     }
 
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
@@ -594,7 +616,7 @@ pub const Compiler = struct {
         try self.consume(.RightParen, "Expected `)` after function parameters.");
         
         var return_type: *ObjTypeDef = undefined;
-        if (self.check(.Greater)) {
+        if (try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
             return_type = try self.vm.getTypeDef(
@@ -605,11 +627,12 @@ pub const Compiler = struct {
             );
         }
 
+        self.current.?.function.return_type = return_type;
+
         try self.consume(.LeftBrace, "Expected `{{` before function body.");
         try self.block();
 
         var new_function: *ObjFunction = try self.endCompiler();
-        new_function.return_type = return_type; 
 
         try self.emitBytes(@enumToInt(OpCode.OP_CLOSURE), try self.makeConstant(Value { .Obj = new_function.toObj() }));
 
