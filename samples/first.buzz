@@ -15,7 +15,8 @@ fun sayHello(str name, num age) {
     print name;
 }
 
-sayHello("Hello world !");
+| sayHello("Hello world !");
 
-| sayHello("Hello world", age: 12);
-| sayHello(age: 12, name: "Hello world");
+sayHello("I'm omitting first arg name", age: 12);
+| sayHello(age: 12, name: "I'm changing arg order");
+| sayHello("A bad arg type", age: false);

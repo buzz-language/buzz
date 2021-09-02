@@ -695,15 +695,82 @@ pub const Compiler = struct {
         
         if (!self.check(.RightParen)) {
             while (arg_count < parameter_keys.len) {
-                var expr_type: *ObjTypeDef = try self.expression();
-                var param_type: *ObjTypeDef = parameters.get(parameter_keys[arg_count]).?;
+                var arg_name: ?Token = null;
+                if (try self.match(.Identifier)) {
+                    arg_name = self.parser.previous_token.?;
+                }
 
-                if (!param_type.eql(expr_type)) {
-                    try self.reportTypeCheck(param_type, expr_type, "Wrong argument type");
+                if (arg_count != 0 and arg_name == null) {
+                    self.reportError("Expected argument name.");
+                    break;
+                }
+
+                if (arg_name != null) {
+                    try self.consume(.Colon, "Expected `:` after argument name.");
+                }
+
+                // If more than one parameter and we're not on the last, comma is expected
+                if (parameter_keys.len > 1 and arg_count < parameter_keys.len - 2) {
+                    try self.consume(.Comma, "Expected `,` after argument.");
+                } else if (self.check(.Comma)) { // Else we allow trailing comma
+                    try self.advance();
+                }
+
+                // TODO: I'd like arguments to be of any order but it's not really possible in a single pass
+                if (arg_name != null and !mem.eql(u8, parameter_keys[arg_count], arg_name.?.lexeme)) {
+                    var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                    defer self.vm.allocator.free(wrong_name_str);
+
+                    self.reportError(
+                        try std.fmt.bufPrint(
+                            wrong_name_str,
+                            "Expected argument named `{s}`, got `{s}`.",
+                            .{ parameter_keys[arg_count], arg_name.?.lexeme }
+                        )
+                    );
+                }
+
+                var expr_type: *ObjTypeDef = try self.expression();
+                var param_type: ?*ObjTypeDef = parameters.get(if (arg_name) |name| name.lexeme else parameter_keys[0]);
+
+                if (param_type == null ) {
+                    std.debug.assert(arg_name != null);
+
+                    var unknown_param: []u8 = try self.vm.allocator.alloc(u8, 100);
+                    var expr_type_str: []const u8 = try expr_type.toString(self.vm.allocator);
+                    defer {
+                        self.vm.allocator.free(unknown_param);
+                        self.vm.allocator.free(expr_type_str);
+                    }
+
+                    self.reportError(try std.fmt.bufPrint(unknown_param, "Argument `{s}: {s}` doesn't exists.", .{ arg_name.?.lexeme, expr_type_str }));
+                }
+
+                if (!param_type.?.eql(expr_type)) {
+                    var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                    var param_type_str: []const u8 = try param_type.?.toString(self.vm.allocator);
+                    var expr_type_str: []const u8 = try expr_type.toString(self.vm.allocator);
+                    defer {
+                        self.vm.allocator.free(wrong_type_str);
+                        self.vm.allocator.free(param_type_str);
+                        self.vm.allocator.free(expr_type_str);
+                    }
+                    var name: []const u8 = if (arg_name) |name| name.lexeme else parameter_keys[arg_count];
+
+                    self.reportError(
+                        try std.fmt.bufPrint(
+                            wrong_type_str,
+                            "Expected argument `{s}` to be `{s}`, got `{s}`.",
+                            .{
+                                name, param_type_str, expr_type_str
+                            }
+                        )
+                    );
                 }
 
                 if (arg_count == 255) {
                     self.reportError("Can't have more than 255 arguments.");
+                    break;
                 }
 
                 arg_count += 1;
