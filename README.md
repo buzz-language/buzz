@@ -1,5 +1,9 @@
+<p align="center">
+    <img src="https://github.com/giann/buzz/raw/main/logo.png" alt="buzz" width="204" height="204">
+</p>
+
 # 👨‍🚀 buzz
-(temporary name) attempt to make a small/lightweight typed scripting language
+Attempt to make a small/lightweight typed scripting language
 
 # Goal
 - A small scripting language but with strict typing and with the primary goal to avoid any ambiguity both for the programmer and the compiler.
