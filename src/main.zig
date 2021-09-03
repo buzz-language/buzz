@@ -21,9 +21,6 @@ fn repl() !void {
         if (line.len > 0) {
             if (try compiler.compile(line[0..], "<repl>")) |function| {
                 _ = try vm.interpret(function);
-            } else {
-                // TODO: Print compile error
-                std.debug.warn("Compile error\n", .{});
             }
         }
     }
@@ -48,11 +45,8 @@ fn runFile(file_name: []const u8) !void {
     
     _ = try file.readAll(source);
 
-    // TODO: print value
     if (try compiler.compile(source, file_name)) |function| {
         _ = try vm.interpret(function);
-    } else {
-        // TODO: Print compile error
     }
 }
 

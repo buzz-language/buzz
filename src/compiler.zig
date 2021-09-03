@@ -32,7 +32,7 @@ pub const FunctionType = enum {
 };
 
 pub const Local = struct {
-    name: Token,
+    name: *ObjString,
     type_def: *ObjTypeDef,
     depth: i32,
     is_captured: bool
@@ -100,13 +100,7 @@ pub const ChunkCompiler = struct {
             .optional = false,
         });
 
-        local.name = Token{
-            .token_type = .String,
-            .lexeme = if (function_type == .Function) VM.this_string else VM.empty_string,
-            .literal_string = if (function_type == .Function) VM.this_string else VM.empty_string,
-            .line = 0,
-            .column = 0,
-        };
+        local.name = try _obj.copyString(compiler.vm, if (function_type == .Function) VM.this_string else VM.empty_string);
     }
 };
 
@@ -260,7 +254,7 @@ pub const Compiler = struct {
 
         // Enter AST
         while (!(try self.match(.Eof))) {
-            try self.declaration();
+            self.declaration() catch return null;
         }
 
         var function: *ObjFunction = try self.endCompiler();
@@ -454,7 +448,7 @@ pub const Compiler = struct {
 
     // TODO: remove
     fn printStatement(self: *Self) !void {
-        _ = try self.expression();
+        _ = try self.expression(false);
         try self.consume(.Semicolon, "Expected `;` after value.");
         try self.emitOpCode(.OP_PRINT);
     }
@@ -469,7 +463,7 @@ pub const Compiler = struct {
                 self.reportError("Can't return a value from an initializer.");
             }
 
-            var return_type: *ObjTypeDef= try self.expression();
+            var return_type: *ObjTypeDef= try self.expression(false);
             if (!self.current.?.function.return_type.eql(return_type)) {
                 try self.reportTypeCheck(self.current.?.function.return_type, return_type, "Return value");
             }
@@ -557,14 +551,17 @@ pub const Compiler = struct {
         return rules[@enumToInt(token)];
     }
 
-    fn parsePrecedence(self: *Self, precedence: Precedence) !*ObjTypeDef {
-        _ = try self.advance();
+    fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) !*ObjTypeDef {
+        // If hanging is true, that means we already read the start of the expression
+        if (!hanging) {
+            _ = try self.advance();
+        }
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
             self.reportError("Expect expression");
 
-            // TODO: find a way to continue until synchronize
+            // TODO: find a way to continue or catch that error
             return CompileError.Unrecoverable;
         }
 
@@ -584,8 +581,8 @@ pub const Compiler = struct {
         return parsed_type;
     }
 
-    fn expression(self: *Self) !*ObjTypeDef {
-        return try self.parsePrecedence(.Assignment);
+    fn expression(self: *Self, hanging: bool) !*ObjTypeDef {
+        return try self.parsePrecedence(.Assignment, hanging);
     }
 
     fn block(self: *Self) anyerror!void {
@@ -617,7 +614,7 @@ pub const Compiler = struct {
 
                 if (self.current.?.scope_depth > 0) {
                     var local: Local = self.current.?.locals[slot];
-                    try parameters.put(local.name.lexeme, local.type_def);
+                    try parameters.put(local.name.string, local.type_def);
                 } else {
                     var global: Global = self.globals.items[slot];
                     try parameters.put(global.name.string, global.type_def);
@@ -706,7 +703,7 @@ pub const Compiler = struct {
         _ = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
-            var expr_type: *ObjTypeDef = try self.expression();
+            var expr_type: *ObjTypeDef = try self.expression(false);
 
             if (!var_type.eql(expr_type)) {
                 try self.reportTypeCheck(var_type, expr_type, "Wrong variable type");
@@ -721,7 +718,7 @@ pub const Compiler = struct {
     }
 
     fn expressionStatement(self: *Self) !void {
-        _ = try self.expression();
+        _ = try self.expression(false);
         try self.consume(.Semicolon, "Expected `;` after expression.");
         try self.emitOpCode(.OP_POP);
     }
@@ -744,6 +741,7 @@ pub const Compiler = struct {
         
         if (!self.check(.RightParen)) {
             while (arg_count < parameter_keys.len) {
+                var hanging = false;
                 var arg_name: ?Token = null;
                 if (try self.match(.Identifier)) {
                     arg_name = self.parser.previous_token.?;
@@ -755,16 +753,19 @@ pub const Compiler = struct {
                 }
 
                 if (arg_name != null) {
-                    try self.consume(.Colon, "Expected `:` after argument name.");
+                    if (arg_count == 0) {
+                        if (try self.match(.Colon)) {
+                            hanging = false;
+                        } else {
+                            // The identifier we just parsed is not the argument name but the start of an expression
+                            hanging = true;
+                        }
+                    } else {
+                        try self.consume(.Colon, "Expected `:` after argument name.");
+                    }
                 }
 
-                // If more than one parameter and we're not on the last, comma is expected
-                if (parameter_keys.len > 1 and arg_count < parameter_keys.len - 2) {
-                    try self.consume(.Comma, "Expected `,` after argument.");
-                } else if (self.check(.Comma)) { // Else we allow trailing comma
-                    try self.advance();
-                }
-
+                // Does this argument exists?
                 // TODO: I'd like arguments to be of any order but it's not really possible in a single pass
                 if (arg_name != null and !mem.eql(u8, parameter_keys[arg_count], arg_name.?.lexeme)) {
                     var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
@@ -777,11 +778,15 @@ pub const Compiler = struct {
                             .{ parameter_keys[arg_count], arg_name.?.lexeme }
                         )
                     );
+
+                    return 0;
                 }
 
-                var expr_type: *ObjTypeDef = try self.expression();
+                // Parse the value
+                var expr_type: *ObjTypeDef = try self.expression(hanging);
                 var param_type: ?*ObjTypeDef = parameters.get(if (arg_name) |name| name.lexeme else parameter_keys[0]);
 
+                // Should not be possible
                 if (param_type == null ) {
                     std.debug.assert(arg_name != null);
 
@@ -793,8 +798,11 @@ pub const Compiler = struct {
                     }
 
                     self.reportError(try std.fmt.bufPrint(unknown_param, "Argument `{s}: {s}` doesn't exists.", .{ arg_name.?.lexeme, expr_type_str }));
+                    
+                    return 0;
                 }
 
+                // Is the value of the correct type?
                 if (!param_type.?.eql(expr_type)) {
                     var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
                     var param_type_str: []const u8 = try param_type.?.toString(self.vm.allocator);
@@ -815,17 +823,23 @@ pub const Compiler = struct {
                             }
                         )
                     );
+
+                    return 0;
                 }
 
                 if (arg_count == 255) {
                     self.reportError("Can't have more than 255 arguments.");
-                    break;
+                    
+                    return 0;
                 }
 
                 arg_count += 1;
 
-                if (!(try self.match(.Comma))) {
-                    break;
+                // If more than one parameter and we're not on the last, comma is expected
+                if (parameter_keys.len > 1 and arg_count < parameter_keys.len - 2) {
+                    try self.consume(.Comma, "Expected `,` after argument.");
+                } else if (self.check(.Comma)) { // Else we allow trailing comma
+                    try self.advance();
                 }
             }
         }
@@ -835,6 +849,8 @@ pub const Compiler = struct {
             defer self.vm.allocator.free(arity);
 
             self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
+
+            return 0;
         }
 
         try self.consume(.RightParen, "Expected `)` after arguments.");
@@ -844,7 +860,7 @@ pub const Compiler = struct {
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var operator_type: TokenType = self.parser.previous_token.?.token_type;
         
-        var parsed_type: *ObjTypeDef = try self.parsePrecedence(.Unary);
+        var parsed_type: *ObjTypeDef = try self.parsePrecedence(.Unary, false);
 
         switch (operator_type) {
             .Bang => try self.emitOpCode(.OP_NOT),
@@ -906,7 +922,7 @@ pub const Compiler = struct {
         }
 
         if (can_assign and try self.match(.Equal)) {
-            var expr_type: *ObjTypeDef = try self.expression();
+            var expr_type: *ObjTypeDef = try self.expression(false);
 
             if (!expr_type.eql(var_def)) {
                 try self.reportTypeCheck(var_def, expr_type, "Wrong value type");
@@ -932,7 +948,7 @@ pub const Compiler = struct {
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {
-        var parsed_type: *ObjTypeDef = try self.expression();
+        var parsed_type: *ObjTypeDef = try self.expression(false);
         try self.consume(.RightParen, "Expected ')' after expression.");
 
         return parsed_type;
@@ -1003,7 +1019,7 @@ pub const Compiler = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = name,
+            .name = try _obj.copyString(self.vm, name.lexeme),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -1036,7 +1052,7 @@ pub const Compiler = struct {
         var i: usize = compiler.local_count - 1;
         while (i >= 0) : (i -= 1) {
             var local: *Local = &compiler.locals[i];
-            if (identifiersEqual(name, local.name)) {
+            if (mem.eql(u8, name.lexeme, local.name.string)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
                 }
@@ -1151,7 +1167,7 @@ pub const Compiler = struct {
                     break;
                 }
 
-                if (identifiersEqual(name, local.name)) {
+                if (mem.eql(u8, name.lexeme, local.name.string)) {
                     self.reportError("A variable with the same name already exists in this scope.");
                 }
 
