@@ -59,7 +59,7 @@ pub const ChunkCompiler = struct {
     upvalues: [255]UpValue,
     scope_depth: u32 = 0,
 
-    pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8) !Self {
+    pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8) !void {
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
             .upvalues = [_]UpValue{undefined} ** 255,
@@ -85,7 +85,7 @@ pub const ChunkCompiler = struct {
 
         // First local is reserved for an eventual `this`
         var local: *Local = &compiler.current.?.locals[self.local_count];
-        self.local_count += 1;
+        compiler.current.?.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
         // TODO: when do we define, `this` typedef ?
@@ -101,8 +101,6 @@ pub const ChunkCompiler = struct {
             .line = 0,
             .column = 0,
         };
-
-        return self;
     }
 };
 
@@ -241,7 +239,7 @@ pub const Compiler = struct {
         self.scanner = Scanner.init(source);
         defer self.scanner = null;
 
-        _ = try ChunkCompiler.init(self, .Script, file_name);
+        try ChunkCompiler.init(self, .Script, file_name);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
@@ -587,7 +585,7 @@ pub const Compiler = struct {
     }
 
     fn function(self: *Self, function_type: FunctionType) !*ObjTypeDef {
-        _ = try ChunkCompiler.init(self, function_type, null);
+        try ChunkCompiler.init(self, function_type, null);
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
 
@@ -982,7 +980,11 @@ pub const Compiler = struct {
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
-        var i: usize = std.math.max(compiler.local_count, 1) - 1;
+        if (compiler.local_count == 0) {
+            return null;
+        }
+
+        var i: usize = compiler.local_count - 1;
         while (i >= 0) : (i -= 1) {
             var local: *Local = &compiler.locals[i];
             if (identifiersEqual(name, local.name)) {

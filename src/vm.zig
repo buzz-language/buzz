@@ -272,7 +272,8 @@ pub const VM = struct {
         var frame = CallFrame {
             .closure = closure,
             .ip = 0,
-            .slots = @ptrCast([*]Value, self.stack[(self.stack_top - arg_count)..]),
+            // -1 is because we reserve slot 0 for this
+            .slots = self.stack_top - arg_count - 1,
         };
 
         if (self.frames.items.len <= self.frame_count) {
