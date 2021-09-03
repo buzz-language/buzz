@@ -9,6 +9,7 @@ fn repl() !void {
     var vm = try VM.init(std.heap.c_allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
+    defer compiler.deinit();
 
     std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
     while (true) {
@@ -32,6 +33,7 @@ fn runFile(file_name: []const u8) !void {
     var vm = try VM.init(std.heap.c_allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
+    defer compiler.deinit();
 
     const allocator: *Allocator = std.heap.c_allocator;
     

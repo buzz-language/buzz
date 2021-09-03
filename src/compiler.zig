@@ -38,6 +38,12 @@ pub const Local = struct {
     is_captured: bool
 };
 
+pub const Global = struct {
+    name: Token,
+    type_def: *ObjTypeDef,
+    initialized: bool = false,
+};
+
 pub const UpValue = struct {
     index: u8,
     is_local: bool
@@ -222,11 +228,17 @@ pub const Compiler = struct {
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
     current_class: ?*ClassCompiler = null,
+    globals: std.ArrayList(Global),
 
     pub fn init(vm: *VM) Self {
         return .{
             .vm = vm,
+            .globals = std.ArrayList(Global).init(vm.allocator),
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.globals.deinit();
     }
 
     // TODO: walk the chain of compiler and destroy them in deinit
@@ -603,8 +615,13 @@ pub const Compiler = struct {
                 var param_type: *ObjTypeDef = try self.parseTypeDef();
                 var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
 
-                var local: Local = self.current.?.locals[slot];
-                try parameters.put(local.name.lexeme, local.type_def);
+                if (self.current.?.scope_depth > 0) {
+                    var local: Local = self.current.?.locals[slot];
+                    try parameters.put(local.name.lexeme, local.type_def);
+                } else {
+                    var global: Global = self.globals[slot];
+                    try parameters.put(global.name.lexeme, global.type_def);
+                }
 
                 try self.defineVariable();
 
@@ -676,7 +693,11 @@ pub const Compiler = struct {
 
         var function_def: *ObjTypeDef = try self.function(FunctionType.Function);
         // Now that we have the full function type, get the local and update its type_def
-        self.current.?.locals[slot].type_def = function_def;
+        if (self.current.?.scope_depth > 0) {
+            self.current.?.locals[slot].type_def = function_def;
+        } else {
+            self.globals[slot].type_def = function_def;
+        }
 
         try self.defineVariable();
     }
@@ -707,6 +728,12 @@ pub const Compiler = struct {
 
     inline fn defineVariable(self: *Self) !void {
         self.markInitialized();
+
+        if (self.current.?.scope_depth > 0) {
+            return;
+        }
+
+        try self.emitBytes(@enumToInt(.OP_DEFINE_GLOBAL), self.globals.item.len - 1);
     }
 
     fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
@@ -860,13 +887,21 @@ pub const Compiler = struct {
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
             } else {
-                var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
-                defer self.vm.allocator.free(error_str);
-                error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
+                arg = try self.resolveGlobal(name);
+                if (arg) |resolved| {
+                    var_def = self.globals.items[resolved].type_def;
 
-                self.reportError(error_str);
+                    get_op = .OP_GET_GLOBAL;
+                    set_op = .OP_SET_GLOBAL;
+                } else {
+                    var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
+                    defer self.vm.allocator.free(error_str);
+                    error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
 
-                return CompileError.Unrecoverable;
+                    self.reportError(error_str);
+
+                    return CompileError.Unrecoverable;
+                }
             }
         }
 
@@ -979,6 +1014,17 @@ pub const Compiler = struct {
         return self.current.?.local_count - 1;
     }
 
+    fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
+        try self.globals.append(Global{
+            .name = name,
+            .type_def = global_type,
+        });
+
+        self.current.?.local_count += 1;
+
+        return self.current.?.local_count - 1;
+    }
+
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
         if (compiler.local_count == 0) {
             return null;
@@ -990,6 +1036,28 @@ pub const Compiler = struct {
             if (identifiersEqual(name, local.name)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
+                }
+
+                return i;
+            }
+
+            if (i == 0) break;
+        }
+
+        return null;
+    }
+
+    fn resolveGlobal(self: *Self, name: Token) !?usize {
+        if (self.globals.items.len == 0) {
+            return null;
+        }
+
+        var i: usize = self.globals.items.len - 1;
+        while (i >= 0) : (i -= 1) {
+            var global: *Global = &self.globals.items[i];
+            if (identifiersEqual(name, global.name)) {
+                if (global.depth == -1) {
+                    self.reportError("Can't read global variable in its own initializer.");
                 }
 
                 return i;
@@ -1060,29 +1128,44 @@ pub const Compiler = struct {
     }
 
     inline fn markInitialized(self: *Self) void {
-        self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+        if (self.current.?.scope_depth == 0) {
+            self.globals.items[self.globals.items.len - 1].initialized = true;
+        } else {
+            self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+        }
     }
 
     fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token) !usize {
         var name: Token = name_token orelse self.parser.previous_token.?;
 
-        // Check a local with the same name doesn't exists
-        var i: usize = self.current.?.locals.len - 1;
-        while (i >= 0) : (i -= 1) {
-            var local: *Local = &self.current.?.locals[i];
+        if (self.current.?.scope_depth > 0) {
+            // Check a local with the same name doesn't exists
+            var i: usize = self.current.?.locals.len - 1;
+            while (i >= 0) : (i -= 1) {
+                var local: *Local = &self.current.?.locals[i];
 
-            if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
-                break;
+                if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
+                    break;
+                }
+
+                if (identifiersEqual(name, local.name)) {
+                    self.reportError("A variable with the same name already exists in this scope.");
+                }
+
+                if (i == 0) break;
             }
 
-            if (identifiersEqual(name, local.name)) {
-                self.reportError("A variable with the same name already exists in this scope.");
+            return try self.addLocal(name, variable_type);
+        } else {
+            // Check a global with the same name doesn't exists
+            for (self.globals.items) |global| {
+                if (identifiersEqual(name, global.name)) {
+                    self.reportError("A global with the same name already exists.");
+                }
             }
 
-            if (i == 0) break;
+            return try self.addGlobal(name, variable_type);
         }
-
-        return try self.addLocal(name, variable_type);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {

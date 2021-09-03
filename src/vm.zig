@@ -43,6 +43,7 @@ pub const VM = struct {
     // TODO: put ta limit somewhere
     stack: []Value,
     stack_top: [*]Value,
+    globals: std.ArrayList(Value),
     // Interned strings
     strings: std.StringHashMap(*ObjString),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
@@ -176,17 +177,23 @@ pub const VM = struct {
         while (true) {
             var instruction: OpCode = readOpCode(frame);
             switch(instruction) {
-                .OP_NULL         => self.push(Value { .Null = null }),
-                .OP_TRUE         => self.push(Value { .Boolean = true }),
-                .OP_FALSE        => self.push(Value { .Boolean = false }),
-                .OP_POP          => _ = self.pop(),
-                .OP_NOT          => self.push(Value { .Boolean = isFalse(self.pop()) }),
-                .OP_GET_LOCAL    => self.push(frame.slots[readByte(frame)]),
-                .OP_SET_LOCAL    => frame.slots[readByte(frame)] = self.peek(0),
-                .OP_GET_UPVALUE  => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
-                .OP_SET_UPVALUE  => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
-                .OP_CONSTANT     => self.push(readConstant(frame)),
-                .OP_NEGATE       => {
+                .OP_NULL          => self.push(Value { .Null = null }),
+                .OP_TRUE          => self.push(Value { .Boolean = true }),
+                .OP_FALSE         => self.push(Value { .Boolean = false }),
+                .OP_POP           => _ = self.pop(),
+                .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
+                .OP_DEFINE_GLOBAL => {
+                    self.globals.append(self.peek(0));
+                    _ = self.pop();
+                },
+                .OP_GET_GLOBAL    => self.push(self.globals.items[readByte(frame)]),
+                .OP_SET_GLOBAL    => self.globals.items[readByte(frame)] = self.peek(0),
+                .OP_GET_LOCAL     => self.push(frame.slots[readByte(frame)]),
+                .OP_SET_LOCAL     => frame.slots[readByte(frame)] = self.peek(0),
+                .OP_GET_UPVALUE   => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
+                .OP_SET_UPVALUE   => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
+                .OP_CONSTANT      => self.push(readConstant(frame)),
+                .OP_NEGATE        => {
                     if (@as(ValueType, self.peek(0)) != .Number) {
                         runtimeError("Operand must be a number.");
 
@@ -195,7 +202,7 @@ pub const VM = struct {
 
                     self.push(Value{ .Number = -self.pop().Number });
                 },
-                .OP_CLOSURE      => {
+                .OP_CLOSURE       => {
                     var function: *ObjFunction = ObjFunction.cast(readConstant(frame).Obj).?;
                     var closure: *ObjClosure = ObjClosure.cast(try _obj.allocateObject(self, .Closure)).?;
                     closure.* = try ObjClosure.init(self.allocator, function);
@@ -214,7 +221,7 @@ pub const VM = struct {
                         }
                     }
                 },
-                .OP_CALL         => {
+                .OP_CALL          => {
                     var arg_count: u8 = readByte(frame);
                     if (!(try self.callValue(self.peek(arg_count), arg_count))) {
                         return .RuntimeError;
@@ -224,7 +231,7 @@ pub const VM = struct {
                 },
 
                 // TODO: for now, used to debug
-                .OP_RETURN       => {
+                .OP_RETURN        => {
                     var result: Value = self.pop();
 
                     self.closeUpValues(&frame.slots[0]);
@@ -246,7 +253,7 @@ pub const VM = struct {
                 },
 
                 // TODO: remove
-                .OP_PRINT        => {
+                .OP_PRINT         => {
                     var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());
                     defer self.allocator.free(value_str);
 

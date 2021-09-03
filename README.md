@@ -1,4 +1,4 @@
-# buzz
+# 👨‍🚀 buzz
 (temporary name) attempt to make a small/lightweight typed scripting language
 
 # Goal
@@ -7,10 +7,10 @@
 - Easy string manipulations
 - Could run in a VM at first, and then target LLVM (but how to do GC then?)
 
-# Ideas
-- Use http://c9x.me/compile/doc/il.html ?
+# TODO
+- [ ] 16 bytes instructions (at least to not be limited to 255 constants, globals, locals, etc.)
+- [ ] Register based op codes like lua?
 
 # Resources
 - http://www.craftinginterpreters.com/contents.html
-- utf8: https://github.com/jecolon/ziglyph
 - treesitter: https://github.com/tree-sitter/tree-sitter
