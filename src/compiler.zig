@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const assert = std.debug.assert;
 
 const _chunk = @import("./chunk.zig");
 const _obj = @import("./obj.zig");
@@ -733,6 +734,11 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_DEFINE_GLOBAL);
     }
 
+    const ParsedArg = struct {
+        name: ?Token,
+        arg_type: *ObjTypeDef,
+    };
+
     fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
         var arg_count: u8 = 0;
         var function_def: ObjTypeDef.FunctionDef = function_type.resolved_type.?.Function;
@@ -740,6 +746,9 @@ pub const Compiler = struct {
         var parameter_keys: [][]const u8 = parameters.keys();
         
         if (!self.check(.RightParen)) {
+            var parsed_arguments = std.ArrayList(ParsedArg).init(self.vm.allocator);
+            defer parsed_arguments.deinit();
+
             while (arg_count < parameter_keys.len) {
                 var hanging = false;
                 var arg_name: ?Token = null;
@@ -765,67 +774,12 @@ pub const Compiler = struct {
                     }
                 }
 
-                // Does this argument exists?
-                // TODO: I'd like arguments to be of any order but it's not really possible in a single pass
-                if (arg_name != null and !mem.eql(u8, parameter_keys[arg_count], arg_name.?.lexeme)) {
-                    var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                    defer self.vm.allocator.free(wrong_name_str);
-
-                    self.reportError(
-                        try std.fmt.bufPrint(
-                            wrong_name_str,
-                            "Expected argument named `{s}`, got `{s}`.",
-                            .{ parameter_keys[arg_count], arg_name.?.lexeme }
-                        )
-                    );
-
-                    return 0;
-                }
-
-                // Parse the value
                 var expr_type: *ObjTypeDef = try self.expression(hanging);
-                var param_type: ?*ObjTypeDef = parameters.get(if (arg_name) |name| name.lexeme else parameter_keys[0]);
 
-                // Should not be possible
-                if (param_type == null ) {
-                    std.debug.assert(arg_name != null);
-
-                    var unknown_param: []u8 = try self.vm.allocator.alloc(u8, 100);
-                    var expr_type_str: []const u8 = try expr_type.toString(self.vm.allocator);
-                    defer {
-                        self.vm.allocator.free(unknown_param);
-                        self.vm.allocator.free(expr_type_str);
-                    }
-
-                    self.reportError(try std.fmt.bufPrint(unknown_param, "Argument `{s}: {s}` doesn't exists.", .{ arg_name.?.lexeme, expr_type_str }));
-                    
-                    return 0;
-                }
-
-                // Is the value of the correct type?
-                if (!param_type.?.eql(expr_type)) {
-                    var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                    var param_type_str: []const u8 = try param_type.?.toString(self.vm.allocator);
-                    var expr_type_str: []const u8 = try expr_type.toString(self.vm.allocator);
-                    defer {
-                        self.vm.allocator.free(wrong_type_str);
-                        self.vm.allocator.free(param_type_str);
-                        self.vm.allocator.free(expr_type_str);
-                    }
-                    var name: []const u8 = if (arg_name) |name| name.lexeme else parameter_keys[arg_count];
-
-                    self.reportError(
-                        try std.fmt.bufPrint(
-                            wrong_type_str,
-                            "Expected argument `{s}` to be `{s}`, got `{s}`.",
-                            .{
-                                name, param_type_str, expr_type_str
-                            }
-                        )
-                    );
-
-                    return 0;
-                }
+                try parsed_arguments.append(ParsedArg{
+                    .name = arg_name,
+                    .arg_type = expr_type,
+                });
 
                 if (arg_count == 255) {
                     self.reportError("Can't have more than 255 arguments.");
@@ -834,13 +788,95 @@ pub const Compiler = struct {
                 }
 
                 arg_count += 1;
-
-                // If more than one parameter and we're not on the last, comma is expected
-                if (parameter_keys.len > 1 and arg_count < parameter_keys.len - 2) {
-                    try self.consume(.Comma, "Expected `,` after argument.");
-                } else if (self.check(.Comma)) { // Else we allow trailing comma
-                    try self.advance();
+                
+                if (!(try self.match(.Comma))) {
+                    break;
                 }
+            }
+
+            // Now that we parsed all arguments, check they match function definition
+            var order_differ = false;
+            for (parsed_arguments.items) |argument, index| {
+                if (argument.name) |name| {
+                    if (!order_differ and !mem.eql(u8, parameter_keys[index], name.lexeme)) {
+                        order_differ = true;
+                    }
+
+                    var param_type = parameters.get(name.lexeme);
+
+                    // Does an argument with that name exists?
+                    if (param_type) |ptype| {
+                        // Is the argument type correct?
+                        if (!ptype.eql(argument.arg_type)) {
+                            var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                            var param_type_str: []const u8 = try ptype.toString(self.vm.allocator);
+                            var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
+                            defer {
+                                self.vm.allocator.free(wrong_type_str);
+                                self.vm.allocator.free(param_type_str);
+                                self.vm.allocator.free(expr_type_str);
+                            }
+
+                            self.reportError(
+                                try std.fmt.bufPrint(
+                                    wrong_type_str,
+                                    "Expected argument `{s}` to be `{s}`, got `{s}`.",
+                                    .{
+                                        name, param_type_str, expr_type_str
+                                    }
+                                )
+                            );
+
+                            return 0;
+                        }
+                    } else {
+                        var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                        defer self.vm.allocator.free(wrong_name_str);
+
+                        self.reportError(
+                            try std.fmt.bufPrint(
+                                wrong_name_str,
+                                "Argument named `{s}`, doesn't exist.",
+                                .{ name.lexeme }
+                            )
+                        );
+
+                        return 0;
+                    }
+                } else {
+                    assert(index == 0);
+
+                    // First argument without name, check its type
+                    var param_type: *ObjTypeDef = parameters.get(parameter_keys[0]).?;
+                    if (!param_type.eql(argument.arg_type)) {
+                        var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                        var param_type_str: []const u8 = try param_type.toString(self.vm.allocator);
+                        var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
+                        defer {
+                            self.vm.allocator.free(wrong_type_str);
+                            self.vm.allocator.free(param_type_str);
+                            self.vm.allocator.free(expr_type_str);
+                        }
+                        var name: []const u8 = parameter_keys[0];
+
+                        self.reportError(
+                            try std.fmt.bufPrint(
+                                wrong_type_str,
+                                "Expected argument `{s}` to be `{s}`, got `{s}`.",
+                                .{
+                                    name, param_type_str, expr_type_str
+                                }
+                            )
+                        );
+
+                        return 0;
+                    }
+                }
+            }
+
+            // If order differ we emit OP_ARGS so that OP_CALL know where its arguments are
+            if (order_differ) {
+                // TODO: in reverse order of parsed argument, emit OP_SWAP X, where X is the offset backward where to swap the value at the top of the stack
             }
         }
 

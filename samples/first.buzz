@@ -1,8 +1,6 @@
-str hello = "hello world";
-
-fun say(num age) > num {
+fun say(str hello, str world) {
     print(hello);
-    return age;
+    print(world);
 }
 
-print(say(12));
+say(world: "world", hello: "hello");
