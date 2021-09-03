@@ -244,11 +244,11 @@ pub const ObjUpValue = struct {
     },
 
     /// Slot on the stack
-    location: usize,
+    location: *Value,
     closed: ?Value,
     next: ?*ObjUpValue = null,
 
-    pub fn init(slot: usize) Self {
+    pub fn init(slot: *Value) Self {
         return Self {
             .closed = null,
             .location = slot,

@@ -4,10 +4,12 @@ const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
 
 // Using a global because of vm.stack which would overflow zig's stack
-var vm = VM.init(std.heap.c_allocator);
-var compiler = Compiler.init(&vm);
 
 fn repl() !void {
+    var vm = try VM.init(std.heap.c_allocator);
+    defer vm.deinit();
+    var compiler = Compiler.init(&vm);
+
     std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
     while (true) {
         std.debug.print("→ ", .{});
@@ -27,6 +29,10 @@ fn repl() !void {
 }
 
 fn runFile(file_name: []const u8) !void {
+    var vm = try VM.init(std.heap.c_allocator);
+    defer vm.deinit();
+    var compiler = Compiler.init(&vm);
+
     const allocator: *Allocator = std.heap.c_allocator;
     
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
@@ -49,8 +55,6 @@ fn runFile(file_name: []const u8) !void {
 }
 
 pub fn main() !void {
-    defer vm.deinit();
-
     var arg_it = try std.process.argsAlloc(std.heap.c_allocator);
     defer std.process.argsFree(std.heap.c_allocator, arg_it);
 

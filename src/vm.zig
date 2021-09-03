@@ -41,8 +41,8 @@ pub const VM = struct {
     frame_count: u64 = 0,
 
     // TODO: put ta limit somewhere
-    stack: [1000000]Value,
-    stack_top: usize = 0,
+    stack: []Value,
+    stack_top: [*]Value,
     // Interned strings
     strings: std.StringHashMap(*ObjString),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
@@ -55,10 +55,11 @@ pub const VM = struct {
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(allocator: *Allocator) !Self {
         var self: Self = .{
             .allocator = allocator,
-            .stack = [_]Value { .{ .Null = null } } ** 1000000,
+            .stack = try allocator.alloc(Value, 1000000),
+            .stack_top = undefined,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -66,10 +67,14 @@ pub const VM = struct {
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
 
+        self.stack_top = @ptrCast([*]Value, self.stack[0..]);
+
         return self;
     }
 
     pub fn deinit(self: *Self) void {
+        self.allocator.free(self.stack);
+
         self.frames.deinit();
         self.strings.deinit();
 
@@ -107,17 +112,17 @@ pub const VM = struct {
     }
 
     pub fn push(self: *Self, value: Value) void {
-        self.stack[self.stack_top] = value;
+        self.stack_top[0] = value;
         self.stack_top += 1;
     }
 
     pub fn pop(self: *Self) Value {
         self.stack_top -= 1;
-        return self.stack[self.stack_top];
+        return self.stack_top[0];
     }
 
     pub fn peek(self: *Self, distance: u32) Value {
-        return self.stack[self.stack_top - 1 - distance];
+        return (self.stack_top - 1 - distance)[0];
     }
 
     pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {
@@ -232,8 +237,9 @@ pub const VM = struct {
 
                     // TODO: find a more zig idiomatic way of doing this
                     // self.stack_top = @ptrToInt(&self.stack[self.stack_top]) - @ptrToInt(&frame.slots[0]);
-                    std.debug.warn("\nptrToInt(slots): {}\nptrToInt(stack): {}\nstack_top: {}\n", .{ @ptrToInt(&frame.slots[0]), @ptrToInt(&self.stack[0]), self.stack_top });
-                    self.stack_top -= @ptrToInt(&frame.slots[0]) - @ptrToInt(&self.stack[0]);
+                    // std.debug.warn("\nptrToInt(slots): {}\nptrToInt(stack): {}\nstack_top: {}\n", .{ @ptrToInt(&frame.slots[0]), @ptrToInt(&self.stack[0]), self.stack_top });
+                    // self.stack_top -= @ptrToInt(&frame.slots[0]) - @ptrToInt(&self.stack[0]);
+                    self.stack_top = frame.slots;
 
                     self.push(result);
                     frame = &self.frames.items[self.frame_count - 1];
