@@ -9,7 +9,9 @@
             "request": "launch",
             "name": "Debug",
             "program": "${workspaceFolder}/zig-out/bin/buzz",
-            "args": [],
+            "args": [
+                "samples/first.buzz"
+            ],
             "cwd": "${workspaceFolder}"
         }
     ]

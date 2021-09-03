@@ -84,7 +84,7 @@ pub const ChunkCompiler = struct {
         compiler.current.?.* = self;
 
         // First local is reserved for an eventual `this`
-        var local: *Local = &self.locals[self.local_count];
+        var local: *Local = &compiler.current.?.locals[self.local_count];
         self.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
@@ -587,7 +587,8 @@ pub const Compiler = struct {
     }
 
     fn function(self: *Self, function_type: FunctionType) !*ObjTypeDef {
-        var compiler: ChunkCompiler = try ChunkCompiler.init(self, function_type, null);
+        _ = try ChunkCompiler.init(self, function_type, null);
+        var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
@@ -856,7 +857,7 @@ pub const Compiler = struct {
         } else {
             arg = try self.resolveUpvalue(self.current.?, name);
             if (arg) |resolved| {
-                var_def = self.current.?.locals[self.current.?.upvalues[resolved].index].type_def;
+                var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[resolved].index].type_def;
 
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
@@ -998,7 +999,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addUpvalue(compiler: *ChunkCompiler, index: usize, is_local: bool) usize {
+    fn addUpvalue(self: *Self, compiler: *ChunkCompiler, index: usize, is_local: bool) usize {
         var upvalue_count: u8 = compiler.function.upvalue_count;
 
         var i: usize = 0;
@@ -1009,7 +1010,16 @@ pub const Compiler = struct {
             }
         }
 
-        unreachable;
+        if (upvalue_count == 255) {
+            self.reportError("Too many closure variables in function.");
+            return 0;
+        }
+
+        compiler.upvalues[upvalue_count].is_local = is_local;
+        compiler.upvalues[upvalue_count].index = @intCast(u8, index);
+        compiler.function.upvalue_count += 1;
+
+        return compiler.function.upvalue_count - 1;
     }
 
     fn resolveUpvalue(self: *Self, compiler: *ChunkCompiler, name: Token) anyerror!?usize {
@@ -1020,12 +1030,12 @@ pub const Compiler = struct {
         var local: ?usize = try self.resolveLocal(compiler.enclosing.?, name);
         if (local) |resolved| {
             compiler.enclosing.?.locals[resolved].is_captured = true;
-            return addUpvalue(compiler, resolved, true);
+            return self.addUpvalue(compiler, resolved, true);
         }
 
         var upvalue: ?usize = try self.resolveUpvalue(compiler.enclosing.?, name);
         if (upvalue) |resolved| {
-            return addUpvalue(compiler, resolved, false);
+            return self.addUpvalue(compiler, resolved, false);
         }
 
         return null;

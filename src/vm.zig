@@ -197,14 +197,15 @@ pub const VM = struct {
 
                     self.push(Value{ .Obj = closure.toObj() });
 
-                    for (closure.upvalues.items) |_, i| {
+                    var i: usize = 0;
+                    while (i < function.upvalue_count) : (i += 1) {
                         var is_local: bool = readByte(frame) == 1;
                         var index: u8 = readByte(frame);
 
                         if (is_local) {
-                            closure.upvalues.items[i] = try self.captureUpvalue(&(frame.slots + index)[0]);
+                            try closure.upvalues.append(try self.captureUpvalue(&(frame.slots + index)[0]));
                         } else {
-                            closure.upvalues.items[i] = frame.closure.upvalues.items[index];
+                            try closure.upvalues.append(frame.closure.upvalues.items[index]);
                         }
                     }
                 },
@@ -230,7 +231,9 @@ pub const VM = struct {
                     }
 
                     // TODO: find a more zig idiomatic way of doing this
-                    self.stack_top = @ptrToInt(&self.stack[self.stack_top]) - @ptrToInt(&frame.slots[0]);
+                    // self.stack_top = @ptrToInt(&self.stack[self.stack_top]) - @ptrToInt(&frame.slots[0]);
+                    std.debug.warn("\nptrToInt(slots): {}\nptrToInt(stack): {}\nstack_top: {}\n", .{ @ptrToInt(&frame.slots[0]), @ptrToInt(&self.stack[0]), self.stack_top });
+                    self.stack_top -= @ptrToInt(&frame.slots[0]) - @ptrToInt(&self.stack[0]);
 
                     self.push(result);
                     frame = &self.frames.items[self.frame_count - 1];
