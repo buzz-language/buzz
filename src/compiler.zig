@@ -39,7 +39,7 @@ pub const Local = struct {
 };
 
 pub const Global = struct {
-    name: Token,
+    name: *ObjString,
     type_def: *ObjTypeDef,
     initialized: bool = false,
 };
@@ -619,8 +619,8 @@ pub const Compiler = struct {
                     var local: Local = self.current.?.locals[slot];
                     try parameters.put(local.name.lexeme, local.type_def);
                 } else {
-                    var global: Global = self.globals[slot];
-                    try parameters.put(global.name.lexeme, global.type_def);
+                    var global: Global = self.globals.items[slot];
+                    try parameters.put(global.name.string, global.type_def);
                 }
 
                 try self.defineVariable();
@@ -696,7 +696,7 @@ pub const Compiler = struct {
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
         } else {
-            self.globals[slot].type_def = function_def;
+            self.globals.items[slot].type_def = function_def;
         }
 
         try self.defineVariable();
@@ -733,7 +733,7 @@ pub const Compiler = struct {
             return;
         }
 
-        try self.emitBytes(@enumToInt(.OP_DEFINE_GLOBAL), self.globals.item.len - 1);
+        try self.emitOpCode(.OP_DEFINE_GLOBAL);
     }
 
     fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
@@ -1015,14 +1015,17 @@ pub const Compiler = struct {
     }
 
     fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
+        if (self.globals.items.len == 255) {
+            self.reportError("Too many global variables.");
+            return 0;
+        }
+
         try self.globals.append(Global{
-            .name = name,
+            .name = try _obj.copyString(self.vm, name.lexeme),
             .type_def = global_type,
         });
 
-        self.current.?.local_count += 1;
-
-        return self.current.?.local_count - 1;
+        return self.globals.items.len - 1;
     }
 
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
@@ -1055,8 +1058,8 @@ pub const Compiler = struct {
         var i: usize = self.globals.items.len - 1;
         while (i >= 0) : (i -= 1) {
             var global: *Global = &self.globals.items[i];
-            if (identifiersEqual(name, global.name)) {
-                if (global.depth == -1) {
+            if (mem.eql(u8, name.lexeme, global.name.string)) {
+                if (!global.initialized) {
                     self.reportError("Can't read global variable in its own initializer.");
                 }
 
@@ -1159,7 +1162,7 @@ pub const Compiler = struct {
         } else {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global| {
-                if (identifiersEqual(name, global.name)) {
+                if (mem.eql(u8, name.lexeme, global.name.string)) {
                     self.reportError("A global with the same name already exists.");
                 }
             }

@@ -84,8 +84,11 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_MOD,
         .OP_SHL,
         .OP_SHR,
+        .OP_DEFINE_GLOBAL,
         .OP_UNWRAP => simpleInstruction(instruction, offset),
 
+        .OP_GET_GLOBAL,
+        .OP_SET_GLOBAL,
         .OP_GET_LOCAL,
         .OP_SET_LOCAL,
         .OP_GET_UPVALUE,

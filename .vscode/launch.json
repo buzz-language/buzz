@@ -13,6 +13,14 @@
                 "samples/first.buzz"
             ],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug REPL",
+            "program": "${workspaceFolder}/zig-out/bin/buzz",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

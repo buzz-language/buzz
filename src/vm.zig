@@ -61,6 +61,7 @@ pub const VM = struct {
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
             .stack_top = undefined,
+            .globals = std.ArrayList(Value).init(allocator),
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -94,6 +95,7 @@ pub const VM = struct {
         }
 
         self.gray_stack.deinit();
+        self.globals.deinit();
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
@@ -183,7 +185,7 @@ pub const VM = struct {
                 .OP_POP           => _ = self.pop(),
                 .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
                 .OP_DEFINE_GLOBAL => {
-                    self.globals.append(self.peek(0));
+                    try self.globals.append(self.peek(0));
                     _ = self.pop();
                 },
                 .OP_GET_GLOBAL    => self.push(self.globals.items[readByte(frame)]),

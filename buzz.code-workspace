@@ -24,7 +24,23 @@
 			"string": "c",
 			"string_view": "c",
 			"unordered_map": "c",
-			"vector": "c"
+			"vector": "c",
+			"algorithm": "c",
+			"__functional_base": "c",
+			"__node_handle": "c",
+			"atomic": "c",
+			"bitset": "c",
+			"chrono": "c",
+			"cstddef": "c",
+			"__memory": "c",
+			"functional": "c",
+			"limits": "c",
+			"locale": "c",
+			"optional": "c",
+			"ratio": "c",
+			"system_error": "c",
+			"tuple": "c",
+			"type_traits": "c"
 		}
 	}
 }
