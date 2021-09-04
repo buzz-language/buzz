@@ -403,11 +403,24 @@ pub const ObjClass = struct {
     /// Class name
     name: *ObjString,
     /// Class methods
-    methods: StringHashMap(*ObjFunction),
+    methods: StringHashMap(*ObjClosure),
     /// Class fields definition
     fields: StringHashMap(*ObjTypeDef),
     /// Optional super class
     super: ?*ObjClass = null,
+
+    pub fn init(allocator: *Allocator, name: *ObjString) Self {
+        return Self {
+            .name = name,
+            .methods = StringHashMap(*ObjClosure).init(allocator),
+            .fields = StringHashMap(*ObjTypeDef).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.methods.deinit();
+        self.fields.deinit();
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -433,9 +446,22 @@ pub const ObjObject = struct {
     /// Object name
     name: *ObjString,
     /// Object methods
-    methods: StringHashMap(*ObjFunction),
+    methods: StringHashMap(*ObjClosure),
     /// Object fields definition
     fields: StringHashMap(*ObjTypeDef),
+
+    pub fn init(allocator: *Allocator, name: *ObjString) Self {
+        return Self {
+            .name = name,
+            .methods = StringHashMap(*ObjClosure).init(allocator),
+            .fields = StringHashMap(*ObjTypeDef).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.methods.deinit();
+        self.fields.deinit();
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;

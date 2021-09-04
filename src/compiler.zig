@@ -45,7 +45,14 @@ pub const UpValue = struct {
 };
 
 pub const ClassCompiler = struct {
-    enclosing: ?*ClassCompiler
+    name: Token,
+    enclosing: ?*ClassCompiler,
+    has_superclass: bool = false,
+};
+
+pub const ObjectCompiler = struct {
+    name: Token,
+    enclosing: ?*ObjectCompiler,
 };
 
 pub const ChunkCompiler = struct {
@@ -216,7 +223,8 @@ pub const Compiler = struct {
     scanner: ?Scanner = null,
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
-    current_class: ?*ClassCompiler = null,
+    current_class: ?ClassCompiler = null,
+    current_object: ?ObjectCompiler = null,
 
     pub fn init(vm: *VM) Self {
         return .{
@@ -396,7 +404,7 @@ pub const Compiler = struct {
         if (try self.match(.Class)) {
             // self.classDeclaration();
         } else if (try self.match(.Object)) {
-            // self.objectDeclaration();
+            try self.objectDeclaration();
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
         } else if (try self.match(.Fun)) {
@@ -661,6 +669,22 @@ pub const Compiler = struct {
         return try self.vm.getTypeDef(function_typedef);
     }
 
+    fn method(self: *Self) !void {
+        try self.consume(.Identifier, "Expected method name.");
+        var constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
+
+        var fun_type: FunctionType = .Method;
+
+        if (self.parser.previous_token.?.lexeme.len == self.current_object.?.name.lexeme.len
+            and mem.eql(u8, self.parser.previous_token.?.lexeme, self.current_object.?.name.lexeme)) {
+            fun_type = .Initializer;
+        }
+
+        _ = try self.function(fun_type);
+
+        try self.emitBytes(@enumToInt(OpCode.OP_METHOD), constant);
+    }
+
     fn funDeclaration(self: *Self) !void {
         // Placeholder until `function()` provides all the necessary bits
         var function_def_placeholder: ObjTypeDef = .{
@@ -695,6 +719,56 @@ pub const Compiler = struct {
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
         self.markInitialized();
+    }
+
+    fn objectDeclaration(self: *Self) !void {
+        if (self.current.?.scope_depth > 0) {
+            self.reportError("Object must be defined at top-level.");
+            return;
+        }
+
+        try self.consume(.Identifier, "Expected object name.");
+
+        var object_name: Token = self.parser.previous_token.?;
+        var object_name_constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
+
+        _ = try self.declareVariable(
+            // The type of an object can't be class...
+            try self.vm.getTypeDef(.{
+                .optional = false,
+                .def_type = .Type
+            }),
+            object_name
+        );
+
+        try self.emitBytes(@enumToInt(OpCode.OP_OBJECT), object_name_constant);
+
+        self.markInitialized();
+
+        var object_compiler: ObjectCompiler = .{
+            .name = object_name,
+            .enclosing = if (self.current_object != null) self.current_object.?.enclosing else null,
+        };
+        
+        self.current_object = object_compiler;
+
+        try self.consume(.LeftBrace, "Expected `{` before object body.");
+
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            if (try self.match(.Fun)) {
+                try self.method();
+            } else if (try self.match(.Identifier)) {
+                // TODO: property()
+            } else {
+                self.reportError("Expected either method or property.");
+            }
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after object body.");
+
+        try self.emitOpCode(.OP_POP);
+
+        self.current_object =  if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
     }
 
     fn expressionStatement(self: *Self) !void {
@@ -1169,7 +1243,7 @@ pub const Compiler = struct {
         return constant;
     }
 
-    fn identifierConstant(self: *Self, name: *const Token) !u8 {
+    fn identifierConstant(self: *Self, name: Token) !u8 {
         return try self.makeConstant(Value{ .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj() });
     }
 };

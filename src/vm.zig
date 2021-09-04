@@ -11,6 +11,7 @@ const ObjFunction = _obj.ObjFunction;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
+const ObjObject = _obj.ObjObject;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
@@ -173,7 +174,7 @@ pub const VM = struct {
     }
 
     inline fn readString(frame: *CallFrame) *ObjString {
-        return ObjString.cast(readConstant(frame).Obj);
+        return ObjString.cast(readConstant(frame).Obj).?;
     }
 
     fn run(self: *Self) !InterpretResult {
@@ -250,6 +251,17 @@ pub const VM = struct {
 
                     self.push(result);
                     frame = &self.frames.items[self.frame_count - 1];
+                },
+
+                .OP_OBJECT         => {
+                    var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
+                    object.* = ObjObject.init(self.allocator, readString(frame));
+
+                    self.push(Value{ .Obj = object.toObj() });
+                },
+
+                .OP_METHOD        => {
+                    try self.defineMethod(readString(frame));
                 },
 
                 // TODO: remove
@@ -351,6 +363,13 @@ pub const VM = struct {
         }
 
         return created_upvalue;
+    }
+
+    fn defineMethod(self: *Self, name: *ObjString) !void {
+        var method: Value = self.peek(0);
+        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+
+        try object.methods.put(name.string, ObjClosure.cast(method.Obj).?);
     }
 
     fn isFalse(value: Value) bool {
