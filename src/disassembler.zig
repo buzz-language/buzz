@@ -31,6 +31,13 @@ fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     return offset + 2;
 }
 
+fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+    var a: u8 = chunk.code.items[offset + 1];
+    var b: u8 = chunk.code.items[offset + 2];
+    print("{}\t{} {}", .{ code, a, b });
+    return offset + 3;
+}
+
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u8 = chunk.code.items[offset + 1];
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
@@ -86,6 +93,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SHR,
         .OP_DEFINE_GLOBAL,
         .OP_UNWRAP => simpleInstruction(instruction, offset),
+
+        .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
         .OP_GET_GLOBAL,
         .OP_SET_GLOBAL,

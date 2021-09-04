@@ -1,6 +1,8 @@
-fun say(str hello, str world) {
+fun say(str hello, str world, num age, num wat) {
     print(hello);
     print(world);
+    print(age);
+    print(wat);
 }
 
-say(world: "world", hello: "hello");
+say(wat:4, world: "2", age: 3, hello: "1");

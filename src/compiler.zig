@@ -795,11 +795,11 @@ pub const Compiler = struct {
             }
 
             // Now that we parsed all arguments, check they match function definition
-            var order_differ = false;
+            var order_differs = false;
             for (parsed_arguments.items) |argument, index| {
                 if (argument.name) |name| {
-                    if (!order_differ and !mem.eql(u8, parameter_keys[index], name.lexeme)) {
-                        order_differ = true;
+                    if (!order_differs and !mem.eql(u8, parameter_keys[index], name.lexeme)) {
+                        order_differs = true;
                     }
 
                     var param_type = parameters.get(name.lexeme);
@@ -874,9 +874,35 @@ pub const Compiler = struct {
                 }
             }
 
-            // If order differ we emit OP_ARGS so that OP_CALL know where its arguments are
-            if (order_differ) {
-                // TODO: in reverse order of parsed argument, emit OP_SWAP X, where X is the offset backward where to swap the value at the top of the stack
+            // If order differ we emit OP_SWAP so that OP_CALL know where its arguments are
+            if (order_differs) {
+                var already_swapped = std.AutoHashMap(u8, u8).init(self.vm.allocator);
+                defer already_swapped.deinit();
+
+                for (parsed_arguments.items) |argument, index| {
+                    assert(argument.name != null or index == 0);
+
+                    var arg_name: []const u8 = if (argument.name) |uname| uname.lexeme else parameter_keys[0];
+                    if (!mem.eql(u8 , arg_name, parameter_keys[index])) {
+                        // Search for the correct index for this argument
+                        for (parameter_keys) |param_name, pindex| {
+                            if (mem.eql(u8, param_name, arg_name)) {
+                                var already: ?u8 = already_swapped.get(@intCast(u8, pindex));
+                                if (already != null and already.? == @intCast(u8, index)) {
+                                    break;
+                                }
+
+                                try self.emitOpCode(.OP_SWAP);
+                                // from where it is on the stack
+                                try self.emitByte(@intCast(u8, index));
+                                // to where it should be
+                                try self.emitByte(@intCast(u8, pindex));
+
+                                try already_swapped.put(@intCast(u8, index), @intCast(u8, pindex));
+                            }
+                        }
+                    }
+                }
             }
         }
 

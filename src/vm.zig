@@ -128,6 +128,12 @@ pub const VM = struct {
         return (self.stack_top - 1 - distance)[0];
     }
 
+    inline fn swap(self: *Self, from: u8, to: u8) void {
+        var temp: Value = (self.stack_top - to - 1)[0];
+        (self.stack_top - to - 1)[0] = (self.stack_top - from - 1)[0];
+        (self.stack_top - from - 1)[0] = temp;
+    }
+
     pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {
         self.push(.{
             .Obj = function.toObj()
@@ -183,6 +189,7 @@ pub const VM = struct {
                 .OP_TRUE          => self.push(Value { .Boolean = true }),
                 .OP_FALSE         => self.push(Value { .Boolean = false }),
                 .OP_POP           => _ = self.pop(),
+                .OP_SWAP          => self.swap(readByte(frame), readByte(frame)),
                 .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
                 .OP_DEFINE_GLOBAL => {
                     try self.globals.append(self.peek(0));
