@@ -1,18 +1,14 @@
-fun say(str hello, str world, num age, num wat) {
-    print(hello);
-    print(world);
-    print(age);
-    print(wat);
-}
-
-| say(wat:4, world: "2", age: 3, hello: "1");
-
 str hello = "hello world";
 
 object First {
+    fun init() {
+        print("init");
+        print(hello);
+    }
+
     fun firstHello() {
         print(hello);
     }
 }
 
-print(First);
+print(First());

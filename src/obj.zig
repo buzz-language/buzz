@@ -379,6 +379,17 @@ pub const ObjObjectInstance = struct {
     /// Fields value
     fields: StringHashMap(Value),
 
+    pub fn init(allocator: *Allocator, object: *ObjObject) Self {
+        return Self {
+            .object = object,
+            .fields = StringHashMap(Value).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.fields.deinit();
+    }
+
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -399,6 +410,9 @@ pub const ObjClass = struct {
     obj: Obj = .{
         .obj_type = .Class
     },
+
+    /// Used to allow type checking at runtime
+    class_def: *ObjTypeDef,
     
     /// Class name
     name: *ObjString,
@@ -443,6 +457,9 @@ pub const ObjObject = struct {
         .obj_type = .Object
     },
 
+    /// Used to allow type checking at runtime
+    object_def: *ObjTypeDef,
+
     /// Object name
     name: *ObjString,
     /// Object methods
@@ -450,9 +467,10 @@ pub const ObjObject = struct {
     /// Object fields definition
     fields: StringHashMap(*ObjTypeDef),
 
-    pub fn init(allocator: *Allocator, name: *ObjString) Self {
+    pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
         return Self {
-            .name = name,
+            .object_def = def,
+            .name = def.resolved_type.?.Object.name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(*ObjTypeDef).init(allocator),
         };
@@ -536,6 +554,9 @@ pub const ObjEnum = struct {
         .obj_type = .Enum
     },
 
+    /// Used to allow type checking at runtime
+    object_def: *ObjTypeDef,
+
     name: *ObjString,
     enum_type: *ObjTypeDef,
     // Maybe a waste to have 255, but we don't define many enum and they are long lived
@@ -611,9 +632,12 @@ pub const ObjTypeDef = struct {
         Number,
         Byte,
         String,
+        ClassInstance,
         Class,
+        ObjectInstance,
         Object,
         Enum,
+        EnumInstance,
         List,
         Map,
         Function,
@@ -631,8 +655,43 @@ pub const ObjTypeDef = struct {
     };
 
     pub const FunctionDef = struct {
+        name: *ObjString,
         return_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
+    };
+
+    pub const ObjectDef = struct {
+        const ObjectDefSelf = @This();
+
+        name: *ObjString,
+        fields: StringHashMap(*ObjTypeDef),
+        methods: StringHashMap(*ObjTypeDef),
+
+        pub fn init(allocator: *Allocator, name: *ObjString) ObjectDefSelf {
+            return ObjectDefSelf {
+                .name = name,
+                .fields = StringHashMap(*ObjTypeDef).init(allocator),
+                .methods = StringHashMap(*ObjTypeDef).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *ObjectDefSelf) void {
+            self.fields.deinit();
+            self.methods.deinit();
+        }
+    };
+
+    pub const ClassDef = struct {
+        name: *ObjString,
+        fields: StringHashMap(*ObjTypeDef),
+        methods: StringHashMap(*ObjTypeDef),
+        super: *ObjTypeDef,
+    };
+
+    pub const EnumDef = struct {
+        name: *ObjString,
+        enum_type: *ObjTypeDef,
+        cases: [255][]const u8,
     };
 
     pub const TypeUnion = union(Type) {
@@ -645,9 +704,14 @@ pub const ObjTypeDef = struct {
         Void: bool,
 
         // For those we check that the value is an instance of, because those are user defined types
-        Class: *ObjClass,
-        Object: *ObjObject,
-        Enum: *ObjEnum,
+        ClassInstance: *ObjTypeDef,
+        ObjectInstance: *ObjTypeDef,
+        EnumInstance: *ObjTypeDef,
+
+        // Those are never equal
+        Class: ClassDef,
+        Object: ObjectDef,
+        Enum: EnumDef,
 
         // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
         List: ListDef,
@@ -681,6 +745,10 @@ pub const ObjTypeDef = struct {
             .Class => try type_str.appendSlice(self.resolved_type.?.Class.name.string),
             .Object => try type_str.appendSlice(self.resolved_type.?.Object.name.string),
             .Enum => try type_str.appendSlice(self.resolved_type.?.Enum.name.string),
+            // TODO: this is wrong, must find a key for vm.getTypeDef which is unique for each class even with the same name
+            .ClassInstance => try type_str.appendSlice(self.resolved_type.?.ClassInstance.resolved_type.?.Class.name.string),
+            .ObjectInstance => try type_str.appendSlice(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
+            .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
             .List => {
                 var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
                 defer allocator.free(list_type);
@@ -753,9 +821,13 @@ pub const ObjTypeDef = struct {
         return switch (a) {
             .Bool, .Number, .Byte, .String, .Type, .Void => return true,
 
-            .Class => return a.Class == b.Class,
-            .Object => return a.Object == b.Object,
-            .Enum => return a.Enum == b.Enum,
+            .ClassInstance => return a.ClassInstance == b.ClassInstance,
+            .ObjectInstance => return a.ObjectInstance == b.ObjectInstance,
+            .EnumInstance => return a.EnumInstance == b.EnumInstance,
+
+            .Class,
+            .Object,
+            .Enum => false, // Thore are never equal even if definition is the same
 
             .List => return a.List.item_type.eql(b.List.item_type),
             .Map => return a.Map.key_type.eql(b.Map.key_type)
@@ -791,7 +863,8 @@ pub const ObjTypeDef = struct {
     // Compare two type definitions
     pub fn eql(self: *Self, other: *Self) bool {
         // TODO: if we ever put typedef in a set somewhere we could replace all this witha pointer comparison
-        return (self.optional and other.def_type == .Void) // Void is equal to any optional type
+        return self == other
+            or (self.optional and other.def_type == .Void) // Void is equal to any optional type
             or (self.optional == other.optional
                 and self.def_type == other.def_type
                 and ((self.resolved_type == null and other.resolved_type == null)
@@ -812,7 +885,7 @@ pub const ObjTypeDef = struct {
             String => value == .Obj and value.Obj.obj_type == .String,
             Type => value == .Obj and value.Obj.obj_type == .Type,
             Void => value == .Null,
-            Class => {
+            ClassInstance => {
                 if (value != .Obj) {
                     return false;
                 }
@@ -827,9 +900,9 @@ pub const ObjTypeDef = struct {
                     return false;
                 }
 
-                return instance.?.class == self.resolved_type.Class;
+                return instance.?.class.class_def == self;
             },
-            Object => {
+            ObjectInstance => {
                 if (value != .Obj) {
                     return false;
                 }
@@ -844,9 +917,9 @@ pub const ObjTypeDef = struct {
                     return false;
                 }
 
-                return instance.?.object == self.resolved_type.Object;
+                return instance.?.object.object_def == self;
             },
-            Enum => {
+            EnumInstance => {
                 if (value != .Obj) {
                     return false;
                 }
@@ -861,7 +934,7 @@ pub const ObjTypeDef = struct {
                     return false;
                 }
 
-                return instance.?.enum_ref == self.resolved_type.Enum;
+                return instance.?.enum_ref.enum_type == self;
             },
             List => {
                 if (value != .Obj) {

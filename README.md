@@ -16,5 +16,8 @@ Attempt to make a small/lightweight typed scripting language written in Zig
 - [ ] 16 bytes instructions (at least to not be limited to 255 constants, globals, locals, etc.)
 - [ ] Register based op codes like lua?
 
+# FIX
+- [ ] users types are interned but since there's no global, the first class named A will shadow any new class with the same name
+
 # Resources
 - http://www.craftinginterpreters.com/contents.html

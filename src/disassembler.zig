@@ -100,6 +100,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_UPVALUE,
         .OP_SET_UPVALUE => byteInstruction(instruction, chunk, offset),
         
+        .OP_OBJECT,
+        .OP_CLASS,
+        .OP_METHOD,
         .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
 
         .OP_GET_PROPERTY => simpleInstruction(instruction, offset),
@@ -144,10 +147,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_RETURN => simpleInstruction(instruction, offset),
 
-        .OP_CLASS => simpleInstruction(instruction, offset),
-        .OP_OBJECT => simpleInstruction(instruction, offset),
         .OP_INHERIT => simpleInstruction(instruction, offset),
-        .OP_METHOD => simpleInstruction(instruction, offset),
         .OP_PROPERTY => simpleInstruction(instruction, offset),
 
         // TODO: remove

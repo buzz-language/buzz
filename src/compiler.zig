@@ -389,7 +389,7 @@ pub const Compiler = struct {
 
     fn emitReturn(self: *Self) !void {
         if (self.current.?.function_type == .Initializer) {
-            try self.emitBytes(@enumToInt(OpCode.OP_RETURN), 0);
+            try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
         } else {
             try self.emitOpCode(.OP_NULL);
         }
@@ -593,7 +593,7 @@ pub const Compiler = struct {
         try self.consume(.RightBrace, "Expected `}}` after block.");
     }
 
-    fn function(self: *Self, function_type: FunctionType) !*ObjTypeDef {
+    fn function(self: *Self, name: Token, function_type: FunctionType) !*ObjTypeDef {
         try ChunkCompiler.init(self, function_type, null);
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
@@ -656,6 +656,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjTypeDef.FunctionDef = .{
+            .name = try _obj.copyString(self.vm, name.lexeme),
             .return_type = return_type,
             .parameters = parameters,
         };
@@ -669,20 +670,22 @@ pub const Compiler = struct {
         return try self.vm.getTypeDef(function_typedef);
     }
 
-    fn method(self: *Self) !void {
+    fn method(self: *Self) !*ObjTypeDef {
         try self.consume(.Identifier, "Expected method name.");
         var constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
 
         var fun_type: FunctionType = .Method;
 
-        if (self.parser.previous_token.?.lexeme.len == self.current_object.?.name.lexeme.len
-            and mem.eql(u8, self.parser.previous_token.?.lexeme, self.current_object.?.name.lexeme)) {
+        if (self.parser.previous_token.?.lexeme.len == 4
+            and mem.eql(u8, self.parser.previous_token.?.lexeme, "init")) {
             fun_type = .Initializer;
         }
 
-        _ = try self.function(fun_type);
+        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?, fun_type);
 
         try self.emitBytes(@enumToInt(OpCode.OP_METHOD), constant);
+
+        return fun_typedef;
     }
 
     fn funDeclaration(self: *Self) !void {
@@ -699,7 +702,7 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        var function_def: *ObjTypeDef = try self.function(FunctionType.Function);
+        var function_def: *ObjTypeDef = try self.function(name_token, FunctionType.Function);
         self.current.?.locals[slot].type_def = function_def;
     }
 
@@ -729,15 +732,28 @@ pub const Compiler = struct {
 
         try self.consume(.Identifier, "Expected object name.");
 
+        // TODO: Here should be the key with which the ObjTypeDef of the class is stored in vm.type_defs
         var object_name: Token = self.parser.previous_token.?;
         var object_name_constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
 
+        var object_type_def: ObjTypeDef = .{
+            .optional = false,
+            .def_type = .Object,
+        };
+
+        var object_def: ObjTypeDef.ObjectDef = ObjTypeDef.ObjectDef.init(
+            self.vm.allocator,
+            try _obj.copyString(self.vm, object_name.lexeme)
+        );
+
+        object_type_def.resolved_type = ObjTypeDef.TypeUnion {
+            .Object = object_def,
+        };
+
+        var object_type: *ObjTypeDef = try self.vm.getTypeDef(object_type_def);
+
         _ = try self.declareVariable(
-            // The type of an object can't be class...
-            try self.vm.getTypeDef(.{
-                .optional = false,
-                .def_type = .Type
-            }),
+            object_type,
             object_name
         );
 
@@ -756,7 +772,12 @@ pub const Compiler = struct {
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.match(.Fun)) {
-                try self.method();
+                var method_def: *ObjTypeDef = try self.method();
+                
+                try object_type.resolved_type.?.Object.methods.put(
+                    method_def.resolved_type.?.Function.name.string,
+                    method_def,
+                );
             } else if (try self.match(.Identifier)) {
                 // TODO: property()
             } else {
@@ -1037,11 +1058,44 @@ pub const Compiler = struct {
         return try self.namedVariable(self.parser.previous_token.?, can_assign);
     }
 
-    fn call(self: *Self, _: bool, expected_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        var arg_count: u8 = try self.argumentList(expected_type);
-        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+    fn call(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        var arg_count: u8 = 0;
+        if (callee_type.def_type == .Function) {
+            arg_count = try self.argumentList(callee_type);
 
-        return expected_type.resolved_type.?.Function.return_type;
+            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+
+            return callee_type.resolved_type.?.Function.return_type;
+        } else if (callee_type.def_type == .Object) {
+            if (callee_type.resolved_type.?.Object.methods.get("init")) |initializer| {
+                arg_count = try self.argumentList(initializer);
+            } else {
+                // self.reportError("No initializer: this is a bug in buzz compiler which should have provided one.");
+                try self.consume(.RightParen, "Expected `)` to close argument list.");
+
+                arg_count = 0;
+            }
+
+            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+
+            var instance_type: ObjTypeDef.TypeUnion = .{
+                .ObjectInstance = callee_type
+            };
+
+            return try self.vm.getTypeDef(ObjTypeDef {
+                .optional = false,
+                .def_type = .ObjectInstance,
+                .resolved_type = instance_type,
+            });
+        } else if (callee_type.def_type == .Class) {
+            unreachable;
+        } else if (callee_type.def_type == .Enum) {
+            unreachable;
+        }
+
+        self.reportError("Can't be called");
+
+        return callee_type;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {

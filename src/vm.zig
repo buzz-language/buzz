@@ -12,6 +12,7 @@ const ObjUpValue = _obj.ObjUpValue;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
 const ObjObject = _obj.ObjObject;
+const ObjObjectInstance = _obj.ObjObjectInstance;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
@@ -110,6 +111,10 @@ pub const VM = struct {
         _ = try self.type_defs.put(type_def_str, type_def_ptr);
 
         return type_def_ptr;
+    }
+
+    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
+        return self.type_defs.get(name);
     }
 
     pub fn push(self: *Self, value: Value) void {
@@ -255,7 +260,7 @@ pub const VM = struct {
 
                 .OP_OBJECT         => {
                     var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
-                    object.* = ObjObject.init(self.allocator, readString(frame));
+                    object.* = ObjObject.init(self.allocator, self.getTypeDefByName(readString(frame).string).?);
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
@@ -316,10 +321,27 @@ pub const VM = struct {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {
-                // TODO
+                unreachable;
+            },
+            .Object => {
+                var object: *ObjObject = ObjObject.cast(obj).?;
+                var instance: *ObjObjectInstance = ObjObjectInstance.cast(try _obj.allocateObject(self, .ObjectInstance)).?;
+                instance.* = ObjObjectInstance.init(self.allocator, object);
+                (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
+
+                // TODO: init should always exits. Default one provided by compiler asks for all fields.
+                var initializer: ?*ObjClosure = object.methods.get("init");
+                if (initializer) |uinit| {
+                    return try self.call(uinit, arg_count);
+                } else if (arg_count != 0) {
+                    runtimeError("Expected 0 arguments.");
+                    return false;
+                }
+
+                return true;
             },
             .Class => {
-                // TODO
+                unreachable;
             },
             .Closure => {
                 return try self.call(ObjClosure.cast(obj).?, arg_count);
@@ -370,6 +392,8 @@ pub const VM = struct {
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
         try object.methods.put(name.string, ObjClosure.cast(method.Obj).?);
+
+        _ = self.pop();
     }
 
     fn isFalse(value: Value) bool {
