@@ -12,6 +12,7 @@ const ObjUpValue = _obj.ObjUpValue;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
 const ObjObject = _obj.ObjObject;
+const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjObjectInstance = _obj.ObjObjectInstance;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
@@ -268,6 +269,21 @@ pub const VM = struct {
                 .OP_METHOD        => {
                     try self.defineMethod(readString(frame));
                 },
+                
+                .OP_GET_OBJ_PROPERTY  => {
+                    var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).Obj).?;
+                    var name: *ObjString = readString(frame);
+
+                    if (instance.fields.get(name.string)) |field| {
+                        _ = self.pop(); // Pop instance
+                        self.push(field);
+                        break;
+                    }
+                    
+                    if (instance.object.methods.get(name.string)) |method| {
+                        try self.bindMethod(method);
+                    }
+                },
 
                 // TODO: remove
                 .OP_PRINT         => {
@@ -315,6 +331,16 @@ pub const VM = struct {
         std.debug.print("\n\n", .{});
 
         return true;
+    }
+
+    fn bindMethod(self: *Self, method: *ObjClosure) !void {
+        var bound: *ObjBoundMethod = ObjBoundMethod.cast(try _obj.allocateObject(self, .Bound)).?;
+        bound.* = .{
+            .receiver = self.peek(0),
+            .closure = method,
+        };
+        _ = self.pop(); // Pop instane
+        self.push(Value{ .Obj = bound.toObj() });
     }
 
     fn callValue(self: *Self, callee: Value, arg_count: u8) !bool {

@@ -149,8 +149,8 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
             break :enumInstance &obj.obj;
         },
         .Bound => bound: {
-            size = @sizeOf(*ObjBound);
-            var obj: *ObjBound = try memory.allocate(vm, ObjBound);
+            size = @sizeOf(*ObjBoundMethod);
+            var obj: *ObjBoundMethod = try memory.allocate(vm, ObjBoundMethod);
             obj.obj.obj_type = .Bound;
 
             break :bound &obj.obj;
@@ -600,7 +600,7 @@ pub const ObjEnumInstance = struct {
 };
 
 /// Bound
-pub const ObjBound = struct {
+pub const ObjBoundMethod = struct {
     const Self = @This();
 
     obj: Obj = .{
@@ -664,6 +664,7 @@ pub const ObjTypeDef = struct {
         const ObjectDefSelf = @This();
 
         name: *ObjString,
+        // TODO: Do i need to have two maps ?
         fields: StringHashMap(*ObjTypeDef),
         methods: StringHashMap(*ObjTypeDef),
 
@@ -1069,7 +1070,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             break :enum_instance try std.fmt.bufPrint(buf, "{s}.{s}", .{ instance.enum_ref.name.string, instance.enum_ref.names[instance.case] });
         },
         .Bound => {
-            var bound: *ObjBound = ObjBound.cast(obj).?;
+            var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
             var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);
             defer allocator.free(receiver_str);
 

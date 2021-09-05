@@ -12,3 +12,4 @@ object First {
 }
 
 print(First());
+print(First().firstHello);

@@ -153,7 +153,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null, .precedence = .None }, // RightParen
         .{ .prefix = null,     .infix = null, .precedence = .None }, // LeftBrace
         .{ .prefix = null,     .infix = null, .precedence = .None }, // RightBrace
-        .{ .prefix = null,     .infix = null, .precedence = .None }, // Dot
+        .{ .prefix = null,     .infix = dot,  .precedence = .Call }, // Dot
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Comma
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Semicolon
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Greater
@@ -737,22 +737,17 @@ pub const Compiler = struct {
 
         // TODO: check a class doesn't already exists with that name in the current chunk
 
-        var object_type_def: ObjTypeDef = .{
+        var object_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
+        object_type.* = .{
             .optional = false,
             .def_type = .Object,
+            .resolved_type = .{
+                .Object = ObjTypeDef.ObjectDef.init(
+                    self.vm.allocator,
+                    try _obj.copyString(self.vm, object_name.lexeme)
+                ),
+            }
         };
-
-        var object_def: ObjTypeDef.ObjectDef = ObjTypeDef.ObjectDef.init(
-            self.vm.allocator,
-            try _obj.copyString(self.vm, object_name.lexeme)
-        );
-
-        object_type_def.resolved_type = ObjTypeDef.TypeUnion {
-            .Object = object_def,
-        };
-
-        var object_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
-        object_type.* = object_type_def;
 
         var constant: u8 = try self.makeConstant(Value { .Obj = object_type.toObj() });
 
@@ -1100,6 +1095,87 @@ pub const Compiler = struct {
         self.reportError("Can't be called");
 
         return callee_type;
+    }
+
+    fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
+        if (callee_type.def_type != ObjTypeDef.Type.ObjectInstance
+            and callee_type.def_type != ObjTypeDef.Type.ClassInstance
+            and callee_type.def_type != ObjTypeDef.Type.Enum) {
+            self.reportError("Doesn't have field access.");
+        }
+
+        try self.consume(.Identifier, "Expected property name after `.`");
+        var name: u8 = try self.identifierConstant(self.parser.previous_token.?);
+
+        // Check that name is a property
+        switch (callee_type.def_type) {
+            .ObjectInstance => {
+                var obj_def: ObjTypeDef.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                var property_type: ?*ObjTypeDef = null;
+
+                var fields_it = obj_def.fields.iterator();
+                while (fields_it.next()) |kv| {
+                    if (mem.eql(u8, kv.key_ptr.*, self.parser.previous_token.?.lexeme)) {
+                        property_type = kv.value_ptr.*;
+                        break;
+                    }
+                }
+                
+                // If its a field we can assign to it
+                // TODO: actually if we make a difference between a field of type Function and a method,
+                //       a field could be called!
+                if (property_type) |resolved| {
+                    if (can_assign and try self.match(.Equal)) {
+                        var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                        if (!parsed_type.eql(resolved)) {
+                            try self.reportTypeCheck(resolved, parsed_type, "Property value");
+                        }
+
+                        try self.emitBytes(@enumToInt(OpCode.OP_SET_OBJ_PROPERTY), name);
+
+                        return parsed_type;             
+                    }
+                }
+
+                var methods_it = obj_def.methods.iterator();
+                while (methods_it.next()) |kv| {
+                    if (mem.eql(u8, kv.key_ptr.*, self.parser.previous_token.?.lexeme)) {
+                        property_type = kv.value_ptr.*;
+                        break;
+                    }
+                }
+
+                // If it's a method we can call it
+                if (property_type) |resolved| {
+                    if (try self.match(.LeftParen)) {
+                        var arg_count: u8 = try self.argumentList(resolved);
+
+                        try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), arg_count);
+
+                        return resolved.resolved_type.?.Function.return_type;
+                    }
+                }
+
+                // Else just get it
+                if (property_type) |resolved |{
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_OBJ_PROPERTY), name);
+
+                    return resolved;
+                }
+            },
+            .ClassInstance => {
+                // TODO: same but will also search in super classes
+                unreachable;
+            },
+            .Enum => {
+                unreachable;
+            },
+            else => unreachable,
+        }
+
+        unreachable;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {
