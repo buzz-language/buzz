@@ -260,7 +260,7 @@ pub const VM = struct {
 
                 .OP_OBJECT         => {
                     var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
-                    object.* = ObjObject.init(self.allocator, self.getTypeDefByName(readString(frame).string).?);
+                    object.* = ObjObject.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
                 },

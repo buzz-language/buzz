@@ -16,6 +16,7 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
 const ObjList = _obj.ObjList;
 const ObjMap = _obj.ObjMap;
+const ObjObject = _obj.ObjObject;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = @import("./scanner.zig").Scanner;
@@ -732,9 +733,9 @@ pub const Compiler = struct {
 
         try self.consume(.Identifier, "Expected object name.");
 
-        // TODO: Here should be the key with which the ObjTypeDef of the class is stored in vm.type_defs
         var object_name: Token = self.parser.previous_token.?;
-        var object_name_constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
+
+        // TODO: check a class doesn't already exists with that name in the current chunk
 
         var object_type_def: ObjTypeDef = .{
             .optional = false,
@@ -750,14 +751,17 @@ pub const Compiler = struct {
             .Object = object_def,
         };
 
-        var object_type: *ObjTypeDef = try self.vm.getTypeDef(object_type_def);
+        var object_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
+        object_type.* = object_type_def;
+
+        var constant: u8 = try self.makeConstant(Value { .Obj = object_type.toObj() });
 
         _ = try self.declareVariable(
             object_type,
             object_name
         );
 
-        try self.emitBytes(@enumToInt(OpCode.OP_OBJECT), object_name_constant);
+        try self.emitBytes(@enumToInt(OpCode.OP_OBJECT), constant);
 
         self.markInitialized();
 

@@ -457,7 +457,7 @@ pub const ObjObject = struct {
         .obj_type = .Object
     },
 
-    /// Used to allow type checking at runtime
+    /// Used to allow type checking at runtime ObjTypeDef(Object)
     object_def: *ObjTypeDef,
 
     /// Object name
