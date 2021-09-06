@@ -212,6 +212,8 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 }
 
 pub const Token = struct {
+    const Self = @This();
+
     token_type: TokenType,
     lexeme: []const u8,
     // Literal is either a string or a number
@@ -220,4 +222,16 @@ pub const Token = struct {
     literal_byte: ?u8 = null,
     line: usize,
     column: usize,
+
+    pub fn clone(self: Self) Self {
+        return .{
+            .token_type = self.token_type,
+            .lexeme = self.lexeme,
+            .literal_string = self.literal_string,
+            .literal_number = self.literal_number,
+            .literal_byte = self.literal_byte,
+            .line = self.line,
+            .column = self.column,
+        };
+    }
 };

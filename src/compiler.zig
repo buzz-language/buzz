@@ -682,7 +682,7 @@ pub const Compiler = struct {
             fun_type = .Initializer;
         }
 
-        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?, fun_type);
+        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type);
 
         try self.emitBytes(@enumToInt(OpCode.OP_METHOD), constant);
 
@@ -772,7 +772,7 @@ pub const Compiler = struct {
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.match(.Fun)) {
                 var method_def: *ObjTypeDef = try self.method();
-                
+
                 try object_type.resolved_type.?.Object.methods.put(
                     method_def.resolved_type.?.Function.name.string,
                     method_def,

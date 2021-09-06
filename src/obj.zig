@@ -591,7 +591,7 @@ pub const ObjEnumInstance = struct {
     }
 
     pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Enum) {
+        if (obj.obj_type != .EnumInstance) {
             return null;
         }
 
@@ -615,7 +615,7 @@ pub const ObjBoundMethod = struct {
     }
 
     pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Enum) {
+        if (obj.obj_type != .Bound) {
             return null;
         }
 
@@ -773,7 +773,9 @@ pub const ObjTypeDef = struct {
             .Function => {
                 var function_def = self.resolved_type.?.Function;
 
-                try type_str.appendSlice("Function(");
+                try type_str.appendSlice("Function");
+                try type_str.appendSlice(function_def.name.string);
+                try type_str.appendSlice("(");
 
                 var it = function_def.parameters.iterator();
                 while (it.next()) |kv| {
@@ -1074,7 +1076,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);
             defer allocator.free(receiver_str);
 
-            var closure_name: []const u8 =  ObjClosure.cast(obj).?.function.name.string;
+            var closure_name: []const u8 =  bound.closure.function.name.string;
 
             return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
         },
