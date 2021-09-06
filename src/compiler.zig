@@ -8,6 +8,7 @@ const _obj = @import("./obj.zig");
 const _token = @import("./token.zig");
 const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
+const disassembler = @import("./disassembler.zig");
 
 const VM = _vm.VM;
 const OpCode = _chunk.OpCode;
@@ -259,6 +260,13 @@ pub const Compiler = struct {
         }
 
         var function: *ObjFunction = try self.endCompiler();
+
+        std.debug.print("\n\n==========================", .{});
+        try disassembler.disassembleChunk(
+            &function.chunk,
+            function.name.string
+        );
+        std.debug.print("\n\n==========================", .{});
 
         return if (self.parser.had_error) null else function;
     }
@@ -733,7 +741,7 @@ pub const Compiler = struct {
 
         try self.consume(.Identifier, "Expected object name.");
 
-        var object_name: Token = self.parser.previous_token.?;
+        var object_name: Token = self.parser.previous_token.?.clone();
 
         // TODO: check a class doesn't already exists with that name in the current chunk
 
@@ -766,6 +774,8 @@ pub const Compiler = struct {
         };
         
         self.current_object = object_compiler;
+
+        _ = try self.namedVariable(object_name, false);
 
         try self.consume(.LeftBrace, "Expected `{` before object body.");
 
@@ -1152,7 +1162,8 @@ pub const Compiler = struct {
                     if (try self.match(.LeftParen)) {
                         var arg_count: u8 = try self.argumentList(resolved);
 
-                        try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), arg_count);
+                        try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
+                        try self.emitByte(arg_count);
 
                         return resolved.resolved_type.?.Function.return_type;
                     }

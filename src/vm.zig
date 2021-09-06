@@ -237,6 +237,16 @@ pub const VM = struct {
                     frame = &self.frames.items[self.frame_count - 1];
                 },
 
+                .OP_INVOKE        => {
+                    var method: *ObjString = readString(frame);
+                    var arg_count: u8 = readByte(frame);
+                    if (!try self.invoke(method, arg_count)) {
+                        return .RuntimeError;
+                    }
+
+                    frame = &self.frames.items[self.frame_count - 1];
+                },
+
                 // TODO: for now, used to debug
                 .OP_RETURN        => {
                     var result: Value = self.pop();
@@ -249,10 +259,6 @@ pub const VM = struct {
                         return .Ok;
                     }
 
-                    // TODO: find a more zig idiomatic way of doing this
-                    // self.stack_top = @ptrToInt(&self.stack[self.stack_top]) - @ptrToInt(&frame.slots[0]);
-                    // std.debug.warn("\nptrToInt(slots): {}\nptrToInt(stack): {}\nstack_top: {}\n", .{ @ptrToInt(&frame.slots[0]), @ptrToInt(&self.stack[0]), self.stack_top });
-                    // self.stack_top -= @ptrToInt(&frame.slots[0]) - @ptrToInt(&self.stack[0]);
                     self.stack_top = frame.slots;
 
                     self.push(result);
@@ -299,6 +305,9 @@ pub const VM = struct {
                     std.os.exit(1);
                 }
             }
+
+            // std.debug.warn("{}\n", .{instruction});
+            // try disassembler.dumpStack(self);
         }
 
         return InterpretResult.Ok;
@@ -374,6 +383,38 @@ pub const VM = struct {
             },
             // .Native => {}
             else => {}
+        }
+
+        return false;
+    }
+
+    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !bool {
+        if (object.methods.get(name.string)) |method| {
+            return self.call(method, arg_count);
+        } else {
+            runtimeError("Undefined property.");
+            return false;
+        }
+    }
+
+    fn invoke(self: *Self, name: *ObjString, arg_count: u8) !bool {
+        var receiver: Value = self.peek(arg_count);
+
+        var obj: *Obj = receiver.Obj;
+        switch (obj.obj_type) {
+            .ObjectInstance => {
+                var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+
+                if (instance.fields.get(name.string)) |field| {
+                    (self.stack_top - arg_count - 1)[0] = field;
+
+                    return try self.callValue(field, arg_count);
+                }
+
+                return try self.invokeFromObject(instance.object, name, arg_count);
+            },
+            .ClassInstance => {},
+            else => return false
         }
 
         return false;

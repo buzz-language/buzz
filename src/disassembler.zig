@@ -49,19 +49,19 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 }
 
 pub fn dumpStack(vm: *VM) !void {
-    print(" [ ", .{});
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
-    var i: usize = 0;
-    while (i < vm.stack_top) {
-        var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, vm.stack[i]);
+    var value = @ptrCast([*]_value.Value, vm.stack[0..]);
+    while (@ptrToInt(value) < @ptrToInt(vm.stack_top)) {
+        var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, value[0]);
         defer std.heap.c_allocator.free(value_str);
 
-        print("{s} | ", .{ value_str });
+        print("{s}\n ", .{ value_str });
 
-        i += 1;
+        value += 1;
     }
 
-    print(" ]\n", .{});
+    print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
 }
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
@@ -115,8 +115,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_JUMP_IF_FALSE => simpleInstruction(instruction, offset),
         .OP_LOOP => simpleInstruction(instruction, offset),
 
+        .OP_INVOKE,
         .OP_CALL => byteInstruction(instruction, chunk, offset),
-        .OP_INVOKE => simpleInstruction(instruction, offset),
         .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 
         .OP_CLOSURE => closure: {

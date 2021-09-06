@@ -743,13 +743,25 @@ pub const ObjTypeDef = struct {
             .Number => try type_str.appendSlice("num"),
             .Byte => try type_str.appendSlice("byte"),
             .String => try type_str.appendSlice("str"),
-            .Class => try type_str.appendSlice(self.resolved_type.?.Class.name.string),
-            .Object => try type_str.appendSlice(self.resolved_type.?.Object.name.string),
-            .Enum => try type_str.appendSlice(self.resolved_type.?.Enum.name.string),
-            // TODO: this is wrong, must find a key for vm.getTypeDef which is unique for each class even with the same name
+
+            // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
+            .Class => {
+                try type_str.appendSlice("{ClassDef}");
+                try type_str.appendSlice(self.resolved_type.?.Class.name.string);
+            },
+            .Object => {
+                try type_str.appendSlice("{ObjectDef}");
+                try type_str.appendSlice(self.resolved_type.?.Object.name.string);
+            },
+            .Enum => {
+                try type_str.appendSlice("{EnumDef}");
+                try type_str.appendSlice(self.resolved_type.?.Enum.name.string);
+            },
+        
             .ClassInstance => try type_str.appendSlice(self.resolved_type.?.ClassInstance.resolved_type.?.Class.name.string),
             .ObjectInstance => try type_str.appendSlice(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
             .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
+
             .List => {
                 var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
                 defer allocator.free(list_type);

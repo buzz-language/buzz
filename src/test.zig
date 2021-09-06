@@ -17,11 +17,3 @@ const A = struct {
         // b is modified here
     }
 };
-
-var a = A{
-    .b = B{
-        .value = 1
-    }
-};
-
-a.passByValue(a.b);
