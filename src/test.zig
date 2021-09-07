@@ -1,19 +1,15 @@
-const B = struct {
-    value: u8,
-};
+const std = @import("std");
 
-const A = struct {
-    const Self = @This();
+test "split buffer by newline" {
+    const source = "hello\nworld\nmother\nfucker\n";
 
-    b: B,
+    var lines = std.ArrayList([]const u8).init(std.testing.allocator);
+    defer lines.deinit();
 
-    fn sideEffect(self: *Self) void {
-        self.b.value += 1;
+    var it = std.mem.split(u8, source, "\n");
+    while (it.next()) |line| {
+        try lines.append(line);
     }
 
-    fn passByValue(self: *Self, shouldBeValue: B) void {
-        //  b as expected value here
-        self.sideEffect();
-        // b is modified here
-    }
-};
+    std.debug.assert(lines.items.len == 5);
+}

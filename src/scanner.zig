@@ -30,6 +30,22 @@ pub const Scanner = struct {
         };
     }
 
+    pub fn getLine(self: *Self, allocator: *Allocator, index: usize) !?[]const u8 {
+        var lines = std.ArrayList([]const u8).init(allocator);
+        defer lines.deinit();
+
+        var it = std.mem.split(u8, self.source, "\n");
+        while (it.next()) |line| {
+            try lines.append(line);
+        }
+
+        if (index >= lines.items.len) {
+            return null;
+        }
+
+        return lines.items[index];
+    }
+
     pub fn scanToken(self: *Self) !Token {
         self.skipWhitespaces();
 

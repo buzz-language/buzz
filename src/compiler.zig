@@ -113,6 +113,10 @@ pub const ChunkCompiler = struct {
 
         local.name = try _obj.copyString(compiler.vm, if (function_type == .Function) VM.this_string else VM.empty_string);
     }
+
+    pub fn getRootCompiler(self: *Self) *Self {
+        return if (self.enclosing) |enclosing| enclosing.getRootCompiler() else self;
+    }
 };
 
 pub const ParserState = struct {
@@ -281,32 +285,41 @@ pub const Compiler = struct {
         return if (self.parser.had_error) null else function;
     }
 
-    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) void {
+    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) !void {
         if (self.parser.panic_mode) {
             return;
         }
 
         self.parser.panic_mode = true;
 
-        std.debug.warn("\u{001b}[31m[{}:{}] Error", .{ token.line + 1, token.column + 1 });
-
-        if (token.token_type == .Eof) {
-            std.debug.warn(" at end", .{});
-        } else if (token.token_type != .Error) { // We report error to the token just before a .Error token
-            std.debug.warn(" at '{s}'", .{token.lexeme});
+        if (try self.scanner.?.getLine(self.vm.allocator, token.line)) |line| {
+            std.debug.warn("\n{s}\n", .{ line });
+            var i: usize = 0;
+            // TODO: how to do this better?
+            while (i < token.column - 1) : (i += 1) {
+                std.debug.warn(" ", .{});
+            }
+            std.debug.warn("^\n", .{});
         }
-
-        std.debug.warn(": {s}\u{001b}[0m\n", .{message});
+        std.debug.warn(
+            "{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
+            .{
+                self.current.?.getRootCompiler().function.name.string,
+                token.line + 1,
+                token.column + 1,
+                message
+            }
+        );
 
         self.parser.had_error = true;
     }
 
-    fn reportError(self: *Self, message: []const u8) void {
-        self.reportErrorAt(&self.parser.previous_token.?, message);
+    fn reportError(self: *Self, message: []const u8) !void {
+        try self.reportErrorAt(&self.parser.previous_token.?, message);
     }
 
-    fn reportErrorAtCurrent(self: *Self, message: []const u8) void {
-        self.reportErrorAt(&self.parser.current_token.?, message);
+    fn reportErrorAtCurrent(self: *Self, message: []const u8) !void {
+        try self.reportErrorAt(&self.parser.current_token.?, message);
     }
 
     fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
@@ -321,7 +334,7 @@ pub const Compiler = struct {
 
         error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
 
-        self.reportError(error_message);
+        try self.reportError(error_message);
     }
 
     fn advance(self: *Self) !void {
@@ -333,7 +346,7 @@ pub const Compiler = struct {
                 break;
             }
 
-            self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
+            try self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
         }
     }
 
@@ -343,7 +356,7 @@ pub const Compiler = struct {
             return;
         }
 
-        self.reportErrorAtCurrent(message);
+        try self.reportErrorAtCurrent(message);
     }
 
     fn check(self: *Self, token_type: TokenType) bool {
@@ -479,7 +492,7 @@ pub const Compiler = struct {
             try self.emitReturn();
         } else {
             if (self.current.?.function_type == .Initializer) {
-                self.reportError("Can't return a value from an initializer.");
+                try self.reportError("Can't return a value from an initializer.");
             }
 
             var return_type: *ObjTypeDef= try self.expression(false);
@@ -557,7 +570,7 @@ pub const Compiler = struct {
             // TODO: here search for a local with that name end check it's a class/object/enum
             unreachable;
         } else {
-            self.reportErrorAtCurrent("Expected type definition.");
+            try self.reportErrorAtCurrent("Expected type definition.");
 
             return try self.vm.getTypeDef(.{
                 .optional = try self.match(.Question),
@@ -578,7 +591,7 @@ pub const Compiler = struct {
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
-            self.reportError("Expect expression");
+            try self.reportError("Expect expression");
 
             // TODO: find a way to continue or catch that error
             return CompileError.Unrecoverable;
@@ -594,7 +607,7 @@ pub const Compiler = struct {
         }
 
         if (canAssign and (try self.match(.Equal))) {
-            self.reportError("Invalid assignment target.");
+            try self.reportError("Invalid assignment target.");
         }
 
         return parsed_type;
@@ -625,7 +638,7 @@ pub const Compiler = struct {
             while (true) {
                 arity += 1;
                 if (arity > 255) {
-                    self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                    try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
                 }
 
                 var param_type: *ObjTypeDef = try self.parseTypeDef();
@@ -757,7 +770,7 @@ pub const Compiler = struct {
 
     fn objectDeclaration(self: *Self) !void {
         if (self.current.?.scope_depth > 0) {
-            self.reportError("Object must be defined at top-level.");
+            try self.reportError("Object must be defined at top-level.");
             return;
         }
 
@@ -812,7 +825,7 @@ pub const Compiler = struct {
             } else if (try self.match(.Identifier)) {
                 // TODO: property()
             } else {
-                self.reportError("Expected either method or property.");
+                try self.reportError("Expected either method or property.");
             }
         }
 
@@ -890,7 +903,7 @@ pub const Compiler = struct {
                 }
 
                 if (arg_count != 0 and arg_name == null) {
-                    self.reportError("Expected argument name.");
+                    try self.reportError("Expected argument name.");
                     break;
                 }
 
@@ -915,7 +928,7 @@ pub const Compiler = struct {
                 });
 
                 if (arg_count == 255) {
-                    self.reportError("Can't have more than 255 arguments.");
+                    try self.reportError("Can't have more than 255 arguments.");
                     
                     return 0;
                 }
@@ -950,7 +963,7 @@ pub const Compiler = struct {
                                 self.vm.allocator.free(expr_type_str);
                             }
 
-                            self.reportError(
+                            try self.reportError(
                                 try std.fmt.bufPrint(
                                     wrong_type_str,
                                     "Expected argument `{s}` to be `{s}`, got `{s}`.",
@@ -966,7 +979,7 @@ pub const Compiler = struct {
                         var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
                         defer self.vm.allocator.free(wrong_name_str);
 
-                        self.reportError(
+                        try self.reportError(
                             try std.fmt.bufPrint(
                                 wrong_name_str,
                                 "Argument named `{s}`, doesn't exist.",
@@ -992,7 +1005,7 @@ pub const Compiler = struct {
                         }
                         var name: []const u8 = parameter_keys[0];
 
-                        self.reportError(
+                        try self.reportError(
                             try std.fmt.bufPrint(
                                 wrong_type_str,
                                 "Expected argument `{s}` to be `{s}`, got `{s}`.",
@@ -1043,7 +1056,7 @@ pub const Compiler = struct {
             var arity: []u8 = try self.vm.allocator.alloc(u8, 100);
             defer self.vm.allocator.free(arity);
 
-            self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
+            try self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
 
             return 0;
         }
@@ -1138,7 +1151,7 @@ pub const Compiler = struct {
             if (callee_type.resolved_type.?.Object.methods.get("init")) |initializer| {
                 arg_count = try self.argumentList(initializer);
             } else {
-                // self.reportError("No initializer: this is a bug in buzz compiler which should have provided one.");
+                // try self.reportError("No initializer: this is a bug in buzz compiler which should have provided one.");
                 try self.consume(.RightParen, "Expected `)` to close argument list.");
 
                 arg_count = 0;
@@ -1161,7 +1174,7 @@ pub const Compiler = struct {
             unreachable;
         }
 
-        self.reportError("Can't be called");
+        try self.reportError("Can't be called");
 
         return callee_type;
     }
@@ -1171,7 +1184,7 @@ pub const Compiler = struct {
         if (callee_type.def_type != ObjTypeDef.Type.ObjectInstance
             and callee_type.def_type != ObjTypeDef.Type.ClassInstance
             and callee_type.def_type != ObjTypeDef.Type.Enum) {
-            self.reportError("Doesn't have field access.");
+            try self.reportError("Doesn't have field access.");
         }
 
         try self.consume(.Identifier, "Expected property name after `.`");
@@ -1315,7 +1328,7 @@ pub const Compiler = struct {
 
     fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef) !usize {
         if (self.current.?.local_count == 255) {
-            self.reportError("Too many local variables in scope.");
+            try self.reportError("Too many local variables in scope.");
             return 0;
         }
 
@@ -1333,7 +1346,7 @@ pub const Compiler = struct {
 
     fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
         if (self.globals.items.len == 255) {
-            self.reportError("Too many global variables.");
+            try self.reportError("Too many global variables.");
             return 0;
         }
 
@@ -1355,7 +1368,7 @@ pub const Compiler = struct {
             var local: *Local = &compiler.locals[i];
             if (mem.eql(u8, name.lexeme, local.name.string)) {
                 if (local.depth == -1) {
-                    self.reportError("Can't read local variable in its own initializer.");
+                    try self.reportError("Can't read local variable in its own initializer.");
                 }
 
                 return i;
@@ -1377,7 +1390,7 @@ pub const Compiler = struct {
             var global: *Global = &self.globals.items[i];
             if (mem.eql(u8, name.lexeme, global.name.string)) {
                 if (!global.initialized) {
-                    self.reportError("Can't read global variable in its own initializer.");
+                    try self.reportError("Can't read global variable in its own initializer.");
                 }
 
                 return i;
@@ -1389,7 +1402,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addUpvalue(self: *Self, compiler: *ChunkCompiler, index: usize, is_local: bool) usize {
+    fn addUpvalue(self: *Self, compiler: *ChunkCompiler, index: usize, is_local: bool) !usize {
         var upvalue_count: u8 = compiler.function.upvalue_count;
 
         var i: usize = 0;
@@ -1401,7 +1414,7 @@ pub const Compiler = struct {
         }
 
         if (upvalue_count == 255) {
-            self.reportError("Too many closure variables in function.");
+            try self.reportError("Too many closure variables in function.");
             return 0;
         }
 
@@ -1420,12 +1433,12 @@ pub const Compiler = struct {
         var local: ?usize = try self.resolveLocal(compiler.enclosing.?, name);
         if (local) |resolved| {
             compiler.enclosing.?.locals[resolved].is_captured = true;
-            return self.addUpvalue(compiler, resolved, true);
+            return try self.addUpvalue(compiler, resolved, true);
         }
 
         var upvalue: ?usize = try self.resolveUpvalue(compiler.enclosing.?, name);
         if (upvalue) |resolved| {
-            return self.addUpvalue(compiler, resolved, false);
+            return try self.addUpvalue(compiler, resolved, false);
         }
 
         return null;
@@ -1469,7 +1482,7 @@ pub const Compiler = struct {
                 }
 
                 if (mem.eql(u8, name.lexeme, local.name.string)) {
-                    self.reportError("A variable with the same name already exists in this scope.");
+                    try self.reportError("A variable with the same name already exists in this scope.");
                 }
 
                 if (i == 0) break;
@@ -1480,7 +1493,7 @@ pub const Compiler = struct {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global| {
                 if (mem.eql(u8, name.lexeme, global.name.string)) {
-                    self.reportError("A global with the same name already exists.");
+                    try self.reportError("A global with the same name already exists.");
                 }
             }
 
@@ -1491,7 +1504,7 @@ pub const Compiler = struct {
     fn makeConstant(self: *Self, value: Value) !u8 {
         var constant: u8 = try self.current.?.function.chunk.addConstant(self.vm, value);
         if (constant > _chunk.Chunk.max_constants) {
-            self.reportError("Too many constants in one chunk.");
+            try self.reportError("Too many constants in one chunk.");
             return 0;
         }
 
