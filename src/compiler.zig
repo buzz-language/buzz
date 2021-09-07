@@ -639,7 +639,7 @@ pub const Compiler = struct {
                     try parameters.put(global.name.string, global.type_def);
                 }
 
-                try self.defineVariable();
+                try self.defineGlobalVariable();
 
                 if (!try self.match(.Comma)) break;
             }
@@ -734,7 +734,7 @@ pub const Compiler = struct {
             self.globals.items[slot].type_def = function_def;
         }
 
-        try self.defineVariable();
+        try self.defineGlobalVariable();
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
@@ -752,7 +752,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineVariable();
+        try self.defineGlobalVariable();
     }
 
     fn objectDeclaration(self: *Self) !void {
@@ -829,7 +829,7 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
-    inline fn defineVariable(self: *Self) !void {
+    inline fn defineGlobalVariable(self: *Self) !void {
         self.markInitialized();
 
         if (self.current.?.scope_depth > 0) {
@@ -837,6 +837,34 @@ pub const Compiler = struct {
         }
 
         try self.emitOpCode(.OP_DEFINE_GLOBAL);
+    }
+
+    fn declarePlaceholder(self: *Self, name: Token) !usize {
+        const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+            .Placeholder = try _obj.copyString(self.vm, name.lexeme)
+        };
+
+        const placeholder_type = try self.vm.getTypeDef(.{
+            .optional = false,
+            .def_type = .Placeholder,
+            .resolved_type = placeholder_resolved_type
+        });
+
+        const global: usize = try self.addGlobal(name, placeholder_type);
+        // markInitialized but we don't care what depth we are in
+        self.globals.items[self.globals.items.len - 1].initialized = true;
+
+        std.debug.warn(
+            "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
+            .{
+                self.parser.previous_token.?.line + 1,
+                self.parser.previous_token.?.column + 1,
+                name.lexeme,
+                global
+            }
+        );
+
+        return global;
     }
 
     const ParsedArg = struct {
@@ -1070,21 +1098,12 @@ pub const Compiler = struct {
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
             } else {
-                arg = try self.resolveGlobal(name);
-                if (arg) |resolved| {
-                    var_def = self.globals.items[resolved].type_def;
+                get_op = .OP_GET_GLOBAL;
+                set_op = .OP_SET_GLOBAL;
 
-                    get_op = .OP_GET_GLOBAL;
-                    set_op = .OP_SET_GLOBAL;
-                } else {
-                    var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
-                    defer self.vm.allocator.free(error_str);
-                    error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
+                arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name));
 
-                    self.reportError(error_str);
-
-                    return CompileError.Unrecoverable;
-                }
+                var_def = self.globals.items[arg.?].type_def;
             }
         }
 
