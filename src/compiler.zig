@@ -285,13 +285,7 @@ pub const Compiler = struct {
         return if (self.parser.had_error) null else function;
     }
 
-    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) !void {
-        if (self.parser.panic_mode) {
-            return;
-        }
-
-        self.parser.panic_mode = true;
-
+    fn report(self: *Self, token: *Token, message: []const u8) !void {
         if (try self.scanner.?.getLine(self.vm.allocator, token.line)) |line| {
             std.debug.warn("\n{s}\n", .{ line });
             var i: usize = 0;
@@ -310,8 +304,17 @@ pub const Compiler = struct {
                 message
             }
         );
+    }
 
+    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) !void {
+        if (self.parser.panic_mode) {
+            return;
+        }
+
+        self.parser.panic_mode = true;
         self.parser.had_error = true;
+
+        try self.report(token, message);
     }
 
     fn reportError(self: *Self, message: []const u8) !void {
@@ -854,7 +857,9 @@ pub const Compiler = struct {
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
         const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = try _obj.copyString(self.vm, name.lexeme)
+            .Placeholder = ObjTypeDef.PlaceholderDef {
+                .name = try _obj.copyString(self.vm, name.lexeme),
+            }
         };
 
         const placeholder_type = try self.vm.getTypeDef(.{
@@ -884,6 +889,26 @@ pub const Compiler = struct {
         name: ?Token,
         arg_type: *ObjTypeDef,
     };
+
+    // Like argument list but we parse all the arguments and populate the placeholder type with it
+    fn placeholderArgumentList(self: *Self, placeholder_type: *ObjTypeDef) !u8 {
+        // If the placeholder guessed an actual full type, use argumentList with it
+        if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
+            if (resolved_type.def_type == .Function) {
+                return try self.argumentList(resolved_type);
+            } else if (resolved_type.def_type == .Class) {
+                if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
+                    return try self.argumentList(init_method);
+                }
+            } else if (resolved_type.def_type == .Object) {
+                if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
+                    return try self.argumentList(init_method);
+                }
+            }
+        }
+
+        //...
+    }
 
     fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
         var arg_count: u8 = 0;
@@ -1172,6 +1197,24 @@ pub const Compiler = struct {
             unreachable;
         } else if (callee_type.def_type == .Enum) {
             unreachable;
+        } else if (callee_type.def_type == .Placeholder) {
+            callee_type.resolved_type.?.Placeholder.callable = true;
+
+            // Call it
+            arg_count = try self.argumentList(callee_type);
+
+            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+            
+            // We know nothing of the return value
+            const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = .{}
+            };
+
+            return try self.vm.getTypeDef(.{
+                .optional = false,
+                .def_type = .Placeholder,
+                .resolved_type = placeholder_resolved_type
+            });
         }
 
         try self.reportError("Can't be called");

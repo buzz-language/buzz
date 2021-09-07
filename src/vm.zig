@@ -102,6 +102,13 @@ pub const VM = struct {
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+        // Don't intern placeholders
+        if (type_def.def_type == .Placeholder) {
+            var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self, .Type)).?;
+            type_def_ptr.* = type_def;
+            return type_def_ptr;
+        }
+
         var type_def_str: []const u8 = try type_def.toString(self.allocator);
 
         if (self.type_defs.get(type_def_str)) |type_def_ptr| {

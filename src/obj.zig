@@ -698,6 +698,72 @@ pub const ObjTypeDef = struct {
         cases: [255][]const u8,
     };
 
+    pub const PlaceholderDef = struct {
+        const PlaceholderSelf = @This();
+
+        name: ?*ObjString = null,
+
+        // Assumption made by the code referencing the value
+        callable: ?bool = null,            // Function, Object or Class
+        subscriptable: ?bool = null,       // Array or Map
+        field_accessable: ?bool = null,    // Has fields
+        resolved_def_type: ?Type = null,   // Meta type
+        resolved_type: ?*ObjTypeDef = null,  // Actual type
+
+        pub fn eql(a: PlaceholderSelf, b: PlaceholderSelf) bool {
+            return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
+                and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
+                and ((a.field_accessable != null and b.field_accessable != null and a.field_accessable.? == b.field_accessable.?) or a.field_accessable == null or b.subscriptable == null)
+                and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
+                and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
+        }
+
+        pub fn isCoherent(self: *PlaceholderSelf) bool {
+            if (self.resolved_def_type != null
+                and self.resolved_type != null
+                and @as(Type, self.resolved_type.?) != self.resolved_def_type.?) {
+                return false;
+            }
+
+            // Nothing can be called and subscrited
+            if ((self.callable orelse false) and (self.subscritable orelse false)) {
+                return false;
+            }
+
+            // Nothing with fields can be subscrited
+            if ((self.field_accessable orelse false) and (self.subscritable orelse false)) {
+                return false;
+            }
+
+            const type_def: ?Type = self.resolved_def_type;
+            if (type_def == null and self.resolved_type != null) {
+                type_def = @as(Type, self.resolved_type.?.def_type);
+            }
+
+            const callable: bool = self.callable == null
+                or (self.callable.?
+                    and (type_def == null
+                        or type_def == .Class
+                        or type_def == .Object
+                        or type_def == .Function));
+
+            const subscritable: bool = self.subscriptable == null
+                or (self.subscriptable.?
+                    and (type_def == null
+                        or type_def == .List
+                        or type_def == .Map));
+
+            const field_accessable: bool = self.field_accessable == null
+                or (self.field_accessable.?
+                    and (type_def == null
+                        or type_def == .Class
+                        or type_def == .Object
+                        or type_def == .Enum));
+
+            return callable and subscritable and field_accessable;
+        }
+    };
+
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
         Bool: bool,
@@ -722,7 +788,7 @@ pub const ObjTypeDef = struct {
         Map: MapDef,
         Function: FunctionDef,
 
-        Placeholder: *ObjString // We know the type name but not its definition
+        Placeholder: PlaceholderDef
     };
 
     obj: Obj = .{
@@ -818,7 +884,6 @@ pub const ObjTypeDef = struct {
 
             .Placeholder => {
                 try type_str.appendSlice("{PlaceholderDef}");
-                try type_str.appendSlice(self.resolved_type.?.Placeholder.string);
             }
         }
 
@@ -883,7 +948,7 @@ pub const ObjTypeDef = struct {
                 return true;
             },
 
-            .Placeholder => mem.eql(u8, a.Placeholder.string, b.Placeholder.string),
+            .Placeholder => a.Placeholder.eql(b.Placeholder),
         };
     }
 
