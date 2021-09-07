@@ -46,6 +46,7 @@ pub const VM = struct {
     // TODO: put ta limit somewhere
     stack: []Value,
     stack_top: [*]Value,
+    globals: std.ArrayList(Value),
     // Interned strings
     strings: std.StringHashMap(*ObjString),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
@@ -63,6 +64,7 @@ pub const VM = struct {
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
             .stack_top = undefined,
+            .globals = std.ArrayList(Value).init(allocator),
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -96,6 +98,7 @@ pub const VM = struct {
         }
 
         self.gray_stack.deinit();
+        self.globals.deinit();
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
@@ -195,6 +198,12 @@ pub const VM = struct {
                 .OP_POP           => _ = self.pop(),
                 .OP_SWAP          => self.swap(readByte(frame), readByte(frame)),
                 .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
+                .OP_DEFINE_GLOBAL => {
+                    try self.globals.append(self.peek(0));
+                    _ = self.pop();
+                },
+                .OP_GET_GLOBAL    => self.push(self.globals.items[readByte(frame)]),
+                .OP_SET_GLOBAL    => self.globals.items[readByte(frame)] = self.peek(0),
                 .OP_GET_LOCAL     => self.push(frame.slots[readByte(frame)]),
                 .OP_SET_LOCAL     => frame.slots[readByte(frame)] = self.peek(0),
                 .OP_GET_UPVALUE   => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),

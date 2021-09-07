@@ -42,6 +42,12 @@ pub const Local = struct {
     is_captured: bool
 };
 
+pub const Global = struct {
+    name: *ObjString,
+    type_def: *ObjTypeDef,
+    initialized: bool = false,
+};
+
 pub const UpValue = struct {
     index: u8,
     is_local: bool
@@ -226,16 +232,19 @@ pub const Compiler = struct {
     scanner: ?Scanner = null,
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
-    current_class: ?ClassCompiler = null,
     current_object: ?ObjectCompiler = null,
+    current_class: ?*ClassCompiler = null,
+    globals: std.ArrayList(Global),
 
     pub fn init(vm: *VM) Self {
         return .{
             .vm = vm,
+            .globals = std.ArrayList(Global).init(vm.allocator),
         };
     }
 
-    pub fn deinit(_: *Self) void {
+    pub fn deinit(self: *Self) void {
+        self.globals.deinit();
     }
 
     // TODO: walk the chain of compiler and destroy them in deinit
@@ -622,10 +631,15 @@ pub const Compiler = struct {
                 var param_type: *ObjTypeDef = try self.parseTypeDef();
                 var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
 
-                var local: Local = self.current.?.locals[slot];
-                try parameters.put(local.name.string, local.type_def);
+                if (self.current.?.scope_depth > 0) {
+                    var local: Local = self.current.?.locals[slot];
+                    try parameters.put(local.name.string, local.type_def);
+                } else {
+                    var global: Global = self.globals.items[slot];
+                    try parameters.put(global.name.string, global.type_def);
+                }
 
-                self.markInitialized();
+                try self.defineVariable();
 
                 if (!try self.match(.Comma)) break;
             }
@@ -713,7 +727,14 @@ pub const Compiler = struct {
         self.markInitialized();
 
         var function_def: *ObjTypeDef = try self.function(name_token, FunctionType.Function);
-        self.current.?.locals[slot].type_def = function_def;
+        // Now that we have the full function type, get the local and update its type_def
+        if (self.current.?.scope_depth > 0) {
+            self.current.?.locals[slot].type_def = function_def;
+        } else {
+            self.globals.items[slot].type_def = function_def;
+        }
+
+        try self.defineVariable();
     }
 
     fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
@@ -731,7 +752,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        self.markInitialized();
+        try self.defineVariable();
     }
 
     fn objectDeclaration(self: *Self) !void {
@@ -806,6 +827,16 @@ pub const Compiler = struct {
         _ = try self.expression(false);
         try self.consume(.Semicolon, "Expected `;` after expression.");
         try self.emitOpCode(.OP_POP);
+    }
+
+    inline fn defineVariable(self: *Self) !void {
+        self.markInitialized();
+
+        if (self.current.?.scope_depth > 0) {
+            return;
+        }
+
+        try self.emitOpCode(.OP_DEFINE_GLOBAL);
     }
 
     const ParsedArg = struct {
@@ -1039,13 +1070,21 @@ pub const Compiler = struct {
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
             } else {
-                var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
-                defer self.vm.allocator.free(error_str);
-                error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
+                arg = try self.resolveGlobal(name);
+                if (arg) |resolved| {
+                    var_def = self.globals.items[resolved].type_def;
 
-                self.reportError(error_str);
+                    get_op = .OP_GET_GLOBAL;
+                    set_op = .OP_SET_GLOBAL;
+                } else {
+                    var error_str: []u8 = try self.vm.allocator.alloc(u8, name.lexeme.len + 1000);
+                    defer self.vm.allocator.free(error_str);
+                    error_str = try std.fmt.bufPrint(error_str, "`{s}` is not defined\x00", .{ name.lexeme });
 
-                return CompileError.Unrecoverable;
+                    self.reportError(error_str);
+
+                    return CompileError.Unrecoverable;
+                }
             }
         }
 
@@ -1273,6 +1312,20 @@ pub const Compiler = struct {
         return self.current.?.local_count - 1;
     }
 
+    fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
+        if (self.globals.items.len == 255) {
+            self.reportError("Too many global variables.");
+            return 0;
+        }
+
+        try self.globals.append(Global{
+            .name = try _obj.copyString(self.vm, name.lexeme),
+            .type_def = global_type,
+        });
+
+        return self.globals.items.len - 1;
+    }
+
     fn resolveLocal(self: *Self, compiler: *ChunkCompiler, name: Token) !?usize {
         if (compiler.local_count == 0) {
             return null;
@@ -1284,6 +1337,28 @@ pub const Compiler = struct {
             if (mem.eql(u8, name.lexeme, local.name.string)) {
                 if (local.depth == -1) {
                     self.reportError("Can't read local variable in its own initializer.");
+                }
+
+                return i;
+            }
+
+            if (i == 0) break;
+        }
+
+        return null;
+    }
+
+    fn resolveGlobal(self: *Self, name: Token) !?usize {
+        if (self.globals.items.len == 0) {
+            return null;
+        }
+
+        var i: usize = self.globals.items.len - 1;
+        while (i >= 0) : (i -= 1) {
+            var global: *Global = &self.globals.items[i];
+            if (mem.eql(u8, name.lexeme, global.name.string)) {
+                if (!global.initialized) {
+                    self.reportError("Can't read global variable in its own initializer.");
                 }
 
                 return i;
@@ -1354,29 +1429,44 @@ pub const Compiler = struct {
     }
 
     inline fn markInitialized(self: *Self) void {
-        self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+        if (self.current.?.scope_depth == 0) {
+            self.globals.items[self.globals.items.len - 1].initialized = true;
+        } else {
+            self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+        }
     }
 
     fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token) !usize {
         var name: Token = name_token orelse self.parser.previous_token.?;
 
-        // Check a local with the same name doesn't exists
-        var i: usize = self.current.?.locals.len - 1;
-        while (i >= 0) : (i -= 1) {
-            var local: *Local = &self.current.?.locals[i];
+        if (self.current.?.scope_depth > 0) {
+            // Check a local with the same name doesn't exists
+            var i: usize = self.current.?.locals.len - 1;
+            while (i >= 0) : (i -= 1) {
+                var local: *Local = &self.current.?.locals[i];
 
-            if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
-                break;
+                if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
+                    break;
+                }
+
+                if (mem.eql(u8, name.lexeme, local.name.string)) {
+                    self.reportError("A variable with the same name already exists in this scope.");
+                }
+
+                if (i == 0) break;
             }
 
-            if (mem.eql(u8, name.lexeme, local.name.string)) {
-                self.reportError("A variable with the same name already exists in this scope.");
+            return try self.addLocal(name, variable_type);
+        } else {
+            // Check a global with the same name doesn't exists
+            for (self.globals.items) |global| {
+                if (mem.eql(u8, name.lexeme, global.name.string)) {
+                    self.reportError("A global with the same name already exists.");
+                }
             }
 
-            if (i == 0) break;
+            return try self.addGlobal(name, variable_type);
         }
-
-        return try self.addLocal(name, variable_type);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
