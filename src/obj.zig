@@ -1,3 +1,4 @@
+// zig fmt: off
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -643,6 +644,8 @@ pub const ObjTypeDef = struct {
         Function,
         Type, // Something that holds a type, not an actual type
         Void,
+
+        Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
 
     pub const ListDef = struct {
@@ -718,6 +721,8 @@ pub const ObjTypeDef = struct {
         List: ListDef,
         Map: MapDef,
         Function: FunctionDef,
+
+        Placeholder: *ObjString // We know the type name but not its definition
     };
 
     obj: Obj = .{
@@ -810,6 +815,11 @@ pub const ObjTypeDef = struct {
             },
             .Type => try type_str.appendSlice("type"),
             .Void => try type_str.appendSlice("void"),
+
+            .Placeholder => {
+                try type_str.appendSlice("{PlaceholderDef}");
+                try type_str.appendSlice(self.resolved_type.?.Placeholder.string);
+            }
         }
 
         return type_str.items;
@@ -871,170 +881,40 @@ pub const ObjTypeDef = struct {
                 }
 
                 return true;
-            }
+            },
+
+            .Placeholder => mem.eql(u8, a.Placeholder.string, b.Placeholder.string),
         };
     }
 
     // Compare two type definitions
     pub fn eql(self: *Self, other: *Self) bool {
-        // TODO: if we ever put typedef in a set somewhere we could replace all this witha pointer comparison
+        const type_eql: bool = self.def_type == other.def_type
+            and ((self.resolved_type == null and other.resolved_type == null)
+                or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
+        
+        // Placeholder bypasses type checking only for Class/Object/Enum[Instance]
+        const self_is_placeholder: bool = self.def_type == .Placeholder
+            and (other.def_type == .Object
+                or other.def_type == .Class
+                or other.def_type == .Enum
+                or other.def_type == .ObjectInstance
+                or other.def_type == .ClassInstance
+                or other.def_type == .EnumInstance);
+        const other_is_placeholder: bool = other.def_type == .Placeholder
+            and (self.def_type == .Object
+                or self.def_type == .Class
+                or self.def_type == .Enum
+                or self.def_type == .ObjectInstance
+                or self.def_type == .ClassInstance
+                or self.def_type == .EnumInstance);
+        const placeholder_eql: bool = self_is_placeholder or other_is_placeholder;
+
         return self == other
             or (self.optional and other.def_type == .Void) // Void is equal to any optional type
             or (self.optional == other.optional
-                and self.def_type == other.def_type
-                and ((self.resolved_type == null and other.resolved_type == null)
-                    or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?)));
+                and (type_eql or placeholder_eql));
     }
-
-    // Compare value type to this type definition
-    pub fn is(self: *Self, value: Value) bool {
-        // Null is any optional type
-        if (self.optional and @as(ValueType, value) == .Null) {
-            return true;
-        }
-
-        return switch (self.def_type) {
-            Bool => value == .Bool,
-            Number => value == .Number,
-            Byte => value == .Byte,
-            String => value == .Obj and value.Obj.obj_type == .String,
-            Type => value == .Obj and value.Obj.obj_type == .Type,
-            Void => value == .Null,
-            ClassInstance => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .ClassInstance) {
-                    return false;
-                }
-
-                const instance: ?*ObjClassInstance = ObjClassInstance.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                return instance.?.class.class_def == self;
-            },
-            ObjectInstance => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .ObjectInstance) {
-                    return false;
-                }
-
-                const instance: ?*ObjObjectInstance = ObjObjectInstance.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                return instance.?.object.object_def == self;
-            },
-            EnumInstance => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .Enum) {
-                    return false;
-                }
-
-                const instance: ?*ObjEnumInstance = ObjEnumInstance.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                return instance.?.enum_ref.enum_type == self;
-            },
-            List => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .List) {
-                    return false;
-                }
-
-                const instance: ?*ObjList = ObjList.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                // TODO: maybe 2 type definition in 2 separate places should refer to the same typedef in memory?
-                //       until then do a deep comparison
-                return instance.?.item_type.eql(self.resolved_type.List.item_type);
-            },
-            Map => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .Map) {
-                    return false;
-                }
-
-                const instance: ?*ObjMap = ObjMap.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                // TODO: maybe 2 type definition in 2 separate places should refer to the same typedef in memory?
-                //       until then do a deep comparison
-                return instance.?.key_type.eql(self.resolved_type.Map.key_type)
-                    and instance.?.value_type.eql(self.resolved_type.Map.value_type);
-            },
-            Function => {
-                if (value != .Obj) {
-                    return false;
-                }
-
-                if (value.Obj.obj_type != .Function) {
-                    return false;
-                }
-
-                const instance: ?*ObjFunction = ObjFunction.cast(value.Obj);
-
-                if (instance == null) {
-                    return false;
-                }
-
-                // TODO: maybe 2 type definition in 2 separate places should refer to the same typedef in memory?
-                //       until then do a deep comparison
-
-                // Compare return types
-                if (instance.?.return_type.eql(self.resolved_type.Function.return_type)) {
-                    return false;
-                }
-
-                // Compare arity
-                if (instance.?.parameters.count() != self.resolved_type.Function.parameters.count()) {
-                    return false;
-                }
-
-                // Compare parameters
-                var it = instance.?.parameters.iterator();
-                while (it.next()) |kv| {
-                    if (self.resolved_type.Function.parameters.get(kv.key)) |pkv| {
-                        if (!kv.value.eql(pkv.value)) {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-
-                return true;
-            },
-        };
-    }
-
 };
 
 pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {

@@ -1,14 +1,16 @@
 str hello = "hello world";
 
-object First {
-    fun init() {
-        print("init");
-        print(hello);
-    }
-
-    fun firstHello() {
-        print(hello);
+object A {
+    fun hello() {
+        print("hello from A");
+        B().hello();
     }
 }
 
-First().firstHello();
+object B {
+    fun hello() {
+        print("hello from B");
+    }
+}
+
+A().hello();
