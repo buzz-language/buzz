@@ -340,6 +340,68 @@ pub const Compiler = struct {
         try self.reportError(error_message);
     }
 
+    // When we encounter the missing declaration we replace it with the resolved type.
+    // We then follow the chain of placeholders to see if their assumptions were correct.
+    // If not we raise a compile error.
+    pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) !void {
+        assert(placeholder.def_type == .Placeholder);
+        assert(resolved_type.def_type != .Placeholder);
+        
+        var placeholder_def: ObjTypeDef.PlaceholderDef = placeholder.resolved_type.?.Placeholder;
+
+        if (placeholder_def.resolved_type) |assumed_type| {
+            if (!assumed_type.eql(resolved_type)) {
+                try self.reportTypeCheck(resolved_type, assumed_type, "Type check error");
+                return;
+            }
+        }
+        
+        if (placeholder_def.resolved_def_type) |assumed_def_type| {
+            if (assumed_def_type != resolved_type.def_type) {
+                try self.reportError("[Bad assumption]: type check error.");
+                return;
+            }
+        }
+
+        if (placeholder_def.callable) |call_assumption| {
+            if (call_assumption
+                and resolved_type.def_type != .Object
+                and resolved_type.def_type != .Class
+                and resolved_type.def_type != .Function) {
+                // TODO: better error messages on placeholder stuff
+                try self.reportError("[Bad assumption]: can't be called.");
+                return;
+            }
+        }
+
+        if (placeholder_def.subscriptable) |subscript_assumption| {
+            if (subscript_assumption
+                and resolved_type.def_type != .List
+                and resolved_type.def_type != .Map) {
+                // TODO: better error messages on placeholder stuff
+                try self.reportError("[Bad assumption]: can't be subscripted.");
+                return;
+            }
+        }
+
+        if (placeholder_def.field_accessable) |field_accessable_assumption| {
+            if (field_accessable_assumption
+                and resolved_type.def_type != .Object
+                and resolved_type.def_type != .Class
+                and resolved_type.def_type != .Enum) {
+                // TODO: better error messages on placeholder stuff
+                try self.reportError("[Bad assumption]: has no fields.");
+                return;
+            }
+        }
+
+        // Overwrite placeholder with resolved_type
+        placeholder.* = resolved_type.*;
+
+        // TODO: should resolved_type be freed?
+        // TODO: does this work with vm.type_defs? (i guess not)
+    }
+
     fn advance(self: *Self) !void {
         self.parser.previous_token = self.parser.current_token;
 
@@ -856,11 +918,10 @@ pub const Compiler = struct {
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
-        const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = ObjTypeDef.PlaceholderDef {
-                .name = try _obj.copyString(self.vm, name.lexeme),
-            }
+        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+            .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator)
         };
+        placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, name.lexeme);
 
         const placeholder_type = try self.vm.getTypeDef(.{
             .optional = false,
@@ -882,6 +943,8 @@ pub const Compiler = struct {
             }
         );
 
+        try self.defineGlobalVariable();
+
         return global;
     }
 
@@ -891,24 +954,24 @@ pub const Compiler = struct {
     };
 
     // Like argument list but we parse all the arguments and populate the placeholder type with it
-    fn placeholderArgumentList(self: *Self, placeholder_type: *ObjTypeDef) !u8 {
-        // If the placeholder guessed an actual full type, use argumentList with it
-        if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
-            if (resolved_type.def_type == .Function) {
-                return try self.argumentList(resolved_type);
-            } else if (resolved_type.def_type == .Class) {
-                if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
-                    return try self.argumentList(init_method);
-                }
-            } else if (resolved_type.def_type == .Object) {
-                if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
-                    return try self.argumentList(init_method);
-                }
-            }
-        }
+    // fn placeholderArgumentList(self: *Self, placeholder_type: *ObjTypeDef) !u8 {
+    //     // If the placeholder guessed an actual full type, use argumentList with it
+    //     if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
+    //         if (resolved_type.def_type == .Function) {
+    //             return try self.argumentList(resolved_type);
+    //         } else if (resolved_type.def_type == .Class) {
+    //             if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
+    //                 return try self.argumentList(init_method);
+    //             }
+    //         } else if (resolved_type.def_type == .Object) {
+    //             if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
+    //                 return try self.argumentList(init_method);
+    //             }
+    //         }
+    //     }
 
-        //...
-    }
+    //     //...
+    // }
 
     fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
         var arg_count: u8 = 0;
@@ -1202,12 +1265,13 @@ pub const Compiler = struct {
 
             // Call it
             arg_count = try self.argumentList(callee_type);
+            // arg_count = try self.placeholderArgumentList(callee_type);
 
             try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
             
             // We know nothing of the return value
             const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                .Placeholder = .{}
+                .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator)
             };
 
             return try self.vm.getTypeDef(.{
@@ -1388,6 +1452,17 @@ pub const Compiler = struct {
     }
 
     fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
+        // Search for an existing placeholder global with the same name
+        for (self.globals.items) |global, index| {
+            if (global.type_def.def_type == .Placeholder
+                and global.type_def.resolved_type.?.Placeholder.name != null
+                and mem.eql(u8, name.lexeme, global.name.string)) {
+                try self.resolvePlaceholder(global.type_def, global_type);
+
+                return index;
+            }
+        }
+
         if (self.globals.items.len == 255) {
             try self.reportError("Too many global variables.");
             return 0;
@@ -1534,9 +1609,17 @@ pub const Compiler = struct {
             return try self.addLocal(name, variable_type);
         } else {
             // Check a global with the same name doesn't exists
-            for (self.globals.items) |global| {
+            for (self.globals.items) |global, index| {
                 if (mem.eql(u8, name.lexeme, global.name.string)) {
-                    try self.reportError("A global with the same name already exists.");
+                    if (global.type_def.def_type == .Placeholder
+                        and global.type_def.resolved_type.?.Placeholder.name != null
+                        and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
+                        try self.resolvePlaceholder(global.type_def, variable_type);
+
+                        return index;
+                    } else {
+                        try self.reportError("A global with the same name already exists.");
+                    }
                 }
             }
 

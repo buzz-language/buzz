@@ -1,16 +1,3 @@
+print(hello);
+
 str hello = "hello world";
-
-object A {
-    fun hello() {
-        print("hello from A");
-        B().hello();
-    }
-}
-
-object B {
-    fun hello() {
-        print("hello from B");
-    }
-}
-
-A().hello();

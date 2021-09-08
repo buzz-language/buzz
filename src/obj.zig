@@ -1,5 +1,6 @@
 // zig fmt: off
 const std = @import("std");
+const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
@@ -701,14 +702,38 @@ pub const ObjTypeDef = struct {
     pub const PlaceholderDef = struct {
         const PlaceholderSelf = @This();
 
+        const PlaceholderRelation = enum {
+            Call,
+            Subscript,
+            FieldAccess
+        };
+
         name: ?*ObjString = null,
 
         // Assumption made by the code referencing the value
-        callable: ?bool = null,            // Function, Object or Class
-        subscriptable: ?bool = null,       // Array or Map
-        field_accessable: ?bool = null,    // Has fields
-        resolved_def_type: ?Type = null,   // Meta type
-        resolved_type: ?*ObjTypeDef = null,  // Actual type
+        callable: ?bool = null,             // Function, Object or Class
+        subscriptable: ?bool = null,        // Array or Map
+        field_accessable: ?bool = null,     // Has fields
+        resolved_def_type: ?Type = null,    // Meta type
+        resolved_type: ?*ObjTypeDef = null, // Actual type
+
+        // When accessing/calling/subscrit a placeholder we produce another. We keep them linked so we
+        // can trace back the root of the unknown type.
+        parent: ?*ObjTypeDef = null,
+        // What's the relation with the parent?
+        parent_relation: ?PlaceholderRelation = null,
+        // Children adds themselves here
+        children: std.ArrayList(*ObjTypeDef),
+
+        pub fn init(allocator: *Allocator) PlaceholderSelf {
+            return PlaceholderSelf {
+                .children = std.ArrayList(*ObjTypeDef).init(allocator)
+            };
+        }
+
+        pub fn deinit(self: *PlaceholderSelf) void {
+            self.children.deinit();
+        }
 
         pub fn eql(a: PlaceholderSelf, b: PlaceholderSelf) bool {
             return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
