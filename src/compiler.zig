@@ -349,7 +349,18 @@ pub const Compiler = struct {
     // If not we raise a compile error.
     pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) anyerror!void {
         assert(placeholder.def_type == .Placeholder);
-        assert(resolved_type.def_type != .Placeholder);
+
+        // If two placeholders, see if they can be merged        
+        if (resolved_type.def_type == .Placeholder) {
+            if (!resolved_type.resolved_type.?.Placeholder.eql(placeholder.resolved_type.?.Placeholder)) {
+                try self.reportErrorAt(resolved_type.resolved_type.?.Placeholder.where, "[Incompatible assumptions] Type check error");
+            } else {
+                // TODO: do we care that two equivalent placeholder exist?
+                try resolved_type.resolved_type.?.Placeholder.enrich(&placeholder.resolved_type.?.Placeholder);
+            }
+
+            return;
+        }
         
         var placeholder_def: ObjTypeDef.PlaceholderDef = placeholder.resolved_type.?.Placeholder;
 
@@ -399,6 +410,37 @@ pub const Compiler = struct {
             }
         }
 
+        if (placeholder_def.resolved_parameters) |assumed_argument_list| {
+            if (assumed_argument_list.count() != resolved_type.resolved_type.?.Function.parameters.count()) {
+                try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: arity not matching.");
+
+                return;
+            }
+
+            var it = assumed_argument_list.iterator();
+            var resolved_parameter_keys: [][]const u8 = resolved_type.resolved_type.?.Function.parameters.keys();
+            while (it.next()) |kv| {
+                // Is there a matching argument with the same type?
+                if (resolved_type.resolved_type.?.Function.parameters.get(kv.key_ptr.*)) |matching_arg| {
+                    if (!matching_arg.eql(kv.value_ptr.*)) {
+                        try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: argument not matching.");
+
+                        return;
+                    }
+                } else if (mem.eql(u8, kv.key_ptr.*, "{{first}}")) {
+                    // Is the first argument argument matching
+                    if (!resolved_type.resolved_type.?.Function.parameters.get(resolved_parameter_keys[0]).?.eql(kv.value_ptr.*)) {
+                        try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: argument not matching.");
+
+                        return;
+                    }
+                } else {
+                    // That argument doesn't exists
+                    try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: argument does not exists.");
+                }
+            }
+        }
+
         // Now walk the chain of placeholders and see if they hold up
         for (placeholder_def.children.items) |child| {
             assert(child.resolved_type.?.Placeholder.parent != null);
@@ -409,8 +451,8 @@ pub const Compiler = struct {
                     // Can we call the parent?
                     if (resolved_type.def_type != .Class
                         and resolved_type.def_type != .Object
-                        and resolved_type.def_type == .Function) {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be assigned to");
+                        and resolved_type.def_type != .Function) {
+                        try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
 
@@ -1078,102 +1120,203 @@ pub const Compiler = struct {
     };
 
     // Like argument list but we parse all the arguments and populate the placeholder type with it
-    // fn placeholderArgumentList(self: *Self, placeholder_type: *ObjTypeDef) !u8 {
-    //     // If the placeholder guessed an actual full type, use argumentList with it
-    //     if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
-    //         if (resolved_type.def_type == .Function) {
-    //             return try self.argumentList(resolved_type);
-    //         } else if (resolved_type.def_type == .Class) {
-    //             if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
-    //                 return try self.argumentList(init_method);
-    //             }
-    //         } else if (resolved_type.def_type == .Object) {
-    //             if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
-    //                 return try self.argumentList(init_method);
-    //             }
-    //         }
-    //     }
+    // TODO: factorize with `argumentList`
+    fn placeholderArgumentList(self: *Self, placeholder_type: *ObjTypeDef) !u8 {
+        // If the placeholder guessed an actual full type, use argumentList with it
+        if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
+            if (resolved_type.def_type == .Function) {
+                return try self.argumentList(resolved_type.resolved_type.?.Function.parameters);
+            } else if (resolved_type.def_type == .Class) {
+                if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
+                    return try self.argumentList(init_method.resolved_type.?.Function.parameters);
+                }
 
-    //     //...
-    // }
+                // No user-defined init method, no arguments
+                // TODO: flesh this out when we define how default constructors work
+                return try self.argumentList(null);
+            } else if (resolved_type.def_type == .Object) {
+                if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
+                    return try self.argumentList(init_method.resolved_type.?.Function.parameters);
+                }
 
-    fn argumentList(self: *Self, function_type: *ObjTypeDef) !u8 {
+                // No user-defined init method, no arguments
+                // TODO: flesh this out when we define how default constructors work
+                return try self.argumentList(null);
+            }
+        } else if (placeholder_type.resolved_type.?.Placeholder.resolved_parameters) |parameters| {
+            return try self.argumentList(parameters);
+        }
+
+        // Otherwise parse the argument list as we find it and enrich placeholder assumptions
+        var parsed_arguments = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
         var arg_count: u8 = 0;
-        var function_def: ObjTypeDef.FunctionDef = function_type.resolved_type.?.Function;
-        var parameters: std.StringArrayHashMap(*ObjTypeDef) = function_def.parameters;
-        var parameter_keys: [][]const u8 = parameters.keys();
-        
-        if (!self.check(.RightParen)) {
-            var parsed_arguments = std.ArrayList(ParsedArg).init(self.vm.allocator);
-            defer parsed_arguments.deinit();
+        while (!self.check(.RightParen)) {
+            var hanging = false;
+            var arg_name: ?Token = null;
+            if (try self.match(.Identifier)) {
+                arg_name = self.parser.previous_token.?;
+            }
 
-            while (arg_count < parameter_keys.len) {
-                var hanging = false;
-                var arg_name: ?Token = null;
-                if (try self.match(.Identifier)) {
-                    arg_name = self.parser.previous_token.?;
-                }
+            if (arg_count != 0 and arg_name == null) {
+                try self.reportError("Expected argument name.");
+                break;
+            }
 
-                if (arg_count != 0 and arg_name == null) {
-                    try self.reportError("Expected argument name.");
-                    break;
-                }
-
-                if (arg_name != null) {
-                    if (arg_count == 0) {
-                        if (try self.match(.Colon)) {
-                            hanging = false;
-                        } else {
-                            // The identifier we just parsed is not the argument name but the start of an expression
-                            hanging = true;
-                        }
+            if (arg_name != null) {
+                if (arg_count == 0) {
+                    if (try self.match(.Colon)) {
+                        hanging = false;
                     } else {
-                        try self.consume(.Colon, "Expected `:` after argument name.");
+                        // The identifier we just parsed is not the argument name but the start of an expression
+                        hanging = true;
                     }
-                }
-
-                var expr_type: *ObjTypeDef = try self.expression(hanging);
-
-                try parsed_arguments.append(ParsedArg{
-                    .name = arg_name,
-                    .arg_type = expr_type,
-                });
-
-                if (arg_count == 255) {
-                    try self.reportError("Can't have more than 255 arguments.");
-                    
-                    return 0;
-                }
-
-                arg_count += 1;
-                
-                if (!(try self.match(.Comma))) {
-                    break;
+                } else {
+                    try self.consume(.Colon, "Expected `:` after argument name.");
                 }
             }
 
-            // Now that we parsed all arguments, check they match function definition
-            var order_differs = false;
-            for (parsed_arguments.items) |argument, index| {
-                if (argument.name) |name| {
-                    if (!order_differs and !mem.eql(u8, parameter_keys[index], name.lexeme)) {
-                        order_differs = true;
+            var expr_type: *ObjTypeDef = try self.expression(hanging);
+
+            try parsed_arguments.put(if (arg_name) |arg| arg.lexeme else "{{first}}", expr_type);
+
+            if (arg_count == 255) {
+                try self.reportError("Can't have more than 255 arguments.");
+                
+                return 0;
+            }
+
+            arg_count += 1;
+            
+            if (!(try self.match(.Comma))) {
+                break;
+            }
+        }
+
+        try self.consume(.RightParen, "Expected `)` after arguments.");
+
+        placeholder_type.resolved_type.?.Placeholder.resolved_parameters = parsed_arguments;
+
+        return arg_count;
+    }
+
+    fn argumentList(self: *Self, function_parameters: ?std.StringArrayHashMap(*ObjTypeDef)) !u8 {
+        if (function_parameters) |parameters| {
+            var arg_count: u8 = 0;
+            var parameter_keys: [][]const u8 = parameters.keys();
+            
+            if (!self.check(.RightParen)) {
+                var parsed_arguments = std.ArrayList(ParsedArg).init(self.vm.allocator);
+                defer parsed_arguments.deinit();
+
+                while (arg_count < parameter_keys.len) {
+                    var hanging = false;
+                    var arg_name: ?Token = null;
+                    if (try self.match(.Identifier)) {
+                        arg_name = self.parser.previous_token.?;
                     }
 
-                    var param_type = parameters.get(name.lexeme);
+                    if (arg_count != 0 and arg_name == null) {
+                        try self.reportError("Expected argument name.");
+                        break;
+                    }
 
-                    // Does an argument with that name exists?
-                    if (param_type) |ptype| {
-                        // Is the argument type correct?
-                        if (!ptype.eql(argument.arg_type)) {
+                    if (arg_name != null) {
+                        if (arg_count == 0) {
+                            if (try self.match(.Colon)) {
+                                hanging = false;
+                            } else {
+                                // The identifier we just parsed is not the argument name but the start of an expression
+                                hanging = true;
+                            }
+                        } else {
+                            try self.consume(.Colon, "Expected `:` after argument name.");
+                        }
+                    }
+
+                    var expr_type: *ObjTypeDef = try self.expression(hanging);
+
+                    try parsed_arguments.append(ParsedArg{
+                        .name = arg_name,
+                        .arg_type = expr_type,
+                    });
+
+                    if (arg_count == 255) {
+                        try self.reportError("Can't have more than 255 arguments.");
+                        
+                        return 0;
+                    }
+
+                    arg_count += 1;
+                    
+                    if (!(try self.match(.Comma))) {
+                        break;
+                    }
+                }
+
+                // Now that we parsed all arguments, check they match function definition
+                var order_differs = false;
+                for (parsed_arguments.items) |argument, index| {
+                    if (argument.name) |name| {
+                        if (!order_differs and !mem.eql(u8, parameter_keys[index], name.lexeme)) {
+                            order_differs = true;
+                        }
+
+                        var param_type = parameters.get(name.lexeme);
+
+                        // Does an argument with that name exists?
+                        if (param_type) |ptype| {
+                            // Is the argument type correct?
+                            if (!ptype.eql(argument.arg_type)) {
+                                var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                                var param_type_str: []const u8 = try ptype.toString(self.vm.allocator);
+                                var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
+                                defer {
+                                    self.vm.allocator.free(wrong_type_str);
+                                    self.vm.allocator.free(param_type_str);
+                                    self.vm.allocator.free(expr_type_str);
+                                }
+
+                                try self.reportError(
+                                    try std.fmt.bufPrint(
+                                        wrong_type_str,
+                                        "Expected argument `{s}` to be `{s}`, got `{s}`.",
+                                        .{
+                                            name, param_type_str, expr_type_str
+                                        }
+                                    )
+                                );
+
+                                return 0;
+                            }
+                        } else {
+                            var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
+                            defer self.vm.allocator.free(wrong_name_str);
+
+                            try self.reportError(
+                                try std.fmt.bufPrint(
+                                    wrong_name_str,
+                                    "Argument named `{s}`, doesn't exist.",
+                                    .{ name.lexeme }
+                                )
+                            );
+
+                            return 0;
+                        }
+                    } else {
+                        assert(index == 0);
+
+                        // First argument without name, check its type
+                        var param_type: *ObjTypeDef = parameters.get(parameter_keys[0]).?;
+                        if (!param_type.eql(argument.arg_type)) {
                             var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                            var param_type_str: []const u8 = try ptype.toString(self.vm.allocator);
+                            var param_type_str: []const u8 = try param_type.toString(self.vm.allocator);
                             var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
                             defer {
                                 self.vm.allocator.free(wrong_type_str);
                                 self.vm.allocator.free(param_type_str);
                                 self.vm.allocator.free(expr_type_str);
                             }
+                            var name: []const u8 = parameter_keys[0];
 
                             try self.reportError(
                                 try std.fmt.bufPrint(
@@ -1187,94 +1330,57 @@ pub const Compiler = struct {
 
                             return 0;
                         }
-                    } else {
-                        var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                        defer self.vm.allocator.free(wrong_name_str);
-
-                        try self.reportError(
-                            try std.fmt.bufPrint(
-                                wrong_name_str,
-                                "Argument named `{s}`, doesn't exist.",
-                                .{ name.lexeme }
-                            )
-                        );
-
-                        return 0;
-                    }
-                } else {
-                    assert(index == 0);
-
-                    // First argument without name, check its type
-                    var param_type: *ObjTypeDef = parameters.get(parameter_keys[0]).?;
-                    if (!param_type.eql(argument.arg_type)) {
-                        var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                        var param_type_str: []const u8 = try param_type.toString(self.vm.allocator);
-                        var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
-                        defer {
-                            self.vm.allocator.free(wrong_type_str);
-                            self.vm.allocator.free(param_type_str);
-                            self.vm.allocator.free(expr_type_str);
-                        }
-                        var name: []const u8 = parameter_keys[0];
-
-                        try self.reportError(
-                            try std.fmt.bufPrint(
-                                wrong_type_str,
-                                "Expected argument `{s}` to be `{s}`, got `{s}`.",
-                                .{
-                                    name, param_type_str, expr_type_str
-                                }
-                            )
-                        );
-
-                        return 0;
                     }
                 }
-            }
 
-            // If order differ we emit OP_SWAP so that OP_CALL know where its arguments are
-            if (order_differs) {
-                var already_swapped = std.AutoHashMap(u8, u8).init(self.vm.allocator);
-                defer already_swapped.deinit();
+                // If order differ we emit OP_SWAP so that OP_CALL know where its arguments are
+                if (order_differs) {
+                    var already_swapped = std.AutoHashMap(u8, u8).init(self.vm.allocator);
+                    defer already_swapped.deinit();
 
-                for (parsed_arguments.items) |argument, index| {
-                    assert(argument.name != null or index == 0);
+                    for (parsed_arguments.items) |argument, index| {
+                        assert(argument.name != null or index == 0);
 
-                    var arg_name: []const u8 = if (argument.name) |uname| uname.lexeme else parameter_keys[0];
-                    if (!mem.eql(u8 , arg_name, parameter_keys[index])) {
-                        // Search for the correct index for this argument
-                        for (parameter_keys) |param_name, pindex| {
-                            if (mem.eql(u8, param_name, arg_name)) {
-                                var already: ?u8 = already_swapped.get(@intCast(u8, pindex));
-                                if (already != null and already.? == @intCast(u8, index)) {
-                                    break;
+                        var arg_name: []const u8 = if (argument.name) |uname| uname.lexeme else parameter_keys[0];
+                        if (!mem.eql(u8 , arg_name, parameter_keys[index])) {
+                            // Search for the correct index for this argument
+                            for (parameter_keys) |param_name, pindex| {
+                                if (mem.eql(u8, param_name, arg_name)) {
+                                    var already: ?u8 = already_swapped.get(@intCast(u8, pindex));
+                                    if (already != null and already.? == @intCast(u8, index)) {
+                                        break;
+                                    }
+
+                                    try self.emitOpCode(.OP_SWAP);
+                                    // from where it is on the stack
+                                    try self.emitByte(@intCast(u8, index));
+                                    // to where it should be
+                                    try self.emitByte(@intCast(u8, pindex));
+
+                                    try already_swapped.put(@intCast(u8, index), @intCast(u8, pindex));
                                 }
-
-                                try self.emitOpCode(.OP_SWAP);
-                                // from where it is on the stack
-                                try self.emitByte(@intCast(u8, index));
-                                // to where it should be
-                                try self.emitByte(@intCast(u8, pindex));
-
-                                try already_swapped.put(@intCast(u8, index), @intCast(u8, pindex));
                             }
                         }
                     }
                 }
             }
+
+            if (parameter_keys.len != arg_count) {
+                var arity: []u8 = try self.vm.allocator.alloc(u8, 100);
+                defer self.vm.allocator.free(arity);
+
+                try self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
+
+                return 0;
+            }
+
+            try self.consume(.RightParen, "Expected `)` after arguments.");
+            return arg_count;
         }
 
-        if (parameter_keys.len != arg_count) {
-            var arity: []u8 = try self.vm.allocator.alloc(u8, 100);
-            defer self.vm.allocator.free(arity);
-
-            try self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
-
-            return 0;
-        }
-
+        // Empty argument list
         try self.consume(.RightParen, "Expected `)` after arguments.");
-        return arg_count;
+        return 0;
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ObjTypeDef {
@@ -1354,14 +1460,14 @@ pub const Compiler = struct {
     fn call(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         var arg_count: u8 = 0;
         if (callee_type.def_type == .Function) {
-            arg_count = try self.argumentList(callee_type);
+            arg_count = try self.argumentList(callee_type.resolved_type.?.Function.parameters);
 
             try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
 
             return callee_type.resolved_type.?.Function.return_type;
         } else if (callee_type.def_type == .Object) {
             if (callee_type.resolved_type.?.Object.methods.get("init")) |initializer| {
-                arg_count = try self.argumentList(initializer);
+                arg_count = try self.argumentList(initializer.resolved_type.?.Function.parameters);
             } else {
                 // try self.reportError("No initializer: this is a bug in buzz compiler which should have provided one.");
                 try self.consume(.RightParen, "Expected `)` to close argument list.");
@@ -1385,11 +1491,16 @@ pub const Compiler = struct {
         } else if (callee_type.def_type == .Enum) {
             unreachable;
         } else if (callee_type.def_type == .Placeholder) {
-            callee_type.resolved_type.?.Placeholder.callable = true;
+            callee_type.resolved_type.?.Placeholder.callable = callee_type.resolved_type.?.Placeholder.callable orelse true;
+
+            if (!callee_type.resolved_type.?.Placeholder.isCallable()) {
+                try self.reportErrorAt(callee_type.resolved_type.?.Placeholder.where, "Can't be called");
+
+                return callee_type;
+            }
 
             // Call it
-            arg_count = try self.argumentList(callee_type);
-            // arg_count = try self.placeholderArgumentList(callee_type);
+            arg_count = try self.placeholderArgumentList(callee_type);
 
             try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
             
@@ -1467,7 +1578,7 @@ pub const Compiler = struct {
                 // If it's a method we can call it
                 if (property_type) |resolved| {
                     if (try self.match(.LeftParen)) {
-                        var arg_count: u8 = try self.argumentList(resolved);
+                        var arg_count: u8 = try self.argumentList(resolved.resolved_type.?.Function.parameters);
 
                         try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
                         try self.emitByte(arg_count);
@@ -1739,6 +1850,7 @@ pub const Compiler = struct {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global, index| {
                 if (mem.eql(u8, name.lexeme, global.name.string)) {
+                    // If we found a placeholder with that name, try to resolve it with `variable_type`
                     if (global.type_def.def_type == .Placeholder
                         and global.type_def.resolved_type.?.Placeholder.name != null
                         and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {

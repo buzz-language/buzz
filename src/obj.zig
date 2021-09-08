@@ -316,7 +316,7 @@ pub const ObjFunction = struct {
     },
 
     name: *ObjString,
-    parameters: StringHashMap(*ObjTypeDef),
+    parameters: std.StringArrayHashMap(*ObjTypeDef),
     return_type: *ObjTypeDef,
     chunk: Chunk,
     upvalue_count: u8 = 0,
@@ -325,7 +325,7 @@ pub const ObjFunction = struct {
         return Self {
             .name = name,
             .return_type = return_type,
-            .parameters = StringHashMap(*ObjTypeDef).init(allocator),
+            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
             .chunk = try Chunk.init(allocator),
         };
     }
@@ -715,12 +715,13 @@ pub const ObjTypeDef = struct {
         // Assumption made by the code referencing the value
         callable: ?bool = null,             // Function, Object or Class
         subscriptable: ?bool = null,        // Array or Map
-        field_accessable: ?bool = null,     // Has fields
+        field_accessable: ?bool = null,     // Object, Class or Enum
+        resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
         resolved_def_type: ?Type = null,    // Meta type
         resolved_type: ?*ObjTypeDef = null, // Actual type
         where: Token,                       // Where the placeholder was created
 
-        // When accessing/calling/subscrit a placeholder we produce another. We keep them linked so we
+        // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
         // can trace back the root of the unknown type.
         parent: ?*ObjTypeDef = null,
         // What's the relation with the parent?
@@ -749,11 +750,57 @@ pub const ObjTypeDef = struct {
         }
 
         pub fn eql(a: PlaceholderSelf, b: PlaceholderSelf) bool {
+            if (a.resolved_parameters != null and b.resolved_parameters != null) {
+                var it = a.resolved_parameters.?.iterator();
+                while (it.next()) |kv| {
+                    if (b.resolved_parameters.?.get(kv.key_ptr.*)) |b_arg_type| {
+                        return b_arg_type.eql(kv.value_ptr.*);
+                    } else {
+                        return false;
+                    }
+                }
+            }
+
             return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
                 and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
                 and ((a.field_accessable != null and b.field_accessable != null and a.field_accessable.? == b.field_accessable.?) or a.field_accessable == null or b.subscriptable == null)
                 and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
                 and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
+        }
+
+        pub fn enrich(one: *PlaceholderSelf, other: *PlaceholderSelf) !void {
+            one.callable = one.callable orelse other.callable;
+            other.callable = one.callable orelse other.callable;
+
+            one.subscriptable = one.subscriptable orelse other.subscriptable;
+            other.subscriptable = one.subscriptable orelse other.subscriptable;
+
+            one.field_accessable = one.field_accessable orelse other.field_accessable;
+            other.field_accessable = one.field_accessable orelse other.field_accessable;
+
+            one.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
+            other.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
+
+            one.resolved_type = one.resolved_type orelse other.resolved_type;
+            other.resolved_type = one.resolved_type orelse other.resolved_type;
+
+            if (other.resolved_parameters) |parameters| {
+                one.resolved_parameters = try parameters.clone();
+            } else if (one.resolved_parameters) |parameters| {
+                other.resolved_parameters = try parameters.clone();
+            }
+        }
+
+        pub fn isCallable(self: *PlaceholderSelf) bool {
+            return (self.callable == null or self.callable.?)
+                and (self.resolved_def_type == null
+                    or self.resolved_def_type.? == .Function
+                    or self.resolved_def_type.? == .Object
+                    or self.resolved_def_type.? == .Class)
+                and (self.resolved_type == null
+                    or self.resolved_type.?.def_type == .Function
+                    or self.resolved_type.?.def_type == .Object
+                    or self.resolved_type.?.def_type == .Class);
         }
 
         pub fn isCoherent(self: *PlaceholderSelf) bool {

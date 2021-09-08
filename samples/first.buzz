@@ -1,6 +1,9 @@
 fun main() {
-    num wrong = hello;
-    print(wrong);
+    sayHello(hello);
+}
+
+fun sayHello(str name) {
+    print(name);
 }
 
 str hello = "hello world";
