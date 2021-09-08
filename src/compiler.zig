@@ -285,7 +285,7 @@ pub const Compiler = struct {
         return if (self.parser.had_error) null else function;
     }
 
-    fn report(self: *Self, token: *Token, message: []const u8) !void {
+    fn report(self: *Self, token: Token, message: []const u8) !void {
         if (try self.scanner.?.getLine(self.vm.allocator, token.line)) |line| {
             std.debug.warn("\n{s}\n", .{ line });
             var i: usize = 0;
@@ -306,7 +306,7 @@ pub const Compiler = struct {
         );
     }
 
-    fn reportErrorAt(self: *Self, token: *Token, message: []const u8) !void {
+    fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {
         if (self.parser.panic_mode) {
             return;
         }
@@ -318,14 +318,14 @@ pub const Compiler = struct {
     }
 
     fn reportError(self: *Self, message: []const u8) !void {
-        try self.reportErrorAt(&self.parser.previous_token.?, message);
+        try self.reportErrorAt(self.parser.previous_token.?, message);
     }
 
     fn reportErrorAtCurrent(self: *Self, message: []const u8) !void {
-        try self.reportErrorAt(&self.parser.current_token.?, message);
+        try self.reportErrorAt(self.parser.current_token.?, message);
     }
 
-    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
+    fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
         var expected_str: []const u8 = try expected_type.toString(self.vm.allocator);
         var actual_str: []const u8 = try actual_type.toString(self.vm.allocator);
         var error_message: []u8 = try self.vm.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
@@ -337,13 +337,17 @@ pub const Compiler = struct {
 
         error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
 
-        try self.reportError(error_message);
+        try self.reportErrorAt(at, error_message);
+    }
+
+    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
+        try self.reportTypeCheckAt(expected_type, actual_type, message, self.parser.previous_token.?);
     }
 
     // When we encounter the missing declaration we replace it with the resolved type.
     // We then follow the chain of placeholders to see if their assumptions were correct.
     // If not we raise a compile error.
-    pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) !void {
+    pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) anyerror!void {
         assert(placeholder.def_type == .Placeholder);
         assert(resolved_type.def_type != .Placeholder);
         
@@ -351,14 +355,14 @@ pub const Compiler = struct {
 
         if (placeholder_def.resolved_type) |assumed_type| {
             if (!assumed_type.eql(resolved_type)) {
-                try self.reportTypeCheck(resolved_type, assumed_type, "Type check error");
+                try self.reportTypeCheckAt(resolved_type, assumed_type, "Type check error", placeholder_def.where);
                 return;
             }
         }
         
         if (placeholder_def.resolved_def_type) |assumed_def_type| {
             if (assumed_def_type != resolved_type.def_type) {
-                try self.reportError("[Bad assumption]: type check error.");
+                try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: type check error.");
                 return;
             }
         }
@@ -369,7 +373,7 @@ pub const Compiler = struct {
                 and resolved_type.def_type != .Class
                 and resolved_type.def_type != .Function) {
                 // TODO: better error messages on placeholder stuff
-                try self.reportError("[Bad assumption]: can't be called.");
+                try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: can't be called.");
                 return;
             }
         }
@@ -379,7 +383,7 @@ pub const Compiler = struct {
                 and resolved_type.def_type != .List
                 and resolved_type.def_type != .Map) {
                 // TODO: better error messages on placeholder stuff
-                try self.reportError("[Bad assumption]: can't be subscripted.");
+                try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: can't be subscripted.");
                 return;
             }
         }
@@ -390,8 +394,70 @@ pub const Compiler = struct {
                 and resolved_type.def_type != .Class
                 and resolved_type.def_type != .Enum) {
                 // TODO: better error messages on placeholder stuff
-                try self.reportError("[Bad assumption]: has no fields.");
+                try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: has no fields.");
                 return;
+            }
+        }
+
+        // Now walk the chain of placeholders and see if they hold up
+        for (placeholder_def.children.items) |child| {
+            assert(child.resolved_type.?.Placeholder.parent != null);
+            assert(child.resolved_type.?.Placeholder.parent_relation != null);
+
+            switch (child.resolved_type.?.Placeholder.parent_relation.?) {
+                .Call => {
+                    // Can we call the parent?
+                    if (resolved_type.def_type != .Class
+                        and resolved_type.def_type != .Object
+                        and resolved_type.def_type == .Function) {
+                        try self.reportErrorAt(placeholder_def.where, "Can't be assigned to");
+                        return;
+                    }
+
+                    // Is the child types resolvable with parent return type
+                    if (resolved_type.def_type == .Class) {
+                        var instance_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+                            .optional = false,
+                            .def_type = .ClassInstance,
+                            .resolved_type = .{
+                                .ClassInstance = resolved_type
+                            }
+                        });
+
+                        try self.resolvePlaceholder(child, instance_type);
+                    } else if (resolved_type.def_type == .Object) {
+                        var instance_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+                            .optional = false,
+                            .def_type = .ObjectInstance,
+                            .resolved_type = .{
+                                .ObjectInstance = resolved_type
+                            }
+                        });
+
+                        try self.resolvePlaceholder(child, instance_type);
+                    } else if (resolved_type.def_type != .Function) {
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type);
+                    }
+                },
+                .Subscript => {
+                    // Is child type matching the list type or map value type?
+                    unreachable;
+                },
+                .FieldAccess => {
+                    // Is parent an object or class with a property or method that matches child?
+                },
+                .Assignment => {
+                    // Can we assign something to the parent?
+                    if (resolved_type.def_type == .Class
+                        or resolved_type.def_type == .Object
+                        or resolved_type.def_type == .Enum) {
+                        try self.reportErrorAt(placeholder_def.where, "Can't be assigned to");
+                        return;
+                    }
+
+                    // Is child type matching the parent?
+                    try self.resolvePlaceholder(child, resolved_type);
+                },
             }
         }
 
@@ -865,8 +931,21 @@ pub const Compiler = struct {
 
         if (try self.match(.Equal)) {
             var expr_type: *ObjTypeDef = try self.expression(false);
-
-            if (!var_type.eql(expr_type)) {
+            
+            // If only receiver is placeholder, make the assumption that its type if what the expression's return
+            if (var_type.def_type == .Placeholder and expr_type.def_type != .Placeholder) {
+                var_type.resolved_type.?.Placeholder.resolved_def_type = expr_type.def_type;
+                var_type.resolved_type.?.Placeholder.resolved_type = expr_type;
+            // If only expression is a placeholder, make the inverse assumption
+            } else if (expr_type.def_type == .Placeholder and var_type.def_type != .Placeholder) {
+                expr_type.resolved_type.?.Placeholder.resolved_def_type = var_type.def_type;
+                expr_type.resolved_type.?.Placeholder.resolved_type = var_type;
+            // If both are placeholders, check that they are compatible and enrich them
+            } else if (expr_type.def_type == .Placeholder and var_type.def_type == .Placeholder
+                and expr_type.resolved_type.?.Placeholder.eql(var_type.resolved_type.?.Placeholder)) {
+                try ObjTypeDef.PlaceholderDef.link(var_type, expr_type, .Assignment);
+            // Else do a normal type check
+            } else if (!var_type.eql(expr_type)) {
                 try self.reportTypeCheck(var_type, expr_type, "Wrong variable type");
             }
         } else {
@@ -964,7 +1043,7 @@ pub const Compiler = struct {
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator)
+            .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
         };
         placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, name.lexeme);
 
@@ -1315,15 +1394,19 @@ pub const Compiler = struct {
             try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
             
             // We know nothing of the return value
-            const placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator)
+            var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
             };
 
-            return try self.vm.getTypeDef(.{
+            var placeholder = try self.vm.getTypeDef(.{
                 .optional = false,
                 .def_type = .Placeholder,
                 .resolved_type = placeholder_resolved_type
             });
+
+            try ObjTypeDef.PlaceholderDef.link(callee_type, placeholder, .Call);
+
+            return placeholder;
         }
 
         try self.reportError("Can't be called");

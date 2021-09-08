@@ -10,6 +10,7 @@ const memory = @import("./memory.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
+const Token = @import("./token.zig").Token;
 
 pub const ObjType = enum {
     String,
@@ -705,7 +706,8 @@ pub const ObjTypeDef = struct {
         const PlaceholderRelation = enum {
             Call,
             Subscript,
-            FieldAccess
+            FieldAccess,
+            Assignment,
         };
 
         name: ?*ObjString = null,
@@ -716,6 +718,7 @@ pub const ObjTypeDef = struct {
         field_accessable: ?bool = null,     // Has fields
         resolved_def_type: ?Type = null,    // Meta type
         resolved_type: ?*ObjTypeDef = null, // Actual type
+        where: Token,                       // Where the placeholder was created
 
         // When accessing/calling/subscrit a placeholder we produce another. We keep them linked so we
         // can trace back the root of the unknown type.
@@ -725,14 +728,24 @@ pub const ObjTypeDef = struct {
         // Children adds themselves here
         children: std.ArrayList(*ObjTypeDef),
 
-        pub fn init(allocator: *Allocator) PlaceholderSelf {
+        pub fn init(allocator: *Allocator, where: Token) PlaceholderSelf {
             return PlaceholderSelf {
+                .where = where.clone(),
                 .children = std.ArrayList(*ObjTypeDef).init(allocator)
             };
         }
 
         pub fn deinit(self: *PlaceholderSelf) void {
             self.children.deinit();
+        }
+
+        pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+            assert(parent.def_type == .Placeholder);
+            assert(child.def_type == .Placeholder);
+
+            child.resolved_type.?.Placeholder.parent = parent;
+            try parent.resolved_type.?.Placeholder.children.append(child);
+            child.resolved_type.?.Placeholder.parent_relation = relation;
         }
 
         pub fn eql(a: PlaceholderSelf, b: PlaceholderSelf) bool {
@@ -982,28 +995,11 @@ pub const ObjTypeDef = struct {
         const type_eql: bool = self.def_type == other.def_type
             and ((self.resolved_type == null and other.resolved_type == null)
                 or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
-        
-        // Placeholder bypasses type checking only for Class/Object/Enum[Instance]
-        const self_is_placeholder: bool = self.def_type == .Placeholder
-            and (other.def_type == .Object
-                or other.def_type == .Class
-                or other.def_type == .Enum
-                or other.def_type == .ObjectInstance
-                or other.def_type == .ClassInstance
-                or other.def_type == .EnumInstance);
-        const other_is_placeholder: bool = other.def_type == .Placeholder
-            and (self.def_type == .Object
-                or self.def_type == .Class
-                or self.def_type == .Enum
-                or self.def_type == .ObjectInstance
-                or self.def_type == .ClassInstance
-                or self.def_type == .EnumInstance);
-        const placeholder_eql: bool = self_is_placeholder or other_is_placeholder;
 
         return self == other
             or (self.optional and other.def_type == .Void) // Void is equal to any optional type
             or (self.optional == other.optional
-                and (type_eql or placeholder_eql));
+                and (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder));
     }
 };
 
