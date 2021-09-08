@@ -1,3 +1,5 @@
-print(hello);
+fun main() {
+    print(hello);
+}
 
 str hello = "hello world";

@@ -270,7 +270,7 @@ pub const Compiler = struct {
 
         // Enter AST
         while (!(try self.match(.Eof))) {
-            self.declaration() catch return null;
+            self.declarationOrReturnStatement() catch return null;
         }
 
         var function: *ObjFunction = try self.endCompiler();
@@ -487,6 +487,16 @@ pub const Compiler = struct {
     fn emitReturn(self: *Self) !void {
         if (self.current.?.function_type == .Initializer) {
             try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
+        } else if (self.current.?.function_type == .Script) {
+            // If top level, search `main` function and call it, otherwise just return null
+            // If user returned something that code won't be reachable
+            for (self.globals.items) |global, index| {
+                if (mem.eql(u8, global.name.string, "main")) {
+                    // TODO: Somehow push cli args on the stack
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                    try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                }
+            }
         } else {
             try self.emitOpCode(.OP_NULL);
         }
@@ -495,8 +505,43 @@ pub const Compiler = struct {
     }
 
     // AST NODES
+    // TODO: minimize code redundancy between declaration and declarationOrStatement
+    fn declarationOrReturnStatement(self: *Self) !void {
+        if (try self.match(.Class)) {
+            // self.classDeclaration();
+        } else if (try self.match(.Object)) {
+            try self.objectDeclaration();
+        } else if (try self.match(.Enum)) {
+            // self.enumDeclaration();
+        } else if (try self.match(.Fun)) {
+            try self.funDeclaration();
+        } else if (try self.match(.Str)) {
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }));
+        } else if (try self.match(.Num)) {
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }));
+        } else if (try self.match(.Byte)) {
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Byte }));
+        } else if (try self.match(.Bool)) {
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }));
+        } else if (try self.match(.Type)) {
+            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }));
+        } else if (try self.match(.LeftBracket)) {
+            // self.listDeclaraction();
+        } else if (try self.match(.LeftBrace)) {
+            // self.mapDeclaraction();
+        } else if (try self.match(.Function)) {
+            // self.funVarDeclaraction();
+        // TODO: matching a identifier here will prevent from parsing a statement that starts with an identifier (function call)
+        // } else if ((try self.match(.Identifier))) {
+        //     if (self.check(.Identifier)) {
+        //         // TODO: instance declaration, needs to retrieve the *ObjTypeDef
+        //     }
+        } else if (try self.match(.Return)) {
+            try self.returnStatement();
+        }
+    }
 
-    fn declaration(self: *Self) !void {
+    fn declarationOrStatement(self: *Self) !void {
         // Things we can match with the first token
         if (try self.match(.Class)) {
             // self.classDeclaration();
@@ -684,7 +729,7 @@ pub const Compiler = struct {
 
     fn block(self: *Self) anyerror!void {
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            try self.declaration();
+            try self.declarationOrStatement();
         }
 
         try self.consume(.RightBrace, "Expected `}}` after block.");
