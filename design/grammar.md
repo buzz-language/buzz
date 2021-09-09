@@ -24,9 +24,10 @@ switch         -> switch \(<expression>\) { (<expression>: <statement>*)+ (defau
 return         -> return <expression>?;
 
 # Expressions (the fuzzy part tbh)
-14  expression     -> <assignment> | <is>
-13  assignment     -> ((<call> | <reference> | <primary>)(\?|!)?\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
-12  is             -> <null_or> (is <null_or>)*
+15  expression     -> <assignment> | <is>
+14  assignment     -> ((<call> | <reference> | <primary>)(\?|!)?\.)?<identifier> (+|-|/|*)= (<assignment> | <is>)
+13  is             -> <as> (is <as>)*
+12  as             -> <null_or> (as <null_or>)*
 11  null_or        -> <logic_or> (\?\? <logic_or>)*
 10  logic_or       -> <logic_and> (or <logic_and>)*
 9   logic_and      -> <logic_xor> (and <logic_xor>)*

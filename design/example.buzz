@@ -60,6 +60,9 @@ print("hello {name} {12 + 5}"); | -> "hello john"
 | Instance of
 aString is str; | -> true
 
+| Casting
+aString as num;
+
 | Optional unwraping
 [str]? yo = ["hello"];
 yo!        | force unwrap (can we do without?)
