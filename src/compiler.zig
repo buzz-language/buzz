@@ -962,7 +962,12 @@ pub const Compiler = struct {
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
         } else {
-            self.globals.items[slot].type_def = function_def;
+            if (self.globals.items[slot].type_def.def_type == .Placeholder) {
+                // Now that the function definition is complete, resolve the eventual placeholder
+                try self.resolvePlaceholder(self.globals.items[slot].type_def, function_def);
+            } else {
+                self.globals.items[slot].type_def = function_def;
+            }
         }
 
         try self.defineGlobalVariable();
@@ -1177,7 +1182,8 @@ pub const Compiler = struct {
 
             var expr_type: *ObjTypeDef = try self.expression(hanging);
 
-            try parsed_arguments.put(if (arg_name) |arg| arg.lexeme else "{{first}}", expr_type);
+            // If hanging, the identifier is NOT the argument name
+            try parsed_arguments.put(if (arg_name != null and !hanging) arg_name.?.lexeme else "{{first}}", expr_type);
 
             if (arg_count == 255) {
                 try self.reportError("Can't have more than 255 arguments.");
@@ -1236,7 +1242,7 @@ pub const Compiler = struct {
                     var expr_type: *ObjTypeDef = try self.expression(hanging);
 
                     try parsed_arguments.append(ParsedArg{
-                        .name = arg_name,
+                        .name = if (!hanging) arg_name else null, // If hanging, the identifier is NOT the argument name
                         .arg_type = expr_type,
                     });
 
@@ -1854,7 +1860,12 @@ pub const Compiler = struct {
                     if (global.type_def.def_type == .Placeholder
                         and global.type_def.resolved_type.?.Placeholder.name != null
                         and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
-                        try self.resolvePlaceholder(global.type_def, variable_type);
+
+                        // A function declares a global with an incomplete typedef so that it can handle recursion
+                        // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
+                        if (variable_type.resolved_type != null) {
+                            try self.resolvePlaceholder(global.type_def, variable_type);
+                        }
 
                         return index;
                     } else {
