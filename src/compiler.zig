@@ -1202,13 +1202,17 @@ pub const Compiler = struct {
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef) !void {
         // If var_type is Class/Object/Enum, we expect instance of them
         var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
-            .Object => try self.vm.getTypeDef(.{
-                .optional = parsed_type.optional,
-                .def_type = .ObjectInstance,
-                .resolved_type = ObjTypeDef.TypeUnion{
+            .Object => object: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                     .ObjectInstance = parsed_type
-                }
-            }),
+                };
+
+                break :object try self.vm.getTypeDef(.{
+                    .optional = parsed_type.optional,
+                    .def_type = .ObjectInstance,
+                    .resolved_type = resolved_type
+                });
+            },
             .Class => {
                 unreachable;
             },

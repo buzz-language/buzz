@@ -1,13 +1,13 @@
-fun main() {
-    First first = First();
-
-    first.sayHello(hello);
-}
-
 object First {
     fun sayHello(str name) {
         print(name);
     }
+}
+
+fun main() {
+    First first = First();
+
+    first.sayHello(hello);
 }
 
 str hello = "hello world";
