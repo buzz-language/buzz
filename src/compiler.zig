@@ -766,19 +766,9 @@ pub const Compiler = struct {
                 }
             }
 
-            // If none found, create a placeholder
+            // No placeholder at top-level
             if (var_type == null) {
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
-                };
-
-                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
-
-                var_type = try self.vm.getTypeDef(.{
-                    .optional = try self.match(.Question),
-                    .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type
-                });
+                try self.reportError("Unknown identifier");
             }
 
             try self.varDeclaration(var_type.?);
@@ -1233,11 +1223,21 @@ pub const Compiler = struct {
                 var_type.resolved_type.?.Placeholder.resolved_type = expr_type;
             // If only expression is a placeholder, make the inverse assumption
             } else if (expr_type.def_type == .Placeholder and var_type.def_type != .Placeholder) {
+                if (self.current.?.scope_depth == 0) {
+                    try self.reportError("Unknown expression type.");
+                    return;
+                }
+
                 expr_type.resolved_type.?.Placeholder.resolved_def_type = var_type.def_type;
                 expr_type.resolved_type.?.Placeholder.resolved_type = var_type;
             // If both are placeholders, check that they are compatible and enrich them
             } else if (expr_type.def_type == .Placeholder and var_type.def_type == .Placeholder
                 and expr_type.resolved_type.?.Placeholder.eql(var_type.resolved_type.?.Placeholder)) {
+                if (self.current.?.scope_depth == 0) {
+                    try self.reportError("Unknown expression type.");
+                    return;
+                }
+
                 try ObjTypeDef.PlaceholderDef.link(var_type, expr_type, .Assignment);
             // Else do a normal type check
             } else if (!var_type.eql(expr_type)) {
@@ -1337,6 +1337,11 @@ pub const Compiler = struct {
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
+        if (self.current.?.scope_depth == 0) {
+            try self.reportError("Unknown expression type.");
+            return 0;
+        }
+
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
             .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
         };
@@ -1745,6 +1750,11 @@ pub const Compiler = struct {
         } else if (callee_type.def_type == .Enum) {
             unreachable;
         } else if (callee_type.def_type == .Placeholder) {
+            if (self.current.?.scope_depth == 0) {
+                try self.reportError("Unknown expression type.");
+                return callee_type;
+            }
+
             callee_type.resolved_type.?.Placeholder.callable = callee_type.resolved_type.?.Placeholder.callable orelse true;
             if (!callee_type.resolved_type.?.Placeholder.isCoherent()) {
                 try self.reportErrorAt(callee_type.resolved_type.?.Placeholder.where, "Can't be called");
