@@ -550,16 +550,27 @@ pub const Compiler = struct {
                     }
                 },
                 .Assignment => {
-                    // Can we assign something to the parent?
-                    if (resolved_type.def_type == .Class
-                        or resolved_type.def_type == .Object
-                        or resolved_type.def_type == .Enum) {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be assigned to");
-                        return;
-                    }
+                    // Assignment relation from a once Placeholder and now Class/Object/Enum is creating an instance
+                    // TODO: but does this allow `AClass = something;` ?
+                    var child_type: *ObjTypeDef = switch (resolved_type.def_type) {
+                        .Object => obj_instance: {
+                            var instance_type: ObjTypeDef.TypeUnion = .{
+                                .ObjectInstance = resolved_type
+                            };
+
+                            break :obj_instance try self.vm.getTypeDef(ObjTypeDef {
+                                .optional = false,
+                                .def_type = .ObjectInstance,
+                                .resolved_type = instance_type,
+                            });
+                        },
+                        .Class => unreachable,
+                        .Enum => unreachable,
+                        else => resolved_type,
+                    };
 
                     // Is child type matching the parent?
-                    try self.resolvePlaceholder(child, resolved_type);
+                    try self.resolvePlaceholder(child, child_type);
                 },
             }
         }
@@ -675,85 +686,239 @@ pub const Compiler = struct {
 
     // AST NODES
     // TODO: minimize code redundancy between declaration and declarationOrStatement
+    // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
+    //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
     fn declarationOrReturnStatement(self: *Self) !void {
         if (try self.match(.Class)) {
             // self.classDeclaration();
+            unreachable;
         } else if (try self.match(.Object)) {
             try self.objectDeclaration();
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
+            unreachable;
         } else if (try self.match(.Fun)) {
             try self.funDeclaration();
         } else if (try self.match(.Str)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .String
+                    }
+                )
+            );
         } else if (try self.match(.Num)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Number
+                    }
+                )
+            );
         } else if (try self.match(.Byte)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Byte }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Byte
+                    }
+                )
+            );
         } else if (try self.match(.Bool)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Bool
+                    }
+                )
+            );
         } else if (try self.match(.Type)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Type
+                    }
+                )
+            );
         } else if (try self.match(.LeftBracket)) {
             // self.listDeclaraction();
+            unreachable;
         } else if (try self.match(.LeftBrace)) {
             // self.mapDeclaraction();
+            unreachable;
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
-        // TODO: matching a identifier here will prevent from parsing a statement that starts with an identifier (function call)
-        // } else if ((try self.match(.Identifier))) {
-        //     if (self.check(.Identifier)) {
-        //         // TODO: instance declaration, needs to retrieve the *ObjTypeDef
-        //     }
+            unreachable;
+        // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
+        } else if ((try self.match(.Identifier))) {
+            var user_type_name: Token = self.parser.previous_token.?.clone();
+            var var_type: ?*ObjTypeDef = null;
+
+            // Search for a global with that name
+            for (self.globals.items) |global| {
+                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
+                    var_type = global.type_def;
+                    break;
+                }
+            }
+
+            // If none found, create a placeholder
+            if (var_type == null) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+
+                var_type = try self.vm.getTypeDef(.{
+                    .optional = try self.match(.Question),
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+            }
+
+            try self.varDeclaration(var_type.?);
         } else if (try self.match(.Return)) {
             try self.returnStatement();
         }
     }
 
     fn declarationOrStatement(self: *Self) !void {
+        var hanging: bool = false;
         // Things we can match with the first token
         if (try self.match(.Class)) {
             // self.classDeclaration();
+            unreachable;
         } else if (try self.match(.Object)) {
             try self.objectDeclaration();
+
+            return;
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
+            unreachable;
         } else if (try self.match(.Fun)) {
             try self.funDeclaration();
+
+            return;
         } else if (try self.match(.Str)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .String
+                    }
+                )
+            );
+
+            return;
         } else if (try self.match(.Num)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Number
+                    }
+                )
+            );
+
+            return;
         } else if (try self.match(.Byte)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Byte }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Byte
+                    }
+                )
+            );
+
+            return;
         } else if (try self.match(.Bool)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Bool
+                    }
+                )
+            );
+
+            return;
         } else if (try self.match(.Type)) {
-            try self.varDeclaration(try self.vm.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }));
+            try self.varDeclaration(
+                try self.vm.getTypeDef(
+                    .{
+                        .optional = try self.match(.Question),
+                        .def_type = .Type
+                    }
+                )
+            );
+
+            return;
         } else if (try self.match(.LeftBracket)) {
             // self.listDeclaraction();
+            unreachable;
         } else if (try self.match(.LeftBrace)) {
             // self.mapDeclaraction();
+            unreachable;
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
-        // TODO: matching a identifier here will prevent from parsing a statement that starts with an identifier (function call)
-        // } else if ((try self.match(.Identifier))) {
-        //     if (self.check(.Identifier)) {
-        //         // TODO: instance declaration, needs to retrieve the *ObjTypeDef
-        //     }
-        } else {
-            try self.statement();
+            unreachable;
+        // TODO: matching a identifier here will prevent from parsing an expression that starts with an identifier (function call)
+        //       -> use expression(true)
+        } else if ((try self.match(.Identifier))) {
+            if (self.check(.Identifier)) {
+                var user_type_name: Token = self.parser.previous_token.?.clone();
+                var var_type: ?*ObjTypeDef = null;
+
+                // Search for a global with that name
+                for (self.globals.items) |global| {
+                    if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
+                        var_type = global.type_def;
+                        break;
+                    }
+                }
+
+                // If none found, create a placeholder
+                if (var_type == null) {
+                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    };
+
+                    placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+
+                    var_type = try self.vm.getTypeDef(.{
+                        .optional = try self.match(.Question),
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type
+                    });
+                }
+
+                try self.varDeclaration(var_type.?);
+
+                return;
+            } else {
+                hanging = true;
+            }
         }
+        
+        try self.statement(hanging);
     }
 
-    fn statement(self: *Self) !void {
+    fn statement(self: *Self, hanging: bool) !void {
         // TODO: remove
         if (try self.match(.Print)) {
+            assert(!hanging);
             try self.printStatement();
         } else if (try self.match(.Return)) {
+            assert(!hanging);
             try self.returnStatement();
         } else {
-            try self.expressionStatement();
+            try self.expressionStatement(hanging);
         }
     }
 
@@ -1034,7 +1199,25 @@ pub const Compiler = struct {
         try self.defineGlobalVariable();
     }
 
-    fn varDeclaration(self: *Self, var_type: *ObjTypeDef) !void {
+    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef) !void {
+        // If var_type is Class/Object/Enum, we expect instance of them
+        var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
+            .Object => try self.vm.getTypeDef(.{
+                .optional = parsed_type.optional,
+                .def_type = .ObjectInstance,
+                .resolved_type = ObjTypeDef.TypeUnion{
+                    .ObjectInstance = parsed_type
+                }
+            }),
+            .Class => {
+                unreachable;
+            },
+            .Enum => {
+                unreachable;
+            },
+            else => parsed_type
+        };
+
         _ = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
@@ -1133,8 +1316,8 @@ pub const Compiler = struct {
         self.current_object =  if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
     }
 
-    fn expressionStatement(self: *Self) !void {
-        _ = try self.expression(false);
+    fn expressionStatement(self: *Self, hanging: bool) !void {
+        _ = try self.expression(hanging);
         try self.consume(.Semicolon, "Expected `;` after expression.");
         try self.emitOpCode(.OP_POP);
     }

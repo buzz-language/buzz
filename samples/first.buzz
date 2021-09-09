@@ -1,5 +1,7 @@
 fun main() {
-    First().sayHello(hello);
+    First first = First();
+
+    first.sayHello(hello);
 }
 
 object First {
