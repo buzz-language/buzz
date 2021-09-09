@@ -1629,7 +1629,7 @@ pub const Compiler = struct {
                             try self.reportTypeCheck(resolved, parsed_type, "Property value");
                         }
 
-                        try self.emitBytes(@enumToInt(OpCode.OP_SET_OBJ_PROPERTY), name);
+                        try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
 
                         return parsed_type;             
                     }
@@ -1657,7 +1657,7 @@ pub const Compiler = struct {
 
                 // Else just get it
                 if (property_type) |resolved |{
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_OBJ_PROPERTY), name);
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
 
                     return resolved;
                 }
@@ -1696,7 +1696,7 @@ pub const Compiler = struct {
                 if (can_assign and try self.match(.Equal)) {
                     var parsed_type: *ObjTypeDef = try self.expression(false);
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_SET_OBJ_PROPERTY), name);
+                    try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
 
                     placeholder.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
                     placeholder.resolved_type.?.Placeholder.resolved_type = parsed_type;
@@ -1716,7 +1716,7 @@ pub const Compiler = struct {
                     try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
                     try self.emitByte(arg_count);
                 } else {
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_OBJ_PROPERTY), name);
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
                 }
 
                 return placeholder;

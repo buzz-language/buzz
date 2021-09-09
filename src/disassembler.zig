@@ -106,10 +106,10 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_OBJECT,
         .OP_CLASS,
         .OP_METHOD,
-        .OP_GET_OBJ_PROPERTY,
+        .OP_GET_PROPERTY,
         .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
 
-        .OP_SET_OBJ_PROPERTY => simpleInstruction(instruction, offset),
+        .OP_SET_PROPERTY => simpleInstruction(instruction, offset),
         .OP_GET_SUBSCRIPT => simpleInstruction(instruction, offset),
         .OP_SET_SUBSCRIPT => simpleInstruction(instruction, offset),
         .OP_GET_SUPER => simpleInstruction(instruction, offset),

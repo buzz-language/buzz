@@ -295,19 +295,31 @@ pub const VM = struct {
                     try self.defineMethod(readString(frame));
                 },
                 
-                // TODO: merge OP_GET_OBJ_PROPERTY and OP_GET_CLS_PROPERTY
-                .OP_GET_OBJ_PROPERTY  => {
-                    var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).Obj).?;
-                    var name: *ObjString = readString(frame);
+                .OP_GET_PROPERTY  => {
+                    var obj: *Obj = self.peek(0).Obj;
 
-                    if (instance.fields.get(name.string)) |field| {
-                        _ = self.pop(); // Pop instance
-                        self.push(field);
-                        break;
-                    }
-                    
-                    if (instance.object.methods.get(name.string)) |method| {
-                        try self.bindMethod(method);
+                    switch (obj.obj_type) {
+                        .ClassInstance => {
+                            unreachable;
+                        },
+                        .ObjectInstance => {
+                            var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                            var name: *ObjString = readString(frame);
+
+                            if (instance.fields.get(name.string)) |field| {
+                                _ = self.pop(); // Pop instance
+                                self.push(field);
+                                break;
+                            }
+                            
+                            if (instance.object.methods.get(name.string)) |method| {
+                                try self.bindMethod(method);
+                            }
+                        },
+                        .Enum => {
+                            unreachable;
+                        },
+                        else => unreachable
                     }
                 },
 
