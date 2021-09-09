@@ -399,10 +399,10 @@ pub const Compiler = struct {
             }
         }
 
-        if (placeholder_def.field_accessable) |field_accessable_assumption| {
-            if (field_accessable_assumption
-                and resolved_type.def_type != .Object
-                and resolved_type.def_type != .Class
+        if (placeholder_def.field_accessible) |field_accessible_assumption| {
+            if (field_accessible_assumption
+                and resolved_type.def_type != .ObjectInstance
+                and resolved_type.def_type != .ClassInstance
                 and resolved_type.def_type != .Enum) {
                 // TODO: better error messages on placeholder stuff
                 try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: has no fields.");
@@ -411,17 +411,43 @@ pub const Compiler = struct {
         }
 
         if (placeholder_def.resolved_parameters) |assumed_argument_list| {
-            if (assumed_argument_list.count() != resolved_type.resolved_type.?.Function.parameters.count()) {
+            var parameters: std.StringArrayHashMap(*ObjTypeDef) = undefined;
+            if (resolved_type.def_type == .Function) {
+                parameters = resolved_type.resolved_type.?.Function.parameters;
+            } else if (resolved_type.def_type == .Object) {
+                // Search for `init` method
+                var found_init: bool = false;
+                var it = resolved_type.resolved_type.?.Object.methods.iterator();
+                while (it.next()) |kv| {
+                    if (mem.eql(u8, kv.key_ptr.*, "init")) {
+                        assert(kv.value_ptr.*.def_type == .Function);
+                        parameters = kv.value_ptr.*.resolved_type.?.Function.parameters;
+                        found_init = true;
+                        break;
+                    }
+                }
+
+                // Otherwise argument list should be empty
+                if (!found_init) {
+                    parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+                }
+            } else if (resolved_type.def_type == .Class) {
+                unreachable;
+            } else {
+                unreachable;
+            }
+
+            if (assumed_argument_list.count() != parameters.count()) {
                 try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: arity not matching.");
 
                 return;
             }
 
             var it = assumed_argument_list.iterator();
-            var resolved_parameter_keys: [][]const u8 = resolved_type.resolved_type.?.Function.parameters.keys();
+            var resolved_parameter_keys: [][]const u8 = parameters.keys();
             while (it.next()) |kv| {
                 // Is there a matching argument with the same type?
-                if (resolved_type.resolved_type.?.Function.parameters.get(kv.key_ptr.*)) |matching_arg| {
+                if (parameters.get(kv.key_ptr.*)) |matching_arg| {
                     if (!matching_arg.eql(kv.value_ptr.*)) {
                         try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: argument not matching.");
 
@@ -429,7 +455,7 @@ pub const Compiler = struct {
                     }
                 } else if (mem.eql(u8, kv.key_ptr.*, "{{first}}")) {
                     // Is the first argument argument matching
-                    if (!resolved_type.resolved_type.?.Function.parameters.get(resolved_parameter_keys[0]).?.eql(kv.value_ptr.*)) {
+                    if (!parameters.get(resolved_parameter_keys[0]).?.eql(kv.value_ptr.*)) {
                         try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: argument not matching.");
 
                         return;
@@ -443,10 +469,11 @@ pub const Compiler = struct {
 
         // Now walk the chain of placeholders and see if they hold up
         for (placeholder_def.children.items) |child| {
-            assert(child.resolved_type.?.Placeholder.parent != null);
-            assert(child.resolved_type.?.Placeholder.parent_relation != null);
+            var child_placeholder: ObjTypeDef.PlaceholderDef = child.resolved_type.?.Placeholder;
+            assert(child_placeholder.parent != null);
+            assert(child_placeholder.parent_relation != null);
 
-            switch (child.resolved_type.?.Placeholder.parent_relation.?) {
+            switch (child_placeholder.parent_relation.?) {
                 .Call => {
                     // Can we call the parent?
                     if (resolved_type.def_type != .Class
@@ -468,12 +495,14 @@ pub const Compiler = struct {
 
                         try self.resolvePlaceholder(child, instance_type);
                     } else if (resolved_type.def_type == .Object) {
+                        var instance_union: ObjTypeDef.TypeUnion = .{
+                            .ObjectInstance = resolved_type
+                        };
+                        
                         var instance_type: *ObjTypeDef = try self.vm.getTypeDef(.{
                             .optional = false,
                             .def_type = .ObjectInstance,
-                            .resolved_type = .{
-                                .ObjectInstance = resolved_type
-                            }
+                            .resolved_type = instance_union,
                         });
 
                         try self.resolvePlaceholder(child, instance_type);
@@ -486,7 +515,39 @@ pub const Compiler = struct {
                     unreachable;
                 },
                 .FieldAccess => {
-                    // Is parent an object or class with a property or method that matches child?
+                    switch (resolved_type.def_type) {
+                        .ClassInstance => {
+                            unreachable;
+                        },
+                        .ObjectInstance => {
+                            // We can't create a field access placeholder without a name
+                            assert(child_placeholder.name != null);
+
+                            var object_def: ObjTypeDef.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+
+                            // Search for a field matching the placeholder
+                            var it = object_def.fields.iterator();
+                            while (it.next()) |kv| {
+                                if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
+                                    try self.resolvePlaceholder(child, kv.value_ptr.*);
+                                    return;
+                                }
+                            }
+
+                            // Search for a method matching the placeholder
+                            it = object_def.methods.iterator();
+                            while (it.next()) |kv| {
+                                if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
+                                    try self.resolvePlaceholder(child, kv.value_ptr.*);
+                                    return;
+                                }
+                            }
+                        },
+                        .Enum => {
+                            unreachable;
+                        },
+                        else => try self.reportErrorAt(placeholder_def.where, "Doesn't support field access")
+                    }
                 },
                 .Assignment => {
                     // Can we assign something to the parent?
@@ -1498,8 +1559,7 @@ pub const Compiler = struct {
             unreachable;
         } else if (callee_type.def_type == .Placeholder) {
             callee_type.resolved_type.?.Placeholder.callable = callee_type.resolved_type.?.Placeholder.callable orelse true;
-
-            if (!callee_type.resolved_type.?.Placeholder.isCallable()) {
+            if (!callee_type.resolved_type.?.Placeholder.isCoherent()) {
                 try self.reportErrorAt(callee_type.resolved_type.?.Placeholder.where, "Can't be called");
 
                 return callee_type;
@@ -1533,13 +1593,15 @@ pub const Compiler = struct {
 
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
-        if (callee_type.def_type != ObjTypeDef.Type.ObjectInstance
-            and callee_type.def_type != ObjTypeDef.Type.ClassInstance
-            and callee_type.def_type != ObjTypeDef.Type.Enum) {
+        if (callee_type.def_type != .ObjectInstance
+            and callee_type.def_type != .ClassInstance
+            and callee_type.def_type != .Enum
+            and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
         }
 
         try self.consume(.Identifier, "Expected property name after `.`");
+        var member_name: []const u8 = self.parser.previous_token.?.lexeme;
         var name: u8 = try self.identifierConstant(self.parser.previous_token.?);
 
         // Check that name is a property
@@ -1606,6 +1668,58 @@ pub const Compiler = struct {
             },
             .Enum => {
                 unreachable;
+            },
+            .Placeholder => {
+                callee_type.resolved_type.?.Placeholder.field_accessible = callee_type.resolved_type.?.Placeholder.field_accessible orelse true;
+                if (!callee_type.resolved_type.?.Placeholder.isCoherent()) {
+                    // TODO: how to have a revelant message here?
+                    try self.reportErrorAt(callee_type.resolved_type.?.Placeholder.where, "[Bad assumption] doesn't support field access (and something else)");
+
+                    return callee_type;
+                }
+
+                // We know nothing of field
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, member_name);
+
+                var placeholder = try self.vm.getTypeDef(.{
+                    .optional = false,
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+
+                try ObjTypeDef.PlaceholderDef.link(callee_type, placeholder, .FieldAccess);
+                
+                if (can_assign and try self.match(.Equal)) {
+                    var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                    try self.emitBytes(@enumToInt(OpCode.OP_SET_OBJ_PROPERTY), name);
+
+                    placeholder.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
+                    placeholder.resolved_type.?.Placeholder.resolved_type = parsed_type;
+
+                    if (!placeholder.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportErrorAt(placeholder.resolved_type.?.Placeholder.where, "[Bad assumption] can't be set or bad type.");
+                    }
+                } else if (try self.match(.LeftParen)) {
+                    placeholder.resolved_type.?.Placeholder.callable = true;
+
+                    if (!placeholder.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportErrorAt(placeholder.resolved_type.?.Placeholder.where, "[Bad assumption] can't be called.");
+                    }
+
+                    var arg_count: u8 = try self.placeholderArgumentList(placeholder);
+
+                    try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
+                    try self.emitByte(arg_count);
+                } else {
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_OBJ_PROPERTY), name);
+                }
+
+                return placeholder;
             },
             else => unreachable,
         }

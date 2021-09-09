@@ -1,9 +1,11 @@
 fun main() {
-    sayHello(hello);
+    First().sayHello(hello);
 }
 
-fun sayHello(str name) {
-    print(name);
+object First {
+    fun sayHello(str name) {
+        print(name);
+    }
 }
 
 str hello = "hello world";

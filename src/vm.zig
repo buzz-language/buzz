@@ -286,12 +286,16 @@ pub const VM = struct {
                     object.* = ObjObject.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
+
+                    try self.globals.append(self.peek(0));
+                    _ = self.pop(); // We still pop it because the object may be empty
                 },
 
                 .OP_METHOD        => {
                     try self.defineMethod(readString(frame));
                 },
                 
+                // TODO: merge OP_GET_OBJ_PROPERTY and OP_GET_CLS_PROPERTY
                 .OP_GET_OBJ_PROPERTY  => {
                     var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).Obj).?;
                     var name: *ObjString = readString(frame);

@@ -703,6 +703,7 @@ pub const ObjTypeDef = struct {
     pub const PlaceholderDef = struct {
         const PlaceholderSelf = @This();
 
+        // TODO: are relations enough and booleans useless?
         const PlaceholderRelation = enum {
             Call,
             Subscript,
@@ -715,7 +716,8 @@ pub const ObjTypeDef = struct {
         // Assumption made by the code referencing the value
         callable: ?bool = null,             // Function, Object or Class
         subscriptable: ?bool = null,        // Array or Map
-        field_accessable: ?bool = null,     // Object, Class or Enum
+        field_accessible: ?bool = null,     // Object, Class or Enum
+        assignable: ?bool = null,           // Not a Function, Object, Class or Enum
         resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
         resolved_def_type: ?Type = null,    // Meta type
         resolved_type: ?*ObjTypeDef = null, // Actual type
@@ -763,7 +765,8 @@ pub const ObjTypeDef = struct {
 
             return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
                 and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
-                and ((a.field_accessable != null and b.field_accessable != null and a.field_accessable.? == b.field_accessable.?) or a.field_accessable == null or b.subscriptable == null)
+                and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null)
+                and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null)
                 and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
                 and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
         }
@@ -775,8 +778,11 @@ pub const ObjTypeDef = struct {
             one.subscriptable = one.subscriptable orelse other.subscriptable;
             other.subscriptable = one.subscriptable orelse other.subscriptable;
 
-            one.field_accessable = one.field_accessable orelse other.field_accessable;
-            other.field_accessable = one.field_accessable orelse other.field_accessable;
+            one.field_accessible = one.field_accessible orelse other.field_accessible;
+            other.field_accessible = one.field_accessible orelse other.field_accessible;
+
+            one.assignable = one.assignable orelse other.assignable;
+            other.assignable = one.assignable orelse other.assignable;
 
             one.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
             other.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
@@ -791,6 +797,20 @@ pub const ObjTypeDef = struct {
             }
         }
 
+        pub fn isAssignable(self: *PlaceholderSelf) bool {
+            return (self.assignable == null or self.assignable.?)
+                and (self.resolved_def_type == null
+                    // TODO: method actually but right now we have no way to distinguish them
+                    or self.resolved_def_type.? != .Function
+                    or self.resolved_def_type.? != .Object
+                    or self.resolved_def_type.? != .Class)
+                and (self.resolved_type == null
+                    // TODO: method actually but right now we have no way to distinguish them
+                    or self.resolved_type.?.def_type != .Function
+                    or self.resolved_type.?.def_type != .Object
+                    or self.resolved_type.?.def_type != .Class);
+        }
+
         pub fn isCallable(self: *PlaceholderSelf) bool {
             return (self.callable == null or self.callable.?)
                 and (self.resolved_def_type == null
@@ -803,49 +823,47 @@ pub const ObjTypeDef = struct {
                     or self.resolved_type.?.def_type == .Class);
         }
 
+        pub fn isFieldAccessible(self: *PlaceholderSelf) bool {
+            return (self.field_accessible == null or self.field_accessible.?)
+                and (self.resolved_def_type == null
+                    or self.resolved_def_type.? == .Enum
+                    or self.resolved_def_type.? == .ObjectInstance
+                    or self.resolved_def_type.? == .ClassInstance)
+                and (self.resolved_type == null
+                    or self.resolved_type.?.def_type == .Enum
+                    or self.resolved_type.?.def_type == .ObjectInstance
+                    or self.resolved_type.?.def_type == .ClassInstance);
+        }
+
+        pub fn isSubscriptable(self: *PlaceholderSelf) bool {
+            return (self.subscriptable == null or self.subscriptable.?)
+                and (self.resolved_def_type == null
+                    or self.resolved_def_type.? == .List
+                    or self.resolved_def_type.? == .Map)
+                and (self.resolved_type == null
+                    or self.resolved_type.?.def_type == .List
+                    or self.resolved_type.?.def_type == .Map);
+        }
+
         pub fn isCoherent(self: *PlaceholderSelf) bool {
             if (self.resolved_def_type != null
                 and self.resolved_type != null
-                and @as(Type, self.resolved_type.?) != self.resolved_def_type.?) {
+                and @as(Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
                 return false;
             }
 
             // Nothing can be called and subscrited
-            if ((self.callable orelse false) and (self.subscritable orelse false)) {
+            if ((self.callable orelse false) and (self.subscriptable orelse false)) {
                 return false;
             }
 
             // Nothing with fields can be subscrited
-            if ((self.field_accessable orelse false) and (self.subscritable orelse false)) {
+            if ((self.field_accessible orelse false) and (self.subscriptable orelse false)) {
                 return false;
             }
 
-            const type_def: ?Type = self.resolved_def_type;
-            if (type_def == null and self.resolved_type != null) {
-                type_def = @as(Type, self.resolved_type.?.def_type);
-            }
-
-            const callable: bool = self.callable == null
-                or (self.callable.?
-                    and (type_def == null
-                        or type_def == .Class
-                        or type_def == .Object
-                        or type_def == .Function));
-
-            const subscritable: bool = self.subscriptable == null
-                or (self.subscriptable.?
-                    and (type_def == null
-                        or type_def == .List
-                        or type_def == .Map));
-
-            const field_accessable: bool = self.field_accessable == null
-                or (self.field_accessable.?
-                    and (type_def == null
-                        or type_def == .Class
-                        or type_def == .Object
-                        or type_def == .Enum));
-
-            return callable and subscritable and field_accessable;
+            // `and` because we checked for compatibility earlier and those function will return true if the flag is null
+            return self.isCallable() and self.isSubscriptable() and self.isFieldAccessible() and self.isAssignable();
         }
     };
 
