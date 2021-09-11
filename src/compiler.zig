@@ -294,7 +294,7 @@ pub const Compiler = struct {
 
     fn report(self: *Self, token: Token, message: []const u8) !void {
         if (try self.scanner.?.getLine(self.vm.allocator, token.line)) |line| {
-            std.debug.warn("\n{s}\n", .{ line });
+            std.debug.warn("\n{} | {s}\n", .{ token.line, line });
             var i: usize = 0;
             // TODO: how to do this better?
             while (i < token.column - 1) : (i += 1) {
