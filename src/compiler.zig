@@ -1086,7 +1086,7 @@ pub const Compiler = struct {
                     try parameters.put(global.name.string, global.type_def);
                 }
 
-                try self.defineGlobalVariable();
+                try self.defineGlobalVariable(@intCast(u8, slot));
 
                 if (!try self.match(.Comma)) break;
             }
@@ -1186,7 +1186,7 @@ pub const Compiler = struct {
             }
         }
 
-        try self.defineGlobalVariable();
+        try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef) !void {
@@ -1212,7 +1212,7 @@ pub const Compiler = struct {
             else => parsed_type
         };
 
-        _ = try self.parseVariable(var_type, "Expected variable name.");
+        const slot: usize = try self.parseVariable(var_type, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             var expr_type: *ObjTypeDef = try self.expression(false);
@@ -1249,7 +1249,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineGlobalVariable();
+        try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
     fn objectDeclaration(self: *Self) !void {
@@ -1278,12 +1278,13 @@ pub const Compiler = struct {
 
         var constant: u8 = try self.makeConstant(Value { .Obj = object_type.toObj() });
 
-        _ = try self.declareVariable(
+        const slot: usize = try self.declareVariable(
             object_type,
             object_name
         );
 
         try self.emitBytes(@enumToInt(OpCode.OP_OBJECT), constant);
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), @intCast(u8, slot));
 
         self.markInitialized();
 
@@ -1326,14 +1327,14 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
-    inline fn defineGlobalVariable(self: *Self) !void {
+    inline fn defineGlobalVariable(self: *Self, slot: u8) !void {
         self.markInitialized();
 
         if (self.current.?.scope_depth > 0) {
             return;
         }
 
-        try self.emitOpCode(.OP_DEFINE_GLOBAL);
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), slot);
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
@@ -1355,7 +1356,7 @@ pub const Compiler = struct {
 
         const global: usize = try self.addGlobal(name, placeholder_type);
         // markInitialized but we don't care what depth we are in
-        self.globals.items[self.globals.items.len - 1].initialized = true;
+        self.globals.items[global].initialized = true;
 
         std.debug.warn(
             "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
@@ -1367,7 +1368,7 @@ pub const Compiler = struct {
             }
         );
 
-        try self.defineGlobalVariable();
+        try self.defineGlobalVariable(@intCast(u8, global));
 
         return global;
     }

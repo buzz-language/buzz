@@ -5,9 +5,9 @@ object First {
 }
 
 fun main() {
-    First first = First();
-
     first.sayHello(hello);
 }
 
 str hello = "hello world";
+
+First first = First();

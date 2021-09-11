@@ -206,7 +206,10 @@ pub const VM = struct {
                 .OP_SWAP          => self.swap(readByte(frame), readByte(frame)),
                 .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
                 .OP_DEFINE_GLOBAL => {
-                    try self.globals.append(self.peek(0));
+                    const slot: u8 = readByte(frame);
+                    try self.globals.ensureTotalCapacity(slot + 1);
+                    self.globals.expandToCapacity();
+                    self.globals.items[slot] = self.peek(0);
                     _ = self.pop();
                 },
                 .OP_GET_GLOBAL    => self.push(self.globals.items[readByte(frame)]),
@@ -286,9 +289,6 @@ pub const VM = struct {
                     object.* = ObjObject.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
-
-                    try self.globals.append(self.peek(0));
-                    _ = self.pop(); // We still pop it because the object may be empty
                 },
 
                 .OP_METHOD        => {
