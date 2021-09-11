@@ -2,10 +2,14 @@ object First {
     fun sayHello(str name) {
         print(name);
     }
+
+    fun getHello() > str {
+        return hello;
+    }
 }
 
 fun main() {
-    first.sayHello(hello);
+    first.sayHello(first.getHello());
 }
 
 str hello = "hello world";

@@ -282,13 +282,6 @@ pub const Compiler = struct {
 
         var function: *ObjFunction = try self.endCompiler();
 
-        std.debug.print("\n\n==========================", .{});
-        try disassembler.disassembleChunk(
-            &function.chunk,
-            function.name.string
-        );
-        std.debug.print("\n\n==========================", .{});
-
         return if (self.parser.had_error) null else function;
     }
 
@@ -534,19 +527,23 @@ pub const Compiler = struct {
 
                             // Search for a field matching the placeholder
                             var it = object_def.fields.iterator();
+                            var resolved_as_method: bool = false;
                             while (it.next()) |kv| {
                                 if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
                                     try self.resolvePlaceholder(child, kv.value_ptr.*);
-                                    return;
+                                    resolved_as_method = true;
+                                    break;
                                 }
                             }
 
                             // Search for a method matching the placeholder
-                            it = object_def.methods.iterator();
-                            while (it.next()) |kv| {
-                                if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
-                                    try self.resolvePlaceholder(child, kv.value_ptr.*);
-                                    return;
+                            if (!resolved_as_method) {
+                                it = object_def.methods.iterator();
+                                while (it.next()) |kv| {
+                                    if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
+                                        try self.resolvePlaceholder(child, kv.value_ptr.*);
+                                        break;
+                                    }
                                 }
                             }
                         },
@@ -631,6 +628,13 @@ pub const Compiler = struct {
         var function: *ObjFunction = self.current.?.function;
 
         self.current = self.current.?.enclosing;
+
+        // std.debug.print("\n\n==========================", .{});
+        // try disassembler.disassembleChunk(
+        //     &function.chunk,
+        //     function.name.string
+        // );
+        // std.debug.print("\n\n==========================", .{});
 
         return function;
     }
@@ -2182,7 +2186,7 @@ pub const Compiler = struct {
 
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-                        if (variable_type.resolved_type != null) {
+                        if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ClassInstance)) {
                             try self.resolvePlaceholder(global.type_def, variable_type);
                         }
 

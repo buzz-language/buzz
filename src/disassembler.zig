@@ -19,6 +19,17 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
     }
 }
 
+fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+    const constant: u8 = chunk.code.items[offset + 1];
+    const arg_count: u8 = chunk.code.items[offset + 2];
+    var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
+    defer std.heap.c_allocator.free(value_str);
+
+    print("{}\t{s}({} args)", .{ code, value_str, arg_count });
+
+    return offset + 3;
+}
+
 inline fn simpleInstruction(code: OpCode, offset: usize) usize {
     print("{}\t", .{ code });
 
@@ -118,7 +129,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_JUMP_IF_FALSE => simpleInstruction(instruction, offset),
         .OP_LOOP => simpleInstruction(instruction, offset),
 
-        .OP_INVOKE,
+        .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
         .OP_CALL => byteInstruction(instruction, chunk, offset),
         .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 
