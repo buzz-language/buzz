@@ -273,6 +273,13 @@ pub const Compiler = struct {
             self.declarationOrReturnStatement() catch return null;
         }
 
+        // Is there any placeholders left
+        for (self.globals.items) |global| {
+            if (global.type_def.def_type == .Placeholder) {
+                try self.reportErrorAt(global.type_def.resolved_type.?.Placeholder.where, "Unknown variable.");
+            }
+        }
+
         var function: *ObjFunction = try self.endCompiler();
 
         std.debug.print("\n\n==========================", .{});
