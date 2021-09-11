@@ -791,17 +791,7 @@ pub const Compiler = struct {
     fn declarationOrStatement(self: *Self) !void {
         var hanging: bool = false;
         // Things we can match with the first token
-        if (try self.match(.Class)) {
-            // self.classDeclaration();
-            unreachable;
-        } else if (try self.match(.Object)) {
-            try self.objectDeclaration();
-
-            return;
-        } else if (try self.match(.Enum)) {
-            // self.enumDeclaration();
-            unreachable;
-        } else if (try self.match(.Fun)) {
+        if (try self.match(.Fun)) {
             try self.funDeclaration();
 
             return;
