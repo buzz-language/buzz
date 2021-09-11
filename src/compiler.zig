@@ -643,7 +643,7 @@ pub const Compiler = struct {
         self.current.?.scope_depth += 1;
     }
 
-    fn endScope(self: *Self) void {
+    fn endScope(self: *Self) !void {
         var current: *ChunkCompiler = self.current.?;
 
         current.scope_depth -= 1;
@@ -1299,6 +1299,7 @@ pub const Compiler = struct {
         _ = try self.namedVariable(object_name, false);
 
         try self.consume(.LeftBrace, "Expected `{` before object body.");
+        self.beginScope();
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.match(.Fun)) {
@@ -1315,6 +1316,7 @@ pub const Compiler = struct {
             }
         }
 
+        try self.endScope();
         try self.consume(.RightBrace, "Expected `}` after object body.");
 
         try self.emitOpCode(.OP_POP);
