@@ -675,7 +675,9 @@ pub const Compiler = struct {
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
     fn declarationOrReturnStatement(self: *Self) !void {
         if (try self.match(.Object)) {
-            try self.objectDeclaration();
+            try self.objectDeclaration(false);
+        } else if (try self.match(.Class)) {
+            try self.objectDeclaration(true);
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
             unreachable;
@@ -1221,7 +1223,7 @@ pub const Compiler = struct {
         try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
-    fn objectDeclaration(self: *Self) !void {
+    fn objectDeclaration(self: *Self, is_class: bool) !void {
         if (self.current.?.scope_depth > 0) {
             try self.reportError("Object must be defined at top-level.");
             return;
@@ -1244,6 +1246,11 @@ pub const Compiler = struct {
                 ),
             }
         };
+
+        if (is_class) {
+            object_type.resolved_type.?.Object.inheritable = true;
+            // TODO: parse super class here
+        }
 
         var constant: u8 = try self.makeConstant(Value { .Obj = object_type.toObj() });
 
