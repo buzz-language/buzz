@@ -53,12 +53,6 @@ pub const UpValue = struct {
     is_local: bool
 };
 
-pub const ClassCompiler = struct {
-    name: Token,
-    enclosing: ?*ClassCompiler,
-    has_superclass: bool = false,
-};
-
 pub const ObjectCompiler = struct {
     name: Token,
     enclosing: ?*ObjectCompiler,
@@ -237,7 +231,6 @@ pub const Compiler = struct {
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
     current_object: ?ObjectCompiler = null,
-    current_class: ?*ClassCompiler = null,
     globals: std.ArrayList(Global),
 
     pub fn init(vm: *VM) Self {
@@ -381,7 +374,6 @@ pub const Compiler = struct {
         if (placeholder_def.callable) |call_assumption| {
             if (call_assumption
                 and resolved_type.def_type != .Object
-                and resolved_type.def_type != .Class
                 and resolved_type.def_type != .Function) {
                 // TODO: better error messages on placeholder stuff
                 try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: can't be called.");
@@ -402,7 +394,6 @@ pub const Compiler = struct {
         if (placeholder_def.field_accessible) |field_accessible_assumption| {
             if (field_accessible_assumption
                 and resolved_type.def_type != .ObjectInstance
-                and resolved_type.def_type != .ClassInstance
                 and resolved_type.def_type != .Enum) {
                 // TODO: better error messages on placeholder stuff
                 try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: has no fields.");
@@ -431,8 +422,6 @@ pub const Compiler = struct {
                 if (!found_init) {
                     parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
                 }
-            } else if (resolved_type.def_type == .Class) {
-                unreachable;
             } else {
                 unreachable;
             }
@@ -476,25 +465,14 @@ pub const Compiler = struct {
             switch (child_placeholder.parent_relation.?) {
                 .Call => {
                     // Can we call the parent?
-                    if (resolved_type.def_type != .Class
-                        and resolved_type.def_type != .Object
+                    if (resolved_type.def_type != .Object
                         and resolved_type.def_type != .Function) {
                         try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
 
                     // Is the child types resolvable with parent return type
-                    if (resolved_type.def_type == .Class) {
-                        var instance_type: *ObjTypeDef = try self.vm.getTypeDef(.{
-                            .optional = false,
-                            .def_type = .ClassInstance,
-                            .resolved_type = .{
-                                .ClassInstance = resolved_type
-                            }
-                        });
-
-                        try self.resolvePlaceholder(child, instance_type);
-                    } else if (resolved_type.def_type == .Object) {
+                    if (resolved_type.def_type == .Object) {
                         var instance_union: ObjTypeDef.TypeUnion = .{
                             .ObjectInstance = resolved_type
                         };
@@ -516,9 +494,6 @@ pub const Compiler = struct {
                 },
                 .FieldAccess => {
                     switch (resolved_type.def_type) {
-                        .ClassInstance => {
-                            unreachable;
-                        },
                         .ObjectInstance => {
                             // We can't create a field access placeholder without a name
                             assert(child_placeholder.name != null);
@@ -568,7 +543,6 @@ pub const Compiler = struct {
                                 .resolved_type = instance_type,
                             });
                         },
-                        .Class => unreachable,
                         .Enum => unreachable,
                         else => resolved_type,
                     };
@@ -700,10 +674,7 @@ pub const Compiler = struct {
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
     fn declarationOrReturnStatement(self: *Self) !void {
-        if (try self.match(.Class)) {
-            // self.classDeclaration();
-            unreachable;
-        } else if (try self.match(.Object)) {
+        if (try self.match(.Object)) {
             try self.objectDeclaration();
         } else if (try self.match(.Enum)) {
             // self.enumDeclaration();
@@ -1204,9 +1175,6 @@ pub const Compiler = struct {
                     .resolved_type = resolved_type
                 });
             },
-            .Class => {
-                unreachable;
-            },
             .Enum => {
                 unreachable;
             },
@@ -1388,14 +1356,6 @@ pub const Compiler = struct {
         if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
             if (resolved_type.def_type == .Function) {
                 return try self.argumentList(resolved_type.resolved_type.?.Function.parameters);
-            } else if (resolved_type.def_type == .Class) {
-                if (resolved_type.resolved_type.?.Class.methods.get("init")) |init_method| {
-                    return try self.argumentList(init_method.resolved_type.?.Function.parameters);
-                }
-
-                // No user-defined init method, no arguments
-                // TODO: flesh this out when we define how default constructors work
-                return try self.argumentList(null);
             } else if (resolved_type.def_type == .Object) {
                 if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
                     return try self.argumentList(init_method.resolved_type.?.Function.parameters);
@@ -1749,8 +1709,6 @@ pub const Compiler = struct {
                 .def_type = .ObjectInstance,
                 .resolved_type = instance_type,
             });
-        } else if (callee_type.def_type == .Class) {
-            unreachable;
         } else if (callee_type.def_type == .Enum) {
             unreachable;
         } else if (callee_type.def_type == .Placeholder) {
@@ -1795,7 +1753,6 @@ pub const Compiler = struct {
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
         if (callee_type.def_type != .ObjectInstance
-            and callee_type.def_type != .ClassInstance
             and callee_type.def_type != .Enum
             and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
@@ -1862,10 +1819,6 @@ pub const Compiler = struct {
 
                     return resolved;
                 }
-            },
-            .ClassInstance => {
-                // TODO: same but will also search in super classes
-                unreachable;
             },
             .Enum => {
                 unreachable;
@@ -2178,7 +2131,7 @@ pub const Compiler = struct {
 
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-                        if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ClassInstance)) {
+                        if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ObjectInstance)) {
                             try self.resolvePlaceholder(global.type_def, variable_type);
                         }
 

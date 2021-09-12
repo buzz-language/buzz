@@ -18,9 +18,7 @@ pub const ObjType = enum {
     UpValue,
     Closure,
     Function,
-    ClassInstance,
     ObjectInstance,
-    Class,
     Object,
     List,
     Map,
@@ -79,15 +77,6 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
 
             break :function &obj.obj;
         },
-        .ClassInstance => classInstance: {
-            size = @sizeOf(*ObjClassInstance);
-            var obj: *ObjClassInstance = try memory.allocate(vm, ObjClassInstance);
-            obj.obj = .{
-                .obj_type = .ClassInstance,
-            };
-
-            break :classInstance &obj.obj;
-        },
         .ObjectInstance => objectInstance: {
             size = @sizeOf(*ObjObjectInstance);
             var obj: *ObjObjectInstance = try memory.allocate(vm, ObjObjectInstance);
@@ -96,15 +85,6 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
             };
 
             break :objectInstance &obj.obj;
-        },
-        .Class => class: {
-            size = @sizeOf(*ObjClass);
-            var obj: *ObjClass = try memory.allocate(vm, ObjClass);
-            obj.obj = .{
-                .obj_type = .Class,
-            };
-
-            break :class &obj.obj;
         },
         .Object => object: {
             size = @sizeOf(*ObjObject);
@@ -343,32 +323,6 @@ pub const ObjFunction = struct {
     }
 };
 
-/// Class instance
-pub const ObjClassInstance = struct {
-    const Self = @This();
-
-    obj: Obj = .{
-        .obj_type = .ClassInstance
-    },
-
-    /// Class
-    class: *ObjClass,
-    /// Fields value
-    fields: StringHashMap(Value),
-
-    pub fn toObj(self: *Self) *Obj {
-        return &self.obj;
-    }
-
-    pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .ClassInstance) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
-    }
-};
-
 /// Object instance
 pub const ObjObjectInstance = struct {
     const Self = @This();
@@ -406,52 +360,6 @@ pub const ObjObjectInstance = struct {
     }
 };
 
-/// Class
-pub const ObjClass = struct {
-    const Self = @This();
-
-    obj: Obj = .{
-        .obj_type = .Class
-    },
-
-    /// Used to allow type checking at runtime
-    class_def: *ObjTypeDef,
-    
-    /// Class name
-    name: *ObjString,
-    /// Class methods
-    methods: StringHashMap(*ObjClosure),
-    /// Class fields definition
-    fields: StringHashMap(*ObjTypeDef),
-    /// Optional super class
-    super: ?*ObjClass = null,
-
-    pub fn init(allocator: *Allocator, name: *ObjString) Self {
-        return Self {
-            .name = name,
-            .methods = StringHashMap(*ObjClosure).init(allocator),
-            .fields = StringHashMap(*ObjTypeDef).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.methods.deinit();
-        self.fields.deinit();
-    }
-
-    pub fn toObj(self: *Self) *Obj {
-        return &self.obj;
-    }
-
-    pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Class) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
-    }
-};
-
 /// Object
 pub const ObjObject = struct {
     const Self = @This();
@@ -469,6 +377,10 @@ pub const ObjObject = struct {
     methods: StringHashMap(*ObjClosure),
     /// Object fields definition
     fields: StringHashMap(*ObjTypeDef),
+    /// Optional super class
+    super: ?*ObjObject = null,
+    /// If false, can't be inherited from
+    inheritable: bool = false,
 
     pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
         return Self {
@@ -635,8 +547,6 @@ pub const ObjTypeDef = struct {
         Number,
         Byte,
         String,
-        ClassInstance,
-        Class,
         ObjectInstance,
         Object,
         Enum,
@@ -672,6 +582,9 @@ pub const ObjTypeDef = struct {
         // TODO: Do i need to have two maps ?
         fields: StringHashMap(*ObjTypeDef),
         methods: StringHashMap(*ObjTypeDef),
+        super: ?*ObjTypeDef = null,
+        inheritable: bool = false,
+        
 
         pub fn init(allocator: *Allocator, name: *ObjString) ObjectDefSelf {
             return ObjectDefSelf {
@@ -687,12 +600,6 @@ pub const ObjTypeDef = struct {
         }
     };
 
-    pub const ClassDef = struct {
-        name: *ObjString,
-        fields: StringHashMap(*ObjTypeDef),
-        methods: StringHashMap(*ObjTypeDef),
-        super: *ObjTypeDef,
-    };
 
     pub const EnumDef = struct {
         name: *ObjString,
@@ -802,37 +709,31 @@ pub const ObjTypeDef = struct {
                 and (self.resolved_def_type == null
                     // TODO: method actually but right now we have no way to distinguish them
                     or self.resolved_def_type.? != .Function
-                    or self.resolved_def_type.? != .Object
-                    or self.resolved_def_type.? != .Class)
+                    or self.resolved_def_type.? != .Object)
                 and (self.resolved_type == null
                     // TODO: method actually but right now we have no way to distinguish them
                     or self.resolved_type.?.def_type != .Function
-                    or self.resolved_type.?.def_type != .Object
-                    or self.resolved_type.?.def_type != .Class);
+                    or self.resolved_type.?.def_type != .Object);
         }
 
         pub fn isCallable(self: *PlaceholderSelf) bool {
             return (self.callable == null or self.callable.?)
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .Function
-                    or self.resolved_def_type.? == .Object
-                    or self.resolved_def_type.? == .Class)
+                    or self.resolved_def_type.? == .Object)
                 and (self.resolved_type == null
                     or self.resolved_type.?.def_type == .Function
-                    or self.resolved_type.?.def_type == .Object
-                    or self.resolved_type.?.def_type == .Class);
+                    or self.resolved_type.?.def_type == .Object);
         }
 
         pub fn isFieldAccessible(self: *PlaceholderSelf) bool {
             return (self.field_accessible == null or self.field_accessible.?)
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .Enum
-                    or self.resolved_def_type.? == .ObjectInstance
-                    or self.resolved_def_type.? == .ClassInstance)
+                    or self.resolved_def_type.? == .ObjectInstance)
                 and (self.resolved_type == null
                     or self.resolved_type.?.def_type == .Enum
-                    or self.resolved_type.?.def_type == .ObjectInstance
-                    or self.resolved_type.?.def_type == .ClassInstance);
+                    or self.resolved_type.?.def_type == .ObjectInstance);
         }
 
         pub fn isSubscriptable(self: *PlaceholderSelf) bool {
@@ -877,12 +778,10 @@ pub const ObjTypeDef = struct {
         Void: bool,
 
         // For those we check that the value is an instance of, because those are user defined types
-        ClassInstance: *ObjTypeDef,
         ObjectInstance: *ObjTypeDef,
         EnumInstance: *ObjTypeDef,
 
         // Those are never equal
-        Class: ClassDef,
         Object: ObjectDef,
         Enum: EnumDef,
 
@@ -919,10 +818,6 @@ pub const ObjTypeDef = struct {
             .String => try type_str.appendSlice("str"),
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
-            .Class => {
-                try type_str.appendSlice("{ClassDef}");
-                try type_str.appendSlice(self.resolved_type.?.Class.name.string);
-            },
             .Object => {
                 try type_str.appendSlice("{ObjectDef}");
                 try type_str.appendSlice(self.resolved_type.?.Object.name.string);
@@ -932,7 +827,6 @@ pub const ObjTypeDef = struct {
                 try type_str.appendSlice(self.resolved_type.?.Enum.name.string);
             },
         
-            .ClassInstance => try type_str.appendSlice(self.resolved_type.?.ClassInstance.resolved_type.?.Class.name.string),
             .ObjectInstance => try type_str.appendSlice(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
             .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
@@ -1014,11 +908,9 @@ pub const ObjTypeDef = struct {
         return switch (a) {
             .Bool, .Number, .Byte, .String, .Type, .Void => return true,
 
-            .ClassInstance => return a.ClassInstance == b.ClassInstance,
             .ObjectInstance => return a.ObjectInstance == b.ObjectInstance,
             .EnumInstance => return a.EnumInstance == b.EnumInstance,
 
-            .Class,
             .Object,
             .Enum => false, // Thore are never equal even if definition is the same
 
@@ -1088,9 +980,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         },
         .Closure => try std.fmt.bufPrint(buf, "closure: 0x{x} `{s}`", .{ @ptrToInt(ObjClosure.cast(obj).?), ObjClosure.cast(obj).?.function.name.string }),
         .Function => try std.fmt.bufPrint(buf, "function: 0x{x} `{s}`", .{ @ptrToInt(ObjFunction.cast(obj).?), ObjFunction.cast(obj).?.name.string }),
-        .ClassInstance => try std.fmt.bufPrint(buf, "class instance: 0x{x} `{s}`", .{ @ptrToInt(ObjClassInstance.cast(obj).?), ObjClassInstance.cast(obj).?.class.name.string }),
         .ObjectInstance => try std.fmt.bufPrint(buf, "object instance: 0x{x} `{s}`", .{ @ptrToInt(ObjObjectInstance.cast(obj).?), ObjObjectInstance.cast(obj).?.object.name.string }),
-        .Class => try std.fmt.bufPrint(buf, "class: 0x{x}`{s}`", .{ @ptrToInt(ObjClass.cast(obj).?), ObjClass.cast(obj).?.name.string }),
         .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{ @ptrToInt(ObjObject.cast(obj).?), ObjObject.cast(obj).?.name.string }),
         .List => {
             var list: *ObjList = ObjList.cast(obj).?;

@@ -299,9 +299,6 @@ pub const VM = struct {
                     var obj: *Obj = self.peek(0).Obj;
 
                     switch (obj.obj_type) {
-                        .ClassInstance => {
-                            unreachable;
-                        },
                         .ObjectInstance => {
                             var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
                             var name: *ObjString = readString(frame);
@@ -407,9 +404,6 @@ pub const VM = struct {
 
                 return true;
             },
-            .Class => {
-                unreachable;
-            },
             .Closure => {
                 return try self.call(ObjClosure.cast(obj).?, arg_count);
             },
@@ -445,7 +439,6 @@ pub const VM = struct {
 
                 return try self.invokeFromObject(instance.object, name, arg_count);
             },
-            .ClassInstance => {},
             else => return false
         }
 

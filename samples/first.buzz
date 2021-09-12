@@ -1,17 +1,13 @@
 object First {
-    fun sayHello(str name) {
-        print(name);
-    }
+    str name;
 
-    fun getHello() > str {
-        return hello;
+    fun init(str name) {
+        this.name = name;
     }
 }
 
 fun main() {
-    first.sayHello(first.getHello());
+    First first = First("Joe");
+
+    print(first.name);
 }
-
-str hello = "hello world";
-
-First first = First();
