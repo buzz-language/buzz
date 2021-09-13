@@ -324,6 +324,19 @@ pub const VM = struct {
                     }
                 },
 
+                .OP_SET_PROPERTY  => {
+                    var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
+                    var name: *ObjString = readString(frame);
+
+                    // Set new value
+                    try instance.fields.put(name.string, self.peek(0));
+
+                    // Get the new value from stack, pop the instance and push value again
+                    var value: Value = self.pop();
+                    _ = self.pop();
+                    self.push(value);
+                },
+
                 // TODO: remove
                 .OP_PRINT         => {
                     var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());

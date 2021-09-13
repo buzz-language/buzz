@@ -70,7 +70,7 @@ pub const ChunkCompiler = struct {
     upvalues: [255]UpValue,
     scope_depth: u32 = 0,
 
-    pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8) !void {
+    pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
             .upvalues = [_]UpValue{undefined} ** 255,
@@ -99,13 +99,25 @@ pub const ChunkCompiler = struct {
         compiler.current.?.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
-        // TODO: when do we define, `this` typedef ?
-        local.type_def = try compiler.vm.getTypeDef(.{
-            .def_type = .Void,
-            .optional = false,
-        });
 
-        local.name = try _obj.copyString(compiler.vm, if (function_type == .Function) VM.this_string else VM.empty_string);
+        if (function_type != .Function and function_type != .Script) {
+            var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                .ObjectInstance = this.?
+            };
+
+            local.type_def = try compiler.vm.getTypeDef(ObjTypeDef{
+                .def_type = .ObjectInstance,
+                .optional = false,
+                .resolved_type = type_def
+            });
+        } else {
+            local.type_def = try compiler.vm.getTypeDef(ObjTypeDef{
+                .def_type = .Void,
+                .optional = false,
+            });
+        }
+
+        local.name = try _obj.copyString(compiler.vm, if (function_type != .Function) VM.this_string else VM.empty_string);
     }
 
     pub fn getRootCompiler(self: *Self) *Self {
@@ -254,7 +266,7 @@ pub const Compiler = struct {
         self.scanner = Scanner.init(source);
         defer self.scanner = null;
 
-        try ChunkCompiler.init(self, .Script, file_name);
+        try ChunkCompiler.init(self, .Script, file_name, null);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
@@ -1031,8 +1043,8 @@ pub const Compiler = struct {
         try self.consume(.RightBrace, "Expected `}}` after block.");
     }
 
-    fn function(self: *Self, name: Token, function_type: FunctionType) !*ObjTypeDef {
-        try ChunkCompiler.init(self, function_type, null);
+    fn function(self: *Self, name: Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
+        try ChunkCompiler.init(self, function_type, null, this);
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
 
@@ -1113,7 +1125,7 @@ pub const Compiler = struct {
         return try self.vm.getTypeDef(function_typedef);
     }
 
-    fn method(self: *Self) !*ObjTypeDef {
+    fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
         try self.consume(.Identifier, "Expected method name.");
         var constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
 
@@ -1124,7 +1136,7 @@ pub const Compiler = struct {
             fun_type = .Initializer;
         }
 
-        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type);
+        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object);
 
         try self.emitBytes(@enumToInt(OpCode.OP_METHOD), constant);
 
@@ -1289,7 +1301,7 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        var function_def: *ObjTypeDef = try self.function(name_token, FunctionType.Function);
+        var function_def: *ObjTypeDef = try self.function(name_token, FunctionType.Function, null);
         // Now that we have the full function type, get the local and update its type_def
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
@@ -1420,7 +1432,7 @@ pub const Compiler = struct {
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.match(.Fun)) {
-                var method_def: *ObjTypeDef = try self.method();
+                var method_def: *ObjTypeDef = try self.method(object_type);
 
                 try object_type.resolved_type.?.Object.methods.put(
                     method_def.resolved_type.?.Function.name.string,
