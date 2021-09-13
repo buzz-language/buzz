@@ -1433,12 +1433,21 @@ pub const Compiler = struct {
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.match(.Fun)) {
                 var method_def: *ObjTypeDef = try self.method(object_type);
+                var method_name: []const u8 = method_def.resolved_type.?.Function.name.string;
+                
+                if (object_type.resolved_type.?.Object.methods.get(method_name) != null) {
+                    try self.reportError("A method with that name already exists.");
+                }
 
                 try object_type.resolved_type.?.Object.methods.put(
-                    method_def.resolved_type.?.Function.name.string,
+                    method_name,
                     method_def,
                 );
             } else if (try self.property()) |prop| {
+                if (object_type.resolved_type.?.Object.fields.get(prop.name) != null) {
+                    try self.reportError("A property with that name already exists.");
+                }
+
                 try object_type.resolved_type.?.Object.fields.put(
                     prop.name,
                     prop.type_def,
