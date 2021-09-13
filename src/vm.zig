@@ -204,7 +204,6 @@ pub const VM = struct {
                 .OP_FALSE         => self.push(Value { .Boolean = false }),
                 .OP_POP           => _ = self.pop(),
                 .OP_SWAP          => self.swap(readByte(frame), readByte(frame)),
-                .OP_NOT           => self.push(Value { .Boolean = isFalse(self.pop()) }),
                 .OP_DEFINE_GLOBAL => {
                     const slot: u8 = readByte(frame);
                     try self.globals.ensureTotalCapacity(slot + 1);
@@ -345,6 +344,37 @@ pub const VM = struct {
                     std.debug.print("{s}\n", .{ value_str });
                 },
 
+                .OP_NOT           => {
+                    self.push(Value{ .Boolean = !self.pop().Boolean });
+                },
+
+                .OP_GREATER       => {
+                    const right: Value = self.pop();
+                    const left: Value = self.pop();
+
+                    const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
+                    const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
+
+                    self.push(Value{ .Boolean = right_f > left_f });
+                },
+
+
+                .OP_LESS          => {
+                    const right: Value = self.pop();
+                    const left: Value = self.pop();
+
+                    const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
+                    const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
+
+                    self.push(Value{ .Boolean = right_f < left_f });
+                },
+
+                .OP_ADD,
+                .OP_SUBTRACT,
+                .OP_MULTIPLY,
+                .OP_DIVIDE,
+                .OP_MOD => try self.binary(instruction),
+
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });
 
@@ -357,6 +387,94 @@ pub const VM = struct {
         }
 
         return InterpretResult.Ok;
+    }
+
+    fn binary(self: *Self, code: OpCode) !void {
+        const left: Value = self.pop();
+        const right: Value = self.pop();
+
+        const right_f: ?f64 = if (right == .Number) right.Number else null;
+        const right_b: ?u8 = if (right == .Byte) right.Byte else null;
+        const left_f: ?f64 = if (left == .Number) left.Number else null;
+        const left_b: ?u8 = if (left == .Byte) left.Byte else null;
+
+        const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj).? else null;
+        const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj).? else null;
+
+        switch (code) {
+            .OP_ADD => add: {
+                if (right_s != null) {
+                    self.push(Value{
+                        .Obj = (try right_s.?.concat(self, left_s.?)).toObj()
+                    });
+                    break :add;
+                }
+
+                if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
+                            + (left_f orelse @intToFloat(f64, left_b.?))
+                    });
+                } else {
+                    self.push(Value{
+                        .Byte = right_b.? + left_b.?
+                    });
+                }
+            },
+
+            .OP_SUBTRACT => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
+                            - (left_f orelse @intToFloat(f64, left_b.?))
+                    });
+                } else {
+                    self.push(Value{
+                        .Byte = right_b.? - left_b.?
+                    });
+                }
+            },
+
+            .OP_MULTIPLY => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
+                            * (left_f orelse @intToFloat(f64, left_b.?))
+                    });
+                } else {
+                    self.push(Value{
+                        .Byte = right_b.? * left_b.?
+                    });
+                }
+            },
+
+            .OP_DIVIDE => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
+                            / (left_f orelse @intToFloat(f64, left_b.?))
+                    });
+                } else {
+                    self.push(Value{
+                        .Byte = right_b.? / left_b.?
+                    });
+                }
+            },
+
+            .OP_MOD => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Number = @mod((right_f orelse @intToFloat(f64, right_b.?)), (left_f orelse @intToFloat(f64, left_b.?)))
+                    });
+                } else {
+                    self.push(Value{
+                        .Byte = right_b.? % left_b.?
+                    });
+                }
+            },
+
+            else => unreachable
+        }
     }
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !bool {
@@ -525,14 +643,6 @@ pub const VM = struct {
         try object.fields.put(name.string, property);
 
         _ = self.pop();
-    }
-
-    fn isFalse(value: Value) bool {
-        if (@as(ValueType, value) != .Boolean) {
-            runtimeError("Expected boolean but got ...");
-        }
-
-        return value.Boolean == false;
     }
 
     fn runtimeError(error_message: []const u8) void {

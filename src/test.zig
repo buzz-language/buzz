@@ -13,3 +13,13 @@ test "split buffer by newline" {
 
     std.debug.assert(lines.items.len == 5);
 }
+
+test "Get next enum case by index" {
+    const Enum = enum {
+        one,
+        two,
+        three
+    };
+
+    std.debug.warn("After one comes {}\n", .{ @intToEnum(Enum, @enumToInt(Enum.one) + 1) });
+}

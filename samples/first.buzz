@@ -1,14 +1,28 @@
 object First {
+    str name = "Joe";
+    num age = 10;
+
     fun init(str name) {
         print(this.name);
         this.name = name;
     }
-
-    str name = "Joe";
 }
 
 fun main() {
     First first = First("John");
 
     print(first.name);
+    print("hello " + "world");
+    | print("hello" == "hello");
+    print(first.age + first.age);
+    print(first.age - first.age);
+    print(first.age * first.age);
+    print(first.age / first.age);
+    print(first.age % first.age);
+    print(first.age == first.age);
+    print(first.age != first.age);
+    print(first.age >= first.age);
+    print(first.age <= first.age);
+    print(first.age > first.age);
+    print(first.age < first.age);
 }

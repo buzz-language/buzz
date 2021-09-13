@@ -216,6 +216,19 @@ pub const ObjString = struct {
 
         return @fieldParentPtr(Self, "obj", obj);
     }
+
+    pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
+        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.allocator);
+        try new_string.appendSlice(self.string);
+        try new_string.appendSlice(other.string);
+
+        var new_objstring: *Self = try memory.allocate(vm, Self);
+        new_objstring.* = Self{
+            .string = new_string.items
+        };
+
+        return new_objstring;
+    }
 };
 
 /// Upvalue
