@@ -222,12 +222,7 @@ pub const ObjString = struct {
         try new_string.appendSlice(self.string);
         try new_string.appendSlice(other.string);
 
-        var new_objstring: *Self = try memory.allocate(vm, Self);
-        new_objstring.* = Self{
-            .string = new_string.items
-        };
-
-        return new_objstring;
+        return copyString(vm, new_string.items);
     }
 };
 
