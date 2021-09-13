@@ -1387,7 +1387,12 @@ pub const Compiler = struct {
 
         var object_name: Token = self.parser.previous_token.?.clone();
 
-        // TODO: check a class doesn't already exists with that name in the current chunk
+        for (self.globals.items) |global| {
+            if (mem.eql(u8, global.name.string, object_name.lexeme)) {
+                try self.reportError("Object with that name already exists.");
+                break;
+            }
+        }
 
         var object_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
         object_type.* = .{
@@ -1439,6 +1444,14 @@ pub const Compiler = struct {
                     try self.reportError("A method with that name already exists.");
                 }
 
+                // Does a placeholder exists for this name ?
+                if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
+                    try self.resolvePlaceholder(placeholder, method_def);
+
+                    // Now we know the placeholder was a method
+                    _ = object_type.resolved_type.?.Object.placeholders.remove(method_name);
+                }
+
                 try object_type.resolved_type.?.Object.methods.put(
                     method_name,
                     method_def,
@@ -1446,6 +1459,14 @@ pub const Compiler = struct {
             } else if (try self.property()) |prop| {
                 if (object_type.resolved_type.?.Object.fields.get(prop.name) != null) {
                     try self.reportError("A property with that name already exists.");
+                }
+
+                // Does a placeholder exists for this name ?
+                if (object_type.resolved_type.?.Object.placeholders.get(prop.name)) |placeholder| {
+                    try self.resolvePlaceholder(placeholder, prop.type_def);
+
+                    // Now we know the placeholder was a field
+                    _ = object_type.resolved_type.?.Object.placeholders.remove(prop.name);
                 }
 
                 try object_type.resolved_type.?.Object.fields.put(
@@ -1940,59 +1961,83 @@ pub const Compiler = struct {
         switch (callee_type.def_type) {
             .ObjectInstance => {
                 var obj_def: ObjTypeDef.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
-                var property_type: ?*ObjTypeDef = null;
 
-                var fields_it = obj_def.fields.iterator();
-                while (fields_it.next()) |kv| {
-                    if (mem.eql(u8, kv.key_ptr.*, self.parser.previous_token.?.lexeme)) {
-                        property_type = kv.value_ptr.*;
-                        break;
-                    }
+                var property_type: ?*ObjTypeDef = obj_def.fields.get(member_name);
+                var is_method: bool = property_type != null;
+                
+                property_type = property_type
+                    orelse obj_def.fields.get(member_name)
+                    orelse obj_def.placeholders.get(member_name);
+
+                // Else create placeholder
+                if (property_type == null) {
+                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?),
+                    };
+
+                    var placeholder: *ObjTypeDef = try self.vm.getTypeDef(.{
+                        .optional = try self.match(.Question),
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    });
+
+                    try callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object.placeholders.put(member_name, placeholder);
+
+                    property_type = placeholder;
                 }
                 
-                // If its a field we can assign to it
-                // TODO: actually if we make a difference between a field of type Function and a method,
-                //       a field could be called!
-                if (property_type) |resolved| {
-                    if (can_assign and try self.match(.Equal)) {
-                        var parsed_type: *ObjTypeDef = try self.expression(false);
-
-                        if (!parsed_type.eql(resolved)) {
-                            try self.reportTypeCheck(resolved, parsed_type, "Property value");
+                // If its a field or placeholder, we can assign to it
+                if (can_assign and try self.match(.Equal)) {
+                    if (property_type.?.def_type == .Placeholder) {
+                        property_type.?.resolved_type.?.Placeholder.assignable = true;
+                        if (!property_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                            try self.reportErrorAt(property_type.?.resolved_type.?.Placeholder.where, "Can't be assigned to.");
+                            return property_type.?;
                         }
-
-                        try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
-
-                        return parsed_type;             
                     }
+
+                    if (is_method and property_type.?.def_type != .Placeholder) {
+                        try self.reportError("Can't be assigned to.");
+                    }
+
+                    var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                    if (!parsed_type.eql(property_type.?)) {
+                        try self.reportTypeCheck(property_type.?, parsed_type, "Property value");
+                    }
+
+                    try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
+
+                    return parsed_type;             
                 }
 
-                var methods_it = obj_def.methods.iterator();
-                while (methods_it.next()) |kv| {
-                    if (mem.eql(u8, kv.key_ptr.*, self.parser.previous_token.?.lexeme)) {
-                        property_type = kv.value_ptr.*;
-                        break;
+
+                // If it's a method or placeholder we can call it
+                if (try self.match(.LeftParen)) {
+                    if (property_type.?.def_type == .Placeholder) {
+                        property_type.?.resolved_type.?.Placeholder.callable = true;
+                        if (!property_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                            try self.reportErrorAt(property_type.?.resolved_type.?.Placeholder.where, "Can't be called.");
+                            return property_type.?;
+                        }
                     }
-                }
 
-                // If it's a method we can call it
-                if (property_type) |resolved| {
-                    if (try self.match(.LeftParen)) {
-                        var arg_count: u8 = try self.argumentList(resolved.resolved_type.?.Function.parameters);
-
-                        try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
-                        try self.emitByte(arg_count);
-
-                        return resolved.resolved_type.?.Function.return_type;
+                    if (!is_method and property_type.?.def_type != .Placeholder) {
+                        try self.reportError("Can't be called.");
                     }
+
+                    var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
+
+                    try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
+                    try self.emitByte(arg_count);
+
+                    return property_type.?.resolved_type.?.Function.return_type;
                 }
 
                 // Else just get it
-                if (property_type) |resolved |{
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+                try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
 
-                    return resolved;
-                }
+                return property_type.?;
             },
             .Enum => {
                 unreachable;

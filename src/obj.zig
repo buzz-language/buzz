@@ -582,6 +582,13 @@ pub const ObjTypeDef = struct {
         // TODO: Do i need to have two maps ?
         fields: StringHashMap(*ObjTypeDef),
         methods: StringHashMap(*ObjTypeDef),
+        // When we have placeholders we don't know if they are properties or methods
+        // That information is available only when the placeholder is resolved
+        // It's not an issue since:
+        //   - we use OP_GET_PROPERTY for both
+        //   - OP_SET_PROPERTY for a method will ultimately fail
+        //   - OP_INVOKE on a field will ultimately fail
+        placeholders: StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
         inheritable: bool = false,
         
@@ -591,12 +598,14 @@ pub const ObjTypeDef = struct {
                 .name = name,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
                 .methods = StringHashMap(*ObjTypeDef).init(allocator),
+                .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
             };
         }
 
         pub fn deinit(self: *ObjectDefSelf) void {
             self.fields.deinit();
             self.methods.deinit();
+            self.placeholders.deinit();
         }
     };
 

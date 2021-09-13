@@ -1,10 +1,10 @@
 object First {
-    str name = "Joe";
-
     fun init(str name) {
         print(this.name);
         this.name = name;
     }
+
+    str name = "Joe";
 }
 
 fun main() {
