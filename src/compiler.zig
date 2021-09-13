@@ -832,9 +832,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
             unreachable;
-        // TODO: matching a identifier here will prevent from parsing an expression that starts with an identifier (function call)
-        //       -> use expression(true)
-        } else if ((try self.match(.Identifier))) {
+        } else if (try self.match(.Identifier)) {
             if (self.check(.Identifier)) {
                 var user_type_name: Token = self.parser.previous_token.?.clone();
                 var var_type: ?*ObjTypeDef = null;
@@ -1133,6 +1131,150 @@ pub const Compiler = struct {
         return fun_typedef;
     }
 
+    const Property = struct {
+        name: []const u8,
+        type_def: *ObjTypeDef,
+    };
+
+    fn property(self: *Self) !?Property {
+        var name: ?Token = null;
+        var type_def: ?*ObjTypeDef = null;
+        var constant: ?u8 = null;
+
+        // Parse type and name
+        if (try self.match(.Str)) {
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            type_def = try self.vm.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .String,
+            });
+        } else if (try self.match(.Num)) {
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            type_def = try self.vm.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .Number,
+            });
+        } else if (try self.match(.Byte)) {
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            type_def = try self.vm.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .Byte,
+            });
+        } else if (try self.match(.Bool)) {
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            type_def = try self.vm.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .Bool,
+            });
+        } else if (try self.match(.Type)) {
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            type_def = try self.vm.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .Type,
+            });
+        } else if (try self.match(.LeftBracket)) {
+            unreachable;
+        } else if (try self.match(.LeftBrace)) {
+            unreachable;
+        } else if (try self.match(.Function)) {
+            unreachable;
+        } else if (try self.match(.Identifier)) {
+            var user_type_name: Token = self.parser.previous_token.?.clone();
+            
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
+
+            var var_type: ?*ObjTypeDef = null;
+
+            // Search for a global with that name
+            for (self.globals.items) |global| {
+                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
+                    var_type = global.type_def;
+                    break;
+                }
+            }
+
+            // If none found, create a placeholder
+            if (var_type == null) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+
+                var_type = try self.vm.getTypeDef(.{
+                    .optional = try self.match(.Question),
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+            }
+
+            type_def = var_type.?;
+        }
+
+        if (name != null and constant != null and type_def != null) {
+            // Parse default value
+            if (try self.match(.Equal)) {
+                var expr_type: *ObjTypeDef = try self.expression(false);
+
+                try self.consume(.Semicolon, "Expected `;` after property definition.");
+                
+                // If only receiver is placeholder, make the assumption that its type if what the expression's return
+                if (type_def.?.def_type == .Placeholder and expr_type.def_type != .Placeholder) {
+                    type_def.?.resolved_type.?.Placeholder.resolved_def_type = expr_type.def_type;
+                    type_def.?.resolved_type.?.Placeholder.resolved_type = expr_type;
+                // If only expression is a placeholder, make the inverse assumption
+                } else if (expr_type.def_type == .Placeholder and type_def.?.def_type != .Placeholder) {
+                    if (self.current.?.scope_depth == 0) {
+                        try self.reportError("Unknown expression type.");
+                        return null;
+                    }
+
+                    expr_type.resolved_type.?.Placeholder.resolved_def_type = type_def.?.def_type;
+                    expr_type.resolved_type.?.Placeholder.resolved_type = type_def.?;
+                // If both are placeholders, check that they are compatible and enrich them
+                } else if (expr_type.def_type == .Placeholder and type_def.?.def_type == .Placeholder
+                    and expr_type.resolved_type.?.Placeholder.eql(type_def.?.resolved_type.?.Placeholder)) {
+                    if (self.current.?.scope_depth == 0) {
+                        try self.reportError("Unknown expression type.");
+                        return null;
+                    }
+
+                    try ObjTypeDef.PlaceholderDef.link(type_def.?, expr_type, .Assignment);
+                // Else do a normal type check
+                } else if (!type_def.?.eql(expr_type)) {
+                    try self.reportTypeCheck(type_def.?, expr_type, "Wrong variable type");
+                }
+
+                // Create property default value
+                try self.emitBytes(@enumToInt(OpCode.OP_PROPERTY), constant.?);
+            }
+
+            return Property{
+                .name = name.?.lexeme,
+                .type_def = type_def.?,
+            };
+        }
+
+        return null;
+    }
+
     fn funDeclaration(self: *Self) !void {
         // Placeholder until `function()` provides all the necessary bits
         var function_def_placeholder: ObjTypeDef = .{
@@ -1284,10 +1426,14 @@ pub const Compiler = struct {
                     method_def.resolved_type.?.Function.name.string,
                     method_def,
                 );
-            } else if (try self.match(.Identifier)) {
-                // TODO: property()
+            } else if (try self.property()) |prop| {
+                try object_type.resolved_type.?.Object.fields.put(
+                    prop.name,
+                    prop.type_def,
+                );
             } else {
                 try self.reportError("Expected either method or property.");
+                return;
             }
         }
 

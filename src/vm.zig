@@ -294,19 +294,23 @@ pub const VM = struct {
                 .OP_METHOD        => {
                     try self.defineMethod(readString(frame));
                 },
+
+                .OP_PROPERTY      => {
+                    try self.definePropertyDefaultValue(readString(frame));
+                },
                 
                 .OP_GET_PROPERTY  => {
                     var obj: *Obj = self.peek(0).Obj;
 
                     switch (obj.obj_type) {
-                        .ObjectInstance => {
+                        .ObjectInstance => instance: {
                             var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
                             var name: *ObjString = readString(frame);
 
                             if (instance.fields.get(name.string)) |field| {
                                 _ = self.pop(); // Pop instance
                                 self.push(field);
-                                break;
+                                break :instance;
                             }
                             
                             if (instance.object.methods.get(name.string)) |method| {
@@ -389,20 +393,8 @@ pub const VM = struct {
             },
             .Object => {
                 var object: *ObjObject = ObjObject.cast(obj).?;
-                var instance: *ObjObjectInstance = ObjObjectInstance.cast(try _obj.allocateObject(self, .ObjectInstance)).?;
-                instance.* = ObjObjectInstance.init(self.allocator, object);
-                (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
-
-                // TODO: init should always exits. Default one provided by compiler asks for all fields.
-                var initializer: ?*ObjClosure = object.methods.get("init");
-                if (initializer) |uinit| {
-                    return try self.call(uinit, arg_count);
-                } else if (arg_count != 0) {
-                    runtimeError("Expected 0 arguments.");
-                    return false;
-                }
-
-                return true;
+                
+                return try self.instanciateObject(object, arg_count);
             },
             .Closure => {
                 return try self.call(ObjClosure.cast(obj).?, arg_count);
@@ -412,6 +404,31 @@ pub const VM = struct {
         }
 
         return false;
+    }
+
+    fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !bool {
+        var instance: *ObjObjectInstance = ObjObjectInstance.cast(try _obj.allocateObject(self, .ObjectInstance)).?;
+        instance.* = ObjObjectInstance.init(self.allocator, object);
+
+        // Set instance fields with default values
+        var it = object.fields.iterator();
+        while (it.next()) |kv| {
+            try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
+        }
+
+        // Put new instance as first local of the constructor
+        (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
+
+        // TODO: init should always exits. Default one provided by compiler asks for all fields.
+        var initializer: ?*ObjClosure = object.methods.get("init");
+        if (initializer) |uinit| {
+            return try self.call(uinit, arg_count);
+        } else if (arg_count != 0) {
+            runtimeError("Expected 0 arguments.");
+            return false;
+        }
+
+        return true;
     }
 
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !bool {
@@ -484,6 +501,15 @@ pub const VM = struct {
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
         try object.methods.put(name.string, ObjClosure.cast(method.Obj).?);
+
+        _ = self.pop();
+    }
+
+    fn definePropertyDefaultValue(self: *Self, name: *ObjString) !void {
+        var property: Value = self.peek(0);
+        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+
+        try object.fields.put(name.string, property);
 
         _ = self.pop();
     }

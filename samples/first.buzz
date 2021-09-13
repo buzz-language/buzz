@@ -1,13 +1,9 @@
 object First {
-    str name;
-
-    fun init(str name) {
-        this.name = name;
-    }
+    str name = "Joe";
 }
 
 fun main() {
-    First first = First("Joe");
+    First first = First();
 
     print(first.name);
 }

@@ -375,8 +375,8 @@ pub const ObjObject = struct {
     name: *ObjString,
     /// Object methods
     methods: StringHashMap(*ObjClosure),
-    /// Object fields definition
-    fields: StringHashMap(*ObjTypeDef),
+    /// Object fields default values
+    fields: StringHashMap(Value),
     /// Optional super class
     super: ?*ObjObject = null,
     /// If false, can't be inherited from
@@ -387,7 +387,7 @@ pub const ObjObject = struct {
             .object_def = def,
             .name = def.resolved_type.?.Object.name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
-            .fields = StringHashMap(*ObjTypeDef).init(allocator),
+            .fields = StringHashMap(Value).init(allocator),
         };
     }
 
