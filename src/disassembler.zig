@@ -63,9 +63,9 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
     const jump: u16 = (@intCast(u16, chunk.code.items[offset + 1]) << 8) | @intCast(u16, chunk.code.items[offset + 2]);
 
     if (direction) {
-        print("{}\t{} -> {}\n", .{ code, offset, offset + 3 + 1 * jump });
+        print("{}\t{} -> {}", .{ code, offset, offset + 3 + 1 * jump });
     } else {
-        print("{}\t{} -> {}\n", .{ code, offset, offset + 3 - 1 * jump });
+        print("{}\t{} -> {}", .{ code, offset, offset + 3 - 1 * jump });
     }
 
     return offset + 3;

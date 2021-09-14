@@ -210,7 +210,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // ShiftRight
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // ShiftLeft
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Xor
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Or
+        .{ .prefix = null,     .infix = or_,    .precedence = .Or   }, // Or
         .{ .prefix = null,     .infix = and_,   .precedence = .And }, // And
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Return
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // If
@@ -1910,6 +1910,28 @@ pub const Compiler = struct {
             try self.reportError("`and` expects operands to be `bool`");
         }
         
+        try self.patchJump(end_jump);
+
+        return right_operand_type;
+    }
+
+    fn or_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (left_operand_type.def_type != .Bool and left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
+            try self.reportError("`or` expects operands to be `bool`");
+        }
+
+        const else_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        const end_jump: usize = try self.emitJump(.OP_JUMP);
+
+        try self.patchJump(else_jump);
+        try self.emitOpCode(.OP_POP);
+
+        var right_operand_type: *ObjTypeDef = try self.parsePrecedence(.Or, false);
+
+        if (right_operand_type.def_type != .Bool) {
+            try self.reportError("`and` expects operands to be `bool`");
+        }
+
         try self.patchJump(end_jump);
 
         return right_operand_type;

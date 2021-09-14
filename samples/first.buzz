@@ -11,22 +11,23 @@ object First {
 fun main() {
     First first = First("John");
 
-    print(first.name);
-    print("hello " + "world");
+    | print(first.name);
+    | print("hello " + "world");
     | print("hello" == "hello");
-    print(first.age + first.age);
-    print(first.age - first.age);
-    print(first.age * first.age);
-    print(first.age / first.age);
-    print(first.age % first.age);
-    print(first.age == first.age);
-    print(first.age != first.age);
-    print(first.age >= first.age);
-    print(first.age <= first.age);
-    print(first.age > first.age);
-    print(first.age < first.age);
+    | print(first.age + first.age);
+    | print(first.age - first.age);
+    | print(first.age * first.age);
+    | print(first.age / first.age);
+    | print(first.age % first.age);
+    | print(first.age == first.age);
+    | print(first.age != first.age);
+    | print(first.age >= first.age);
+    | print(first.age <= first.age);
+    | print(first.age > first.age);
+    | print(first.age < first.age);
 
-    print("hello" == "hello");
+    | print("hello" == "hello");
 
     print(first.age > 3 and first.age < 5);
+    print(first.age > 3 or first.age < 5);
 }

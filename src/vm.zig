@@ -358,8 +358,8 @@ pub const VM = struct {
                 },
 
                 .OP_GREATER       => {
-                    const right: Value = self.pop();
                     const left: Value = self.pop();
+                    const right: Value = self.pop();
 
                     const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
                     const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
@@ -369,8 +369,8 @@ pub const VM = struct {
 
 
                 .OP_LESS          => {
-                    const right: Value = self.pop();
                     const left: Value = self.pop();
+                    const right: Value = self.pop();
 
                     const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
                     const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
@@ -387,17 +387,23 @@ pub const VM = struct {
                 .OP_EQUAL => self.push(Value{ .Boolean = _value.valueEql(self.pop(), self.pop()) }),
 
                 .OP_JUMP => {
-                    frame.ip += readShort(frame);
+                    const jump = readShort(frame);
+
+                    frame.ip += jump;
                 },
 
                 .OP_JUMP_IF_FALSE => {
-                    if (self.peek(0).Boolean) {
-                        frame.ip += readShort(frame);
+                    const jump: u16 = readShort(frame);
+
+                    if (!self.peek(0).Boolean) {
+                        frame.ip += jump;
                     }
                 },
 
                 .OP_LOOP => {
-                    frame.ip -= readShort(frame);
+                    const jump = readShort(frame);
+
+                    frame.ip -= jump;
                 },
 
                 else => {
