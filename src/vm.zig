@@ -358,24 +358,18 @@ pub const VM = struct {
                 },
 
                 .OP_GREATER       => {
-                    const left: Value = self.pop();
-                    const right: Value = self.pop();
+                    const left: f64 = self.pop().Number;
+                    const right: f64 = self.pop().Number;
 
-                    const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
-                    const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
-
-                    self.push(Value{ .Boolean = right_f > left_f });
+                    self.push(Value{ .Boolean = right > left });
                 },
 
 
                 .OP_LESS          => {
-                    const left: Value = self.pop();
-                    const right: Value = self.pop();
+                    const left: f64 = self.pop().Number;
+                    const right: f64 = self.pop().Number;
 
-                    const right_f: f64 = if (right == .Number) right.Number else @intToFloat(f64, right.Byte);
-                    const left_f: f64 = if (left == .Number) left.Number else @intToFloat(f64, left.Byte);
-
-                    self.push(Value{ .Boolean = right_f < left_f });
+                    self.push(Value{ .Boolean = right < left });
                 },
 
                 .OP_ADD,
@@ -425,9 +419,7 @@ pub const VM = struct {
         const right: Value = self.pop();
 
         const right_f: ?f64 = if (right == .Number) right.Number else null;
-        const right_b: ?u8 = if (right == .Byte) right.Byte else null;
         const left_f: ?f64 = if (left == .Number) left.Number else null;
-        const left_b: ?u8 = if (left == .Byte) left.Byte else null;
 
         const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj).? else null;
         const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj).? else null;
@@ -441,67 +433,33 @@ pub const VM = struct {
                     break :add;
                 }
 
-                if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
-                            + (left_f orelse @intToFloat(f64, left_b.?))
-                    });
-                } else {
-                    self.push(Value{
-                        .Byte = right_b.? + left_b.?
-                    });
-                }
+                self.push(Value{
+                    .Number = right_f.? + left_f.?
+                });
             },
 
             .OP_SUBTRACT => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
-                            - (left_f orelse @intToFloat(f64, left_b.?))
-                    });
-                } else {
-                    self.push(Value{
-                        .Byte = right_b.? - left_b.?
-                    });
-                }
+                self.push(Value{
+                    .Number = right_f.? - left_f.?
+                });
             },
 
             .OP_MULTIPLY => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
-                            * (left_f orelse @intToFloat(f64, left_b.?))
-                    });
-                } else {
-                    self.push(Value{
-                        .Byte = right_b.? * left_b.?
-                    });
-                }
+                self.push(Value{
+                    .Number = right_f.? * left_f.?
+                });
             },
 
             .OP_DIVIDE => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Number = (right_f orelse @intToFloat(f64, right_b.?))
-                            / (left_f orelse @intToFloat(f64, left_b.?))
-                    });
-                } else {
-                    self.push(Value{
-                        .Byte = right_b.? / left_b.?
-                    });
-                }
+                self.push(Value{
+                    .Number = right_f.? / left_f.?
+                });
             },
 
             .OP_MOD => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Number = @mod((right_f orelse @intToFloat(f64, right_b.?)), (left_f orelse @intToFloat(f64, left_b.?)))
-                    });
-                } else {
-                    self.push(Value{
-                        .Byte = right_b.? % left_b.?
-                    });
-                }
+                self.push(Value{
+                    .Number = @mod(right_f.?, left_f.?)
+                });
             },
 
             else => unreachable

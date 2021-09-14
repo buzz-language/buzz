@@ -591,7 +591,6 @@ pub const ObjTypeDef = struct {
     pub const Type = enum {
         Bool,
         Number,
-        Byte,
         String,
         ObjectInstance,
         Object,
@@ -827,7 +826,6 @@ pub const ObjTypeDef = struct {
         // For those type checking is obvious, the value is a placeholder
         Bool: bool,
         Number: bool,
-        Byte: bool,
         String: bool,
         Type: bool,
         Void: bool,
@@ -869,7 +867,6 @@ pub const ObjTypeDef = struct {
         switch (self.def_type) {
             .Bool => try type_str.appendSlice("bool"),
             .Number => try type_str.appendSlice("num"),
-            .Byte => try type_str.appendSlice("byte"),
             .String => try type_str.appendSlice("str"),
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
@@ -961,7 +958,7 @@ pub const ObjTypeDef = struct {
         }
 
         return switch (a) {
-            .Bool, .Number, .Byte, .String, .Type, .Void => return true,
+            .Bool, .Number, .String, .Type, .Void => return true,
 
             .ObjectInstance => return a.ObjectInstance == b.ObjectInstance,
             .EnumInstance => return a.EnumInstance == b.EnumInstance,

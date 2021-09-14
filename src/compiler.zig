@@ -203,7 +203,6 @@ pub const Compiler = struct {
         .{ .prefix = literal,  .infix = null,   .precedence = .None }, // Null
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Str
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Num
-        .{ .prefix = byte,     .infix = null,   .precedence = .None }, // Byte
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Type
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Bool
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Function
@@ -734,15 +733,6 @@ pub const Compiler = struct {
                     }
                 )
             );
-        } else if (try self.match(.Byte)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Byte
-                    }
-                )
-            );
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
                 try self.vm.getTypeDef(
@@ -818,17 +808,6 @@ pub const Compiler = struct {
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Number
-                    }
-                )
-            );
-
-            return;
-        } else if (try self.match(.Byte)) {
-            try self.varDeclaration(
-                try self.vm.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Byte
                     }
                 )
             );
@@ -954,11 +933,6 @@ pub const Compiler = struct {
             return try self.vm.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .Number
-            });
-        } else if (try self.match(.Byte)) {
-            return try self.vm.getTypeDef(.{
-                .optional = try self.match(.Question),
-                .def_type = .Byte
             });
         } else if (try self.match(.Bool)) {
             return try self.vm.getTypeDef(.{
@@ -1192,15 +1166,6 @@ pub const Compiler = struct {
             type_def = try self.vm.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Number,
-            });
-        } else if (try self.match(.Byte)) {
-            try self.consume(.Identifier, "Expected property name.");
-            name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
-
-            type_def = try self.vm.getTypeDef(ObjTypeDef{
-                .optional = try self.match(.Question),
-                .def_type = .Byte,
             });
         } else if (try self.match(.Bool)) {
             try self.consume(.Identifier, "Expected property name.");
@@ -1897,7 +1862,7 @@ pub const Compiler = struct {
     }
 
     fn and_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (left_operand_type.def_type != .Bool and left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
+        if (left_operand_type.def_type != .Bool) {
             try self.reportError("`and` expects operands to be `bool`");
         }
 
@@ -1916,7 +1881,7 @@ pub const Compiler = struct {
     }
 
     fn or_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (left_operand_type.def_type != .Bool and left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
+        if (left_operand_type.def_type != .Bool) {
             try self.reportError("`or` expects operands to be `bool`");
         }
 
@@ -1949,8 +1914,8 @@ pub const Compiler = struct {
 
         switch (operator_type) {
             .Greater => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_GREATER);
@@ -1961,8 +1926,8 @@ pub const Compiler = struct {
                 });
             },
             .Less => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_LESS);
@@ -1973,8 +1938,8 @@ pub const Compiler = struct {
                 });
             },
             .GreaterEqual => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitBytes(@enumToInt(OpCode.OP_LESS), @enumToInt(OpCode.OP_NOT));
@@ -1985,8 +1950,8 @@ pub const Compiler = struct {
                 });
             },
             .LessEqual => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitBytes(@enumToInt(OpCode.OP_GREATER), @enumToInt(OpCode.OP_NOT));
@@ -2014,9 +1979,9 @@ pub const Compiler = struct {
             },
 
             .Plus => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte
+                if (left_operand_type.def_type != .Number
                     and left_operand_type.def_type != .String) {
-                    try self.reportError("Expected `num`, `byte` or `str`");
+                    try self.reportError("Expected `num` or `str`.");
                 }
 
                 try self.emitOpCode(.OP_ADD);
@@ -2024,8 +1989,8 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Minus => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_SUBTRACT);
@@ -2033,8 +1998,8 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Star => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_MULTIPLY);
@@ -2042,8 +2007,8 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Slash => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_DIVIDE);
@@ -2051,8 +2016,8 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Percent => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
-                    try self.reportError("Expected `num` or `byte`");
+                if (left_operand_type.def_type != .Number) {
+                    try self.reportError("Expected `num`.");
                 }
 
                 try self.emitOpCode(.OP_MOD);
@@ -2332,17 +2297,6 @@ pub const Compiler = struct {
 
         return try self.vm.getTypeDef(.{
             .def_type = .Number,
-            .optional = false,
-        });
-    }
-
-    fn byte(self: *Self, _: bool) anyerror!*ObjTypeDef {
-        var value: u8 = self.parser.previous_token.?.literal_byte.?;
-
-        try self.emitConstant(Value{ .Byte = value });
-
-        return try self.vm.getTypeDef(.{
-            .def_type = .Byte,
             .optional = false,
         });
     }

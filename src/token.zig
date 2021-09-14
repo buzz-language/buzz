@@ -40,7 +40,6 @@ pub const TokenType = enum {
     Null,             // null
     Str,              // str
     Num,              // num
-    Byte,             // byte
     Type,             // type
     Bool,             // bool
     Function,         // Function
@@ -163,10 +162,6 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
     if (mem.eql(u8, literal, "num")) {
         return .Num;
     }
-
-    if (mem.eql(u8, literal, "byte")) {
-        return .Byte;
-    }
     
     if (mem.eql(u8, literal, "type")) {
         return .Type;
@@ -219,7 +214,6 @@ pub const Token = struct {
     // Literal is either a string or a number
     literal_string: ?[]const u8 = null,
     literal_number: ?f64 = null,
-    literal_byte: ?u8 = null,
     line: usize,
     column: usize,
 
@@ -229,7 +223,6 @@ pub const Token = struct {
             .lexeme = self.lexeme,
             .literal_string = self.literal_string,
             .literal_number = self.literal_number,
-            .literal_byte = self.literal_byte,
             .line = self.line,
             .column = self.column,
         };
