@@ -298,7 +298,7 @@ pub const Compiler = struct {
             while (i < token.column - 1) : (i += 1) {
                 std.debug.warn(" ", .{});
             }
-            std.debug.warn("^\n", .{});
+            std.debug.warn("   ^\n", .{});
         }
         std.debug.warn(
             "{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
@@ -888,6 +888,9 @@ pub const Compiler = struct {
         if (try self.match(.Print)) {
             assert(!hanging);
             try self.printStatement();
+        } else if (try self.match(.If)) {
+            assert(!hanging);
+            try self.ifStatement();
         } else if (try self.match(.Return)) {
             assert(!hanging);
             try self.returnStatement();
@@ -1004,7 +1007,7 @@ pub const Compiler = struct {
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
-            try self.reportError("Expect expression");
+            try self.reportError("Expected expression.");
 
             // TODO: find a way to continue or catch that error
             return CompileError.Unrecoverable;
@@ -1479,6 +1482,45 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
+    fn ifStatement(self: *Self) anyerror!void {
+        try self.consume(.LeftParen, "Expected `(` after `if`.");
+
+        var parsed_type: *ObjTypeDef = try self.expression(false);
+        if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
+            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `if` condition");
+        }
+        
+        try self.consume(.RightParen, "Expected `)` after `if` condition.");
+
+        const then_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOpCode(.OP_POP);
+
+        try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
+
+        self.beginScope();
+        try self.block();
+        try self.endScope();
+
+        const else_jump: usize = try self.emitJump(.OP_JUMP);
+        
+        try self.patchJump(then_jump);
+        try self.emitOpCode(.OP_POP);
+
+        if (try self.match(.Else)) {
+            if (try self.match(.If)) {
+                try self.ifStatement();
+            } else {
+                try self.consume(.LeftBrace, "Expected `{` after `else`.");
+
+                self.beginScope();
+                try self.block();
+                try self.endScope();
+            }
+        }
+
+        try self.patchJump(else_jump);
+    }
+
     inline fn defineGlobalVariable(self: *Self, slot: u8) !void {
         self.markInitialized();
 
@@ -1917,7 +1959,8 @@ pub const Compiler = struct {
         var right_operand_type: *ObjTypeDef = try self.parsePrecedence(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1), false);
 
         if (!left_operand_type.eql(right_operand_type)
-            or (left_operand_type.def_type != .Placeholder and right_operand_type.def_type != .Placeholder)) {
+            and left_operand_type.def_type != .Placeholder
+            and right_operand_type.def_type != .Placeholder) {
             try self.reportTypeCheck(left_operand_type, right_operand_type, "Type mismatch.");
         }
 

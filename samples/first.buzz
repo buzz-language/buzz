@@ -31,17 +31,28 @@ fun main() {
     | print(first.age > 3 and first.age < 5);
     | print(first.age > 3 or first.age < 5);
 
-    print(first.age + forwardNum);
-    print(first.age - forwardNum);
-    print(first.age * forwardNum);
-    print(first.age / forwardNum);
-    print(first.age % forwardNum);
-    print(first.age == forwardNum);
-    print(first.name == forward);
-    print(first.age >= forwardNum);
-    print(first.age > forwardNum);
-    print(first.age <= forwardNum);
-    print(first.age < forwardNum);
+    | print(first.age + forwardNum);
+    | print(first.age - forwardNum);
+    | print(first.age * forwardNum);
+    | print(first.age / forwardNum);
+    | print(first.age % forwardNum);
+    | print(first.age == forwardNum);
+    | print(first.name == forward);
+    | print(first.age >= forwardNum);
+    | print(first.age > forwardNum);
+    | print(first.age <= forwardNum);
+    | print(first.age < forwardNum);
+
+    if (first.age >= 100) {
+        print("over 100");
+    } else if (first.age >= 50) {
+        print("over 50");
+    } else {
+        print("else");
+
+        str localToIf = "i only exists in this block";
+        print(localToIf);
+    }
 }
 
 str forward = "joe";
