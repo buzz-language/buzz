@@ -375,6 +375,8 @@ pub const VM = struct {
                 .OP_DIVIDE,
                 .OP_MOD => try self.binary(instruction),
 
+                .OP_EQUAL => self.push(Value{ .Boolean = _value.valueEql(self.pop(), self.pop()) }),
+
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });
 

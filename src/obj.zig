@@ -192,6 +192,44 @@ pub const Obj = struct {
     obj_type: ObjType,
     is_marked: bool = false,
     next: ?*Obj = null,
+
+    pub fn eql(self: *Self, other: *Self) bool {
+        if (self.obj_type != other.obj_type) {
+            return false;
+        }
+
+        switch (self.obj_type) {
+            .String => {
+                // return mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string);
+                
+                // since string are intern this should be enough
+                return self == other;
+            },
+            .Type => {
+                const self_type: *ObjTypeDef = ObjTypeDef.cast(self).?;
+                const other_type: *ObjTypeDef = ObjTypeDef.cast(other).?;
+
+                return self_type.optional == other_type.optional and self_type.eql(other_type);
+            },
+            .UpValue => {
+                const self_upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+                const other_upvalue: *ObjUpValue = ObjUpValue.cast(other).?;
+
+                return _value.valueEql(self_upvalue.closed orelse self_upvalue.location.*, other_upvalue.closed orelse other_upvalue.location.*);
+            },
+            .Bound,
+            .Closure,
+            .Function,
+            .ObjectInstance,
+            .Object,
+            .List,
+            .Map,
+            .Enum,
+            .EnumInstance => {
+                return self == other;
+            },
+        }
+    }
 };
 
 /// A String

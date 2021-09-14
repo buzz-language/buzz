@@ -53,3 +53,18 @@ pub fn valueToString(allocator: *Allocator, value: Value) anyerror![]const u8 {
         .Obj => try objToString(allocator, buf, value.Obj),
     };
 }
+
+pub fn valueEql(a: Value, b: Value) bool {
+    if (@as(ValueType, a) != @as(ValueType, b)) {
+        // TODO: except for Number and Byte
+        return false;
+    }
+
+    return switch (a) {
+        .Boolean => a.Boolean == b.Boolean,
+        .Number => a.Number == b.Number,
+        .Byte => a.Byte == b.Byte,
+        .Null => true,
+        .Obj => a.Obj.eql(b.Obj),
+    };
+}
