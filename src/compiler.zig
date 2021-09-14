@@ -906,6 +906,9 @@ pub const Compiler = struct {
         } else if (try self.match(.While)) {
             assert(!hanging);
             try self.whileStatement();
+        } else if (try self.match(.Do)) {
+            assert(!hanging);
+            try self.doUntilStatement();
         } else if (try self.match(.Return)) {
             assert(!hanging);
             try self.returnStatement();
@@ -1516,6 +1519,34 @@ pub const Compiler = struct {
         self.beginScope();
         try self.block();
         try self.endScope();
+
+        try self.emitLoop(loop_start);
+        try self.patchJump(exit_jump);
+        try self.emitOpCode(.OP_POP);
+    }
+
+    fn doUntilStatement(self: *Self) !void {
+        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+        
+        try self.consume(.LeftBrace, "Expected `{` after `do`.");
+        self.beginScope();
+        try self.block();
+        try self.endScope();
+
+        try self.consume(.Until, "Expected `until` after `do` block.");
+
+        try self.consume(.LeftParen, "Expected `(` after `until`.");
+
+        var parsed_type: *ObjTypeDef = try self.expression(false);
+        if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
+            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+        }
+
+        try self.consume(.RightParen, "Expected `)` after `until` condition.");
+
+        try self.emitOpCode(.OP_NOT);
+        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOpCode(.OP_POP);
 
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
