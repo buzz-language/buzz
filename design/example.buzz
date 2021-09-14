@@ -102,7 +102,7 @@ aNum--;
 
 if (expression) {
     | do something
-} else if (expression) { | No need for a `else` keyword
+} else if (expression) {
     | do something
 } else {
     | do something

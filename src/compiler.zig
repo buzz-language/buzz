@@ -661,6 +661,18 @@ pub const Compiler = struct {
         try self.emitByte(byte2);
     }
 
+    fn emitLoop(self: *Self, loop_start: usize) !void {
+        try self.emitOpCode(.OP_LOOP);
+
+        const offset: usize = self.current.?.function.chunk.code.items.len - loop_start + 2;
+        if (offset > 65535) {
+            try self.reportError("Loop body to large.");
+        }
+
+        try self.emitByte(@intCast(u8, (offset >> 8) & 0xff));
+        try self.emitByte(@intCast(u8, offset & 0xff));
+    }
+
     fn emitJump(self: *Self, instruction: OpCode) !usize {
         try self.emitOpCode(instruction);
         try self.emitByte(0xff);
@@ -891,6 +903,9 @@ pub const Compiler = struct {
         } else if (try self.match(.If)) {
             assert(!hanging);
             try self.ifStatement();
+        } else if (try self.match(.While)) {
+            assert(!hanging);
+            try self.whileStatement();
         } else if (try self.match(.Return)) {
             assert(!hanging);
             try self.returnStatement();
@@ -1482,6 +1497,31 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
+    fn whileStatement(self: *Self) !void {
+        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+
+        try self.consume(.LeftParen, "Expected `(` after `while`.");
+
+        var parsed_type: *ObjTypeDef = try self.expression(false);
+        if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
+            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+        }
+
+        try self.consume(.RightParen, "Expected `)` after `while` condition.");
+
+        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOpCode(.OP_POP);
+
+        try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
+        self.beginScope();
+        try self.block();
+        try self.endScope();
+
+        try self.emitLoop(loop_start);
+        try self.patchJump(exit_jump);
+        try self.emitOpCode(.OP_POP);
+    }
+
     fn ifStatement(self: *Self) anyerror!void {
         try self.consume(.LeftParen, "Expected `(` after `if`.");
 
@@ -1496,7 +1536,6 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
-
         self.beginScope();
         try self.block();
         try self.endScope();
@@ -1511,7 +1550,6 @@ pub const Compiler = struct {
                 try self.ifStatement();
             } else {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
-
                 self.beginScope();
                 try self.block();
                 try self.endScope();
