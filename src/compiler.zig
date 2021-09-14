@@ -1862,7 +1862,9 @@ pub const Compiler = struct {
     }
 
     fn and_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (left_operand_type.def_type != .Bool) {
+        if (left_operand_type.def_type == .Placeholder) {
+            left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Bool;
+        } else if (left_operand_type.def_type != .Bool) {
             try self.reportError("`and` expects operands to be `bool`");
         }
 
@@ -1871,7 +1873,9 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
         var right_operand_type: *ObjTypeDef = try self.parsePrecedence(.And, false);
 
-        if (right_operand_type.def_type != .Bool) {
+        if (right_operand_type.def_type == .Placeholder) {
+            right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Bool;
+        } else if (right_operand_type.def_type != .Bool) {
             try self.reportError("`and` expects operands to be `bool`");
         }
         
@@ -1881,7 +1885,9 @@ pub const Compiler = struct {
     }
 
     fn or_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (left_operand_type.def_type != .Bool) {
+        if (left_operand_type.def_type == .Placeholder) {
+            left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Bool;
+        } else if (left_operand_type.def_type != .Bool) {
             try self.reportError("`or` expects operands to be `bool`");
         }
 
@@ -1893,7 +1899,9 @@ pub const Compiler = struct {
 
         var right_operand_type: *ObjTypeDef = try self.parsePrecedence(.Or, false);
 
-        if (right_operand_type.def_type != .Bool) {
+        if (right_operand_type.def_type == .Placeholder) {
+            right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Bool;
+        } else if (right_operand_type.def_type != .Bool) {
             try self.reportError("`and` expects operands to be `bool`");
         }
 
@@ -1908,14 +1916,29 @@ pub const Compiler = struct {
 
         var right_operand_type: *ObjTypeDef = try self.parsePrecedence(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1), false);
 
-        if (!left_operand_type.eql(right_operand_type)) {
+        if (!left_operand_type.eql(right_operand_type)
+            or (left_operand_type.def_type != .Placeholder and right_operand_type.def_type != .Placeholder)) {
             try self.reportTypeCheck(left_operand_type, right_operand_type, "Type mismatch.");
         }
 
         switch (operator_type) {
             .Greater => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_GREATER);
@@ -1926,8 +1949,22 @@ pub const Compiler = struct {
                 });
             },
             .Less => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_LESS);
@@ -1938,8 +1975,22 @@ pub const Compiler = struct {
                 });
             },
             .GreaterEqual => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitBytes(@enumToInt(OpCode.OP_LESS), @enumToInt(OpCode.OP_NOT));
@@ -1950,8 +2001,22 @@ pub const Compiler = struct {
                 });
             },
             .LessEqual => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitBytes(@enumToInt(OpCode.OP_GREATER), @enumToInt(OpCode.OP_NOT));
@@ -1962,6 +2027,20 @@ pub const Compiler = struct {
                 });
             },
             .BangEqual => {
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
+                }
+
                 try self.emitBytes(@enumToInt(OpCode.OP_EQUAL), @enumToInt(OpCode.OP_NOT));
 
                 return self.vm.getTypeDef(ObjTypeDef{
@@ -1970,6 +2049,20 @@ pub const Compiler = struct {
                 });
             },
             .EqualEqual => {
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
+                }
+
                 try self.emitOpCode(.OP_EQUAL);
 
                 return self.vm.getTypeDef(ObjTypeDef{
@@ -1980,8 +2073,23 @@ pub const Compiler = struct {
 
             .Plus => {
                 if (left_operand_type.def_type != .Number
-                    and left_operand_type.def_type != .String) {
+                    and left_operand_type.def_type != .String
+                    and left_operand_type.def_type != .Placeholder) {
                     try self.reportError("Expected `num` or `str`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad type.");
                 }
 
                 try self.emitOpCode(.OP_ADD);
@@ -1989,8 +2097,24 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Minus => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_SUBTRACT);
@@ -1998,8 +2122,24 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Star => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_MULTIPLY);
@@ -2007,8 +2147,24 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Slash => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_DIVIDE);
@@ -2016,8 +2172,24 @@ pub const Compiler = struct {
                 return left_operand_type;
             },
             .Percent => {
-                if (left_operand_type.def_type != .Number) {
+                if (left_operand_type.def_type == .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                } else if (left_operand_type.def_type != .Number) {
                     try self.reportError("Expected `num`.");
+                }
+
+                if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
+                    right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
+                } else if (left_operand_type.def_type == .Placeholder and right_operand_type.def_type != .Placeholder) {
+                    left_operand_type.resolved_type.?.Placeholder.resolved_def_type = right_operand_type.def_type;
+                }
+
+                if (right_operand_type.def_type == .Placeholder and !right_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
+                }
+
+                if (left_operand_type.def_type == .Placeholder and !left_operand_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Can't be `num`.");
                 }
 
                 try self.emitOpCode(.OP_MOD);

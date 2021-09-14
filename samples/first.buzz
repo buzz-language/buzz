@@ -28,6 +28,21 @@ fun main() {
 
     | print("hello" == "hello");
 
-    print(first.age > 3 and first.age < 5);
-    print(first.age > 3 or first.age < 5);
+    | print(first.age > 3 and first.age < 5);
+    | print(first.age > 3 or first.age < 5);
+
+    print(first.age + forwardNum);
+    print(first.age - forwardNum);
+    print(first.age * forwardNum);
+    print(first.age / forwardNum);
+    print(first.age % forwardNum);
+    print(first.age == forwardNum);
+    print(first.name == forward);
+    print(first.age >= forwardNum);
+    print(first.age > forwardNum);
+    print(first.age <= forwardNum);
+    print(first.age < forwardNum);
 }
+
+str forward = "joe";
+num forwardNum = 20;

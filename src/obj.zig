@@ -759,7 +759,11 @@ pub const ObjTypeDef = struct {
         }
 
         pub fn isAssignable(self: *PlaceholderSelf) bool {
-            return (self.assignable == null or self.assignable.?)
+            if (self.assignable == null) {
+                return true;
+            }
+
+            return self.assignable.?
                 and (self.resolved_def_type == null
                     // TODO: method actually but right now we have no way to distinguish them
                     or self.resolved_def_type.? != .Function
@@ -771,7 +775,11 @@ pub const ObjTypeDef = struct {
         }
 
         pub fn isCallable(self: *PlaceholderSelf) bool {
-            return (self.callable == null or self.callable.?)
+            if (self.callable == null) {
+                return true;
+            }
+
+            return self.callable.?
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .Function
                     or self.resolved_def_type.? == .Object)
@@ -781,7 +789,11 @@ pub const ObjTypeDef = struct {
         }
 
         pub fn isFieldAccessible(self: *PlaceholderSelf) bool {
-            return (self.field_accessible == null or self.field_accessible.?)
+            if (self.field_accessible == null) {
+                return true;
+            }
+
+            return self.field_accessible.?
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .Enum
                     or self.resolved_def_type.? == .ObjectInstance)
@@ -791,7 +803,11 @@ pub const ObjTypeDef = struct {
         }
 
         pub fn isSubscriptable(self: *PlaceholderSelf) bool {
-            return (self.subscriptable == null or self.subscriptable.?)
+            if (self.subscriptable == null) {
+                return true;
+            }
+
+            return self.subscriptable.?
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .List
                     or self.resolved_def_type.? == .Map)
