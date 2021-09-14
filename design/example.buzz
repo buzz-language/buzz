@@ -37,8 +37,6 @@ false < true;
 | Logical
 a and b;
 a or b;
-false and b; | -> b
-a or false;  | -> a
 !a;
 
 | Bitwise (same as boolean operators but since operands are `byte`s the semantic is bitwise operations)

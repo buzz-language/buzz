@@ -35,6 +35,9 @@ pub const OpCode = enum(u8) {
     OP_MULTIPLY,
     OP_DIVIDE,
     OP_MOD,
+    // OP_BAND,
+    // OP_BOR,
+    // OP_XOR,
     OP_SHL,
     OP_SHR,
 

@@ -176,6 +176,15 @@ pub const VM = struct {
         return byte;
     }
 
+    inline fn readShort(frame: *CallFrame) u16 {
+        frame.ip += 2;
+
+        const byte1: u16 = @intCast(u16, frame.closure.function.chunk.code.items[frame.ip - 2]);
+        const byte2: u16 = @intCast(u16, frame.closure.function.chunk.code.items[frame.ip - 1]);
+
+        return @intCast(u16, (byte1 << 8) | byte2);
+    }
+
     inline fn readOpCode(frame: *CallFrame) OpCode {
         // TODO: measure if [*]OpCode[0] is faster
         var opcode: OpCode = @intToEnum(OpCode, frame.closure.function.chunk.code.items[frame.ip]);
@@ -376,6 +385,20 @@ pub const VM = struct {
                 .OP_MOD => try self.binary(instruction),
 
                 .OP_EQUAL => self.push(Value{ .Boolean = _value.valueEql(self.pop(), self.pop()) }),
+
+                .OP_JUMP => {
+                    frame.ip += readShort(frame);
+                },
+
+                .OP_JUMP_IF_FALSE => {
+                    if (self.peek(0).Boolean) {
+                        frame.ip += readShort(frame);
+                    }
+                },
+
+                .OP_LOOP => {
+                    frame.ip -= readShort(frame);
+                },
 
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });

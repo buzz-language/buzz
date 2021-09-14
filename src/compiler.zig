@@ -211,7 +211,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // ShiftLeft
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Xor
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Or
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // And
+        .{ .prefix = null,     .infix = and_,   .precedence = .And }, // And
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Return
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // If
         .{ .prefix = null,     .infix = null,   .precedence = .None }, // Else
@@ -660,6 +660,26 @@ pub const Compiler = struct {
     inline fn emitBytes(self: *Self, byte1: u8, byte2: u8) !void {
         try self.emitByte(byte1);
         try self.emitByte(byte2);
+    }
+
+    fn emitJump(self: *Self, instruction: OpCode) !usize {
+        try self.emitOpCode(instruction);
+        try self.emitByte(0xff);
+        try self.emitByte(0xff);
+
+        return self.current.?.function.chunk.code.items.len - 2;
+    }
+
+    fn patchJump(self: *Self, offset: usize) !void {
+        const jump: usize = self.current.?.function.chunk.code.items.len - offset - 2;
+
+        // TODO: 32 bit instructions will allow larger jump too
+        if (jump > 65535) {
+            try self.reportError("Jump to large.");
+        }
+
+        self.current.?.function.chunk.code.items[offset] = @intCast(u8, (jump >> 8) & 0xff);
+        self.current.?.function.chunk.code.items[offset + 1] = @intCast(u8, jump & 0xff);
     }
 
     fn emitReturn(self: *Self) !void {
@@ -1876,6 +1896,25 @@ pub const Compiler = struct {
         return try self.namedVariable(self.parser.previous_token.?, can_assign);
     }
 
+    fn and_(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (left_operand_type.def_type != .Bool and left_operand_type.def_type != .Number and left_operand_type.def_type != .Byte) {
+            try self.reportError("`and` expects operands to be `bool`");
+        }
+
+        const end_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+
+        try self.emitOpCode(.OP_POP);
+        var right_operand_type: *ObjTypeDef = try self.parsePrecedence(.And, false);
+
+        if (right_operand_type.def_type != .Bool) {
+            try self.reportError("`and` expects operands to be `bool`");
+        }
+        
+        try self.patchJump(end_jump);
+
+        return right_operand_type;
+    }
+
     fn binary(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         const operator_type: TokenType = self.parser.previous_token.?.token_type;
         const rule: ParseRule = getRule(operator_type);
@@ -1998,7 +2037,6 @@ pub const Compiler = struct {
 
                 return left_operand_type;
             },
-
             else => unreachable,
         }
     }
