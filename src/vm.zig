@@ -14,6 +14,8 @@ const ObjString = _obj.ObjString;
 const ObjObject = _obj.ObjObject;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjObjectInstance = _obj.ObjObjectInstance;
+const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
@@ -208,11 +210,11 @@ pub const VM = struct {
         while (true) {
             var instruction: OpCode = readOpCode(frame);
             switch(instruction) {
-                .OP_NULL          => self.push(Value { .Null = null }),
-                .OP_TRUE          => self.push(Value { .Boolean = true }),
-                .OP_FALSE         => self.push(Value { .Boolean = false }),
-                .OP_POP           => _ = self.pop(),
-                .OP_SWAP          => self.swap(readByte(frame), readByte(frame)),
+                .OP_NULL => self.push(Value { .Null = null }),
+                .OP_TRUE => self.push(Value { .Boolean = true }),
+                .OP_FALSE => self.push(Value { .Boolean = false }),
+                .OP_POP => _ = self.pop(),
+                .OP_SWAP => self.swap(readByte(frame), readByte(frame)),
                 .OP_DEFINE_GLOBAL => {
                     const slot: u8 = readByte(frame);
                     try self.globals.ensureTotalCapacity(slot + 1);
@@ -220,14 +222,14 @@ pub const VM = struct {
                     self.globals.items[slot] = self.peek(0);
                     _ = self.pop();
                 },
-                .OP_GET_GLOBAL    => self.push(self.globals.items[readByte(frame)]),
-                .OP_SET_GLOBAL    => self.globals.items[readByte(frame)] = self.peek(0),
-                .OP_GET_LOCAL     => self.push(frame.slots[readByte(frame)]),
-                .OP_SET_LOCAL     => frame.slots[readByte(frame)] = self.peek(0),
-                .OP_GET_UPVALUE   => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
-                .OP_SET_UPVALUE   => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
-                .OP_CONSTANT      => self.push(readConstant(frame)),
-                .OP_NEGATE        => {
+                .OP_GET_GLOBAL => self.push(self.globals.items[readByte(frame)]),
+                .OP_SET_GLOBAL => self.globals.items[readByte(frame)] = self.peek(0),
+                .OP_GET_LOCAL => self.push(frame.slots[readByte(frame)]),
+                .OP_SET_LOCAL => frame.slots[readByte(frame)] = self.peek(0),
+                .OP_GET_UPVALUE => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
+                .OP_SET_UPVALUE => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
+                .OP_CONSTANT => self.push(readConstant(frame)),
+                .OP_NEGATE => {
                     if (@as(ValueType, self.peek(0)) != .Number) {
                         runtimeError("Operand must be a number.");
 
@@ -236,7 +238,7 @@ pub const VM = struct {
 
                     self.push(Value{ .Number = -self.pop().Number });
                 },
-                .OP_CLOSURE       => {
+                .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(readConstant(frame).Obj).?;
                     var closure: *ObjClosure = ObjClosure.cast(try _obj.allocateObject(self, .Closure)).?;
                     closure.* = try ObjClosure.init(self.allocator, function);
@@ -255,7 +257,7 @@ pub const VM = struct {
                         }
                     }
                 },
-                .OP_CALL          => {
+                .OP_CALL => {
                     var arg_count: u8 = readByte(frame);
                     if (!(try self.callValue(self.peek(arg_count), arg_count))) {
                         return .RuntimeError;
@@ -264,7 +266,7 @@ pub const VM = struct {
                     frame = &self.frames.items[self.frame_count - 1];
                 },
 
-                .OP_INVOKE        => {
+                .OP_INVOKE => {
                     var method: *ObjString = readString(frame);
                     var arg_count: u8 = readByte(frame);
                     if (!try self.invoke(method, arg_count)) {
@@ -275,7 +277,7 @@ pub const VM = struct {
                 },
 
                 // TODO: for now, used to debug
-                .OP_RETURN        => {
+                .OP_RETURN => {
                     var result: Value = self.pop();
 
                     self.closeUpValues(&frame.slots[0]);
@@ -292,22 +294,54 @@ pub const VM = struct {
                     frame = &self.frames.items[self.frame_count - 1];
                 },
 
-                .OP_OBJECT         => {
+                .OP_ENUM => {
+                    var enum_: *ObjEnum = ObjEnum.cast(try _obj.allocateObject(self, .Enum)).?;
+                    enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
+
+                    self.push(Value{ .Obj = enum_.toObj() });
+                },
+
+                .OP_ENUM_CASE => {
+                    try self.defineEnumCase();
+                },
+
+                .OP_GET_ENUM_CASE => {
+                    var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
+
+                    _ = self.pop();
+                    
+                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(try _obj.allocateObject(self, .EnumInstance)).?;
+                    enum_case.* = ObjEnumInstance{
+                        .enum_ref = enum_,
+                        .case = readByte(frame),
+                    };
+
+                    self.push(Value{ .Obj = enum_case.toObj() });
+                },
+
+                .OP_GET_ENUM_CASE_VALUE => {
+                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).Obj).?;
+
+                    _ = self.pop();
+                    self.push(enum_case.enum_ref.cases.items[enum_case.case]);
+                },
+
+                .OP_OBJECT => {
                     var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
                     object.* = ObjObject.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
-                .OP_METHOD        => {
+                .OP_METHOD => {
                     try self.defineMethod(readString(frame));
                 },
 
-                .OP_PROPERTY      => {
+                .OP_PROPERTY => {
                     try self.definePropertyDefaultValue(readString(frame));
                 },
                 
-                .OP_GET_PROPERTY  => {
+                .OP_GET_PROPERTY => {
                     var obj: *Obj = self.peek(0).Obj;
 
                     switch (obj.obj_type) {
@@ -332,7 +366,7 @@ pub const VM = struct {
                     }
                 },
 
-                .OP_SET_PROPERTY  => {
+                .OP_SET_PROPERTY => {
                     var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
                     var name: *ObjString = readString(frame);
 
@@ -346,18 +380,18 @@ pub const VM = struct {
                 },
 
                 // TODO: remove
-                .OP_PRINT         => {
+                .OP_PRINT => {
                     var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());
                     defer self.allocator.free(value_str);
 
                     std.debug.print("{s}\n", .{ value_str });
                 },
 
-                .OP_NOT           => {
+                .OP_NOT => {
                     self.push(Value{ .Boolean = !self.pop().Boolean });
                 },
 
-                .OP_GREATER       => {
+                .OP_GREATER => {
                     const left: f64 = self.pop().Number;
                     const right: f64 = self.pop().Number;
 
@@ -365,7 +399,7 @@ pub const VM = struct {
                 },
 
 
-                .OP_LESS          => {
+                .OP_LESS => {
                     const left: f64 = self.pop().Number;
                     const right: f64 = self.pop().Number;
 
@@ -614,6 +648,15 @@ pub const VM = struct {
         }
 
         return created_upvalue;
+    }
+
+    fn defineEnumCase(self: *Self) !void {
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).Obj).?;
+        var enum_value: Value = self.peek(0);
+
+        try enum_.cases.append(enum_value);
+
+        _ = self.pop();
     }
 
     fn defineMethod(self: *Self, name: *ObjString) !void {

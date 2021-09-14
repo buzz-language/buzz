@@ -20,9 +20,6 @@ pub const OpCode = enum(u8) {
     OP_SET_LOCAL,
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
-    OP_GET_PROPERTY,
-    OP_SET_PROPERTY,
-    OP_GET_ENUM_CASE,
     OP_GET_SUBSCRIPT,
     OP_SET_SUBSCRIPT,
     OP_GET_SUPER,
@@ -65,6 +62,13 @@ pub const OpCode = enum(u8) {
     OP_INHERIT,
     OP_METHOD,
     OP_PROPERTY,
+    OP_GET_PROPERTY,
+    OP_SET_PROPERTY,
+
+    OP_ENUM,
+    OP_ENUM_CASE,
+    OP_GET_ENUM_CASE,
+    OP_GET_ENUM_CASE_VALUE,
 
     // TODO: remove
     OP_PRINT,

@@ -114,7 +114,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_MOD,
         .OP_SHL,
         .OP_SHR,
-        .OP_UNWRAP => simpleInstruction(instruction, offset),
+        .OP_UNWRAP,
+        .OP_ENUM_CASE,
+        .OP_GET_ENUM_CASE_VALUE => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
@@ -124,9 +126,11 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_LOCAL,
         .OP_SET_LOCAL,
         .OP_GET_UPVALUE,
-        .OP_SET_UPVALUE => byteInstruction(instruction, chunk, offset),
+        .OP_SET_UPVALUE,
+        .OP_GET_ENUM_CASE => byteInstruction(instruction, chunk, offset),
         
         .OP_OBJECT,
+        .OP_ENUM,
         .OP_CLASS,
         .OP_METHOD,
         .OP_PROPERTY,
@@ -179,6 +183,5 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         // TODO: remove
         .OP_PRINT => simpleInstruction(instruction, offset),
-        else => unreachable
     };
 }

@@ -516,13 +516,22 @@ pub const ObjEnum = struct {
     },
 
     /// Used to allow type checking at runtime
-    object_def: *ObjTypeDef,
+    enum_def: *ObjTypeDef,
 
     name: *ObjString,
-    enum_type: *ObjTypeDef,
-    // Maybe a waste to have 255, but we don't define many enum and they are long lived
-    cases: [255]Value,
-    names: [255][]const u8,
+    cases: std.ArrayList(Value),
+
+    pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
+        return Self {
+            .enum_def = def,
+            .name = def.resolved_type.?.Enum.name,
+            .cases = std.ArrayList(Value).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.cases.deinit();
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -557,6 +566,10 @@ pub const ObjEnumInstance = struct {
         }
 
         return @fieldParentPtr(Self, "obj", obj);
+    }
+
+    pub fn value(self: *Self) Value {
+        return self.enum_ref.cases.items[self.case];
     }
 };
 
@@ -656,9 +669,23 @@ pub const ObjTypeDef = struct {
 
 
     pub const EnumDef = struct {
+        const EnumDefSelf = @This();
+
         name: *ObjString,
         enum_type: *ObjTypeDef,
-        cases: [255][]const u8,
+        cases: std.ArrayList([]const u8),
+
+        pub fn init(allocator: *Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
+            return EnumDefSelf {
+                .name = name,
+                .cases = std.ArrayList([]const u8).init(allocator),
+                .enum_type = enum_type,
+            };
+        }
+
+        pub fn deinit(self: *EnumDefSelf) void {
+            self.cases.deinit();
+        }
     };
 
     pub const PlaceholderDef = struct {
@@ -796,9 +823,11 @@ pub const ObjTypeDef = struct {
             return self.field_accessible.?
                 and (self.resolved_def_type == null
                     or self.resolved_def_type.? == .Enum
+                    or self.resolved_def_type.? == .EnumInstance
                     or self.resolved_def_type.? == .ObjectInstance)
                 and (self.resolved_type == null
                     or self.resolved_type.?.def_type == .Enum
+                    or self.resolved_type.?.def_type == .EnumInstance
                     or self.resolved_type.?.def_type == .ObjectInstance);
         }
 
@@ -1069,8 +1098,16 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
         .EnumInstance => enum_instance: {
             var instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
+            var enum_: *ObjEnum = instance.enum_ref;
 
-            break :enum_instance try std.fmt.bufPrint(buf, "{s}.{s}", .{ instance.enum_ref.name.string, instance.enum_ref.names[instance.case] });
+            break :enum_instance try std.fmt.bufPrint(
+                buf,
+                "{s}.{s}",
+                .{
+                    enum_.name.string,
+                    enum_.enum_def.resolved_type.?.Enum.cases.items[instance.case]
+                }
+            );
         },
         .Bound => {
             var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;

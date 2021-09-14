@@ -406,7 +406,8 @@ pub const Compiler = struct {
         if (placeholder_def.field_accessible) |field_accessible_assumption| {
             if (field_accessible_assumption
                 and resolved_type.def_type != .ObjectInstance
-                and resolved_type.def_type != .Enum) {
+                and resolved_type.def_type != .Enum
+                and resolved_type.def_type != .EnumInstance) {
                 // TODO: better error messages on placeholder stuff
                 try self.reportErrorAt(placeholder_def.where, "[Bad assumption]: has no fields.");
                 return;
@@ -513,29 +514,46 @@ pub const Compiler = struct {
                             var object_def: ObjTypeDef.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                             // Search for a field matching the placeholder
-                            var it = object_def.fields.iterator();
-                            var resolved_as_method: bool = false;
-                            while (it.next()) |kv| {
-                                if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
-                                    try self.resolvePlaceholder(child, kv.value_ptr.*);
-                                    resolved_as_method = true;
-                                    break;
-                                }
+                            var resolved_as_field: bool = false;
+                            if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                                try self.resolvePlaceholder(child, field);
+                                resolved_as_field = true;
                             }
 
                             // Search for a method matching the placeholder
-                            if (!resolved_as_method) {
-                                it = object_def.methods.iterator();
-                                while (it.next()) |kv| {
-                                    if (mem.eql(u8, kv.key_ptr.*, child_placeholder.name.?.string)) {
-                                        try self.resolvePlaceholder(child, kv.value_ptr.*);
-                                        break;
-                                    }
+                            if (!resolved_as_field) {
+                                if (object_def.methods.get(child_placeholder.name.?.string)) |method| {
+                                    try self.resolvePlaceholder(child, method);
                                 }
                             }
                         },
                         .Enum => {
-                            unreachable;
+                            // We can't create a field access placeholder without a name
+                            assert(child_placeholder.name != null);
+
+                            var enum_def: ObjTypeDef.EnumDef = resolved_type.resolved_type.?.Enum;
+
+                            // Search for a case matching the placeholder
+                            for (enum_def.cases.items) |case| {
+                                if (mem.eql(u8, case, child_placeholder.name.?.string)) {
+                                    var enum_instance_def: ObjTypeDef.TypeUnion = .{
+                                        .EnumInstance = resolved_type
+                                    };
+
+                                    try self.resolvePlaceholder(
+                                        child,
+                                        try self.vm.getTypeDef(
+                                            .{
+                                                .optional = false,
+                                                .def_type = .EnumInstance,
+                                                .resolved_type = enum_instance_def,
+                                            }
+                                        )
+                                    );
+                                    break;
+                                }
+                            }
+
                         },
                         else => try self.reportErrorAt(placeholder_def.where, "Doesn't support field access")
                     }
@@ -543,21 +561,7 @@ pub const Compiler = struct {
                 .Assignment => {
                     // Assignment relation from a once Placeholder and now Class/Object/Enum is creating an instance
                     // TODO: but does this allow `AClass = something;` ?
-                    var child_type: *ObjTypeDef = switch (resolved_type.def_type) {
-                        .Object => obj_instance: {
-                            var instance_type: ObjTypeDef.TypeUnion = .{
-                                .ObjectInstance = resolved_type
-                            };
-
-                            break :obj_instance try self.vm.getTypeDef(ObjTypeDef {
-                                .optional = false,
-                                .def_type = .ObjectInstance,
-                                .resolved_type = instance_type,
-                            });
-                        },
-                        .Enum => unreachable,
-                        else => resolved_type,
-                    };
+                    var child_type: *ObjTypeDef = (try self.toInstance(resolved_type)) orelse resolved_type;
 
                     // Is child type matching the parent?
                     try self.resolvePlaceholder(child, child_type);
@@ -570,6 +574,34 @@ pub const Compiler = struct {
 
         // TODO: should resolved_type be freed?
         // TODO: does this work with vm.type_defs? (i guess not)
+    }
+
+    fn toInstance(self: *Self, instantiable: *ObjTypeDef) !?*ObjTypeDef {
+        return switch (instantiable.def_type) {
+            .Object => obj_instance: {
+                var instance_type: ObjTypeDef.TypeUnion = .{
+                    .ObjectInstance = instantiable
+                };
+
+                break :obj_instance try self.vm.getTypeDef(ObjTypeDef {
+                    .optional = false,
+                    .def_type = .ObjectInstance,
+                    .resolved_type = instance_type,
+                });
+            },
+            .Enum => enum_instance: {
+                var instance_type: ObjTypeDef.TypeUnion = .{
+                    .EnumInstance = instantiable
+                };
+
+                break :enum_instance try self.vm.getTypeDef(ObjTypeDef {
+                    .optional = false,
+                    .def_type = .EnumInstance,
+                    .resolved_type = instance_type,
+                });
+            },
+            else => null,
+        };
     }
 
     fn advance(self: *Self) !void {
@@ -723,8 +755,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Class)) {
             try self.objectDeclaration(true);
         } else if (try self.match(.Enum)) {
-            // self.enumDeclaration();
-            unreachable;
+            try self.enumDeclaration();
         } else if (try self.match(.Fun)) {
             try self.funDeclaration();
         } else if (try self.match(.Str)) {
@@ -773,7 +804,7 @@ pub const Compiler = struct {
             // self.funVarDeclaraction();
             unreachable;
         // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
-        } else if ((try self.match(.Identifier))) {
+        } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
             var var_type: ?*ObjTypeDef = null;
 
@@ -1001,8 +1032,33 @@ pub const Compiler = struct {
         } else if (try self.match(.Function)) {
             unreachable;
         } else if ((try self.match(.Identifier))) {
-            // TODO: here search for a local with that name end check it's a class/object/enum
-            unreachable;
+            var user_type_name: Token = self.parser.previous_token.?.clone();
+            var var_type: ?*ObjTypeDef = null;
+
+            // Search for a global with that name
+            for (self.globals.items) |global| {
+                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
+                    var_type = global.type_def;
+                    break;
+                }
+            }
+
+            // If none found, create a placeholder
+            if (var_type == null) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+
+                var_type = try self.vm.getTypeDef(.{
+                    .optional = try self.match(.Question),
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+            }
+
+            return var_type.?;
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 
@@ -1338,8 +1394,16 @@ pub const Compiler = struct {
                     .resolved_type = resolved_type
                 });
             },
-            .Enum => {
-                unreachable;
+            .Enum => enum_instance: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .EnumInstance = parsed_type
+                };
+
+                break :enum_instance try self.vm.getTypeDef(.{
+                    .optional = parsed_type.optional,
+                    .def_type = .EnumInstance,
+                    .resolved_type = resolved_type
+                });
             },
             else => parsed_type
         };
@@ -1384,6 +1448,120 @@ pub const Compiler = struct {
         try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
+    fn enumDeclaration(self: *Self) !void {
+        if (self.current.?.scope_depth > 0) {
+            try self.reportError("Enum must be defined at top-level.");
+            return;
+        }
+
+        var enum_case_type: *ObjTypeDef = undefined;
+        var case_type_picked: bool = false;
+        if (try self.match(.LeftParen)) {
+            enum_case_type = try self.parseTypeDef();
+            try self.consume(.RightParen, "Expected `)` after enum type.");
+
+            case_type_picked = true;
+        } else {
+            enum_case_type = try self.vm.getTypeDef(.{
+                .optional = false,
+                .def_type = .Number
+            });
+        }
+
+        enum_case_type = (try self.toInstance(enum_case_type)) orelse enum_case_type;
+
+        try self.consume(.Identifier, "Expected enum name.");
+        var enum_name: Token = self.parser.previous_token.?.clone();
+
+        for (self.globals.items) |global| {
+            if (mem.eql(u8, global.name.string, enum_name.lexeme)) {
+                try self.reportError("Global with that name already exists.");
+                break;
+            }
+        }
+
+        var enum_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
+        enum_type.* = .{
+            .optional = false,
+            .def_type = .Enum,
+            .resolved_type = .{
+                .Enum = ObjTypeDef.EnumDef.init(
+                    self.vm.allocator,
+                    try _obj.copyString(self.vm, enum_name.lexeme),
+                    enum_case_type,
+                ),
+            }
+        };
+
+        var constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
+
+        const slot: usize = try self.declareVariable(
+            enum_type,
+            enum_name
+        );
+
+        try self.emitBytes(@enumToInt(OpCode.OP_ENUM), constant);
+        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), @intCast(u8, slot));
+
+        self.markInitialized();
+
+        _ = try self.namedVariable(enum_name, false);
+
+        try self.consume(.LeftBrace, "Expected `{` before enum body.");
+        
+        var case_index: f64 = 0;
+        while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
+            if (case_index > 255) {
+                try self.reportError("Too many enum cases.");
+            }
+
+            try self.consume(.Identifier, "Expected case name.");
+            const case_name: []const u8 = self.parser.previous_token.?.lexeme;
+
+            if (case_type_picked) {
+                try self.consume(.Equal, "Expected `=` after case name.");
+
+                var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                if (!parsed_type.eql(enum_case_type)) {
+                    try self.reportTypeCheck(enum_case_type, parsed_type, "Bad enum case type.");
+                }
+
+                if (enum_case_type.def_type == .Placeholder and parsed_type.def_type != .Placeholder) {
+                    enum_case_type.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
+                    enum_case_type.resolved_type.?.Placeholder.resolved_type = parsed_type;
+                    if (!enum_case_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Bad enum case type.");
+                    }
+                }
+
+                if (parsed_type.def_type == .Placeholder and enum_case_type.def_type != .Placeholder) {
+                    parsed_type.resolved_type.?.Placeholder.resolved_def_type = enum_case_type.def_type;
+                    parsed_type.resolved_type.?.Placeholder.resolved_type = enum_case_type;
+                    if (!parsed_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Bad enum case expression type.");
+                    }
+                }
+
+                try self.emitOpCode(.OP_ENUM_CASE);
+            } else {
+                assert(enum_case_type.def_type == .Number);
+
+                try self.emitConstant(Value{ .Number = case_index });
+                try self.emitOpCode(.OP_ENUM_CASE);
+            }
+
+            // TODO: how to not force a comma at last case?
+            try self.consume(.Comma, "Expected `,` after case definition.");
+
+            try enum_type.resolved_type.?.Enum.cases.append(case_name);
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after enum body.");
+
+        try self.emitOpCode(.OP_POP);
+    }
+
     fn objectDeclaration(self: *Self, is_class: bool) !void {
         if (self.current.?.scope_depth > 0) {
             try self.reportError("Object must be defined at top-level.");
@@ -1391,12 +1569,11 @@ pub const Compiler = struct {
         }
 
         try self.consume(.Identifier, "Expected object name.");
-
         var object_name: Token = self.parser.previous_token.?.clone();
 
         for (self.globals.items) |global| {
             if (mem.eql(u8, global.name.string, object_name.lexeme)) {
-                try self.reportError("Object with that name already exists.");
+                try self.reportError("Global with that name already exists.");
                 break;
             }
         }
@@ -1485,6 +1662,8 @@ pub const Compiler = struct {
                 return;
             }
         }
+
+        // TODO: ERROR IN PLACEHOLDERS LEFT
 
         try self.endScope();
         try self.consume(.RightBrace, "Expected `}` after object body.");
@@ -2341,8 +2520,6 @@ pub const Compiler = struct {
                 .def_type = .ObjectInstance,
                 .resolved_type = instance_type,
             });
-        } else if (callee_type.def_type == .Enum) {
-            unreachable;
         } else if (callee_type.def_type == .Placeholder) {
             if (self.current.?.scope_depth == 0) {
                 try self.reportError("Unknown expression type.");
@@ -2386,6 +2563,7 @@ pub const Compiler = struct {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
         if (callee_type.def_type != .ObjectInstance
             and callee_type.def_type != .Enum
+            and callee_type.def_type != .EnumInstance
             and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
         }
@@ -2407,6 +2585,7 @@ pub const Compiler = struct {
                     orelse obj_def.placeholders.get(member_name);
 
                 // Else create placeholder
+                // TODO: don't create placeholder if we're not in the process of parsing the object def
                 if (property_type == null) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?),
@@ -2477,7 +2656,39 @@ pub const Compiler = struct {
                 return property_type.?;
             },
             .Enum => {
-                unreachable;
+                var enum_def: ObjTypeDef.EnumDef = callee_type.resolved_type.?.Enum;
+
+                for (enum_def.cases.items) |case, index| {
+                    if (mem.eql(u8, case, member_name)) {
+                        try self.emitBytes(@enumToInt(OpCode.OP_GET_ENUM_CASE), @intCast(u8, index));
+
+                        var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
+                            .EnumInstance = callee_type,
+                        };
+
+                        var enum_instance: *ObjTypeDef = try self.vm.getTypeDef(.{
+                            .optional = try self.match(.Question),
+                            .def_type = .EnumInstance,
+                            .resolved_type = enum_instance_resolved_type,
+                        });
+
+                        return enum_instance;
+                    }
+                }
+
+                try self.reportError("Enum case doesn't exists.");
+
+                return callee_type;
+            },
+            .EnumInstance => {
+                // Only available field is `.value` to get associated value
+                if (!mem.eql(u8, member_name, "value")) {
+                    try self.reportError("Enum provides only field `value`.");
+                }
+
+                try self.emitOpCode(.OP_GET_ENUM_CASE_VALUE);
+
+                return callee_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
             },
             .Placeholder => {
                 callee_type.resolved_type.?.Placeholder.field_accessible = callee_type.resolved_type.?.Placeholder.field_accessible orelse true;

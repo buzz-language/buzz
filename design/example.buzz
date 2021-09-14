@@ -170,13 +170,13 @@ enum MyEnum {  | `enum MyEnum` == `enum num MyEnum`
     three
 }
 
-enum num MyEnum { | If you specify a type, you have to provide all values
+enum(num) MyEnum { | If you specify a type, you have to provide all values
     one = 1,
     two = 2,
     three = 3,
 }
 
-enum str MyEnum {
+enum(str) MyEnum {
     hello = "cia",
     world = "mundo",
     name = "joe"

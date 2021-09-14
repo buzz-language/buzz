@@ -1,0 +1,51 @@
+enum(str) StrEnum {
+    one = "one",
+    two = "two",
+    three = "three",
+}
+
+enum(num) NumEnum {
+    one = 1,
+    two = 2,
+    three = 3,
+    | wat = "wat",
+}
+
+enum NaturalEnum {
+    zero,
+    one,
+    two,
+}
+
+object My {
+    num age = 10;
+
+    fun init(num age) {
+        this.age = age;
+    }
+}
+
+enum(My) CustomEnum {
+    zero = My(0),
+    one = My(1),
+    two = My(2),
+}
+
+fun main() {
+    print(StrEnum.one);
+    print(StrEnum.one.value);
+
+    print(NumEnum.one);
+    print(NumEnum.one.value);
+
+    print(NaturalEnum.zero);
+    print(NaturalEnum.zero.value);
+
+    NaturalEnum myCase = NaturalEnum.one;
+
+    print(myCase);
+    print(myCase.value);
+
+    print(CustomEnum.zero);
+    print(CustomEnum.zero.value.age);
+}
