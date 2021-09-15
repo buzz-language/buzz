@@ -62,7 +62,7 @@
 				},
 				{
 					"name": "storage.type.built-in.primitive.buzz",
-					"match": "\\b(str|num|bool|type|byte)\\b"
+					"match": "\\b(str|num|bool|type)\\b"
 				}
 			]
 		},

@@ -5,6 +5,10 @@
 # 👨‍🚀 buzz
 Attempt to make a small/lightweight typed scripting language written in Zig
 
+<p align="center">
+    <img src="https://github.com/giann/buzz/raw/main/example.png" alt="buzz code example">
+</p>
+
 # Goal
 - Small in size and complexity (just a bit more than Lua though)
 - Strict typing
