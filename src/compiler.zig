@@ -827,13 +827,13 @@ pub const Compiler = struct {
         }
     }
 
-    fn declarationOrStatement(self: *Self) !void {
+    fn declarationOrStatement(self: *Self) !?std.ArrayList(usize) {
         var hanging: bool = false;
         // Things we can match with the first token
         if (try self.match(.Fun)) {
             try self.funDeclaration();
 
-            return;
+            return null;
         } else if (try self.match(.Str)) {
             try self.varDeclaration(
                 try self.vm.getTypeDef(
@@ -844,7 +844,7 @@ pub const Compiler = struct {
                 )
             );
 
-            return;
+            return null;
         } else if (try self.match(.Num)) {
             try self.varDeclaration(
                 try self.vm.getTypeDef(
@@ -855,7 +855,7 @@ pub const Compiler = struct {
                 )
             );
 
-            return;
+            return null;
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
                 try self.vm.getTypeDef(
@@ -866,7 +866,7 @@ pub const Compiler = struct {
                 )
             );
 
-            return;
+            return null;
         } else if (try self.match(.Type)) {
             try self.varDeclaration(
                 try self.vm.getTypeDef(
@@ -877,7 +877,7 @@ pub const Compiler = struct {
                 )
             );
 
-            return;
+            return null;
         } else if (try self.match(.LeftBracket)) {
             // self.listDeclaraction();
             unreachable;
@@ -917,23 +917,24 @@ pub const Compiler = struct {
 
                 try self.varDeclaration(var_type.?);
 
-                return;
+                return null;
             } else {
                 hanging = true;
             }
         }
         
-        try self.statement(hanging);
+        return try self.statement(hanging);
     }
 
-    fn statement(self: *Self, hanging: bool) !void {
+    // When a break statement, will return index of jump to patch
+    fn statement(self: *Self, hanging: bool) !?std.ArrayList(usize) {
         // TODO: remove
         if (try self.match(.Print)) {
             assert(!hanging);
             try self.printStatement();
         } else if (try self.match(.If)) {
             assert(!hanging);
-            try self.ifStatement();
+            return try self.ifStatement();
         } else if (try self.match(.While)) {
             assert(!hanging);
             try self.whileStatement();
@@ -943,9 +944,17 @@ pub const Compiler = struct {
         } else if (try self.match(.Return)) {
             assert(!hanging);
             try self.returnStatement();
+        } else if (try self.match(.Break)) {
+            assert(!hanging);
+            var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(self.vm.allocator);
+            try breaks.append(try self.breakStatement());
+
+            return breaks;
         } else {
             try self.expressionStatement(hanging);
         }
+
+        return null;
     }
 
     // TODO: remove
@@ -1107,12 +1116,20 @@ pub const Compiler = struct {
         return try self.parsePrecedence(.Assignment, hanging);
     }
 
-    fn block(self: *Self) anyerror!void {
+    // Returns a list of break jumps to patch
+    fn block(self: *Self) anyerror!std.ArrayList(usize) {
+        var breaks = std.ArrayList(usize).init(self.vm.allocator);
+
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            try self.declarationOrStatement();
+            if (try self.declarationOrStatement()) |jumps| {
+                try breaks.appendSlice(jumps.items);
+                jumps.deinit();
+            }
         }
 
         try self.consume(.RightBrace, "Expected `}}` after block.");
+
+        return breaks;
     }
 
     fn function(self: *Self, name: Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
@@ -1165,7 +1182,7 @@ pub const Compiler = struct {
         self.current.?.function.return_type = return_type;
 
         try self.consume(.LeftBrace, "Expected `{{` before function body.");
-        try self.block();
+        _ = try self.block();
 
         var new_function: *ObjFunction = try self.endCompiler();
 
@@ -1679,6 +1696,12 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
+    fn breakStatement(self: *Self) !usize {
+        try self.consume(.Semicolon, "Expected `;` after `break`.");
+
+        return try self.emitJump(.OP_JUMP);
+    }
+
     fn whileStatement(self: *Self) !void {
         const loop_start: usize = self.current.?.function.chunk.code.items.len;
 
@@ -1696,11 +1719,20 @@ pub const Compiler = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
-        try self.block();
+        
+        var breaks: std.ArrayList(usize) = try self.block();
+        defer breaks.deinit();
+
         try self.endScope();
 
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
+
+        // Patch breaks
+        for (breaks.items) |jump| {
+            try self.patchJump(jump);
+        }
+
         try self.emitOpCode(.OP_POP);
     }
 
@@ -1709,7 +1741,10 @@ pub const Compiler = struct {
         
         try self.consume(.LeftBrace, "Expected `{` after `do`.");
         self.beginScope();
-        try self.block();
+        
+        var breaks: std.ArrayList(usize) = try self.block();
+        defer breaks.deinit();
+
         try self.endScope();
 
         try self.consume(.Until, "Expected `until` after `do` block.");
@@ -1729,10 +1764,16 @@ pub const Compiler = struct {
 
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
+
+        // Patch breaks
+        for (breaks.items) |jump| {
+            try self.patchJump(jump);
+        }
+
         try self.emitOpCode(.OP_POP);
     }
 
-    fn ifStatement(self: *Self) anyerror!void {
+    fn ifStatement(self: *Self) anyerror!std.ArrayList(usize) {
         try self.consume(.LeftParen, "Expected `(` after `if`.");
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
@@ -1747,7 +1788,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
-        try self.block();
+        var breaks: std.ArrayList(usize) = try self.block();
         try self.endScope();
 
         const else_jump: usize = try self.emitJump(.OP_JUMP);
@@ -1757,16 +1798,22 @@ pub const Compiler = struct {
 
         if (try self.match(.Else)) {
             if (try self.match(.If)) {
-                try self.ifStatement();
+                var else_if_breaks: std.ArrayList(usize) = try self.ifStatement();
+                try breaks.appendSlice(else_if_breaks.items);
+                else_if_breaks.deinit();
             } else {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
                 self.beginScope();
-                try self.block();
+                var else_breaks: std.ArrayList(usize) = try self.block();
+                try breaks.appendSlice(else_breaks.items);
+                else_breaks.deinit();
                 try self.endScope();
             }
         }
 
         try self.patchJump(else_jump);
+
+        return breaks;
     }
 
     inline fn defineGlobalVariable(self: *Self, slot: u8) !void {

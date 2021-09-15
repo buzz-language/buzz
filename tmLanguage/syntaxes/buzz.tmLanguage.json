@@ -26,7 +26,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.buzz",
-					"match": "\\b(as|in|while|if|else|fun|constructor|return|switch|default|break|for|do|until)\\b"
+					"match": "\\b(as|in|while|if|else|fun|constructor|return|switch|default|break|for|do|until|continue)\\b"
 				},
 				{
 					"name": "keyword.operator.assignment.buzz",
@@ -34,7 +34,7 @@
 				},
 				{
 					"name": "keyword.operator.logical.buzz",
-					"match": "\\b(!|and|or|xor|\\?\\?)\\b"
+					"match": "\\b(!|and|or|band|bor|xor|\\?\\?)\\b"
 				},
 				{
 					"name": "keyword.operator.closure.dart",

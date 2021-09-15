@@ -5,9 +5,9 @@ num aNumber = 12;          | That way we can align them neatly
 bool aBoolean = true;      | Only boolean can be used as conditions
 str? aStringNullable;      | We have null-safety, default value is null
 num? aNumNullable = null;  | null represents no-value
-byte aByte = 0b10110110     | A byte
-byte aByte = 0xFE
-byte aByte = 234
+num aByte = 0b10110110
+num aByte = 0xFE
+num aByte = 234
 type myType = str;         | Type are first-class 
 
 | OPERATORS
@@ -39,9 +39,8 @@ a and b;
 a or b;
 !a;
 
-| Bitwise (same as boolean operators but since operands are `byte`s the semantic is bitwise operations)
-aByte and anotherByte;
-aByte or anotherByte;
+aByte band anotherByte;
+aByte bor anotherByte;
 aByte xor anotherByte;
 aByte >> anotherByte;
 aByte << anotherByte;

@@ -53,24 +53,6 @@ fun main() {
         str localToIf = "i only exists in this block";
         print(localToIf);
     }
-
-    print("while loop");
-    num i = 0;
-    while (i < 10) {
-        print("looping");
-        print(i);
-
-        i = i + 1;
-    }
-
-    print("until loop");
-    num j = 10;
-    do {
-        print("looping");
-        print(j);
-
-        j = j - 1;
-    } until (j == 0)
 }
 
 str forward = "joe";
