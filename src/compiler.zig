@@ -165,73 +165,73 @@ pub const Compiler = struct {
     };
 
     const rules = [_]ParseRule{
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Pipe
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // LeftBracket
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // RightBracket
-        .{ .prefix = grouping, .infix = call,   .precedence = .Call }, // LeftParen
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // RightParen
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // LeftBrace
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // RightBrace
-        .{ .prefix = null,     .infix = dot,    .precedence = .Call }, // Dot
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Comma
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Semicolon
-        .{ .prefix = null,     .infix = binary, .precedence = .Comparison }, // Greater
-        .{ .prefix = null,     .infix = binary, .precedence = .Comparison }, // Less
-        .{ .prefix = null,     .infix = binary, .precedence = .Term }, // Plus
-        .{ .prefix = unary,    .infix = binary, .precedence = .Term }, // Minus
-        .{ .prefix = null,     .infix = binary, .precedence = .Factor }, // Star
-        .{ .prefix = null,     .infix = binary, .precedence = .Factor }, // Slash
-        .{ .prefix = null,     .infix = binary, .precedence = .Factor }, // Percent
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Question
-        .{ .prefix = unary,    .infix = null,   .precedence = .None }, // Bang
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Colon
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Equal
-        .{ .prefix = null,     .infix = binary, .precedence = .Equality }, // EqualEqual
-        .{ .prefix = null,     .infix = binary, .precedence = .Equality }, // BangEqual
-        .{ .prefix = null,     .infix = binary, .precedence = .Comparison }, // GreaterEqual
-        .{ .prefix = null,     .infix = binary, .precedence = .Comparison }, // LessEqual
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // QuestionQuestion
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // PlusEqual
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // MinusEqual
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // StarEqual
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // SlashEqual
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Increment
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Decrement
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Arrow
-        .{ .prefix = literal,  .infix = null,   .precedence = .None }, // True
-        .{ .prefix = literal,  .infix = null,   .precedence = .None }, // False
-        .{ .prefix = literal,  .infix = null,   .precedence = .None }, // Null
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Str
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Num
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Type
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Bool
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Function
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // ShiftRight
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // ShiftLeft
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Xor
-        .{ .prefix = null,     .infix = or_,    .precedence = .Or   }, // Or
-        .{ .prefix = null,     .infix = and_,   .precedence = .And }, // And
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Return
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // If
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Else
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Do
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Until
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // While
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // For
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Switch
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Break
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Default
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // In
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Is
-        .{ .prefix = number,   .infix = null,   .precedence = .None }, // Number
-        .{ .prefix = string,   .infix = null,   .precedence = .None }, // String
-        .{ .prefix = variable, .infix = null,   .precedence = .None }, // Identifier
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Fun
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Object
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Class
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Enum
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Eof
-        .{ .prefix = null,     .infix = null,   .precedence = .None }, // Error
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Pipe
+        .{ .prefix = list,     .infix = null, .precedence = .None }, // LeftBracket
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBracket
+        .{ .prefix = grouping, .infix = call,      .precedence = .Call }, // LeftParen
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightParen
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // LeftBrace
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBrace
+        .{ .prefix = null,     .infix = dot,       .precedence = .Call }, // Dot
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Comma
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Semicolon
+        .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // Greater
+        .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // Less
+        .{ .prefix = null,     .infix = binary,    .precedence = .Term }, // Plus
+        .{ .prefix = unary,    .infix = binary,    .precedence = .Term }, // Minus
+        .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Star
+        .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Slash
+        .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Percent
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Question
+        .{ .prefix = unary,    .infix = null,      .precedence = .None }, // Bang
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Colon
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Equal
+        .{ .prefix = null,     .infix = binary,    .precedence = .Equality }, // EqualEqual
+        .{ .prefix = null,     .infix = binary,    .precedence = .Equality }, // BangEqual
+        .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // GreaterEqual
+        .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // LessEqual
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // QuestionQuestion
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // PlusEqual
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // MinusEqual
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // StarEqual
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // SlashEqual
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Increment
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Decrement
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Arrow
+        .{ .prefix = literal,  .infix = null,      .precedence = .None }, // True
+        .{ .prefix = literal,  .infix = null,      .precedence = .None }, // False
+        .{ .prefix = literal,  .infix = null,      .precedence = .None }, // Null
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Str
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Num
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Type
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Bool
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Function
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // ShiftRight
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // ShiftLeft
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Xor
+        .{ .prefix = null,     .infix = or_,       .precedence = .Or   }, // Or
+        .{ .prefix = null,     .infix = and_,      .precedence = .And }, // And
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Return
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // If
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Else
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Do
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Until
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // While
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // For
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Switch
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Break
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Default
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // In
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Is
+        .{ .prefix = number,   .infix = null,      .precedence = .None }, // Number
+        .{ .prefix = string,   .infix = null,      .precedence = .None }, // String
+        .{ .prefix = variable, .infix = null,      .precedence = .None }, // Identifier
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Fun
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Object
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Class
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Enum
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
 
         // TODO: remove
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Print
@@ -725,6 +725,16 @@ pub const Compiler = struct {
         self.current.?.function.chunk.code.items[offset + 1] = @intCast(u8, jump & 0xff);
     }
 
+    fn emitList(self: *Self) !usize {
+        try self.emitBytes(@enumToInt(OpCode.OP_LIST), 0xff);
+
+        return self.current.?.function.chunk.code.items.len - 1;
+    }
+
+    fn patchList(self: *Self, offset: usize, constant: u8) !void {
+        self.current.?.function.chunk.code.items[offset] = constant;
+    }
+
     fn emitReturn(self: *Self) !void {
         if (self.current.?.function_type == .Initializer) {
             try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
@@ -795,8 +805,7 @@ pub const Compiler = struct {
                 )
             );
         } else if (try self.match(.LeftBracket)) {
-            // self.listDeclaraction();
-            unreachable;
+            try self.listDeclaration();
         } else if (try self.match(.LeftBrace)) {
             // self.mapDeclaraction();
             unreachable;
@@ -879,8 +888,8 @@ pub const Compiler = struct {
 
             return null;
         } else if (try self.match(.LeftBracket)) {
-            // self.listDeclaraction();
-            unreachable;
+            // TODO: this could end up being an expression some tokens ahead
+            try self.listDeclaration();
         } else if (try self.match(.LeftBrace)) {
             // self.mapDeclaraction();
             unreachable;
@@ -1014,9 +1023,7 @@ pub const Compiler = struct {
                 .optional = try self.match(.Question),
                 .def_type = .List,
                 .resolved_type = ObjTypeDef.TypeUnion{
-                    .List = ObjTypeDef.ListDef {
-                        .item_type = item_type
-                    }
+                    .List = item_type
                 }
             });
         } else if (try self.match(.LeftBrace)) {
@@ -1465,6 +1472,24 @@ pub const Compiler = struct {
         try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
+    fn listDeclaration(self: *Self) !void {
+        var list_item_type: *ObjTypeDef = try self.parseTypeDef();
+
+        try self.consume(.RightBracket, "Expected `]` after list type.");
+
+        var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+            .List = list_item_type
+        };
+
+        var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+            .optional = try self.match(.Question),
+            .def_type = .List,
+            .resolved_type = resolved_type
+        });
+        
+        try self.varDeclaration(list_type);
+    }
+
     fn enumDeclaration(self: *Self) !void {
         if (self.current.?.scope_depth > 0) {
             try self.reportError("Enum must be defined at top-level.");
@@ -1510,7 +1535,7 @@ pub const Compiler = struct {
             }
         };
 
-        var constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
+        const constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
 
         const slot: usize = try self.declareVariable(
             enum_type,
@@ -2793,6 +2818,65 @@ pub const Compiler = struct {
         }
 
         unreachable;
+    }
+
+    fn list(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        var item_type: ?*ObjTypeDef = null;
+
+        const list_offset: usize = try self.emitList();
+
+        while (!(try self.match(.RightBracket)) and !(try self.match(.Eof))) {
+            var actual_item_type: *ObjTypeDef = try self.expression(false);
+
+            try self.emitOpCode(.OP_LIST_APPEND);
+
+            if (item_type != null and !item_type.?.eql(actual_item_type)) {
+                try self.reportError("List can only hold one type.");
+            }
+
+            if (item_type != null and item_type.?.def_type == .Placeholder
+                and actual_item_type.def_type != .Placeholder) {
+                item_type.?.resolved_type.?.Placeholder.resolved_def_type = actual_item_type.def_type;
+                item_type.?.resolved_type.?.Placeholder.resolved_type = actual_item_type;
+                if (item_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad list type.");
+                }
+            }
+
+            if (actual_item_type.def_type == .Placeholder
+                and item_type != null
+                and item_type.?.def_type != .Placeholder) {
+                actual_item_type.resolved_type.?.Placeholder.resolved_def_type = item_type.?.def_type;
+                actual_item_type.resolved_type.?.Placeholder.resolved_type = item_type.?;
+                if (actual_item_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad list item type.");
+                }
+            }
+
+            if (item_type == null) {
+                item_type = actual_item_type;
+            }
+            
+            if (!self.check(.RightBracket)) {
+                try self.consume(.Comma, "Expected `,` after list item.");
+            }
+        }
+
+        // Should be fine if placeholder because when resolved, it's always the same pointer
+        const constant: u8 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
+        try self.patchList(list_offset, constant);
+
+        var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+            .List = item_type.?
+        };
+
+        var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+            .optional = try self.match(.Question),
+            .def_type = .List,
+            .resolved_type = resolved_type
+        });
+
+        return list_type;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {

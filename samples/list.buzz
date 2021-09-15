@@ -1,0 +1,9 @@
+fun main() {
+    [num] list = [1, 2, 3, 4];
+
+    print(list);
+
+    | [str] strList = ["hello", "world", 1];
+    [str] strList = ["hello", "world"];
+    print(strList);
+}

@@ -16,6 +16,7 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
+const ObjList = _obj.ObjList;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
@@ -294,6 +295,15 @@ pub const VM = struct {
                     frame = &self.frames.items[self.frame_count - 1];
                 },
 
+                .OP_LIST => {
+                    var list: *ObjList = ObjList.cast(try _obj.allocateObject(self, .List)).?;
+                    list.* = ObjList.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
+
+                    self.push(Value{ .Obj = list.toObj() });
+                },
+
+                .OP_LIST_APPEND => try self.appendToList(),
+
                 .OP_ENUM => {
                     var enum_: *ObjEnum = ObjEnum.cast(try _obj.allocateObject(self, .Enum)).?;
                     enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
@@ -301,9 +311,7 @@ pub const VM = struct {
                     self.push(Value{ .Obj = enum_.toObj() });
                 },
 
-                .OP_ENUM_CASE => {
-                    try self.defineEnumCase();
-                },
+                .OP_ENUM_CASE => try self.defineEnumCase(),
 
                 .OP_GET_ENUM_CASE => {
                     var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
@@ -648,6 +656,15 @@ pub const VM = struct {
         }
 
         return created_upvalue;
+    }
+
+    fn appendToList(self: *Self) !void {
+        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
+        var list_value: Value = self.peek(0);
+
+        try list.items.append(list_value);
+
+        _ = self.pop();
     }
 
     fn defineEnumCase(self: *Self) !void {

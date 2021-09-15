@@ -468,6 +468,17 @@ pub const ObjList = struct {
     /// Allowed type in this list
     item_type: *ObjTypeDef,
 
+    pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) Self {
+        return Self {
+            .items = std.ArrayList(Value).init(allocator),
+            .item_type = item_type,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.items.deinit();
+    }
+
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -616,10 +627,6 @@ pub const ObjTypeDef = struct {
         Void,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
-    };
-
-    pub const ListDef = struct {
-        item_type: *ObjTypeDef,
     };
 
     pub const MapDef = struct {
@@ -884,7 +891,7 @@ pub const ObjTypeDef = struct {
         Enum: EnumDef,
 
         // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
-        List: ListDef,
+        List: *ObjTypeDef,
         Map: MapDef,
         Function: FunctionDef,
 
@@ -928,7 +935,7 @@ pub const ObjTypeDef = struct {
             .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
             .List => {
-                var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
+                var list_type = try self.resolved_type.?.List.toString(allocator);
                 defer allocator.free(list_type);
 
                 try type_str.append('[');
@@ -1011,7 +1018,7 @@ pub const ObjTypeDef = struct {
             .Object,
             .Enum => false, // Thore are never equal even if definition is the same
 
-            .List => return a.List.item_type.eql(b.List.item_type),
+            .List => return a.List.eql(b.List),
             .Map => return a.Map.key_type.eql(b.Map.key_type)
                 and a.Map.value_type.eql(b.Map.value_type),
             .Function => {
@@ -1057,6 +1064,7 @@ pub const ObjTypeDef = struct {
     }
 };
 
+// TODO: use ArrayList writer instead of std.fmt.bufPrint
 pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
     return switch (obj.obj_type) {
         .String => try std.fmt.bufPrint(buf, "{s}", .{ ObjString.cast(obj).?.string }),
@@ -1084,7 +1092,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             var type_str: []const u8 = try list.item_type.toString(allocator);
             defer allocator.free(type_str);
 
-            return try std.fmt.bufPrint(buf, "array: 0x{x} [{s}]", .{ @ptrToInt(list), type_str });
+            return try std.fmt.bufPrint(buf, "list: 0x{x} [{s}]", .{ @ptrToInt(list), type_str });
         },
         .Map => {
             var map: *ObjMap = ObjMap.cast(obj).?;
