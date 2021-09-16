@@ -715,6 +715,7 @@ pub const ObjTypeDef = struct {
         assignable: ?bool = null,           // Not a Function, Object, Class or Enum
         resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
         resolved_def_type: ?Type = null,    // Meta type
+        // TODO: do we ever infer that much that we can build an actual type?
         resolved_type: ?*ObjTypeDef = null, // Actual type
         where: Token,                       // Where the placeholder was created
 
@@ -850,6 +851,18 @@ pub const ObjTypeDef = struct {
                 and (self.resolved_type == null
                     or self.resolved_type.?.def_type == .List
                     or self.resolved_type.?.def_type == .Map);
+        }
+
+        pub fn couldBeList(self: *PlaceholderSelf) bool {
+            return self.isSubscriptable()
+                and (self.resolved_def_type == null or self.resolved_def_type.? == .List)
+                and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
+        }
+
+        pub fn couldBeMap(self: *PlaceholderSelf) bool {
+            return self.isSubscriptable()
+                and (self.resolved_def_type == null or self.resolved_def_type.? == .Map)
+                and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
         }
 
         pub fn isCoherent(self: *PlaceholderSelf) bool {

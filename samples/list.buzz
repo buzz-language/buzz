@@ -13,4 +13,12 @@ fun main() {
 
     [[str]] nestedList = [["hello"], ["world"]];
     print(nestedList);
+    
+    print(list[3]);
+    print(strList[1]);
+    print(nestedList[0]);
+    print(list[1.23]); | should be equivalent to list[1]
+
+    strList[1] = "yolo";
+    print(strList[1]);
 }

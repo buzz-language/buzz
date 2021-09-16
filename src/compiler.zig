@@ -168,7 +168,7 @@ pub const Compiler = struct {
 
     const rules = [_]ParseRule{
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Pipe
-        .{ .prefix = list,     .infix = null,      .precedence = .None }, // LeftBracket
+        .{ .prefix = list,     .infix = subscript, .precedence = .Call }, // LeftBracket
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBracket
         .{ .prefix = grouping, .infix = call,      .precedence = .Call }, // LeftParen
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightParen
@@ -2575,6 +2575,78 @@ pub const Compiler = struct {
             },
             else => unreachable,
         }
+    }
+
+    fn subscript(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (callee_type.def_type != .List and callee_type.def_type != .Placeholder
+            and (callee_type.def_type != .Placeholder or !callee_type.resolved_type.?.Placeholder.isSubscriptable())) {
+            try self.reportError("Not subscriptable.");
+        }
+
+        var item_type: ?*ObjTypeDef = null;
+
+        if (callee_type.def_type == .List
+            or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeList())) {
+
+            if (callee_type.def_type == .List) {
+                item_type = callee_type.resolved_type.?.List;
+            } else {
+                assert(callee_type.def_type == .Placeholder);
+
+                // item_type is a placeholder
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
+                    placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.List.def_type;
+                    placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.List;
+                }
+
+                item_type = try self.vm.getTypeDef(.{
+                    .optional = false,
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+            }
+
+            var index_type: *ObjTypeDef = try self.expression(false);
+
+            if (index_type.def_type != .Number) {
+                if (index_type.def_type == .Placeholder
+                    and (index_type.resolved_type.?.Placeholder.resolved_def_type == null
+                        or index_type.resolved_type.?.Placeholder.resolved_def_type.? == .Number)
+                    and (index_type.resolved_type.?.Placeholder.resolved_type == null
+                        or index_type.resolved_type.?.Placeholder.resolved_type.?.def_type == .Number)) {
+                    index_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                    index_type.resolved_type.?.Placeholder.resolved_type = try self.vm.getTypeDef(.{
+                        .optional = false,
+                        .def_type = .Number,
+                    });
+                } else {
+                    try self.reportError("Expected `num` index.");
+                }
+            }
+
+            try self.consume(.RightBracket, "Expected `]` after list index.");
+        } else if (callee_type.def_type == .Map
+            or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeMap())) {
+            unreachable;
+        }
+
+        if (can_assign and try self.match(.Equal)) {
+            var parsed_type: *ObjTypeDef = try self.expression(false);
+            
+            if (item_type != null and !item_type.?.eql(parsed_type)) {
+                try self.reportTypeCheck(item_type.?, parsed_type, "Bad list assignment.");
+            }
+
+            try self.emitOpCode(.OP_SET_SUBSCRIPT);
+        } else {
+            try self.emitOpCode(.OP_GET_SUBSCRIPT);
+        }
+
+        return item_type orelse callee_type;
     }
 
     fn call(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {

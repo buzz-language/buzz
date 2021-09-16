@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const _value = @import("./value.zig");
 const _obj = @import("./obj.zig");
 const _chunk = @import("./chunk.zig");
@@ -303,6 +304,14 @@ pub const VM = struct {
                 },
 
                 .OP_LIST_APPEND => try self.appendToList(),
+
+                .OP_GET_SUBSCRIPT => {
+                    try self.subscript();
+                },
+                
+                .OP_SET_SUBSCRIPT => {
+                    try self.setSubscript();
+                },
 
                 .OP_ENUM => {
                     var enum_: *ObjEnum = ObjEnum.cast(try _obj.allocateObject(self, .Enum)).?;
@@ -692,6 +701,72 @@ pub const VM = struct {
         try object.fields.put(name.string, property);
 
         _ = self.pop();
+    }
+
+    fn subscript(self: *Self) !void {
+        var list_or_map: *Obj = self.peek(1).Obj;
+        var index: Value = self.peek(0);
+
+        if (list_or_map.obj_type == .List) {
+            var list: *ObjList = ObjList.cast(list_or_map).?;
+
+            if (index.Number < 0) {
+                runtimeError("Out of bound list access.");
+            }
+
+            const list_index: usize = @floatToInt(usize, index.Number);
+            
+            if (list_index < list.items.items.len) {
+                var list_item: Value = list.items.items[list_index];
+                
+                // Pop list and index
+                _ = self.pop();
+                _ = self.pop();
+
+                // Push value
+                self.push(list_item);
+            } else {
+                runtimeError("Out of bound list access.");
+            }
+        } else {
+            assert(list_or_map.obj_type == .Map);
+
+            unreachable;
+        }
+    }
+
+    fn setSubscript(self: *Self) !void {
+        var list_or_map: *Obj = self.peek(2).Obj;
+        var index: Value = self.peek(1);
+        var value: Value = self.peek(0);
+
+        if (list_or_map.obj_type == .List) {
+            var list: *ObjList = ObjList.cast(list_or_map).?;
+
+            if (index.Number < 0) {
+                runtimeError("Out of bound list access.");
+            }
+
+            const list_index: usize = @floatToInt(usize, index.Number);
+            
+            if (list_index < list.items.items.len) {
+                list.items.items[list_index] = value;
+
+                // Pop everyting
+                _ = self.pop();
+                _ = self.pop();
+                _ = self.pop();
+
+                // Push the value
+                self.push(value);
+            } else {
+                runtimeError("Out of bound list access.");
+            }
+        } else {
+            assert(list_or_map.obj_type == .Map);
+
+            unreachable;
+        }
     }
 
     fn runtimeError(error_message: []const u8) void {
