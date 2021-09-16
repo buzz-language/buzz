@@ -6,4 +6,11 @@ fun main() {
     | [str] strList = ["hello", "world", 1];
     [str] strList = ["hello", "world"];
     print(strList);
+
+    | A lone list expression
+    print(<str>["hello", "world"]);
+    print(<[str]>[["hello"], ["world"]]);
+
+    [[str]] nestedList = [["hello"], ["world"]];
+    print(nestedList);
 }

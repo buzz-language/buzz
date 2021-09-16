@@ -9,6 +9,7 @@ const _obj = @import("./obj.zig");
 const _token = @import("./token.zig");
 const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
+const _scanner = @import("./scanner.zig");
 const disassembler = @import("./disassembler.zig");
 
 const VM = _vm.VM;
@@ -21,7 +22,8 @@ const ObjMap = _obj.ObjMap;
 const ObjObject = _obj.ObjObject;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
-const Scanner = @import("./scanner.zig").Scanner;
+const Scanner = _scanner.Scanner;
+const SourceLocation = _scanner.SourceLocation;
 const Value = _value.Value;
 
 const CompileError = error {
@@ -152,7 +154,7 @@ pub const Compiler = struct {
         Factor, // /, *, %
         Unary, // +, ++, -, --, !
         Call, // call(), dot.ref, sub[script], optUnwrap?
-        Primary, // literal, (grouped expression), super.ref, identifier
+        Primary, // literal, (grouped expression), super.ref, identifier, <type>[alist], <a, map>{...}
     };
 
     const ParseFn = fn (*Compiler, bool) anyerror!*ObjTypeDef;
@@ -166,7 +168,7 @@ pub const Compiler = struct {
 
     const rules = [_]ParseRule{
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Pipe
-        .{ .prefix = list,     .infix = null, .precedence = .None }, // LeftBracket
+        .{ .prefix = list,     .infix = null,      .precedence = .None }, // LeftBracket
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBracket
         .{ .prefix = grouping, .infix = call,      .precedence = .Call }, // LeftParen
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightParen
@@ -176,7 +178,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Comma
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Semicolon
         .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // Greater
-        .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // Less
+        .{ .prefix = list,     .infix = binary,    .precedence = .Comparison }, // Less
         .{ .prefix = null,     .infix = binary,    .precedence = .Term }, // Plus
         .{ .prefix = unary,    .infix = binary,    .precedence = .Term }, // Minus
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Star
@@ -1019,12 +1021,14 @@ pub const Compiler = struct {
 
             try self.consume(.RightBracket, "Expected `]` to end list type.");
 
+            const resolved_type: ObjTypeDef.TypeUnion = .{
+                .List = item_type
+            };
+
             return try self.vm.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .List,
-                .resolved_type = ObjTypeDef.TypeUnion{
-                    .List = item_type
-                }
+                .resolved_type = resolved_type
             });
         } else if (try self.match(.LeftBrace)) {
             var key_type: *ObjTypeDef = try self.parseTypeDef();
@@ -1473,6 +1477,8 @@ pub const Compiler = struct {
     }
 
     fn listDeclaration(self: *Self) !void {
+        const scanner_location: SourceLocation = self.scanner.?.current;
+
         var list_item_type: *ObjTypeDef = try self.parseTypeDef();
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
@@ -1486,8 +1492,16 @@ pub const Compiler = struct {
             .def_type = .List,
             .resolved_type = resolved_type
         });
-        
-        try self.varDeclaration(list_type);
+
+        if (self.check(.Identifier)) {
+            try self.varDeclaration(list_type);
+        } else {
+            // If the next token is not an identifier we just parsed a list expression of `type` with one element
+            // Rewind scanner to juste before we started scanning the list and branch of to an `expression`
+            self.scanner.?.current = scanner_location;
+            // Since this is a lone expression, we don't care about it ObjTypeDef
+            _ = try self.expression(false);
+        }
     }
 
     fn enumDeclaration(self: *Self) !void {
@@ -2822,6 +2836,19 @@ pub const Compiler = struct {
 
     fn list(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var item_type: ?*ObjTypeDef = null;
+
+        // A lone list expression is prefixed by `<type>`
+        if (self.parser.previous_token.?.token_type == .Less) {
+            item_type = try self.parseTypeDef();
+
+            if (self.check(.Comma)) {
+                // TODO: branch off to map expression
+                // try self.map(can_assign);
+            }
+
+            try self.consume(.Greater, "Expected `>` after list type.");
+            try self.consume(.LeftBracket, "Expected `[` after list type.");
+        }
 
         const list_offset: usize = try self.emitList();
 
