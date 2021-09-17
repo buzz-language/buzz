@@ -2728,6 +2728,7 @@ pub const Compiler = struct {
         if (callee_type.def_type != .ObjectInstance
             and callee_type.def_type != .Enum
             and callee_type.def_type != .EnumInstance
+            and callee_type.def_type != .List
             and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
         }
@@ -2853,6 +2854,24 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_GET_ENUM_CASE_VALUE);
 
                 return callee_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
+            },
+            .List => {
+                if (try callee_type.resolved_type.?.List.member(self.vm, member_name)) |member| {
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+
+                    if (try self.match(.LeftParen)) {
+                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
+                        
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+
+                        return member.resolved_type.?.Native.return_type;
+                    }
+
+                    return member;
+                }
+
+                try self.reportError("List property doesn't exist.");
+                return callee_type;
             },
             .Placeholder => {
                 callee_type.resolved_type.?.Placeholder.field_accessible = callee_type.resolved_type.?.Placeholder.field_accessible orelse true;

@@ -245,18 +245,6 @@ pub const ObjNative = struct {
 
     native: NativeFn,
 
-    pub fn init(allocator: *Allocator, native: NativeFn, return_type: *ObjTypeDef) Self {
-        return .{
-            .native = native,
-            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-            .return_type = return_type
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.parameters.deinit();
-    }
-
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -506,15 +494,19 @@ pub const ObjList = struct {
     /// Allowed type in this list
     item_type: *ObjTypeDef,
 
+    methods: std.StringHashMap(*ObjNative),
+
     pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) Self {
         return Self {
             .items = std.ArrayList(Value).init(allocator),
             .item_type = item_type,
+            .methods = std.StringHashMap(*ObjNative).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.items.deinit();
+        self.methods.deinit();
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -527,6 +519,36 @@ pub const ObjList = struct {
         }
 
         return @fieldParentPtr(Self, "obj", obj);
+    }
+
+    // TODO: find a way to return the same ObjNative pointer for the same type of Lists
+    pub fn member(self: *Self, vm: *VM, method: []const u8) !?*ObjNative {
+        if (self.methods.get(method)) |native| {
+            return native;
+        }
+
+        if (mem.eql(u8, method, "append")) {
+            var native: *ObjNative = try allocateObject(vm, .Native);
+            native.* = ObjNative{
+                .native = append
+            };
+
+            try self.methods.put(method, native);
+
+            return native;
+        }
+
+        return null;
+    }
+
+    fn append(vm: *VM) anyerror!Value {
+        var list_value: Value = vm.peek(1);
+        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var value: Value = vm.peek(0);
+
+        try list.items.append(value);
+
+        return list_value;
     }
 };
 
@@ -665,6 +687,68 @@ pub const ObjTypeDef = struct {
         Native,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
+    };
+
+    pub const ListDef = struct {
+        const SelfListDef = @This();
+
+        item_type: *ObjTypeDef,
+        methods: std.StringHashMap(*ObjTypeDef),
+
+        pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) SelfListDef {
+            return .{
+                .item_type = item_type,
+                .methods = std.StringHashMap(FunctionDef).init(allocator)
+            };
+        }
+
+        pub fn deinit(self: *SelfListDef) void {
+            self.methods.deinit();
+        }
+        
+        pub fn member(self: *SelfListDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
+            if (self.methods.get(method)) |native_def| {
+                return native_def;
+            }
+
+            if (mem.eql(u8, method, "append")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
+
+                // `this` arg is list
+                var this_resolved: ObjTypeDef.TypeUnion = .{
+                    .List = self.item_type
+                };
+                var this_arg: *ObjTypeDef = vm.getTypeDef(.{
+                    .optional = false,
+                    .def_type = List,
+                    .resolved_type = this_resolved
+                });
+                try parameters.put("this", this_arg);
+
+                // `value` arg is of item_type
+                try  parameters.put("value", self.item_type);
+
+                var method_def = FunctionDef{
+                    .name = try copyString(vm, "append"),
+                    .parameters = parameters,
+                    .return_type = self
+                };
+
+                try self.methods.put("append", method_def);
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Native = method_def
+                };
+
+                return vm.getTypeDef(ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Native,
+                    .resolved_type = resolved_type
+                });
+            }
+
+            return null;
+        }
     };
 
     pub const MapDef = struct {
@@ -942,7 +1026,7 @@ pub const ObjTypeDef = struct {
         Enum: EnumDef,
 
         // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
-        List: *ObjTypeDef,
+        List: ListDef,
         Map: MapDef,
         Function: FunctionDef,
         Native: FunctionDef,
