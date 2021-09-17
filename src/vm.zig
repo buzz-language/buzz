@@ -7,6 +7,7 @@ const disassembler = @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
 const Value = _value.Value;
 const ValueType = _value.ValueType;
+// TODO: usingnamespace ?
 const ObjClosure = _obj.ObjClosure;
 const ObjFunction = _obj.ObjFunction;
 const ObjUpValue = _obj.ObjUpValue;
@@ -18,6 +19,7 @@ const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjList = _obj.ObjList;
+const ObjNative = _obj.ObjNative;
 const Obj = _obj.Obj;
 const OpCode = _chunk.OpCode;
 
@@ -518,7 +520,7 @@ pub const VM = struct {
     }
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !bool {
-        // We don't type check or check arity becaus it was done at comptime
+        // We don't type check or check arity because it was done at comptime
         
         // TODO: do we check for stack overflow
 
@@ -542,6 +544,14 @@ pub const VM = struct {
             frame.closure.function.name.string
         );
         std.debug.print("\n\n", .{});
+
+        return true;
+    }
+
+    fn callNative(self: *Self, native: *ObjNative, _: u8) !bool {
+        self.push(try native.native(self));
+
+        // TODO: pop parameters and push result like OP_RETURN would
 
         return true;
     }
@@ -570,7 +580,9 @@ pub const VM = struct {
             .Closure => {
                 return try self.call(ObjClosure.cast(obj).?, arg_count);
             },
-            // .Native => {}
+            .Native => {
+                return try self.callNative(ObjNative.cast(obj).?, arg_count);
+            },
             else => {}
         }
 

@@ -2678,6 +2678,12 @@ pub const Compiler = struct {
                 .def_type = .ObjectInstance,
                 .resolved_type = instance_type,
             });
+        } else if (callee_type.def_type == .Native) {
+            arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters);
+
+            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+
+            return callee_type.resolved_type.?.Native.return_type;
         } else if (callee_type.def_type == .Placeholder) {
             if (self.current.?.scope_depth == 0) {
                 try self.reportError("Unknown expression type.");

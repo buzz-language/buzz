@@ -25,7 +25,7 @@ pub const ObjType = enum {
     Enum,
     EnumInstance,
     Bound,
-    // Native,
+    Native,
 };
 
 pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
@@ -138,13 +138,13 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
 
             break :bound &obj.obj;
         },
-        // .Native => native: {
-        //     size = @sizeOf(*ObjNative);
-        //     var obj: *ObjNative = try memory.allocate(vm, ObjNative);
-        //     obj.obj.obj_type = .Native;
+        .Native => native: {
+            size = @sizeOf(*ObjNative);
+            var obj: *ObjNative = try memory.allocate(vm, ObjNative);
+            obj.obj.obj_type = .Native;
 
-        //     break :native &obj.obj;
-        // },
+            break :native &obj.obj;
+        },
     };
 
     // Add new object at start of vm.objects linked list
@@ -225,10 +225,48 @@ pub const Obj = struct {
             .List,
             .Map,
             .Enum,
-            .EnumInstance => {
+            .EnumInstance,
+            .Native => {
                 return self == other;
             },
         }
+    }
+};
+
+pub const NativeFn = fn (vm: *VM) anyerror!Value;
+
+/// Native function
+pub const ObjNative = struct {
+    const Self = @This();
+
+    obj: Obj = .{
+        .obj_type = .Native
+    },
+
+    native: NativeFn,
+
+    pub fn init(allocator: *Allocator, native: NativeFn, return_type: *ObjTypeDef) Self {
+        return .{
+            .native = native,
+            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+            .return_type = return_type
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.parameters.deinit();
+    }
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .String) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
     }
 };
 
@@ -502,7 +540,6 @@ pub const ObjMap = struct {
 
     key_type: *ObjTypeDef,
     value_type: *ObjTypeDef,
-    // TODO: key can't be a Value: a *ObjString should not be a key, the []u8 inside should be the key
     map: std.AutoArrayHashMap(HashableValue, Value),
 
     pub fn toObj(self: *Self) *Obj {
@@ -625,6 +662,7 @@ pub const ObjTypeDef = struct {
         Function,
         Type, // Something that holds a type, not an actual type
         Void,
+        Native,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
@@ -907,8 +945,9 @@ pub const ObjTypeDef = struct {
         List: *ObjTypeDef,
         Map: MapDef,
         Function: FunctionDef,
+        Native: FunctionDef,
 
-        Placeholder: PlaceholderDef
+        Placeholder: PlaceholderDef,
     };
 
     obj: Obj = .{
@@ -998,6 +1037,10 @@ pub const ObjTypeDef = struct {
 
             .Placeholder => {
                 try type_str.appendSlice("{PlaceholderDef}");
+            },
+            
+            .Native => {
+                try type_str.appendSlice("Native");
             }
         }
 
@@ -1061,6 +1104,31 @@ pub const ObjTypeDef = struct {
             },
 
             .Placeholder => a.Placeholder.eql(b.Placeholder),
+            .Native => {
+                // Compare return types
+                if (a.Native.return_type.eql(b.Native.return_type)) {
+                    return false;
+                }
+
+                // Compare arity
+                if (a.Native.parameters.count() != b.Native.parameters.count()) {
+                    return false;
+                }
+
+                // Compare parameters
+                var it = a.Native.parameters.iterator();
+                while (it.next()) |kv| {
+                    if (b.Native.parameters.get(kv.key_ptr.*)) |value| {
+                        if (!kv.value_ptr.*.eql(value)) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
         };
     }
 
@@ -1139,5 +1207,10 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
 
             return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
         },
+        .Native => {
+            var native: *ObjNative = ObjNative.cast(obj).?;
+
+            return try std.fmt.bufPrint(buf, "native: 0x{x}", .{ @ptrToInt(native) });
+        }
     };
 }
