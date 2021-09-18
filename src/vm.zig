@@ -347,7 +347,7 @@ pub const VM = struct {
 
                 .OP_OBJECT => {
                     var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
-                    object.* = ObjObject.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
+                    object.* = ObjObject.init(self.allocator, ObjString.cast(readConstant(frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
@@ -472,8 +472,8 @@ pub const VM = struct {
                 }
             }
 
-            std.debug.warn("{}\n", .{instruction});
-            try disassembler.dumpStack(self);
+            // std.debug.warn("{}\n", .{instruction});
+            // try disassembler.dumpStack(self);
         }
 
         return InterpretResult.Ok;

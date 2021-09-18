@@ -20,6 +20,8 @@ const ObjString = _obj.ObjString;
 const ObjList = _obj.ObjList;
 const ObjMap = _obj.ObjMap;
 const ObjObject = _obj.ObjObject;
+const ObjEnum = _obj.ObjEnum;
+const PlaceholderDef = _obj.PlaceholderDef;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = _scanner.Scanner;
@@ -369,7 +371,7 @@ pub const Compiler = struct {
             return;
         }
         
-        var placeholder_def: ObjTypeDef.PlaceholderDef = placeholder.resolved_type.?.Placeholder;
+        var placeholder_def: PlaceholderDef = placeholder.resolved_type.?.Placeholder;
 
         if (placeholder_def.resolved_type) |assumed_type| {
             if (!assumed_type.eql(resolved_type)) {
@@ -473,7 +475,7 @@ pub const Compiler = struct {
 
         // Now walk the chain of placeholders and see if they hold up
         for (placeholder_def.children.items) |child| {
-            var child_placeholder: ObjTypeDef.PlaceholderDef = child.resolved_type.?.Placeholder;
+            var child_placeholder: PlaceholderDef = child.resolved_type.?.Placeholder;
             assert(child_placeholder.parent != null);
             assert(child_placeholder.parent_relation != null);
 
@@ -513,7 +515,7 @@ pub const Compiler = struct {
                             // We can't create a field access placeholder without a name
                             assert(child_placeholder.name != null);
 
-                            var object_def: ObjTypeDef.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                            var object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                             // Search for a field matching the placeholder
                             var resolved_as_field: bool = false;
@@ -533,7 +535,7 @@ pub const Compiler = struct {
                             // We can't create a field access placeholder without a name
                             assert(child_placeholder.name != null);
 
-                            var enum_def: ObjTypeDef.EnumDef = resolved_type.resolved_type.?.Enum;
+                            var enum_def: ObjEnum.EnumDef = resolved_type.resolved_type.?.Enum;
 
                             // Search for a case matching the placeholder
                             for (enum_def.cases.items) |case| {
@@ -914,7 +916,7 @@ pub const Compiler = struct {
                 // If none found, create a placeholder
                 if (var_type == null) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                        .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                     };
 
                     placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
@@ -1018,7 +1020,7 @@ pub const Compiler = struct {
             });
         } else if (try self.match(.LeftBracket)) {
             var item_type: *ObjTypeDef = try self.parseTypeDef();
-            var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, item_type);
+            var list_def = ObjList.ListDef.init(self.vm.allocator, item_type);
 
             try self.consume(.RightBracket, "Expected `]` to end list type.");
 
@@ -1044,7 +1046,7 @@ pub const Compiler = struct {
                 .optional = try self.match(.Question),
                 .def_type = .List,
                 .resolved_type = ObjTypeDef.TypeUnion{
-                    .Map = ObjTypeDef.MapDef {
+                    .Map = ObjMap.MapDef {
                         .key_type = key_type,
                         .value_type = value_type,
                     }
@@ -1067,7 +1069,7 @@ pub const Compiler = struct {
             // If none found, create a placeholder
             if (var_type == null) {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
                 placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
@@ -1211,7 +1213,7 @@ pub const Compiler = struct {
             .def_type = .Function,
         };
 
-        var function_def: ObjTypeDef.FunctionDef = .{
+        var function_def: ObjFunction.FunctionDef = .{
             .name = try _obj.copyString(self.vm, name.lexeme),
             .return_type = return_type,
             .parameters = parameters,
@@ -1317,7 +1319,7 @@ pub const Compiler = struct {
             // If none found, create a placeholder
             if (var_type == null) {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
                 placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
@@ -1360,7 +1362,7 @@ pub const Compiler = struct {
                         return null;
                     }
 
-                    try ObjTypeDef.PlaceholderDef.link(type_def.?, expr_type, .Assignment);
+                    try PlaceholderDef.link(type_def.?, expr_type, .Assignment);
                 // Else do a normal type check
                 } else if (!type_def.?.eql(expr_type)) {
                     try self.reportTypeCheck(type_def.?, expr_type, "Wrong variable type");
@@ -1463,7 +1465,7 @@ pub const Compiler = struct {
                     return;
                 }
 
-                try ObjTypeDef.PlaceholderDef.link(var_type, expr_type, .Assignment);
+                try PlaceholderDef.link(var_type, expr_type, .Assignment);
             // Else do a normal type check
             } else if (!var_type.eql(expr_type)) {
                 try self.reportTypeCheck(var_type, expr_type, "Wrong variable type");
@@ -1484,7 +1486,7 @@ pub const Compiler = struct {
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
-        var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, list_item_type);
+        var list_def = ObjList.ListDef.init(self.vm.allocator, list_item_type);
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .List = list_def
         };
@@ -1543,7 +1545,7 @@ pub const Compiler = struct {
             .optional = false,
             .def_type = .Enum,
             .resolved_type = .{
-                .Enum = ObjTypeDef.EnumDef.init(
+                .Enum = ObjEnum.EnumDef.init(
                     self.vm.allocator,
                     try _obj.copyString(self.vm, enum_name.lexeme),
                     enum_case_type,
@@ -1641,7 +1643,7 @@ pub const Compiler = struct {
             .optional = false,
             .def_type = .Object,
             .resolved_type = .{
-                .Object = ObjTypeDef.ObjectDef.init(
+                .Object = ObjObject.ObjectDef.init(
                     self.vm.allocator,
                     try _obj.copyString(self.vm, object_name.lexeme)
                 ),
@@ -1653,7 +1655,7 @@ pub const Compiler = struct {
             // TODO: parse super class here
         }
 
-        var constant: u8 = try self.makeConstant(Value { .Obj = object_type.toObj() });
+        var constant: u8 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
 
         const slot: usize = try self.declareVariable(
             object_type,
@@ -1874,7 +1876,7 @@ pub const Compiler = struct {
         }
 
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+            .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
         };
         placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, name.lexeme);
 
@@ -2597,7 +2599,7 @@ pub const Compiler = struct {
 
                 // item_type is a placeholder
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
@@ -2706,7 +2708,7 @@ pub const Compiler = struct {
             
             // We know nothing of the return value
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
             };
 
             var placeholder = try self.vm.getTypeDef(.{
@@ -2715,7 +2717,7 @@ pub const Compiler = struct {
                 .resolved_type = placeholder_resolved_type
             });
 
-            try ObjTypeDef.PlaceholderDef.link(callee_type, placeholder, .Call);
+            try PlaceholderDef.link(callee_type, placeholder, .Call);
 
             return placeholder;
         }
@@ -2742,7 +2744,7 @@ pub const Compiler = struct {
         // Check that name is a property
         switch (callee_type.def_type) {
             .ObjectInstance => {
-                var obj_def: ObjTypeDef.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                var obj_def: ObjObject.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                 var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name);
                 var is_method: bool = property_type != null;
@@ -2755,7 +2757,7 @@ pub const Compiler = struct {
                 // TODO: don't create placeholder if we're not in the process of parsing the object def
                 if (property_type == null) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?),
+                        .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?),
                     };
 
                     var placeholder: *ObjTypeDef = try self.vm.getTypeDef(.{
@@ -2823,7 +2825,7 @@ pub const Compiler = struct {
                 return property_type.?;
             },
             .Enum => {
-                var enum_def: ObjTypeDef.EnumDef = callee_type.resolved_type.?.Enum;
+                var enum_def: ObjEnum.EnumDef = callee_type.resolved_type.?.Enum;
 
                 for (enum_def.cases.items) |case, index| {
                     if (mem.eql(u8, case, member_name)) {
@@ -2858,7 +2860,7 @@ pub const Compiler = struct {
                 return callee_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
             },
             .List => {
-                if (try ObjTypeDef.ListDef.member(callee_type, self.vm, member_name)) |member| {
+                if (try ObjList.ListDef.member(callee_type, self.vm, member_name)) |member| {
                     try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
                     // The first argument should be list but it's "under the call frame"
                     try self.emitBytes(@enumToInt(OpCode.OP_SWAP), 1);
@@ -2891,7 +2893,7 @@ pub const Compiler = struct {
 
                 // We know nothing of field
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = ObjTypeDef.PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
                 placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, member_name);
@@ -2902,7 +2904,7 @@ pub const Compiler = struct {
                     .resolved_type = placeholder_resolved_type
                 });
 
-                try ObjTypeDef.PlaceholderDef.link(callee_type, placeholder, .FieldAccess);
+                try PlaceholderDef.link(callee_type, placeholder, .FieldAccess);
                 
                 if (can_assign and try self.match(.Equal)) {
                     var parsed_type: *ObjTypeDef = try self.expression(false);
@@ -2997,7 +2999,7 @@ pub const Compiler = struct {
         const constant: u8 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
         try self.patchList(list_offset, constant);
 
-        var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, item_type.?);
+        var list_def = ObjList.ListDef.init(self.vm.allocator, item_type.?);
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .List = list_def

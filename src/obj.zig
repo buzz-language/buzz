@@ -393,6 +393,12 @@ pub const ObjFunction = struct {
 
         return @fieldParentPtr(Self, "obj", obj);
     }
+
+    pub const FunctionDef = struct {
+        name: *ObjString,
+        return_type: *ObjTypeDef,
+        parameters: std.StringArrayHashMap(*ObjTypeDef),
+    };
 };
 
 /// Object instance
@@ -440,9 +446,6 @@ pub const ObjObject = struct {
         .obj_type = .Object
     },
 
-    /// Used to allow type checking at runtime ObjTypeDef(Object)
-    object_def: *ObjTypeDef,
-
     /// Object name
     name: *ObjString,
     /// Object methods
@@ -454,10 +457,9 @@ pub const ObjObject = struct {
     /// If false, can't be inherited from
     inheritable: bool = false,
 
-    pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
+    pub fn init(allocator: *Allocator, name: *ObjString) Self {
         return Self {
-            .object_def = def,
-            .name = def.resolved_type.?.Object.name,
+            .name = name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(Value).init(allocator),
         };
@@ -479,6 +481,40 @@ pub const ObjObject = struct {
 
         return @fieldParentPtr(Self, "obj", obj);
     }
+
+    pub const ObjectDef = struct {
+        const ObjectDefSelf = @This();
+
+        name: *ObjString,
+        // TODO: Do i need to have two maps ?
+        fields: StringHashMap(*ObjTypeDef),
+        methods: StringHashMap(*ObjTypeDef),
+        // When we have placeholders we don't know if they are properties or methods
+        // That information is available only when the placeholder is resolved
+        // It's not an issue since:
+        //   - we use OP_GET_PROPERTY for both
+        //   - OP_SET_PROPERTY for a method will ultimately fail
+        //   - OP_INVOKE on a field will ultimately fail
+        placeholders: StringHashMap(*ObjTypeDef),
+        super: ?*ObjTypeDef = null,
+        inheritable: bool = false,
+        
+
+        pub fn init(allocator: *Allocator, name: *ObjString) ObjectDefSelf {
+            return ObjectDefSelf {
+                .name = name,
+                .fields = StringHashMap(*ObjTypeDef).init(allocator),
+                .methods = StringHashMap(*ObjTypeDef).init(allocator),
+                .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *ObjectDefSelf) void {
+            self.fields.deinit();
+            self.methods.deinit();
+            self.placeholders.deinit();
+        }
+    };
 };
 
 /// List
@@ -550,6 +586,65 @@ pub const ObjList = struct {
 
         return list_value;
     }
+
+    pub const ListDef = struct {
+        const SelfListDef = @This();
+
+        item_type: *ObjTypeDef,
+        methods: std.StringHashMap(*ObjTypeDef),
+
+        pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) SelfListDef {
+            return .{
+                .item_type = item_type,
+                .methods = std.StringHashMap(*ObjTypeDef).init(allocator)
+            };
+        }
+
+        pub fn deinit(self: *SelfListDef) void {
+            self.methods.deinit();
+        }
+        
+        pub fn member(obj_list: *ObjTypeDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
+            var self = obj_list.resolved_type.?.List;
+            
+            if (self.methods.get(method)) |native_def| {
+                return native_def;
+            }
+
+            if (mem.eql(u8, method, "append")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+                // try parameters.put("this", obj_list);
+
+                // `value` arg is of item_type
+                try  parameters.put("value", self.item_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyString(vm, "append"),
+                    .parameters = parameters,
+                    .return_type = obj_list
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Native = method_def
+                };
+
+                var native_type = try vm.getTypeDef(ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Native,
+                    .resolved_type = resolved_type
+                });
+
+                try self.methods.put("append", native_type);
+
+                return native_type;
+            }
+
+            return null;
+        }
+    };
 };
 
 /// Map
@@ -560,8 +655,6 @@ pub const ObjMap = struct {
         .obj_type = .Map
     },
 
-    key_type: *ObjTypeDef,
-    value_type: *ObjTypeDef,
     map: std.AutoArrayHashMap(HashableValue, Value),
 
     pub fn toObj(self: *Self) *Obj {
@@ -575,6 +668,11 @@ pub const ObjMap = struct {
 
         return @fieldParentPtr(Self, "obj", obj);
     }
+
+    pub const MapDef = struct {
+        key_type: *ObjTypeDef,
+        value_type: *ObjTypeDef,
+    };
 };
 
 /// Enum
@@ -614,6 +712,26 @@ pub const ObjEnum = struct {
 
         return @fieldParentPtr(Self, "obj", obj);
     }
+
+    pub const EnumDef = struct {
+        const EnumDefSelf = @This();
+
+        name: *ObjString,
+        enum_type: *ObjTypeDef,
+        cases: std.ArrayList([]const u8),
+
+        pub fn init(allocator: *Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
+            return EnumDefSelf {
+                .name = name,
+                .cases = std.ArrayList([]const u8).init(allocator),
+                .enum_type = enum_type,
+            };
+        }
+
+        pub fn deinit(self: *EnumDefSelf) void {
+            self.cases.deinit();
+        }
+    };
 };
 
 pub const ObjEnumInstance = struct {
@@ -689,323 +807,6 @@ pub const ObjTypeDef = struct {
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
 
-    pub const ListDef = struct {
-        const SelfListDef = @This();
-
-        item_type: *ObjTypeDef,
-        methods: std.StringHashMap(*ObjTypeDef),
-
-        pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) SelfListDef {
-            return .{
-                .item_type = item_type,
-                .methods = std.StringHashMap(*ObjTypeDef).init(allocator)
-            };
-        }
-
-        pub fn deinit(self: *SelfListDef) void {
-            self.methods.deinit();
-        }
-        
-        pub fn member(obj_list: *ObjTypeDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
-            var self = obj_list.resolved_type.?.List;
-            
-            if (self.methods.get(method)) |native_def| {
-                return native_def;
-            }
-
-            if (mem.eql(u8, method, "append")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
-
-                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-                // It's always the list.
-                // try parameters.put("this", obj_list);
-
-                // `value` arg is of item_type
-                try  parameters.put("value", self.item_type);
-
-                var method_def = FunctionDef{
-                    .name = try copyString(vm, "append"),
-                    .parameters = parameters,
-                    .return_type = obj_list
-                };
-
-                var resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Native = method_def
-                };
-
-                var native_type = try vm.getTypeDef(ObjTypeDef{
-                    .optional = false,
-                    .def_type = .Native,
-                    .resolved_type = resolved_type
-                });
-
-                try self.methods.put("append", native_type);
-
-                return native_type;
-            }
-
-            return null;
-        }
-    };
-
-    pub const MapDef = struct {
-        key_type: *ObjTypeDef,
-        value_type: *ObjTypeDef,
-    };
-
-    pub const FunctionDef = struct {
-        name: *ObjString,
-        return_type: *ObjTypeDef,
-        parameters: std.StringArrayHashMap(*ObjTypeDef),
-    };
-
-    pub const ObjectDef = struct {
-        const ObjectDefSelf = @This();
-
-        name: *ObjString,
-        // TODO: Do i need to have two maps ?
-        fields: StringHashMap(*ObjTypeDef),
-        methods: StringHashMap(*ObjTypeDef),
-        // When we have placeholders we don't know if they are properties or methods
-        // That information is available only when the placeholder is resolved
-        // It's not an issue since:
-        //   - we use OP_GET_PROPERTY for both
-        //   - OP_SET_PROPERTY for a method will ultimately fail
-        //   - OP_INVOKE on a field will ultimately fail
-        placeholders: StringHashMap(*ObjTypeDef),
-        super: ?*ObjTypeDef = null,
-        inheritable: bool = false,
-        
-
-        pub fn init(allocator: *Allocator, name: *ObjString) ObjectDefSelf {
-            return ObjectDefSelf {
-                .name = name,
-                .fields = StringHashMap(*ObjTypeDef).init(allocator),
-                .methods = StringHashMap(*ObjTypeDef).init(allocator),
-                .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
-            };
-        }
-
-        pub fn deinit(self: *ObjectDefSelf) void {
-            self.fields.deinit();
-            self.methods.deinit();
-            self.placeholders.deinit();
-        }
-    };
-
-
-    pub const EnumDef = struct {
-        const EnumDefSelf = @This();
-
-        name: *ObjString,
-        enum_type: *ObjTypeDef,
-        cases: std.ArrayList([]const u8),
-
-        pub fn init(allocator: *Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
-            return EnumDefSelf {
-                .name = name,
-                .cases = std.ArrayList([]const u8).init(allocator),
-                .enum_type = enum_type,
-            };
-        }
-
-        pub fn deinit(self: *EnumDefSelf) void {
-            self.cases.deinit();
-        }
-    };
-
-    pub const PlaceholderDef = struct {
-        const PlaceholderSelf = @This();
-
-        // TODO: are relations enough and booleans useless?
-        const PlaceholderRelation = enum {
-            Call,
-            Subscript,
-            FieldAccess,
-            Assignment,
-        };
-
-        name: ?*ObjString = null,
-
-        // Assumption made by the code referencing the value
-        callable: ?bool = null,             // Function, Object or Class
-        subscriptable: ?bool = null,        // Array or Map
-        field_accessible: ?bool = null,     // Object, Class or Enum
-        assignable: ?bool = null,           // Not a Function, Object, Class or Enum
-        resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
-        resolved_def_type: ?Type = null,    // Meta type
-        // TODO: do we ever infer that much that we can build an actual type?
-        resolved_type: ?*ObjTypeDef = null, // Actual type
-        where: Token,                       // Where the placeholder was created
-
-        // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
-        // can trace back the root of the unknown type.
-        parent: ?*ObjTypeDef = null,
-        // What's the relation with the parent?
-        parent_relation: ?PlaceholderRelation = null,
-        // Children adds themselves here
-        children: std.ArrayList(*ObjTypeDef),
-
-        pub fn init(allocator: *Allocator, where: Token) PlaceholderSelf {
-            return PlaceholderSelf {
-                .where = where.clone(),
-                .children = std.ArrayList(*ObjTypeDef).init(allocator)
-            };
-        }
-
-        pub fn deinit(self: *PlaceholderSelf) void {
-            self.children.deinit();
-        }
-
-        pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
-            assert(parent.def_type == .Placeholder);
-            assert(child.def_type == .Placeholder);
-
-            child.resolved_type.?.Placeholder.parent = parent;
-            try parent.resolved_type.?.Placeholder.children.append(child);
-            child.resolved_type.?.Placeholder.parent_relation = relation;
-        }
-
-        pub fn eql(a: PlaceholderSelf, b: PlaceholderSelf) bool {
-            if (a.resolved_parameters != null and b.resolved_parameters != null) {
-                var it = a.resolved_parameters.?.iterator();
-                while (it.next()) |kv| {
-                    if (b.resolved_parameters.?.get(kv.key_ptr.*)) |b_arg_type| {
-                        return b_arg_type.eql(kv.value_ptr.*);
-                    } else {
-                        return false;
-                    }
-                }
-            }
-
-            return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
-                and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
-                and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null)
-                and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null)
-                and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
-                and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
-        }
-
-        pub fn enrich(one: *PlaceholderSelf, other: *PlaceholderSelf) !void {
-            one.callable = one.callable orelse other.callable;
-            other.callable = one.callable orelse other.callable;
-
-            one.subscriptable = one.subscriptable orelse other.subscriptable;
-            other.subscriptable = one.subscriptable orelse other.subscriptable;
-
-            one.field_accessible = one.field_accessible orelse other.field_accessible;
-            other.field_accessible = one.field_accessible orelse other.field_accessible;
-
-            one.assignable = one.assignable orelse other.assignable;
-            other.assignable = one.assignable orelse other.assignable;
-
-            one.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
-            other.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
-
-            one.resolved_type = one.resolved_type orelse other.resolved_type;
-            other.resolved_type = one.resolved_type orelse other.resolved_type;
-
-            if (other.resolved_parameters) |parameters| {
-                one.resolved_parameters = try parameters.clone();
-            } else if (one.resolved_parameters) |parameters| {
-                other.resolved_parameters = try parameters.clone();
-            }
-        }
-
-        pub fn isAssignable(self: *PlaceholderSelf) bool {
-            if (self.assignable == null) {
-                return true;
-            }
-
-            return self.assignable.?
-                and (self.resolved_def_type == null
-                    // TODO: method actually but right now we have no way to distinguish them
-                    or self.resolved_def_type.? != .Function
-                    or self.resolved_def_type.? != .Object)
-                and (self.resolved_type == null
-                    // TODO: method actually but right now we have no way to distinguish them
-                    or self.resolved_type.?.def_type != .Function
-                    or self.resolved_type.?.def_type != .Object);
-        }
-
-        pub fn isCallable(self: *PlaceholderSelf) bool {
-            if (self.callable == null) {
-                return true;
-            }
-
-            return self.callable.?
-                and (self.resolved_def_type == null
-                    or self.resolved_def_type.? == .Function
-                    or self.resolved_def_type.? == .Object)
-                and (self.resolved_type == null
-                    or self.resolved_type.?.def_type == .Function
-                    or self.resolved_type.?.def_type == .Object);
-        }
-
-        pub fn isFieldAccessible(self: *PlaceholderSelf) bool {
-            if (self.field_accessible == null) {
-                return true;
-            }
-
-            return self.field_accessible.?
-                and (self.resolved_def_type == null
-                    or self.resolved_def_type.? == .Enum
-                    or self.resolved_def_type.? == .EnumInstance
-                    or self.resolved_def_type.? == .ObjectInstance)
-                and (self.resolved_type == null
-                    or self.resolved_type.?.def_type == .Enum
-                    or self.resolved_type.?.def_type == .EnumInstance
-                    or self.resolved_type.?.def_type == .ObjectInstance);
-        }
-
-        pub fn isSubscriptable(self: *PlaceholderSelf) bool {
-            if (self.subscriptable == null) {
-                return true;
-            }
-
-            return self.subscriptable.?
-                and (self.resolved_def_type == null
-                    or self.resolved_def_type.? == .List
-                    or self.resolved_def_type.? == .Map)
-                and (self.resolved_type == null
-                    or self.resolved_type.?.def_type == .List
-                    or self.resolved_type.?.def_type == .Map);
-        }
-
-        pub fn couldBeList(self: *PlaceholderSelf) bool {
-            return self.isSubscriptable()
-                and (self.resolved_def_type == null or self.resolved_def_type.? == .List)
-                and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
-        }
-
-        pub fn couldBeMap(self: *PlaceholderSelf) bool {
-            return self.isSubscriptable()
-                and (self.resolved_def_type == null or self.resolved_def_type.? == .Map)
-                and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
-        }
-
-        pub fn isCoherent(self: *PlaceholderSelf) bool {
-            if (self.resolved_def_type != null
-                and self.resolved_type != null
-                and @as(Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
-                return false;
-            }
-
-            // Nothing can be called and subscrited
-            if ((self.callable orelse false) and (self.subscriptable orelse false)) {
-                return false;
-            }
-
-            // Nothing with fields can be subscrited
-            if ((self.field_accessible orelse false) and (self.subscriptable orelse false)) {
-                return false;
-            }
-
-            // `and` because we checked for compatibility earlier and those function will return true if the flag is null
-            return self.isCallable() and self.isSubscriptable() and self.isFieldAccessible() and self.isAssignable();
-        }
-    };
-
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
         Bool: bool,
@@ -1019,14 +820,14 @@ pub const ObjTypeDef = struct {
         EnumInstance: *ObjTypeDef,
 
         // Those are never equal
-        Object: ObjectDef,
-        Enum: EnumDef,
+        Object: ObjObject.ObjectDef,
+        Enum: ObjEnum.EnumDef,
 
         // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
-        List: ListDef,
-        Map: MapDef,
-        Function: FunctionDef,
-        Native: FunctionDef,
+        List: ObjList.ListDef,
+        Map: ObjMap.MapDef,
+        Function: ObjFunction.FunctionDef,
+        Native: ObjFunction.FunctionDef,
 
         Placeholder: PlaceholderDef,
     };
@@ -1258,12 +1059,12 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         },
         .Map => {
             var map: *ObjMap = ObjMap.cast(obj).?;
-            var key_type_str: []const u8 = try map.key_type.toString(allocator);
-            defer allocator.free(key_type_str);
-            var value_type_str: []const u8 = try map.value_type.toString(allocator);
-            defer allocator.free(value_type_str);
+            // var key_type_str: []const u8 = try map.key_type.toString(allocator);
+            // defer allocator.free(key_type_str);
+            // var value_type_str: []const u8 = try map.value_type.toString(allocator);
+            // defer allocator.free(value_type_str);
 
-            return try std.fmt.bufPrint(buf, "map: 0x{x} <{s}, {s}>", .{ @ptrToInt(map), key_type_str, value_type_str });
+            return try std.fmt.bufPrint(buf, "map: 0x{x} <_, _>", .{ @ptrToInt(map) });
         },
         .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
         .EnumInstance => enum_instance: {
@@ -1295,3 +1096,195 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         }
     };
 }
+
+pub const PlaceholderDef = struct {
+    const Self = @This();
+
+    // TODO: are relations enough and booleans useless?
+    const PlaceholderRelation = enum {
+        Call,
+        Subscript,
+        FieldAccess,
+        Assignment,
+    };
+
+    name: ?*ObjString = null,
+
+    // Assumption made by the code referencing the value
+    callable: ?bool = null,             // Function, Object or Class
+    subscriptable: ?bool = null,        // Array or Map
+    field_accessible: ?bool = null,     // Object, Class or Enum
+    assignable: ?bool = null,           // Not a Function, Object, Class or Enum
+    resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
+    resolved_def_type: ?ObjTypeDef.Type = null,    // Meta type
+    // TODO: do we ever infer that much that we can build an actual type?
+    resolved_type: ?*ObjTypeDef = null, // Actual type
+    where: Token,                       // Where the placeholder was created
+
+    // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
+    // can trace back the root of the unknown type.
+    parent: ?*ObjTypeDef = null,
+    // What's the relation with the parent?
+    parent_relation: ?PlaceholderRelation = null,
+    // Children adds themselves here
+    children: std.ArrayList(*ObjTypeDef),
+
+    pub fn init(allocator: *Allocator, where: Token) Self {
+        return Self {
+            .where = where.clone(),
+            .children = std.ArrayList(*ObjTypeDef).init(allocator)
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.children.deinit();
+    }
+
+    pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+        assert(parent.def_type == .Placeholder);
+        assert(child.def_type == .Placeholder);
+
+        child.resolved_type.?.Placeholder.parent = parent;
+        try parent.resolved_type.?.Placeholder.children.append(child);
+        child.resolved_type.?.Placeholder.parent_relation = relation;
+    }
+
+    pub fn eql(a: Self, b: Self) bool {
+        if (a.resolved_parameters != null and b.resolved_parameters != null) {
+            var it = a.resolved_parameters.?.iterator();
+            while (it.next()) |kv| {
+                if (b.resolved_parameters.?.get(kv.key_ptr.*)) |b_arg_type| {
+                    return b_arg_type.eql(kv.value_ptr.*);
+                } else {
+                    return false;
+                }
+            }
+        }
+
+        return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
+            and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
+            and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null)
+            and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null)
+            and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
+            and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
+    }
+
+    pub fn enrich(one: *Self, other: *Self) !void {
+        one.callable = one.callable orelse other.callable;
+        other.callable = one.callable orelse other.callable;
+
+        one.subscriptable = one.subscriptable orelse other.subscriptable;
+        other.subscriptable = one.subscriptable orelse other.subscriptable;
+
+        one.field_accessible = one.field_accessible orelse other.field_accessible;
+        other.field_accessible = one.field_accessible orelse other.field_accessible;
+
+        one.assignable = one.assignable orelse other.assignable;
+        other.assignable = one.assignable orelse other.assignable;
+
+        one.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
+        other.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
+
+        one.resolved_type = one.resolved_type orelse other.resolved_type;
+        other.resolved_type = one.resolved_type orelse other.resolved_type;
+
+        if (other.resolved_parameters) |parameters| {
+            one.resolved_parameters = try parameters.clone();
+        } else if (one.resolved_parameters) |parameters| {
+            other.resolved_parameters = try parameters.clone();
+        }
+    }
+
+    pub fn isAssignable(self: *Self) bool {
+        if (self.assignable == null) {
+            return true;
+        }
+
+        return self.assignable.?
+            and (self.resolved_def_type == null
+                // TODO: method actually but right now we have no way to distinguish them
+                or self.resolved_def_type.? != .Function
+                or self.resolved_def_type.? != .Object)
+            and (self.resolved_type == null
+                // TODO: method actually but right now we have no way to distinguish them
+                or self.resolved_type.?.def_type != .Function
+                or self.resolved_type.?.def_type != .Object);
+    }
+
+    pub fn isCallable(self: *Self) bool {
+        if (self.callable == null) {
+            return true;
+        }
+
+        return self.callable.?
+            and (self.resolved_def_type == null
+                or self.resolved_def_type.? == .Function
+                or self.resolved_def_type.? == .Object)
+            and (self.resolved_type == null
+                or self.resolved_type.?.def_type == .Function
+                or self.resolved_type.?.def_type == .Object);
+    }
+
+    pub fn isFieldAccessible(self: *Self) bool {
+        if (self.field_accessible == null) {
+            return true;
+        }
+
+        return self.field_accessible.?
+            and (self.resolved_def_type == null
+                or self.resolved_def_type.? == .Enum
+                or self.resolved_def_type.? == .EnumInstance
+                or self.resolved_def_type.? == .ObjectInstance)
+            and (self.resolved_type == null
+                or self.resolved_type.?.def_type == .Enum
+                or self.resolved_type.?.def_type == .EnumInstance
+                or self.resolved_type.?.def_type == .ObjectInstance);
+    }
+
+    pub fn isSubscriptable(self: *Self) bool {
+        if (self.subscriptable == null) {
+            return true;
+        }
+
+        return self.subscriptable.?
+            and (self.resolved_def_type == null
+                or self.resolved_def_type.? == .List
+                or self.resolved_def_type.? == .Map)
+            and (self.resolved_type == null
+                or self.resolved_type.?.def_type == .List
+                or self.resolved_type.?.def_type == .Map);
+    }
+
+    pub fn couldBeList(self: *Self) bool {
+        return self.isSubscriptable()
+            and (self.resolved_def_type == null or self.resolved_def_type.? == .List)
+            and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
+    }
+
+    pub fn couldBeMap(self: *Self) bool {
+        return self.isSubscriptable()
+            and (self.resolved_def_type == null or self.resolved_def_type.? == .Map)
+            and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
+    }
+
+    pub fn isCoherent(self: *Self) bool {
+        if (self.resolved_def_type != null
+            and self.resolved_type != null
+            and @as(ObjTypeDef.Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
+            return false;
+        }
+
+        // Nothing can be called and subscrited
+        if ((self.callable orelse false) and (self.subscriptable orelse false)) {
+            return false;
+        }
+
+        // Nothing with fields can be subscrited
+        if ((self.field_accessible orelse false) and (self.subscriptable orelse false)) {
+            return false;
+        }
+
+        // `and` because we checked for compatibility earlier and those function will return true if the flag is null
+        return self.isCallable() and self.isSubscriptable() and self.isFieldAccessible() and self.isAssignable();
+    }
+};
