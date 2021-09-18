@@ -1018,11 +1018,12 @@ pub const Compiler = struct {
             });
         } else if (try self.match(.LeftBracket)) {
             var item_type: *ObjTypeDef = try self.parseTypeDef();
+            var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, item_type);
 
             try self.consume(.RightBracket, "Expected `]` to end list type.");
 
             const resolved_type: ObjTypeDef.TypeUnion = .{
-                .List = item_type
+                .List = list_def
             };
 
             return try self.vm.getTypeDef(.{
@@ -1483,8 +1484,9 @@ pub const Compiler = struct {
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
+        var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, list_item_type);
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-            .List = list_item_type
+            .List = list_def
         };
 
         var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{
@@ -2589,7 +2591,7 @@ pub const Compiler = struct {
             or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeList())) {
 
             if (callee_type.def_type == .List) {
-                item_type = callee_type.resolved_type.?.List;
+                item_type = callee_type.resolved_type.?.List.item_type;
             } else {
                 assert(callee_type.def_type == .Placeholder);
 
@@ -2599,8 +2601,8 @@ pub const Compiler = struct {
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
-                    placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.List.def_type;
-                    placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.List;
+                    placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.List.item_type.def_type;
+                    placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.List.item_type;
                 }
 
                 item_type = try self.vm.getTypeDef(.{
@@ -2856,13 +2858,18 @@ pub const Compiler = struct {
                 return callee_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
             },
             .List => {
-                if (try callee_type.resolved_type.?.List.member(self.vm, member_name)) |member| {
+                if (try ObjTypeDef.ListDef.member(callee_type, self.vm, member_name)) |member| {
                     try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+                    // The first argument should be list but it's "under the call frame"
+                    try self.emitBytes(@enumToInt(OpCode.OP_SWAP), 1);
+                    try self.emitByte(0);
+
 
                     if (try self.match(.LeftParen)) {
                         var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
                         
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+                        // We add one because first arg is always the list and it was parsed before argumentList was called
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count + 1);
 
                         return member.resolved_type.?.Native.return_type;
                     }
@@ -2990,8 +2997,10 @@ pub const Compiler = struct {
         const constant: u8 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
         try self.patchList(list_offset, constant);
 
+        var list_def = ObjTypeDef.ListDef.init(self.vm.allocator, item_type.?);
+
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-            .List = item_type.?
+            .List = list_def
         };
 
         var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{

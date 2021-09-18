@@ -250,7 +250,7 @@ pub const ObjNative = struct {
     }
 
     pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .String) {
+        if (obj.obj_type != .Native) {
             return null;
         }
 
@@ -528,7 +528,7 @@ pub const ObjList = struct {
         }
 
         if (mem.eql(u8, method, "append")) {
-            var native: *ObjNative = try allocateObject(vm, .Native);
+            var native: *ObjNative = ObjNative.cast(try allocateObject(vm, .Native)).?;
             native.* = ObjNative{
                 .native = append
             };
@@ -698,7 +698,7 @@ pub const ObjTypeDef = struct {
         pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) SelfListDef {
             return .{
                 .item_type = item_type,
-                .methods = std.StringHashMap(FunctionDef).init(allocator)
+                .methods = std.StringHashMap(*ObjTypeDef).init(allocator)
             };
         }
 
@@ -706,7 +706,9 @@ pub const ObjTypeDef = struct {
             self.methods.deinit();
         }
         
-        pub fn member(self: *SelfListDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
+        pub fn member(obj_list: *ObjTypeDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
+            var self = obj_list.resolved_type.?.List;
+            
             if (self.methods.get(method)) |native_def| {
                 return native_def;
             }
@@ -714,16 +716,9 @@ pub const ObjTypeDef = struct {
             if (mem.eql(u8, method, "append")) {
                 var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
 
-                // `this` arg is list
-                var this_resolved: ObjTypeDef.TypeUnion = .{
-                    .List = self.item_type
-                };
-                var this_arg: *ObjTypeDef = vm.getTypeDef(.{
-                    .optional = false,
-                    .def_type = List,
-                    .resolved_type = this_resolved
-                });
-                try parameters.put("this", this_arg);
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+                // try parameters.put("this", obj_list);
 
                 // `value` arg is of item_type
                 try  parameters.put("value", self.item_type);
@@ -731,20 +726,22 @@ pub const ObjTypeDef = struct {
                 var method_def = FunctionDef{
                     .name = try copyString(vm, "append"),
                     .parameters = parameters,
-                    .return_type = self
+                    .return_type = obj_list
                 };
-
-                try self.methods.put("append", method_def);
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{
                     .Native = method_def
                 };
 
-                return vm.getTypeDef(ObjTypeDef{
+                var native_type = try vm.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type
                 });
+
+                try self.methods.put("append", native_type);
+
+                return native_type;
             }
 
             return null;
@@ -1071,7 +1068,7 @@ pub const ObjTypeDef = struct {
             .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
             .List => {
-                var list_type = try self.resolved_type.?.List.toString(allocator);
+                var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
                 defer allocator.free(list_type);
 
                 try type_str.append('[');
@@ -1158,7 +1155,7 @@ pub const ObjTypeDef = struct {
             .Object,
             .Enum => false, // Thore are never equal even if definition is the same
 
-            .List => return a.List.eql(b.List),
+            .List => return a.List.item_type.eql(b.List.item_type),
             .Map => return a.Map.key_type.eql(b.Map.key_type)
                 and a.Map.value_type.eql(b.Map.value_type),
             .Function => {

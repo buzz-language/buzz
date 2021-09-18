@@ -381,6 +381,18 @@ pub const VM = struct {
                         .Enum => {
                             unreachable;
                         },
+                        .List => list: {
+                            var list = ObjList.cast(obj).?;
+                            var name: *ObjString = readString(frame);
+
+                            if (try list.member(self, name.string)) |member| {
+                                // We don't pop the list, it'll be the first argument
+                                self.push(Value{ .Obj = member.toObj() });
+                                break :list;
+                            } else {
+                                runtimeError("Property doesn't exists");
+                            }
+                        },
                         else => unreachable
                     }
                 },
@@ -460,8 +472,8 @@ pub const VM = struct {
                 }
             }
 
-            // std.debug.warn("{}\n", .{instruction});
-            // try disassembler.dumpStack(self);
+            std.debug.warn("{}\n", .{instruction});
+            try disassembler.dumpStack(self);
         }
 
         return InterpretResult.Ok;
@@ -548,10 +560,11 @@ pub const VM = struct {
         return true;
     }
 
-    fn callNative(self: *Self, native: *ObjNative, _: u8) !bool {
-        self.push(try native.native(self));
+    fn callNative(self: *Self, native: *ObjNative, arg_count: u8) !bool {
+        var result: Value = try native.native(self);
 
-        // TODO: pop parameters and push result like OP_RETURN would
+        self.stack_top = self.stack_top - arg_count - 1;
+        self.push(result);
 
         return true;
     }
