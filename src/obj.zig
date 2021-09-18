@@ -527,7 +527,7 @@ pub const ObjList = struct {
 
     /// List items
     items: std.ArrayList(Value),
-    /// Allowed type in this list
+    // Used when printing the list
     item_type: *ObjTypeDef,
 
     methods: std.StringHashMap(*ObjNative),
@@ -689,7 +689,22 @@ pub const ObjMap = struct {
         .obj_type = .Map
     },
 
-    map: std.AutoArrayHashMap(HashableValue, Value),
+    map: std.AutoHashMap(HashableValue, Value),
+    // Use when printing a map
+    key_type: *ObjTypeDef,
+    value_type: *ObjTypeDef,
+
+    pub fn init(allocator: *Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef) Self {
+        return .{
+            .key_type = key_type,
+            .value_type = value_type,
+            .map = std.AutoHashMap(HashableValue, Value).init(allocator),
+        };
+    }
+    
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -1100,12 +1115,12 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         },
         .Map => {
             var map: *ObjMap = ObjMap.cast(obj).?;
-            // var key_type_str: []const u8 = try map.key_type.toString(allocator);
-            // defer allocator.free(key_type_str);
-            // var value_type_str: []const u8 = try map.value_type.toString(allocator);
-            // defer allocator.free(value_type_str);
+            var key_type_str: []const u8 = try map.key_type.toString(allocator);
+            defer allocator.free(key_type_str);
+            var value_type_str: []const u8 = try map.value_type.toString(allocator);
+            defer allocator.free(value_type_str);
 
-            return try std.fmt.bufPrint(buf, "map: 0x{x} <_, _>", .{ @ptrToInt(map) });
+            return try std.fmt.bufPrint(buf, "map: 0x{x} {{{s}, {s}}}", .{ @ptrToInt(map), key_type_str, value_type_str });
         },
         .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
         .EnumInstance => enum_instance: {

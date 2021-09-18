@@ -1,26 +1,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const _value = @import("./value.zig");
+usingnamespace @import("./value.zig");
 const _obj = @import("./obj.zig");
 const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
-const Value = _value.Value;
-const ValueType = _value.ValueType;
 // TODO: usingnamespace ?
-const ObjClosure = _obj.ObjClosure;
-const ObjFunction = _obj.ObjFunction;
-const ObjUpValue = _obj.ObjUpValue;
-const ObjTypeDef = _obj.ObjTypeDef;
-const ObjString = _obj.ObjString;
-const ObjObject = _obj.ObjObject;
-const ObjBoundMethod = _obj.ObjBoundMethod;
-const ObjObjectInstance = _obj.ObjObjectInstance;
-const ObjEnum = _obj.ObjEnum;
-const ObjEnumInstance = _obj.ObjEnumInstance;
-const ObjList = _obj.ObjList;
-const ObjNative = _obj.ObjNative;
-const Obj = _obj.Obj;
+usingnamespace @import("./obj.zig");
 const OpCode = _chunk.OpCode;
 
 pub const CallFrame = struct {
@@ -307,6 +293,28 @@ pub const VM = struct {
 
                 .OP_LIST_APPEND => try self.appendToList(),
 
+                .OP_MAP => {
+                    var map: *ObjMap = ObjMap.cast(try _obj.allocateObject(self, .Map)).?;
+                    map.* = ObjMap.init(
+                        self.allocator,
+                        ObjTypeDef.cast(readConstant(frame).Obj).?,
+                        ObjTypeDef.cast(readConstant(frame).Obj).?
+                    );
+
+                    self.push(Value{ .Obj = map.toObj() });
+                },
+
+                .OP_SET_MAP => {
+                    var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
+                    var key: Value = self.peek(1);
+                    var value: Value = self.peek(0);
+
+                    try map.map.put(valueToHashable(key), value);
+
+                    _ = self.pop();
+                    _ = self.pop();
+                },
+
                 .OP_GET_SUBSCRIPT => {
                     try self.subscript();
                 },
@@ -412,7 +420,7 @@ pub const VM = struct {
 
                 // TODO: remove
                 .OP_PRINT => {
-                    var value_str: []const u8 = try _value.valueToString(self.allocator, self.pop());
+                    var value_str: []const u8 = try valueToString(self.allocator, self.pop());
                     defer self.allocator.free(value_str);
 
                     std.debug.print("{s}\n", .{ value_str });
@@ -443,7 +451,7 @@ pub const VM = struct {
                 .OP_DIVIDE,
                 .OP_MOD => try self.binary(instruction),
 
-                .OP_EQUAL => self.push(Value{ .Boolean = _value.valueEql(self.pop(), self.pop()) }),
+                .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
                 .OP_JUMP => {
                     const jump = readShort(frame);
@@ -754,9 +762,18 @@ pub const VM = struct {
                 runtimeError("Out of bound list access.");
             }
         } else {
-            assert(list_or_map.obj_type == .Map);
+            var map: *ObjMap = ObjMap.cast(list_or_map).?;
 
-            unreachable;
+            // Pop map and key
+            _ = self.pop();
+            _ = self.pop();
+
+            if (map.map.get(valueToHashable(index))) |value| {
+                // Push value
+                self.push(value);
+            } else {
+                self.push(Value{ .Null = null });
+            }
         }
     }
 
@@ -788,9 +805,17 @@ pub const VM = struct {
                 runtimeError("Out of bound list access.");
             }
         } else {
-            assert(list_or_map.obj_type == .Map);
+            var map: *ObjMap = ObjMap.cast(list_or_map).?;
 
-            unreachable;
+            try map.map.put(valueToHashable(index), value);
+
+            // Pop everyting
+            _ = self.pop();
+            _ = self.pop();
+            _ = self.pop();
+
+            // Push the value
+            self.push(value);
         }
     }
 

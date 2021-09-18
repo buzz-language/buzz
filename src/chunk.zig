@@ -74,6 +74,9 @@ pub const OpCode = enum(u8) {
     OP_LIST,
     OP_LIST_APPEND,
 
+    OP_MAP,
+    OP_SET_MAP,
+
     // TODO: remove
     OP_PRINT,
 };

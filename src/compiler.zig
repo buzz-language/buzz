@@ -174,7 +174,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBracket
         .{ .prefix = grouping, .infix = call,      .precedence = .Call }, // LeftParen
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightParen
-        .{ .prefix = null,     .infix = null,      .precedence = .None }, // LeftBrace
+        .{ .prefix = map,      .infix = null,      .precedence = .None }, // LeftBrace
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBrace
         .{ .prefix = null,     .infix = dot,       .precedence = .Call }, // Dot
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Comma
@@ -735,8 +735,21 @@ pub const Compiler = struct {
         return self.current.?.function.chunk.code.items.len - 1;
     }
 
+    fn emitMap(self: *Self) !usize {
+        try self.emitOpCode(.OP_MAP);
+        try self.emitByte(0xff);
+        try self.emitByte(0xff);
+
+        return self.current.?.function.chunk.code.items.len - 2;
+    }
+
     fn patchList(self: *Self, offset: usize, constant: u8) !void {
         self.current.?.function.chunk.code.items[offset] = constant;
+    }
+
+    fn patchMap(self: *Self, offset: usize, key_constant: u8, value_constant: u8) !void {
+        self.current.?.function.chunk.code.items[offset] = key_constant;
+        self.current.?.function.chunk.code.items[offset + 1] = value_constant;
     }
 
     fn emitReturn(self: *Self) !void {
@@ -811,8 +824,7 @@ pub const Compiler = struct {
         } else if (try self.match(.LeftBracket)) {
             try self.listDeclaration();
         } else if (try self.match(.LeftBrace)) {
-            // self.mapDeclaraction();
-            unreachable;
+            try self.mapDeclaration();
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
             unreachable;
@@ -892,11 +904,11 @@ pub const Compiler = struct {
 
             return null;
         } else if (try self.match(.LeftBracket)) {
-            // TODO: this could end up being an expression some tokens ahead
             try self.listDeclaration();
+            return null;
         } else if (try self.match(.LeftBrace)) {
-            // self.mapDeclaraction();
-            unreachable;
+            try self.mapDeclaration();
+            return null;
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
             unreachable;
@@ -1480,8 +1492,6 @@ pub const Compiler = struct {
     }
 
     fn listDeclaration(self: *Self) !void {
-        const scanner_location: SourceLocation = self.scanner.?.current;
-
         var list_item_type: *ObjTypeDef = try self.parseTypeDef();
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
@@ -1497,15 +1507,30 @@ pub const Compiler = struct {
             .resolved_type = resolved_type
         });
 
-        if (self.check(.Identifier)) {
-            try self.varDeclaration(list_type);
-        } else {
-            // If the next token is not an identifier we just parsed a list expression of `type` with one element
-            // Rewind scanner to juste before we started scanning the list and branch of to an `expression`
-            self.scanner.?.current = scanner_location;
-            // Since this is a lone expression, we don't care about it ObjTypeDef
-            _ = try self.expression(false);
-        }
+        try self.varDeclaration(list_type);
+    }
+
+    fn mapDeclaration(self: *Self) !void {
+        var key_type: *ObjTypeDef = try self.parseTypeDef();
+
+        try self.consume(.Comma, "Expected `,` after key type.");
+
+        var value_type: *ObjTypeDef = try self.parseTypeDef();
+
+        try self.consume(.RightBrace, "Expected `}` after value type.");
+
+        var map_def = ObjMap.MapDef{ .key_type = key_type, .value_type = value_type };
+        var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+            .Map = map_def
+        };
+
+        var map_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+            .optional = try self.match(.Question),
+            .def_type = .Map,
+            .resolved_type = resolved_type
+        });
+
+        try self.varDeclaration(map_type);
     }
 
     fn enumDeclaration(self: *Self) !void {
@@ -2582,7 +2607,9 @@ pub const Compiler = struct {
     }
 
     fn subscript(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (callee_type.def_type != .List and callee_type.def_type != .Placeholder
+        if (callee_type.def_type != .List
+            and callee_type.def_type != .Map
+            and callee_type.def_type != .Placeholder
             and (callee_type.def_type != .Placeholder or !callee_type.resolved_type.?.Placeholder.isSubscriptable())) {
             try self.reportError("Not subscriptable.");
         }
@@ -2603,8 +2630,12 @@ pub const Compiler = struct {
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
-                    placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.List.item_type.def_type;
-                    placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.List.item_type;
+                    if (resolved.def_type == .List) {
+                        placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.List.item_type.def_type;
+                        placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.List.item_type;
+                    } else {
+                        try self.reportError("Not a list.");
+                    }
                 }
 
                 item_type = try self.vm.getTypeDef(.{
@@ -2631,12 +2662,68 @@ pub const Compiler = struct {
                     try self.reportError("Expected `num` index.");
                 }
             }
-
-            try self.consume(.RightBracket, "Expected `]` after list index.");
         } else if (callee_type.def_type == .Map
             or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeMap())) {
-            unreachable;
+            
+            if (callee_type.def_type == .Map) {
+                item_type = callee_type.resolved_type.?.Map.value_type;
+            } else {
+                assert(callee_type.def_type == .Placeholder);
+
+                // item_type is a placeholder
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
+                    placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.Map.value_type.def_type;
+                    placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.Map.value_type;
+                }
+
+                item_type = try self.vm.getTypeDef(.{
+                    .optional = false,
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                });
+            }
+
+            var key_type: *ObjTypeDef = try self.expression(false);
+    
+
+            if (callee_type.def_type == .Map) {
+                if (!callee_type.resolved_type.?.Map.key_type.eql(key_type)) {
+                    try self.reportTypeCheck(callee_type.resolved_type.?.Map.key_type, key_type, "Wrong map key type");
+                }
+            } else {
+                assert(callee_type.def_type == .Placeholder);
+
+                // key_type is a placeholder
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                };
+
+                if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
+                    if (resolved.def_type == .Map) {
+                        placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.Map.key_type.def_type;
+                        placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.Map.key_type;
+                    } else {
+                        try self.reportError("Not a map");
+                    }
+                }
+
+                var placeholder = ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type
+                };
+
+                if (!ObjTypeDef.eql(&placeholder, key_type)) {
+                    try self.reportError("Wrong map key type.");
+                }
+            }
         }
+
+        try self.consume(.RightBracket, "Expected `]`.");
 
         if (can_assign and try self.match(.Equal)) {
             var parsed_type: *ObjTypeDef = try self.expression(false);
@@ -2947,9 +3034,8 @@ pub const Compiler = struct {
         if (self.parser.previous_token.?.token_type == .Less) {
             item_type = try self.parseTypeDef();
 
-            if (self.check(.Comma)) {
-                // TODO: branch off to map expression
-                // try self.map(can_assign);
+            if (try self.match(.Comma)) {
+                return try self.mapFinalise(item_type.?);
             }
 
             try self.consume(.Greater, "Expected `>` after list type.");
@@ -3012,6 +3098,114 @@ pub const Compiler = struct {
         });
 
         return list_type;
+    }
+
+    fn map(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        return try self.mapFinalise(null);
+    }
+
+    fn mapFinalise(self: *Self, parsed_key_type: ?*ObjTypeDef) anyerror!*ObjTypeDef {
+        var value_type: ?*ObjTypeDef = null;
+        var key_type: ?*ObjTypeDef = parsed_key_type;
+
+        // A lone map expression is prefixed by `<type, type>`
+        // When key_type != null, we come from list() which just parsed `<type,`
+        if (key_type != null) {
+            value_type = try self.parseTypeDef();
+
+            try self.consume(.Greater, "Expected `>` after map type.");
+            try self.consume(.LeftBrace, "Expected `{` before map entries.");
+        }
+
+        const map_offset: usize = try self.emitMap();
+
+        while (!(try self.match(.RightBrace)) and !(try self.match(.Eof))) {
+            var actual_key_type: *ObjTypeDef = try self.expression(false);
+            try self.consume(.Colon, "Expected `:` after key.");
+            var actual_value_type: *ObjTypeDef = try self.expression(false);
+
+            try self.emitOpCode(.OP_SET_MAP);
+
+            // Key type checking
+            if (key_type != null and !key_type.?.eql(actual_key_type)) {
+                try self.reportError("Map can only hold one key type.");
+            }
+
+            if (key_type != null
+                and key_type.?.def_type == .Placeholder
+                and actual_key_type.def_type != .Placeholder) {
+                key_type.?.resolved_type.?.Placeholder.resolved_def_type = actual_key_type.def_type;
+                key_type.?.resolved_type.?.Placeholder.resolved_type = actual_key_type;
+                if (key_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad map type.");
+                }
+            }
+
+            if (actual_key_type.def_type == .Placeholder
+                and key_type != null
+                and key_type.?.def_type != .Placeholder) {
+                actual_key_type.resolved_type.?.Placeholder.resolved_def_type = key_type.?.def_type;
+                actual_key_type.resolved_type.?.Placeholder.resolved_type = key_type;
+                if (actual_key_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad map item type.");
+                }
+            }
+
+            if (key_type == null) {
+                key_type = actual_key_type;
+            }
+
+            // Value type checking
+            if (value_type != null and !value_type.?.eql(actual_value_type)) {
+                try self.reportError("Map can only hold one value type.");
+            }
+
+            if (value_type != null and value_type.?.def_type == .Placeholder
+                and actual_value_type.def_type != .Placeholder) {
+                value_type.?.resolved_type.?.Placeholder.resolved_def_type = actual_value_type.def_type;
+                value_type.?.resolved_type.?.Placeholder.resolved_type = actual_value_type;
+                if (value_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad map type.");
+                }
+            }
+
+            if (actual_value_type.def_type == .Placeholder
+                and value_type != null
+                and value_type.?.def_type != .Placeholder) {
+                actual_value_type.resolved_type.?.Placeholder.resolved_def_type = value_type.?.def_type;
+                actual_value_type.resolved_type.?.Placeholder.resolved_type = value_type.?;
+                if (actual_value_type.resolved_type.?.Placeholder.isCoherent()) {
+                    try self.reportError("Bad map item type.");
+                }
+            }
+
+            if (value_type == null) {
+                value_type = actual_value_type;
+            }
+            
+            if (!self.check(.RightBrace)) {
+                try self.consume(.Comma, "Expected `,` after map entry.");
+            }
+        }
+
+        // Should be fine if placeholder because when resolved, it's always the same pointer
+        const key_constant: u8 = try self.makeConstant(Value { .Obj = key_type.?.toObj() });
+        const value_constant: u8 = try self.makeConstant(Value { .Obj = value_type.?.toObj() });
+        try self.patchMap(map_offset, key_constant, value_constant);
+
+        var map_def = ObjMap.MapDef{ .key_type = key_type.?, .value_type = value_type.? };
+
+        var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+            .Map = map_def
+        };
+
+        var map_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+            .optional = try self.match(.Question),
+            .def_type = .Map,
+            .resolved_type = resolved_type
+        });
+
+        return map_type;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ObjTypeDef {

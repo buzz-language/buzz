@@ -19,6 +19,7 @@ pub const Value = union(ValueType) {
     Obj: *Obj,
 };
 
+// We can't hash f64
 pub const HashableValue = union(ValueType) {
     Boolean: bool,
     Number: i64,
@@ -30,10 +31,27 @@ pub fn valueToHashable(value: Value) HashableValue {
     switch (value) {
         .Boolean => return HashableValue { .Boolean = value.Boolean },
         .Number => {
-            return HashableValue { .Number = @floatToInt(i64, value.Number) };
+            const number: f64 = value.Number;
+            if (number - @intToFloat(f64, @floatToInt(i64, number)) == 0) {
+                return HashableValue { .Number = @floatToInt(i64, value.Number) };
+            } else {
+                // TODO: something like: https://github.com/lua/lua/blob/master/ltable.c#L117-L143
+                unreachable;
+            }            
         },
         .Null => return HashableValue { .Null = value.Null },
         .Obj => return HashableValue { .Obj = value.Obj },
+    }
+}
+
+pub fn hashableToValue(hashable: HashableValue) Value {
+    switch (hashable) {
+        .Boolean => return Value { .Boolean = hashable.Boolean },
+        .Number => {
+            return Value { .Number = @intToFloat(f64, hashable.Number) };
+        },
+        .Null => return Value { .Null = hashable.Null },
+        .Obj => return Value { .Obj = hashable.Obj },
     }
 }
 
