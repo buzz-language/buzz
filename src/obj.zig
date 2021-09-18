@@ -563,10 +563,17 @@ pub const ObjList = struct {
             return native;
         }
 
+        var nativeFn: ?NativeFn = null;
         if (mem.eql(u8, method, "append")) {
+            nativeFn = append;
+        } else if (mem.eql(u8, method, "len")) {
+            nativeFn = len;
+        }
+
+        if (nativeFn) |unativeFn| {
             var native: *ObjNative = ObjNative.cast(try allocateObject(vm, .Native)).?;
             native.* = ObjNative{
-                .native = append
+                .native = unativeFn
             };
 
             try self.methods.put(method, native);
@@ -585,6 +592,12 @@ pub const ObjList = struct {
         try list.items.append(value);
 
         return list_value;
+    }
+
+    fn len(vm: *VM) anyerror!Value {
+        var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
+
+        return Value{ .Number = @intToFloat(f64, list.items.items.len) };
     }
 
     pub const ListDef = struct {
@@ -616,7 +629,6 @@ pub const ObjList = struct {
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
-                // try parameters.put("this", obj_list);
 
                 // `value` arg is of item_type
                 try  parameters.put("value", self.item_type);
@@ -638,6 +650,28 @@ pub const ObjList = struct {
                 });
 
                 try self.methods.put("append", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "len")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyString(vm, "len"),
+                    .parameters = parameters,
+                    .return_type = obj_list
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Native = method_def
+                };
+
+                var native_type = try vm.getTypeDef(ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Native,
+                    .resolved_type = resolved_type
+                });
+
+                try self.methods.put("len", native_type);
 
                 return native_type;
             }
@@ -922,7 +956,14 @@ pub const ObjTypeDef = struct {
             },
             
             .Native => {
-                try type_str.appendSlice("Native");
+                try type_str.appendSlice("Native(");
+                
+                var ref: []u8 = try allocator.alloc(u8, 30);
+                defer allocator.free(ref);
+                ref = try std.fmt.bufPrint(ref, "{x}", .{ @ptrToInt(&self) });
+
+                try type_str.appendSlice(ref);
+                try type_str.appendSlice(")");
             }
         }
 

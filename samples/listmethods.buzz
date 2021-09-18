@@ -4,4 +4,5 @@ fun main() {
     list.append(5);
 
     print(list[4]);
+    print(list.len());
 }
