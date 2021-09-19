@@ -26,7 +26,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.buzz",
-					"match": "\\b(as|in|while|if|else|fun|constructor|return|switch|default|break|for|do|until|continue)\\b"
+					"match": "\\b(as|in|while|if|else|fun|try|catch|throw|constructor|return|switch|default|break|for|do|until|continue)\\b"
 				},
 				{
 					"name": "keyword.operator.assignment.buzz",

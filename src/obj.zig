@@ -333,6 +333,7 @@ pub const ObjClosure = struct {
     },
 
     function: *ObjFunction,
+    catch_closure: ?*ObjClosure = null,
     upvalues: std.ArrayList(*ObjUpValue),
 
     pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {

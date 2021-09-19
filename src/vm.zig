@@ -1,3 +1,4 @@
+// zig fmt: off
 const std = @import("std");
 const assert = std.debug.assert;
 usingnamespace @import("./value.zig");
@@ -34,6 +35,7 @@ pub const VM = struct {
 
     frames: std.ArrayList(CallFrame),
     frame_count: u64 = 0,
+    current_frame: *CallFrame,
 
     // TODO: put ta limit somewhere
     stack: []Value,
@@ -62,6 +64,7 @@ pub const VM = struct {
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .open_upvalues = null,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
+            .current_frame = undefined
         };
 
         self.stack_top = @ptrCast([*]Value, self.stack[0..]);
@@ -195,30 +198,30 @@ pub const VM = struct {
     }
 
     fn run(self: *Self) !InterpretResult {
-        var frame: *CallFrame = &self.frames.items[self.frame_count - 1];
+        self.current_frame = &self.frames.items[self.frame_count - 1];
 
         while (true) {
-            var instruction: OpCode = readOpCode(frame);
+            var instruction: OpCode = readOpCode(self.current_frame);
             switch(instruction) {
                 .OP_NULL => self.push(Value { .Null = null }),
                 .OP_TRUE => self.push(Value { .Boolean = true }),
                 .OP_FALSE => self.push(Value { .Boolean = false }),
                 .OP_POP => _ = self.pop(),
-                .OP_SWAP => self.swap(readByte(frame), readByte(frame)),
+                .OP_SWAP => self.swap(readByte(self.current_frame), readByte(self.current_frame)),
                 .OP_DEFINE_GLOBAL => {
-                    const slot: u8 = readByte(frame);
+                    const slot: u8 = readByte(self.current_frame);
                     try self.globals.ensureTotalCapacity(slot + 1);
                     self.globals.expandToCapacity();
                     self.globals.items[slot] = self.peek(0);
                     _ = self.pop();
                 },
-                .OP_GET_GLOBAL => self.push(self.globals.items[readByte(frame)]),
-                .OP_SET_GLOBAL => self.globals.items[readByte(frame)] = self.peek(0),
-                .OP_GET_LOCAL => self.push(frame.slots[readByte(frame)]),
-                .OP_SET_LOCAL => frame.slots[readByte(frame)] = self.peek(0),
-                .OP_GET_UPVALUE => self.push(frame.closure.upvalues.items[readByte(frame)].location.*),
-                .OP_SET_UPVALUE => frame.closure.upvalues.items[readByte(frame)].location.* = self.peek(0),
-                .OP_CONSTANT => self.push(readConstant(frame)),
+                .OP_GET_GLOBAL => self.push(self.globals.items[readByte(self.current_frame)]),
+                .OP_SET_GLOBAL => self.globals.items[readByte(self.current_frame)] = self.peek(0),
+                .OP_GET_LOCAL => self.push(self.current_frame.slots[readByte(self.current_frame)]),
+                .OP_SET_LOCAL => self.current_frame.slots[readByte(self.current_frame)] = self.peek(0),
+                .OP_GET_UPVALUE => self.push(self.current_frame.closure.upvalues.items[readByte(self.current_frame)].location.*),
+                .OP_SET_UPVALUE => self.current_frame.closure.upvalues.items[readByte(self.current_frame)].location.* = self.peek(0),
+                .OP_CONSTANT => self.push(readConstant(self.current_frame)),
                 .OP_NEGATE => {
                     if (@as(ValueType, self.peek(0)) != .Number) {
                         runtimeError("Operand must be a number.");
@@ -229,7 +232,7 @@ pub const VM = struct {
                     self.push(Value{ .Number = -self.pop().Number });
                 },
                 .OP_CLOSURE => {
-                    var function: *ObjFunction = ObjFunction.cast(readConstant(frame).Obj).?;
+                    var function: *ObjFunction = ObjFunction.cast(readConstant(self.current_frame).Obj).?;
                     var closure: *ObjClosure = ObjClosure.cast(try _obj.allocateObject(self, .Closure)).?;
                     closure.* = try ObjClosure.init(self.allocator, function);
 
@@ -237,56 +240,57 @@ pub const VM = struct {
 
                     var i: usize = 0;
                     while (i < function.upvalue_count) : (i += 1) {
-                        var is_local: bool = readByte(frame) == 1;
-                        var index: u8 = readByte(frame);
+                        var is_local: bool = readByte(self.current_frame) == 1;
+                        var index: u8 = readByte(self.current_frame);
 
                         if (is_local) {
-                            try closure.upvalues.append(try self.captureUpvalue(&(frame.slots + index)[0]));
+                            try closure.upvalues.append(try self.captureUpvalue(&(self.current_frame.slots + index)[0]));
                         } else {
-                            try closure.upvalues.append(frame.closure.upvalues.items[index]);
+                            try closure.upvalues.append(self.current_frame.closure.upvalues.items[index]);
                         }
                     }
                 },
                 .OP_CALL => {
-                    var arg_count: u8 = readByte(frame);
+                    var arg_count: u8 = readByte(self.current_frame);
                     if (!(try self.callValue(self.peek(arg_count), arg_count))) {
                         return .RuntimeError;
                     }
 
-                    frame = &self.frames.items[self.frame_count - 1];
+                    self.current_frame = &self.frames.items[self.frame_count - 1];
                 },
 
                 .OP_INVOKE => {
-                    var method: *ObjString = readString(frame);
-                    var arg_count: u8 = readByte(frame);
+                    var method: *ObjString = readString(self.current_frame);
+                    var arg_count: u8 = readByte(self.current_frame);
                     if (!try self.invoke(method, arg_count)) {
                         return .RuntimeError;
                     }
 
-                    frame = &self.frames.items[self.frame_count - 1];
+                    self.current_frame = &self.frames.items[self.frame_count - 1];
                 },
 
-                // TODO: for now, used to debug
                 .OP_RETURN => {
-                    var result: Value = self.pop();
-
-                    self.closeUpValues(&frame.slots[0]);
-
-                    self.frame_count -= 1;
-                    if (self.frame_count == 0) {
-                        _ = self.pop();
-                        return .Ok;
+                    if (try self.returnFrame()) {
+                        return  .Ok;
                     }
+                },
 
-                    self.stack_top = frame.slots;
+                .OP_THROW => {
+                    try self.throw();
+                },
 
-                    self.push(result);
-                    frame = &self.frames.items[self.frame_count - 1];
+                .OP_CATCH => {
+                    var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
+                    var catch_closure: *ObjClosure = ObjClosure.cast(self.peek(0).Obj).?;
+
+                    try_closure.catch_closure = catch_closure;
+
+                    _ = self.pop(); // Pop catch closure
                 },
 
                 .OP_LIST => {
                     var list: *ObjList = ObjList.cast(try _obj.allocateObject(self, .List)).?;
-                    list.* = ObjList.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
+                    list.* = ObjList.init(self.allocator, ObjTypeDef.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = list.toObj() });
                 },
@@ -297,8 +301,8 @@ pub const VM = struct {
                     var map: *ObjMap = ObjMap.cast(try _obj.allocateObject(self, .Map)).?;
                     map.* = ObjMap.init(
                         self.allocator,
-                        ObjTypeDef.cast(readConstant(frame).Obj).?,
-                        ObjTypeDef.cast(readConstant(frame).Obj).?
+                        ObjTypeDef.cast(readConstant(self.current_frame).Obj).?,
+                        ObjTypeDef.cast(readConstant(self.current_frame).Obj).?
                     );
 
                     self.push(Value{ .Obj = map.toObj() });
@@ -325,7 +329,7 @@ pub const VM = struct {
 
                 .OP_ENUM => {
                     var enum_: *ObjEnum = ObjEnum.cast(try _obj.allocateObject(self, .Enum)).?;
-                    enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(readConstant(frame).Obj).?);
+                    enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = enum_.toObj() });
                 },
@@ -340,7 +344,7 @@ pub const VM = struct {
                     var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(try _obj.allocateObject(self, .EnumInstance)).?;
                     enum_case.* = ObjEnumInstance{
                         .enum_ref = enum_,
-                        .case = readByte(frame),
+                        .case = readByte(self.current_frame),
                     };
 
                     self.push(Value{ .Obj = enum_case.toObj() });
@@ -355,17 +359,17 @@ pub const VM = struct {
 
                 .OP_OBJECT => {
                     var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
-                    object.* = ObjObject.init(self.allocator, ObjString.cast(readConstant(frame).Obj).?);
+                    object.* = ObjObject.init(self.allocator, ObjString.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
                 .OP_METHOD => {
-                    try self.defineMethod(readString(frame));
+                    try self.defineMethod(readString(self.current_frame));
                 },
 
                 .OP_PROPERTY => {
-                    try self.definePropertyDefaultValue(readString(frame));
+                    try self.definePropertyDefaultValue(readString(self.current_frame));
                 },
                 
                 .OP_GET_PROPERTY => {
@@ -374,7 +378,7 @@ pub const VM = struct {
                     switch (obj.obj_type) {
                         .ObjectInstance => instance: {
                             var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                            var name: *ObjString = readString(frame);
+                            var name: *ObjString = readString(self.current_frame);
 
                             if (instance.fields.get(name.string)) |field| {
                                 _ = self.pop(); // Pop instance
@@ -391,7 +395,7 @@ pub const VM = struct {
                         },
                         .List => list: {
                             var list = ObjList.cast(obj).?;
-                            var name: *ObjString = readString(frame);
+                            var name: *ObjString = readString(self.current_frame);
 
                             if (try list.member(self, name.string)) |member| {
                                 // We don't pop the list, it'll be the first argument
@@ -407,7 +411,7 @@ pub const VM = struct {
 
                 .OP_SET_PROPERTY => {
                     var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
-                    var name: *ObjString = readString(frame);
+                    var name: *ObjString = readString(self.current_frame);
 
                     // Set new value
                     try instance.fields.put(name.string, self.peek(0));
@@ -454,23 +458,23 @@ pub const VM = struct {
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
                 .OP_JUMP => {
-                    const jump = readShort(frame);
+                    const jump = readShort(self.current_frame);
 
-                    frame.ip += jump;
+                    self.current_frame.ip += jump;
                 },
 
                 .OP_JUMP_IF_FALSE => {
-                    const jump: u16 = readShort(frame);
+                    const jump: u16 = readShort(self.current_frame);
 
                     if (!self.peek(0).Boolean) {
-                        frame.ip += jump;
+                        self.current_frame.ip += jump;
                     }
                 },
 
                 .OP_LOOP => {
-                    const jump = readShort(frame);
+                    const jump = readShort(self.current_frame);
 
-                    frame.ip -= jump;
+                    self.current_frame.ip -= jump;
                 },
 
                 else => {
@@ -485,6 +489,52 @@ pub const VM = struct {
         }
 
         return InterpretResult.Ok;
+    }
+
+    fn returnFrame(self: *Self) !bool {
+        var result: Value = self.pop();
+
+        self.closeUpValues(&self.current_frame.slots[0]);
+
+        self.frame_count -= 1;
+        if (self.frame_count == 0) {
+            _ = self.pop();
+            return true;
+        }
+
+        self.stack_top = self.current_frame.slots;
+
+        self.push(result);
+        self.current_frame = &self.frames.items[self.frame_count - 1];
+
+        return false;
+    }
+
+    fn throw(self: *Self) anyerror!void {
+        var frame: *CallFrame = self.current_frame;
+
+        // Pop frame
+        self.closeUpValues(&self.current_frame.slots[0]);
+        self.frame_count -= 1;
+        if (self.frame_count == 0) {
+            // No more frames, the error is uncaught.
+            _ = self.pop();
+            runtimeError("Uncaught error.");
+        }
+        self.stack_top = self.current_frame.slots;
+        self.current_frame = &self.frames.items[self.frame_count - 1];
+
+        // Call catch closure or continue unwinding frames to find one
+        if (frame.closure.catch_closure) |catch_closure| {
+            // TODO: Push ObjError as first argument
+            if (!try self.call(catch_closure, 0)) {
+                runtimeError("Error while executing catch clause.");
+            }
+
+            self.current_frame = &self.frames.items[self.frame_count - 1];
+        } else {
+            return try self.throw();
+        }
     }
 
     fn binary(self: *Self, code: OpCode) !void {

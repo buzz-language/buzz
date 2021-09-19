@@ -1,0 +1,17 @@
+fun willThrow() {
+    print("I'm about to crash");
+    throw;
+}
+
+fun main() {
+    print("all is well");
+
+    try {
+        willThrow();
+        print("yep it is");
+    } catch {
+        print("caught you!");
+    }
+
+    willThrow();
+}

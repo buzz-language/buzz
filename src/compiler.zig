@@ -36,7 +36,8 @@ pub const FunctionType = enum {
     Function,
     Initializer,
     Method,
-    Script
+    Script,
+    TryCatch
 };
 
 pub const Local = struct {
@@ -104,7 +105,7 @@ pub const ChunkCompiler = struct {
         local.depth = 0;
         local.is_captured = false;
 
-        if (function_type != .Function and function_type != .Script) {
+        if (function_type == .Method or function_type == .Initializer) {
             var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                 .ObjectInstance = this.?
             };
@@ -234,6 +235,9 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Object
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Class
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Enum
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Throw
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Try
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Catch
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
 
@@ -975,6 +979,14 @@ pub const Compiler = struct {
             try breaks.append(try self.breakStatement());
 
             return breaks;
+        } else if (try self.match(.Try)) {
+            try self.tryCatchStatement();
+        } else if (try self.match(.Throw)) {
+            // TODO: parse error expression
+
+            try self.consume(.Semicolon, "Expected `;` after `throw.`");
+
+            try self.emitOpCode(.OP_THROW);
         } else {
             try self.expressionStatement(hanging);
         }
@@ -1158,43 +1170,47 @@ pub const Compiler = struct {
         return breaks;
     }
 
-    fn function(self: *Self, name: Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
+    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
         try ChunkCompiler.init(self, function_type, null, this);
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
 
-        try self.consume(.LeftParen, "Expected `(` after function name.");
+        var parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null;
 
-        var parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
-        var arity: usize = 0;
-        if (!self.check(.RightParen)) {
-            while (true) {
-                arity += 1;
-                if (arity > 255) {
-                    try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+        if (function_type != .TryCatch) {
+            try self.consume(.LeftParen, "Expected `(` after function name.");
+
+            parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+            var arity: usize = 0;
+            if (!self.check(.RightParen)) {
+                while (true) {
+                    arity += 1;
+                    if (arity > 255) {
+                        try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                    }
+
+                    var param_type: *ObjTypeDef = try self.parseTypeDef();
+                    var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
+
+                    if (self.current.?.scope_depth > 0) {
+                        var local: Local = self.current.?.locals[slot];
+                        try parameters.?.put(local.name.string, local.type_def);
+                    } else {
+                        var global: Global = self.globals.items[slot];
+                        try parameters.?.put(global.name.string, global.type_def);
+                    }
+
+                    try self.defineGlobalVariable(@intCast(u8, slot));
+
+                    if (!try self.match(.Comma)) break;
                 }
-
-                var param_type: *ObjTypeDef = try self.parseTypeDef();
-                var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
-
-                if (self.current.?.scope_depth > 0) {
-                    var local: Local = self.current.?.locals[slot];
-                    try parameters.put(local.name.string, local.type_def);
-                } else {
-                    var global: Global = self.globals.items[slot];
-                    try parameters.put(global.name.string, global.type_def);
-                }
-
-                try self.defineGlobalVariable(@intCast(u8, slot));
-
-                if (!try self.match(.Comma)) break;
             }
-        }
 
-        try self.consume(.RightParen, "Expected `)` after function parameters.");
+            try self.consume(.RightParen, "Expected `)` after function parameters.");
+        }
         
         var return_type: *ObjTypeDef = undefined;
-        if (try self.match(.Greater)) {
+        if (function_type != .TryCatch and try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
             return_type = try self.vm.getTypeDef(
@@ -1226,9 +1242,9 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = try _obj.copyString(self.vm, name.lexeme),
+            .name = if (name) |uname| try _obj.copyString(self.vm, uname.lexeme) else try _obj.copyString(self.vm, "anonymous"),
             .return_type = return_type,
-            .parameters = parameters,
+            .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator),
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -1391,6 +1407,21 @@ pub const Compiler = struct {
         }
 
         return null;
+    }
+
+    fn tryCatchStatement(self: *Self) !void {
+        // Try block
+        _ = try self.function(null, .TryCatch, null);
+
+        try self.consume(.Catch, "Expected `catch` statement after `try` block");
+
+        // Catch block
+        _ = try self.function(null, .TryCatch, null);
+
+        try self.emitOpCode(.OP_CATCH);
+
+        // Call try clause immediately
+        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
     }
 
     fn funDeclaration(self: *Self) !void {

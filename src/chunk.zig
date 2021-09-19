@@ -56,6 +56,8 @@ pub const OpCode = enum(u8) {
     OP_CLOSURE,
     OP_CLOSE_UPVALUE,
 
+    OP_THROW,
+    OP_CATCH,
     OP_RETURN,
 
     OP_CLASS,
