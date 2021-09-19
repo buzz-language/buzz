@@ -285,7 +285,9 @@ pub const VM = struct {
                 },
 
                 .OP_THROW => {
-                    try self.throw(null);
+                    var message: *ObjString = ObjString.cast(self.peek(0).Obj).?;
+
+                    try self.throw(message.string, null);
                 },
 
                 .OP_CATCH => {
@@ -519,7 +521,7 @@ pub const VM = struct {
         return false;
     }
 
-    fn throw(self: *Self, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
+    fn throw(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
         var frame: *CallFrame = self.current_frame;
@@ -532,7 +534,7 @@ pub const VM = struct {
             // No more frames, the error is uncaught.
             _ = self.pop();
             
-            try self.runtimeError("Uncaught error.", stack);
+            try self.runtimeError(message, stack);
         }
         self.stack_top = self.current_frame.slots;
         self.current_frame = &self.frames.items[self.frame_count - 1];
@@ -547,7 +549,7 @@ pub const VM = struct {
 
             self.current_frame = &self.frames.items[self.frame_count - 1];
         } else {
-            return try self.throw(stack);
+            return try self.throw(message, stack);
         }
     }
 
@@ -886,7 +888,7 @@ pub const VM = struct {
     fn runtimeError(self: *Self, error_message: []const u8, call_stack: ?std.ArrayList(CallFrame)) !void {
         var stack = call_stack orelse (try invertedList(CallFrame, self.frames));
 
-        std.debug.warn("\n\u{001b}[31m{s}\u{001b}[0m\n", .{ error_message });
+        std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ error_message });
 
         for (stack.items) |frame| {
             std.debug.warn("\tat {s}\n", .{ frame.closure.function.name.string });

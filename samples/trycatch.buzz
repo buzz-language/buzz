@@ -1,6 +1,6 @@
 fun willThrow() {
     print("I'm about to crash");
-    throw;
+    throw "me around!";
 }
 
 fun main() {

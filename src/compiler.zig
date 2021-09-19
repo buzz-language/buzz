@@ -966,7 +966,19 @@ pub const Compiler = struct {
         } else if (try self.match(.Try)) {
             try self.tryCatchStatement();
         } else if (try self.match(.Throw)) {
-            // TODO: parse error expression
+            if (!self.check(.Semicolon)) {
+                // TODO: When we have Error objects hierarchy, parse an instance of Error
+                var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                if (parsed_type.def_type != .String) {
+                    try self.reportError("Expected string after `throw`.");
+                }
+            } else {
+                try self.emitBytes(
+                    @enumToInt(OpCode.OP_CONSTANT),
+                    try self.makeConstant(Value{ .Obj = (try copyString(self.vm, "uncaught error")).toObj() })
+                );
+            }
 
             try self.consume(.Semicolon, "Expected `;` after `throw.`");
 

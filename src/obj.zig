@@ -26,6 +26,7 @@ pub const ObjType = enum {
     EnumInstance,
     Bound,
     Native,
+    Error,
 };
 
 pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
@@ -145,6 +146,13 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
 
             break :native &obj.obj;
         },
+        .Error => err: {
+            size = @sizeOf(*ObjError);
+            var obj: *ObjError = try memory.allocate(vm, ObjError);
+            obj.obj.obj_type = .Error;
+
+            break :err &obj.obj;
+        },
     };
 
     // Add new object at start of vm.objects linked list
@@ -202,7 +210,7 @@ pub const Obj = struct {
             .String => {
                 // return mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string);
                 
-                // since string are intern this should be enough
+                // since string are interned this should be enough
                 return self == other;
             },
             .Type => {
@@ -226,7 +234,8 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .EnumInstance,
-            .Native => {
+            .Native,
+            .Error => {
                 return self == other;
             },
         }
@@ -251,6 +260,29 @@ pub const ObjNative = struct {
 
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Native) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
+    }
+};
+
+pub const ObjError = struct {
+    const Self = @This();
+
+    obj: Obj = .{
+        .obj_type = .Error
+    },
+
+    message: *ObjString,
+    // payload: *ObjObjectInstance // TODO: Instance of `Error`
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .Error) {
             return null;
         }
 
@@ -1150,6 +1182,11 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             var native: *ObjNative = ObjNative.cast(obj).?;
 
             return try std.fmt.bufPrint(buf, "native: 0x{x}", .{ @ptrToInt(native) });
+        },
+        .Error => {
+            var err: *ObjError = ObjError.cast(obj).?;
+
+            return try std.fmt.bufPrint(buf, "err: 0x{x} `{s}`", .{ @ptrToInt(err), err.message.string });
         }
     };
 }
