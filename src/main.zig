@@ -19,14 +19,14 @@ fn repl() !void {
         _ = try std.io.getStdIn().read(line[0..]);
 
         if (line.len > 0) {
-            if (try compiler.compile(line[0..], "<repl>")) |function| {
+            if (try compiler.compile(line[0..], "<repl>", false)) |function| {
                 _ = try vm.interpret(function);
             }
         }
     }
 }
 
-fn runFile(file_name: []const u8) !void {
+fn runFile(file_name: []const u8, testing: bool) !void {
     var vm = try VM.init(std.heap.c_allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
@@ -45,7 +45,7 @@ fn runFile(file_name: []const u8) !void {
     
     _ = try file.readAll(source);
 
-    if (try compiler.compile(source, file_name)) |function| {
+    if (try compiler.compile(source, file_name, testing)) |function| {
         _ = try vm.interpret(function);
     }
 }
@@ -54,11 +54,17 @@ pub fn main() !void {
     var arg_it = try std.process.argsAlloc(std.heap.c_allocator);
     defer std.process.argsFree(std.heap.c_allocator, arg_it);
 
+    // TODO: use https://github.com/Hejsil/zig-clap
+    var testing: bool = false;
     for (arg_it) |arg, index| {
         if (index > 0) {
-            try runFile(arg);
+            if (index == 1 and std.mem.eql(u8, arg, "test")) {
+                testing = true;
+            } else {
+                try runFile(arg, testing);
 
-            return;
+                return;
+            }
         }
     }
 

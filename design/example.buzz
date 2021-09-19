@@ -216,3 +216,8 @@ class MyOtherClass < MyClass { | MyOtherClass inherits from MyClass
         print(this.name);
     }
 }
+
+| Sugar syntax for a function that replaces `main` as an entry point when your run `buzz test ...buzz`
+test {
+    assert(false, "something is not quite right");
+}

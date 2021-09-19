@@ -21,7 +21,8 @@ pub const FunctionType = enum {
     Initializer,
     Method,
     Script,
-    TryCatch
+    TryCatch,
+    Test,
 };
 
 pub const Local = struct {
@@ -222,6 +223,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Throw
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Try
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Catch
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Test
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
 
@@ -237,6 +239,9 @@ pub const Compiler = struct {
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
 
+    /// If true, will search for a `test` entry point instead of `main`
+    testing: bool = false,
+
     pub fn init(vm: *VM) Self {
         return .{
             .vm = vm,
@@ -250,7 +255,9 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8) !?*ObjFunction {
+    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool) !?*ObjFunction {
+        self.testing = testing;
+
         if (self.scanner != null) {
             self.scanner = null;
         }
@@ -747,7 +754,8 @@ pub const Compiler = struct {
             // If top level, search `main` function and call it, otherwise just return null
             // If user returned something that code won't be reachable
             for (self.globals.items) |global, index| {
-                if (mem.eql(u8, global.name.string, "main")) {
+                if ((!self.testing and mem.eql(u8, global.name.string, "main"))
+                    or (self.testing and mem.eql(u8, global.name.string, "$test"))) {
                     // TODO: Somehow push cli args on the stack
                     try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
                     try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
@@ -813,6 +821,8 @@ pub const Compiler = struct {
             try self.listDeclaration();
         } else if (try self.match(.LeftBrace)) {
             try self.mapDeclaration();
+        } else if (try self.match(.Test)) {
+            try self.testStatement();
         } else if (try self.match(.Function)) {
             // self.funVarDeclaraction();
             unreachable;
@@ -1173,7 +1183,7 @@ pub const Compiler = struct {
 
         var parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null;
 
-        if (function_type != .TryCatch) {
+        if (function_type != .TryCatch and function_type != .Test) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
             parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
@@ -1203,10 +1213,14 @@ pub const Compiler = struct {
             }
 
             try self.consume(.RightParen, "Expected `)` after function parameters.");
+        } else if (function_type == .Test) {
+            try self.consume(.String, "Expected `str` after `test`.");
+            _ = try self.string(false);
+            try self.emitOpCode(.OP_PRINT);
         }
         
         var return_type: *ObjTypeDef = undefined;
-        if (function_type != .TryCatch and try self.match(.Greater)) {
+        if (function_type != .TryCatch and function_type != .Test and try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
             return_type = try self.vm.getTypeDef(
@@ -1403,6 +1417,29 @@ pub const Compiler = struct {
         }
 
         return null;
+    }
+
+    // `test` is just like a function but we don't parse arguments and we don't care about its return type
+    fn testStatement(self: *Self) !void {
+        var function_def_placeholder: ObjTypeDef = .{
+            .optional = false,
+            .def_type = .Function,
+        };
+
+        const name_token: Token = Token{
+            .token_type = .Test,
+            .lexeme = "$test",
+            .line = 0,
+            .column = 0,
+        };
+
+        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token);
+
+        self.markInitialized();
+
+        _ = try self.function(name_token, FunctionType.Test, null);
+
+        try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
     fn tryCatchStatement(self: *Self) !void {
