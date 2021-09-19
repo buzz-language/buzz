@@ -9,6 +9,16 @@ const Allocator = std.mem.Allocator;
 // TODO: usingnamespace ?
 usingnamespace @import("./obj.zig");
 
+fn invertedList(comptime T: type, list: std.ArrayList(T)) !std.ArrayList(T) {
+    var inverted = try std.ArrayList(T).initCapacity(list.allocator, list.items.len);
+
+    for (list.items) |item| {
+        try inverted.insert(0, item);
+    }
+
+    return inverted;
+}
+
 pub const CallFrame = struct {
     closure: *ObjClosure,
     // Index into closure's chunk
@@ -223,7 +233,7 @@ pub const VM = struct {
                 .OP_CONSTANT => self.push(self.readConstant()),
                 .OP_NEGATE => {
                     if (@as(ValueType, self.peek(0)) != .Number) {
-                        runtimeError("Operand must be a number.");
+                        try self.runtimeError("Operand must be a number.", null);
 
                         return .RuntimeError;
                     }
@@ -275,7 +285,7 @@ pub const VM = struct {
                 },
 
                 .OP_THROW => {
-                    try self.throw();
+                    try self.throw(null);
                 },
 
                 .OP_CATCH => {
@@ -401,7 +411,7 @@ pub const VM = struct {
                                 self.push(Value{ .Obj = member.toObj() });
                                 break :list;
                             } else {
-                                runtimeError("Property doesn't exists");
+                                try self.runtimeError("Property doesn't exists", null);
                             }
                         },
                         else => unreachable
@@ -509,8 +519,11 @@ pub const VM = struct {
         return false;
     }
 
-    fn throw(self: *Self) anyerror!void {
+    fn throw(self: *Self, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
+        var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
+
         var frame: *CallFrame = self.current_frame;
+        try stack.append(frame.*);
 
         // Pop frame
         self.closeUpValues(&self.current_frame.slots[0]);
@@ -518,21 +531,23 @@ pub const VM = struct {
         if (self.frame_count == 0) {
             // No more frames, the error is uncaught.
             _ = self.pop();
-            runtimeError("Uncaught error.");
+            
+            try self.runtimeError("Uncaught error.", stack);
         }
         self.stack_top = self.current_frame.slots;
         self.current_frame = &self.frames.items[self.frame_count - 1];
 
         // Call catch closure or continue unwinding frames to find one
         if (frame.closure.catch_closure) |catch_closure| {
+            stack.deinit();
             // TODO: Push ObjError as first argument
             if (!try self.call(catch_closure, 0)) {
-                runtimeError("Error while executing catch clause.");
+                try self.runtimeError("Error while executing catch clause.", null);
             }
 
             self.current_frame = &self.frames.items[self.frame_count - 1];
         } else {
-            return try self.throw();
+            return try self.throw(stack);
         }
     }
 
@@ -677,7 +692,7 @@ pub const VM = struct {
         if (initializer) |uinit| {
             return try self.call(uinit, arg_count);
         } else if (arg_count != 0) {
-            runtimeError("Expected 0 arguments.");
+            try self.runtimeError("Expected 0 arguments.", null);
             return false;
         }
 
@@ -688,7 +703,7 @@ pub const VM = struct {
         if (object.methods.get(name.string)) |method| {
             return self.call(method, arg_count);
         } else {
-            runtimeError("Undefined property.");
+            try self.runtimeError("Undefined property.", null);
             return false;
         }
     }
@@ -793,7 +808,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                runtimeError("Out of bound list access.");
+                try self.runtimeError("Out of bound list access.", null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -808,7 +823,7 @@ pub const VM = struct {
                 // Push value
                 self.push(list_item);
             } else {
-                runtimeError("Out of bound list access.");
+                try self.runtimeError("Out of bound list access.", null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -835,7 +850,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                runtimeError("Out of bound list access.");
+                try self.runtimeError("Out of bound list access.", null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -851,7 +866,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                runtimeError("Out of bound list access.");
+                try self.runtimeError("Out of bound list access.", null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -868,9 +883,14 @@ pub const VM = struct {
         }
     }
 
-    fn runtimeError(error_message: []const u8) void {
-        // TODO
-        std.debug.warn("\u{001b}[31m{s}\u{001b}[0m\n", .{ error_message });
+    fn runtimeError(self: *Self, error_message: []const u8, call_stack: ?std.ArrayList(CallFrame)) !void {
+        var stack = call_stack orelse (try invertedList(CallFrame, self.frames));
+
+        std.debug.warn("\n\u{001b}[31m{s}\u{001b}[0m\n", .{ error_message });
+
+        for (stack.items) |frame| {
+            std.debug.warn("\tat {s}\n", .{ frame.closure.function.name.string });
+        }
 
         std.os.exit(1);
     }

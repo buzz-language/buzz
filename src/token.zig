@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 
+// WARNING: don't reorder without reordering `rules` in compiler.zig
 pub const TokenType = enum {
     Pipe,             // |
     LeftBracket,      // [
