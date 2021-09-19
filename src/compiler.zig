@@ -4,29 +4,13 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
-const _chunk = @import("./chunk.zig");
-const _obj = @import("./obj.zig");
-const _token = @import("./token.zig");
-const _vm = @import("./vm.zig");
-const _value = @import("./value.zig");
-const _scanner = @import("./scanner.zig");
-const disassembler = @import("./disassembler.zig");
-
-const VM = _vm.VM;
-const OpCode = _chunk.OpCode;
-const ObjFunction = _obj.ObjFunction;
-const ObjTypeDef = _obj.ObjTypeDef;
-const ObjString = _obj.ObjString;
-const ObjList = _obj.ObjList;
-const ObjMap = _obj.ObjMap;
-const ObjObject = _obj.ObjObject;
-const ObjEnum = _obj.ObjEnum;
-const PlaceholderDef = _obj.PlaceholderDef;
-const Token = _token.Token;
-const TokenType = _token.TokenType;
-const Scanner = _scanner.Scanner;
-const SourceLocation = _scanner.SourceLocation;
-const Value = _value.Value;
+usingnamespace @import("./chunk.zig");
+usingnamespace @import("./obj.zig");
+usingnamespace @import("./token.zig");
+usingnamespace @import("./vm.zig");
+usingnamespace @import("./value.zig");
+usingnamespace @import("./scanner.zig");
+usingnamespace @import("./disassembler.zig");
 
 const CompileError = error {
     Unrecoverable
@@ -81,15 +65,15 @@ pub const ChunkCompiler = struct {
             .upvalues = [_]UpValue{undefined} ** 255,
             .enclosing = compiler.current,
             .function_type = function_type,
-            .function = ObjFunction.cast(try _obj.allocateObject(compiler.vm, .Function)).?,
+            .function = ObjFunction.cast(try allocateObject(compiler.vm, .Function)).?,
         };
 
-        var file_name_string: ?*ObjString = if (file_name) |name| try _obj.copyString(compiler.vm, name) else null;
+        var file_name_string: ?*ObjString = if (file_name) |name| try copyString(compiler.vm, name) else null;
 
         self.function.* = try ObjFunction.init(compiler.vm.allocator, if (function_type != .Script)
-            try _obj.copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
+            try copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
         else
-            file_name_string orelse try _obj.copyString(compiler.vm, VM.script_string),
+            file_name_string orelse try copyString(compiler.vm, VM.script_string),
 
         try compiler.vm.getTypeDef(.{
             .def_type = .Void,
@@ -122,7 +106,7 @@ pub const ChunkCompiler = struct {
             });
         }
 
-        local.name = try _obj.copyString(compiler.vm, if (function_type != .Function) VM.this_string else VM.empty_string);
+        local.name = try copyString(compiler.vm, if (function_type != .Function) VM.this_string else VM.empty_string);
     }
 
     pub fn getRootCompiler(self: *Self) *Self {
@@ -935,7 +919,7 @@ pub const Compiler = struct {
                         .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                     };
 
-                    placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+                    placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
 
                     var_type = try self.vm.getTypeDef(.{
                         .optional = try self.match(.Question),
@@ -1096,7 +1080,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
 
                 var_type = try self.vm.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -1242,7 +1226,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try _obj.copyString(self.vm, uname.lexeme) else try _obj.copyString(self.vm, "anonymous"),
+            .name = if (name) |uname| try copyString(self.vm, uname.lexeme) else try copyString(self.vm, "anonymous"),
             .return_type = return_type,
             .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator),
         };
@@ -1350,7 +1334,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
 
                 var_type = try self.vm.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -1596,14 +1580,14 @@ pub const Compiler = struct {
             }
         }
 
-        var enum_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
+        var enum_type: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
         enum_type.* = .{
             .optional = false,
             .def_type = .Enum,
             .resolved_type = .{
                 .Enum = ObjEnum.EnumDef.init(
                     self.vm.allocator,
-                    try _obj.copyString(self.vm, enum_name.lexeme),
+                    try copyString(self.vm, enum_name.lexeme),
                     enum_case_type,
                 ),
             }
@@ -1694,14 +1678,14 @@ pub const Compiler = struct {
             }
         }
 
-        var object_type: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self.vm, .Type)).?;
+        var object_type: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
         object_type.* = .{
             .optional = false,
             .def_type = .Object,
             .resolved_type = .{
                 .Object = ObjObject.ObjectDef.init(
                     self.vm.allocator,
-                    try _obj.copyString(self.vm, object_name.lexeme)
+                    try copyString(self.vm, object_name.lexeme)
                 ),
             }
         };
@@ -1934,7 +1918,7 @@ pub const Compiler = struct {
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
             .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
         };
-        placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, name.lexeme);
+        placeholder_resolved_type.Placeholder.name = try copyString(self.vm, name.lexeme);
 
         const placeholder_type = try self.vm.getTypeDef(.{
             .optional = false,
@@ -2239,7 +2223,7 @@ pub const Compiler = struct {
 
     fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
         try self.emitConstant(Value {
-            .Obj = (try _obj.copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
+            .Obj = (try copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
         });
 
         return try self.vm.getTypeDef(.{
@@ -3014,7 +2998,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try _obj.copyString(self.vm, member_name);
+                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, member_name);
 
                 var placeholder = try self.vm.getTypeDef(.{
                     .optional = false,
@@ -3300,7 +3284,7 @@ pub const Compiler = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = try _obj.copyString(self.vm, name.lexeme),
+            .name = try copyString(self.vm, name.lexeme),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -3329,7 +3313,7 @@ pub const Compiler = struct {
         }
 
         try self.globals.append(Global{
-            .name = try _obj.copyString(self.vm, name.lexeme),
+            .name = try copyString(self.vm, name.lexeme),
             .type_def = global_type,
         });
 
@@ -3495,7 +3479,7 @@ pub const Compiler = struct {
 
     fn makeConstant(self: *Self, value: Value) !u8 {
         var constant: u8 = try self.current.?.function.chunk.addConstant(self.vm, value);
-        if (constant > _chunk.Chunk.max_constants) {
+        if (constant > Chunk.max_constants) {
             try self.reportError("Too many constants in one chunk.");
             return 0;
         }
@@ -3504,6 +3488,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: Token) !u8 {
-        return try self.makeConstant(Value{ .Obj = (try _obj.copyString(self.vm, name.lexeme)).toObj() });
+        return try self.makeConstant(Value{ .Obj = (try copyString(self.vm, name.lexeme)).toObj() });
     }
 };

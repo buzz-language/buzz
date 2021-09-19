@@ -2,13 +2,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
 usingnamespace @import("./value.zig");
-const _obj = @import("./obj.zig");
-const _chunk = @import("./chunk.zig");
-const disassembler = @import("./disassembler.zig");
+usingnamespace @import("./obj.zig");
+usingnamespace @import("./chunk.zig");
+usingnamespace @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
 // TODO: usingnamespace ?
 usingnamespace @import("./obj.zig");
-const OpCode = _chunk.OpCode;
 
 pub const CallFrame = struct {
     closure: *ObjClosure,
@@ -99,7 +98,7 @@ pub const VM = struct {
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         // Don't intern placeholders
         if (type_def.def_type == .Placeholder) {
-            var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self, .Type)).?;
+            var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self, .Type)).?;
             type_def_ptr.* = type_def;
             return type_def_ptr;
         }
@@ -111,7 +110,7 @@ pub const VM = struct {
             return type_def_ptr;
         }
 
-        var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try _obj.allocateObject(self, .Type)).?;
+        var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self, .Type)).?;
         type_def_ptr.* = type_def;
 
         _ = try self.type_defs.put(type_def_str, type_def_ptr);
@@ -233,7 +232,7 @@ pub const VM = struct {
                 },
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(readConstant(self.current_frame).Obj).?;
-                    var closure: *ObjClosure = ObjClosure.cast(try _obj.allocateObject(self, .Closure)).?;
+                    var closure: *ObjClosure = ObjClosure.cast(try allocateObject(self, .Closure)).?;
                     closure.* = try ObjClosure.init(self.allocator, function);
 
                     self.push(Value{ .Obj = closure.toObj() });
@@ -289,7 +288,7 @@ pub const VM = struct {
                 },
 
                 .OP_LIST => {
-                    var list: *ObjList = ObjList.cast(try _obj.allocateObject(self, .List)).?;
+                    var list: *ObjList = ObjList.cast(try allocateObject(self, .List)).?;
                     list.* = ObjList.init(self.allocator, ObjTypeDef.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = list.toObj() });
@@ -298,7 +297,7 @@ pub const VM = struct {
                 .OP_LIST_APPEND => try self.appendToList(),
 
                 .OP_MAP => {
-                    var map: *ObjMap = ObjMap.cast(try _obj.allocateObject(self, .Map)).?;
+                    var map: *ObjMap = ObjMap.cast(try allocateObject(self, .Map)).?;
                     map.* = ObjMap.init(
                         self.allocator,
                         ObjTypeDef.cast(readConstant(self.current_frame).Obj).?,
@@ -328,7 +327,7 @@ pub const VM = struct {
                 },
 
                 .OP_ENUM => {
-                    var enum_: *ObjEnum = ObjEnum.cast(try _obj.allocateObject(self, .Enum)).?;
+                    var enum_: *ObjEnum = ObjEnum.cast(try allocateObject(self, .Enum)).?;
                     enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = enum_.toObj() });
@@ -341,7 +340,7 @@ pub const VM = struct {
 
                     _ = self.pop();
                     
-                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(try _obj.allocateObject(self, .EnumInstance)).?;
+                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(try allocateObject(self, .EnumInstance)).?;
                     enum_case.* = ObjEnumInstance{
                         .enum_ref = enum_,
                         .case = readByte(self.current_frame),
@@ -358,7 +357,7 @@ pub const VM = struct {
                 },
 
                 .OP_OBJECT => {
-                    var object: *ObjObject = ObjObject.cast(try _obj.allocateObject(self, .Object)).?;
+                    var object: *ObjObject = ObjObject.cast(try allocateObject(self, .Object)).?;
                     object.* = ObjObject.init(self.allocator, ObjString.cast(readConstant(self.current_frame).Obj).?);
 
                     self.push(Value{ .Obj = object.toObj() });
@@ -609,7 +608,7 @@ pub const VM = struct {
 
         self.frame_count += 1;
 
-        try disassembler.disassembleChunk(
+        try disassembleChunk(
             &frame.closure.function.chunk,
             frame.closure.function.name.string
         );
@@ -628,7 +627,7 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: *ObjClosure) !void {
-        var bound: *ObjBoundMethod = ObjBoundMethod.cast(try _obj.allocateObject(self, .Bound)).?;
+        var bound: *ObjBoundMethod = ObjBoundMethod.cast(try allocateObject(self, .Bound)).?;
         bound.* = .{
             .receiver = self.peek(0),
             .closure = method,
@@ -661,7 +660,7 @@ pub const VM = struct {
     }
 
     fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !bool {
-        var instance: *ObjObjectInstance = ObjObjectInstance.cast(try _obj.allocateObject(self, .ObjectInstance)).?;
+        var instance: *ObjObjectInstance = ObjObjectInstance.cast(try allocateObject(self, .ObjectInstance)).?;
         instance.* = ObjObjectInstance.init(self.allocator, object);
 
         // Set instance fields with default values
@@ -737,7 +736,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *ObjUpValue = ObjUpValue.cast(try _obj.allocateObject(self, .UpValue)).?;
+        var created_upvalue: *ObjUpValue = ObjUpValue.cast(try allocateObject(self, .UpValue)).?;
         created_upvalue.* = ObjUpValue.init(local);
         created_upvalue.next = upvalue;
 
