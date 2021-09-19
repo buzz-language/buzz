@@ -1,0 +1,9 @@
+fun assert(bool condition, str message) {
+    if (!condition) {
+        throw message;
+    }
+}
+
+fun main() {
+    assert("hello" != "hello", message: "wat?");
+}
