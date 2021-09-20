@@ -241,6 +241,7 @@ pub const Compiler = struct {
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
+    test_count: u64 = 0,
 
     pub fn init(vm: *VM) Self {
         return .{
@@ -753,12 +754,21 @@ pub const Compiler = struct {
         } else if (self.current.?.function_type == .Script) {
             // If top level, search `main` function and call it, otherwise just return null
             // If user returned something that code won't be reachable
-            for (self.globals.items) |global, index| {
-                if ((!self.testing and mem.eql(u8, global.name.string, "main"))
-                    or (self.testing and mem.eql(u8, global.name.string, "$test"))) {
-                    // TODO: Somehow push cli args on the stack
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
-                    try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+            if (!self.testing) {
+                for (self.globals.items) |global, index| {
+                    if (mem.eql(u8, global.name.string, "main")) {
+                        // TODO: Somehow push cli args on the stack
+                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                    }
+                }
+            } else {
+                // Create an entry point wich runs all `test`
+                for (self.globals.items) |global, index| {
+                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test")) {
+                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                    }
                 }
             }
         } else {
@@ -1426,9 +1436,14 @@ pub const Compiler = struct {
             .def_type = .Function,
         };
 
+        var test_id: []u8 = try self.vm.allocator.alloc(u8, 11);
+        test_id = try std.fmt.bufPrint(test_id, "$test#{}", .{ self.test_count });
+
+        self.test_count += 1;
+
         const name_token: Token = Token{
             .token_type = .Test,
-            .lexeme = "$test",
+            .lexeme = test_id,
             .line = 0,
             .column = 0,
         };

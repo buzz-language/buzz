@@ -11,12 +11,14 @@ const OpCode = _chunk.OpCode;
 const ObjFunction = _obj.ObjFunction;
 
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
+    print("\u{001b}[2m", .{}); // Dimmed
     print("=== {s} ===\n", .{ name });
 
     var offset: usize = 0;
     while (offset < chunk.code.items.len) {
         offset = try disassembleInstruction(chunk, offset);
     }
+    print("\u{001b}[0m", .{});
 }
 
 fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {

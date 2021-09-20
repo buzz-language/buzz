@@ -11,9 +11,12 @@ fun main() {
 test "Numbers are sometimes even, sometimes odd!" {
     assert(isEven(2), message: "2 is even");
     assert(!isEven(3), message: "3 is odd");
-    assert(isEven(5), message: "5 is odd");
 }
 
 fun isEven(num n) > bool {
     return n % 2 == 0;
+}
+
+test "Another test block" {
+    assert(isEven(5), message: "5 is odd");
 }
