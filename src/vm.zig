@@ -631,13 +631,13 @@ pub const VM = struct {
 
         self.frame_count += 1;
 
-        if (builtin.mode == .Debug) {
-            try disassembleChunk(
-                &frame.closure.function.chunk,
-                frame.closure.function.name.string
-            );
-            std.debug.print("\n\n", .{});
-        }
+        // if (builtin.mode == .Debug) {
+        //     try disassembleChunk(
+        //         &frame.closure.function.chunk,
+        //         frame.closure.function.name.string
+        //     );
+        //     std.debug.print("\n\n", .{});
+        // }
 
         return true;
     }

@@ -4,7 +4,7 @@ fun assert(bool condition, str message) {
     }
 }
 
-test "`if` statement" {
+test "if statement" {
     if (2 > 1) {
         assert(true, message: "if");
     } else {
@@ -18,7 +18,7 @@ test "`if` statement" {
     }
 }
 
-test "`while` statement" {
+test "while statement" {
     num i = 0;
     while (i < 10) {
         i = i + 1;
@@ -27,7 +27,7 @@ test "`while` statement" {
     assert(i == 10, message: "while");
 }
 
-test "`do`-`until` statement" {
+test "do-until statement" {
     num i = 10;
     while (i > 0) {
         i = i - 1;
@@ -36,7 +36,7 @@ test "`do`-`until` statement" {
     assert(i == 0, message: "do until");
 }
 
-test "`break` statement" {
+test "break statement" {
     num i = 0;
     while (i < 10) {
         i = i + 1;

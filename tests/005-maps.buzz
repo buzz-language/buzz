@@ -1,0 +1,17 @@
+fun assert(bool condition, str message) {
+    if (!condition) {
+        throw message;
+    }
+}
+
+test "Maps" {
+    {str, num} map = {
+        "hello": 1,
+        "bye": 2,
+    };
+
+    <num, bool>{1: true, 2: false};
+
+    assert(map["bye"] == 2, message: "map subscript");
+    assert((<num, bool>{1: true, 2: false})[2] == false, message: "map expression subscript");
+}

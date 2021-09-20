@@ -771,6 +771,8 @@ pub const Compiler = struct {
                         try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
                     }
                 }
+
+                // TODO: print "X/X tests passed"
             }
         } else {
             try self.emitOpCode(.OP_NULL);
