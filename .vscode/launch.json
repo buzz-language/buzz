@@ -10,7 +10,8 @@
             "name": "Debug",
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
-                "samples/assert.buzz"
+                "test",
+                "tests/003-control-flow.buzz"
             ],
             "cwd": "${workspaceFolder}"
         },

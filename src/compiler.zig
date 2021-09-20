@@ -1876,12 +1876,12 @@ pub const Compiler = struct {
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
 
+        try self.emitOpCode(.OP_POP);
+
         // Patch breaks
         for (breaks.items) |jump| {
             try self.patchJump(jump);
         }
-
-        try self.emitOpCode(.OP_POP);
     }
 
     fn doUntilStatement(self: *Self) !void {

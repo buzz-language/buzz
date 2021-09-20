@@ -498,10 +498,10 @@ pub const VM = struct {
                 }
             }
 
-            if (builtin.mode == .Debug) {
-                std.debug.warn("{}\n", .{instruction});
-                try dumpStack(self);
-            }
+            // if (builtin.mode == .Debug) {
+            //     std.debug.warn("{}\n", .{instruction});
+            //     try dumpStack(self);
+            // }
         }
 
         return InterpretResult.Ok;
