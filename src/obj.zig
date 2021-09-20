@@ -691,7 +691,10 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(vm, "len"),
                     .parameters = parameters,
-                    .return_type = obj_list
+                    .return_type = try vm.getTypeDef(ObjTypeDef{
+                        .optional = false,
+                        .def_type = .Number,
+                    })
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{
