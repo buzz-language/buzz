@@ -21,6 +21,16 @@
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug Tests",
+            "program": "${workspaceFolder}/zig-out/bin/test",
+            "args": [
+                "/usr/local/bin/zig"
+            ],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

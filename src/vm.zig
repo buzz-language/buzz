@@ -1,5 +1,6 @@
 // zig fmt: off
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 usingnamespace @import("./value.zig");
 usingnamespace @import("./obj.zig");
@@ -497,8 +498,10 @@ pub const VM = struct {
                 }
             }
 
-            // std.debug.warn("{}\n", .{instruction});
-            // try disassembler.dumpStack(self);
+            if (builtin.mode == .Debug) {
+                std.debug.warn("{}\n", .{instruction});
+                try dumpStack(self);
+            }
         }
 
         return InterpretResult.Ok;
@@ -628,11 +631,13 @@ pub const VM = struct {
 
         self.frame_count += 1;
 
-        try disassembleChunk(
-            &frame.closure.function.chunk,
-            frame.closure.function.name.string
-        );
-        std.debug.print("\n\n", .{});
+        if (builtin.mode == .Debug) {
+            try disassembleChunk(
+                &frame.closure.function.chunk,
+                frame.closure.function.name.string
+            );
+            std.debug.print("\n\n", .{});
+        }
 
         return true;
     }

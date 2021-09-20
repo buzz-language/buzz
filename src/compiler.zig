@@ -1,5 +1,6 @@
 // zig fmt: off
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
@@ -1994,15 +1995,17 @@ pub const Compiler = struct {
         // markInitialized but we don't care what depth we are in
         self.globals.items[global].initialized = true;
 
-        std.debug.warn(
-            "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
-            .{
-                self.parser.previous_token.?.line + 1,
-                self.parser.previous_token.?.column + 1,
-                name.lexeme,
-                global
-            }
-        );
+        if (builtin.mode == .Debug) {
+            std.debug.warn(
+                "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
+                .{
+                    self.parser.previous_token.?.line + 1,
+                    self.parser.previous_token.?.column + 1,
+                    name.lexeme,
+                    global
+                }
+            );
+        }
 
         try self.defineGlobalVariable(@intCast(u8, global));
 

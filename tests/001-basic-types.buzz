@@ -1,0 +1,5 @@
+test "Basic types" {
+    str string = "hello world";
+    num number = 3.14;
+    bool boolean = true;
+}

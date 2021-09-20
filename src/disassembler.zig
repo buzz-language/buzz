@@ -74,6 +74,7 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
 }
 
 pub fn dumpStack(vm: *VM) !void {
+    print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
     var value = @ptrCast([*]_value.Value, vm.stack[0..]);
@@ -87,6 +88,7 @@ pub fn dumpStack(vm: *VM) !void {
     }
 
     print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
+    print("\u{001b}[0m", .{});
 }
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {

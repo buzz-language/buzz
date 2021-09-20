@@ -1,0 +1,50 @@
+fun assert(bool condition, str message) {
+    if (!condition) {
+        throw message;
+    }
+}
+
+| test "`if` statement" {
+|     if (2 > 1) {
+|         assert(true, message: "if");
+|     } else {
+|         assert(false, message: "else");
+|     }
+
+|     if (2 < 1) {
+|         assert(false, message: "if");
+|     } else {
+|         assert(true, message: "else");
+|     }
+| }
+
+| test "`while` statement" {
+|     num i = 0;
+|     while (i < 10) {
+|         i = i + 1;
+|     }
+
+|     assert(i == 10, message: "while");
+| }
+
+| test "`do`-`until` statement" {
+|     num i = 10;
+|     while (i > 0) {
+|         i = i - 1;
+|     }
+
+|     assert(i == 0, message: "do until");
+| }
+
+test "`break` statement" {
+    num i = 0;
+    while (i < 10) {
+        i = i + 1;
+
+        if (i == 3) {
+            break;
+        }
+    }
+
+    assert(i == 3, message: "break");
+}
