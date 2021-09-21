@@ -27,14 +27,14 @@ pub const FunctionType = enum {
 };
 
 pub const Local = struct {
-    name: *ObjString,
+    name: *ObjString, // TODO: do i need to mark those?
     type_def: *ObjTypeDef,
     depth: i32,
     is_captured: bool
 };
 
 pub const Global = struct {
-    name: *ObjString,
+    name: *ObjString, // TODO: do i need to mark those?
     type_def: *ObjTypeDef,
     initialized: bool = false,
 };
@@ -62,25 +62,27 @@ pub const ChunkCompiler = struct {
     scope_depth: u32 = 0,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
+        var file_name_string: ?*ObjString = if (file_name) |name| try copyString(compiler.vm, name) else null;
+
+        var function = try ObjFunction.init(compiler.vm.allocator, if (function_type != .Script)
+            try copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
+        else
+            file_name_string orelse try copyString(compiler.vm, VM.script_string),
+        try compiler.vm.getTypeDef(.{
+            .def_type = .Void,
+            .optional = false,
+        }));
+
+        // TODO: is this needed? Why would we care if the GC collected compiler stuff since the compiler's job is over?
+        function.obj.is_marked = true;
+
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
             .upvalues = [_]UpValue{undefined} ** 255,
             .enclosing = compiler.current,
             .function_type = function_type,
-            .function = ObjFunction.cast(try allocateObject(compiler.vm, .Function)).?,
+            .function = try allocateObject(compiler.vm, ObjFunction, function),
         };
-
-        var file_name_string: ?*ObjString = if (file_name) |name| try copyString(compiler.vm, name) else null;
-
-        self.function.* = try ObjFunction.init(compiler.vm.allocator, if (function_type != .Script)
-            try copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
-        else
-            file_name_string orelse try copyString(compiler.vm, VM.script_string),
-
-        try compiler.vm.getTypeDef(.{
-            .def_type = .Void,
-            .optional = false,
-        }));
 
         compiler.current = try compiler.vm.allocator.create(ChunkCompiler);
         compiler.current.?.* = self;
@@ -1647,8 +1649,7 @@ pub const Compiler = struct {
             }
         }
 
-        var enum_type: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
-        enum_type.* = .{
+        var enum_type: *ObjTypeDef = try allocateObject(self.vm, ObjTypeDef, .{
             .optional = false,
             .def_type = .Enum,
             .resolved_type = .{
@@ -1658,7 +1659,7 @@ pub const Compiler = struct {
                     enum_case_type,
                 ),
             }
-        };
+        });
 
         const constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
 
@@ -1745,7 +1746,7 @@ pub const Compiler = struct {
             }
         }
 
-        var object_type: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
+        var object_type: *ObjTypeDef = try self.vm.allocator.create(ObjTypeDef); //ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
         object_type.* = .{
             .optional = false,
             .def_type = .Object,

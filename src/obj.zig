@@ -1,15 +1,14 @@
 // zig fmt: off
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
-const memory = @import("./memory.zig");
-const _value = @import("./value.zig");
-const Value = _value.Value;
-const HashableValue = _value.HashableValue;
+usingnamespace @import("./memory.zig");
+usingnamespace @import("./value.zig");
 const Token = @import("./token.zig").Token;
 
 pub const ObjType = enum {
@@ -29,130 +28,34 @@ pub const ObjType = enum {
     Error,
 };
 
-pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
-    var size: usize = 0;
+pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
+    var size: usize = @sizeOf(*ObjError);
 
-    var object: *Obj = switch (obj_type) {
-        .String => string: {
-            size = @sizeOf(*ObjString);
-            var obj: *ObjString = try memory.allocate(vm, ObjString);
-            obj.obj = .{
-                .obj_type = .String,
-            };
+    var obj: *T = try allocate(vm, T);
+    obj.* = data;
 
-            break :string &obj.obj;
-        },
-        .Type => typeObj: {
-            size = @sizeOf(*ObjTypeDef);
-            var obj: *ObjTypeDef = try memory.allocate(vm, ObjTypeDef);
-            obj.obj = .{
-                .obj_type = .Type,
-            };
+    if (builtin.mode == .Debug) {
+        std.debug.warn("allocated {*}\n", .{ obj });
+        std.debug.warn("{} allocated, total {}\n", .{ @sizeOf(T), vm.bytes_allocated });
+    }
 
-            break :typeObj &obj.obj;
-        },
-        .UpValue => upValue: {
-            size = @sizeOf(*ObjUpValue);
-            var obj: *ObjUpValue = try memory.allocate(vm, ObjUpValue);
-            obj.obj = .{
-                .obj_type = .UpValue,
-            };
-
-            break :upValue &obj.obj;
-        },
-        .Closure => closure: {
-            size = @sizeOf(*ObjClosure);
-            var obj: *ObjClosure = try memory.allocate(vm, ObjClosure);
-            obj.obj = .{
-                .obj_type = .Closure,
-            };
-
-            break :closure &obj.obj;
-        },
-        .Function => function: {
-            size = @sizeOf(*ObjFunction);
-            var obj: *ObjFunction = try memory.allocate(vm, ObjFunction);
-            obj.obj = .{
-                .obj_type = .Function,
-            };
-
-            break :function &obj.obj;
-        },
-        .ObjectInstance => objectInstance: {
-            size = @sizeOf(*ObjObjectInstance);
-            var obj: *ObjObjectInstance = try memory.allocate(vm, ObjObjectInstance);
-            obj.obj = .{
-                .obj_type = .ObjectInstance,
-            };
-
-            break :objectInstance &obj.obj;
-        },
-        .Object => object: {
-            size = @sizeOf(*ObjObject);
-            var obj: *ObjObject = try memory.allocate(vm, ObjObject);
-            obj.obj = .{
-                .obj_type = .Object,
-            };
-
-            break :object &obj.obj;
-        },
-        .List => list: {
-            size = @sizeOf(*ObjList);
-            var obj: *ObjList = try memory.allocate(vm, ObjList);
-            obj.obj = .{
-                .obj_type = .List,
-            };
-
-            break :list &obj.obj;
-        },
-        .Map => map: {
-            size = @sizeOf(*ObjMap);
-            var obj: *ObjMap = try memory.allocate(vm, ObjMap);
-            obj.obj = .{
-                .obj_type = .Map,
-            };
-
-            break :map &obj.obj;
-        },
-        .Enum => enumObj: {
-            size = @sizeOf(*ObjEnum);
-            var obj: *ObjEnum = try memory.allocate(vm, ObjEnum);
-            obj.obj = .{
-                .obj_type = .Enum,
-            };
-
-            break :enumObj &obj.obj;
-        },
-        .EnumInstance => enumInstance: {
-            size = @sizeOf(*ObjEnumInstance);
-            var obj: *ObjEnumInstance = try memory.allocate(vm, ObjEnumInstance);
-            obj.obj = .{
-                .obj_type = .EnumInstance,
-            };
-
-            break :enumInstance &obj.obj;
-        },
-        .Bound => bound: {
-            size = @sizeOf(*ObjBoundMethod);
-            var obj: *ObjBoundMethod = try memory.allocate(vm, ObjBoundMethod);
-            obj.obj.obj_type = .Bound;
-
-            break :bound &obj.obj;
-        },
-        .Native => native: {
-            size = @sizeOf(*ObjNative);
-            var obj: *ObjNative = try memory.allocate(vm, ObjNative);
-            obj.obj.obj_type = .Native;
-
-            break :native &obj.obj;
-        },
-        .Error => err: {
-            size = @sizeOf(*ObjError);
-            var obj: *ObjError = try memory.allocate(vm, ObjError);
-            obj.obj.obj_type = .Error;
-
-            break :err &obj.obj;
-        },
+    // TODO: How to avoid this?
+    var object: *Obj = switch (T) {
+        ObjString => ObjString.toObj(obj),
+        ObjTypeDef => ObjTypeDef.toObj(obj),
+        ObjUpValue => ObjUpValue.toObj(obj),
+        ObjClosure => ObjClosure.toObj(obj),
+        ObjFunction => ObjFunction.toObj(obj),
+        ObjObjectInstance => ObjObjectInstance.toObj(obj),
+        ObjObject => ObjObject.toObj(obj),
+        ObjList => ObjList.toObj(obj),
+        ObjMap => ObjMap.toObj(obj),
+        ObjEnum => ObjEnum.toObj(obj),
+        ObjEnumInstance => ObjEnumInstance.toObj(obj),
+        ObjBoundMethod => ObjBoundMethod.toObj(obj),
+        ObjNative => ObjNative.toObj(obj),
+        ObjError => ObjError.toObj(obj),
+        else => {}
     };
 
     // Add new object at start of vm.objects linked list
@@ -161,19 +64,14 @@ pub fn allocateObject(vm: *VM, obj_type: ObjType) !*Obj {
 
     vm.bytes_allocated += size;
 
-    if (vm.bytes_allocated > vm.next_gc) {
-        memory.collectGarbage(vm);
-    }
-
-    return object;
+    return obj;
 }
 
 pub fn allocateString(vm: *VM, chars: []const u8) !*ObjString {
     if (vm.strings.get(chars)) |interned| {
         return interned;
     } else {
-        var string: *ObjString = ObjString.cast(try allocateObject(vm, .String)).?;
-        string.string = chars;
+        var string: *ObjString = try allocateObject(vm, ObjString, ObjString{ .string = chars });
 
         vm.push(Value { .Obj = string.toObj() });
         try vm.strings.put(chars, string);
@@ -188,7 +86,7 @@ pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
         return interned;
     }
 
-    var copy: []u8 = try memory.allocateMany(vm, u8, chars.len);
+    var copy: []u8 = try allocateMany(vm, u8, chars.len);
     mem.copy(u8, copy, chars);
 
     return try allocateString(vm, copy);
@@ -223,7 +121,7 @@ pub const Obj = struct {
                 const self_upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
                 const other_upvalue: *ObjUpValue = ObjUpValue.cast(other).?;
 
-                return _value.valueEql(self_upvalue.closed orelse self_upvalue.location.*, other_upvalue.closed orelse other_upvalue.location.*);
+                return valueEql(self_upvalue.closed orelse self_upvalue.location.*, other_upvalue.closed orelse other_upvalue.location.*);
             },
             .Bound,
             .Closure,
@@ -254,6 +152,9 @@ pub const ObjNative = struct {
 
     native: NativeFn,
 
+    pub fn mark(_: *Self, _: *VM) void {
+    }
+
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -276,6 +177,10 @@ pub const ObjError = struct {
 
     message: *ObjString,
     // payload: *ObjObjectInstance // TODO: Instance of `Error`
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.message.toObj());
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -300,6 +205,9 @@ pub const ObjString = struct {
 
     /// The actual string
     string: []const u8,
+
+    pub fn mark(_: *Self, _: *VM) void {
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -341,7 +249,13 @@ pub const ObjUpValue = struct {
             .location = slot,
             .next = null
         };
-    } 
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        if (self.closed) |uclosed| {
+            try markValue(vm, uclosed);
+        }
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -373,6 +287,16 @@ pub const ObjClosure = struct {
             .function = function,
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
+    }
+    
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.function.toObj());
+        if (self.catch_closure) |catch_closure| {
+            try markObj(vm, catch_closure.toObj());
+        }
+        for (self.upvalues.items) |upvalue| {
+            try markObj(vm, upvalue.toObj());
+        }
     }
 
     pub fn deinit(self: *Self) void {
@@ -415,6 +339,25 @@ pub const ObjFunction = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.parameters.deinit();
+        self.chunk.deinit();
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.name.toObj());
+        
+        var it = self.parameters.iterator();
+        while (it.next()) |kv| {
+            try markObj(vm, kv.value_ptr.*.toObj());
+        }
+        try markObj(vm, self.return_type.toObj());
+
+        for (self.chunk.constants.items) |constant| {
+            try markValue(vm, constant);
+        }
+    }
+
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -452,6 +395,14 @@ pub const ObjObjectInstance = struct {
             .object = object,
             .fields = StringHashMap(Value).init(allocator),
         };
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.object.toObj());
+        var it = self.fields.iterator();
+        while (it.next()) |kv| {
+            try markValue(vm, kv.value_ptr.*);
+        }
     }
 
     pub fn deinit(self: *Self) void {
@@ -496,6 +447,21 @@ pub const ObjObject = struct {
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(Value).init(allocator),
         };
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.name.toObj());
+        var it = self.methods.iterator();
+        while (it.next()) |kv| {
+            try markObj(vm, kv.value_ptr.*.toObj());
+        }
+        var it2 = self.fields.iterator();
+        while (it2.next()) |kv| {
+            try markValue(vm, kv.value_ptr.*);
+        }
+        if (self.super) |super| {
+            try markObj(vm, super.toObj());
+        }
     }
 
     pub fn deinit(self: *Self) void {
@@ -573,6 +539,17 @@ pub const ObjList = struct {
         };
     }
 
+    pub fn mark(self: *Self, vm: *VM) !void {
+        for (self.items.items) |value| {
+            try markValue(vm, value);
+        }
+        try markObj(vm, self.item_type.toObj());
+        var it = self.methods.iterator();
+        while (it.next()) |kv| {
+            try markObj(vm, kv.value_ptr.*.toObj());
+        }
+    }
+
     pub fn deinit(self: *Self) void {
         self.items.deinit();
         self.methods.deinit();
@@ -604,10 +581,9 @@ pub const ObjList = struct {
         }
 
         if (nativeFn) |unativeFn| {
-            var native: *ObjNative = ObjNative.cast(try allocateObject(vm, .Native)).?;
-            native.* = ObjNative{
+            var native: *ObjNative = try allocateObject(vm, ObjNative, .{
                 .native = unativeFn
-            };
+            });
 
             try self.methods.put(method, native);
 
@@ -737,6 +713,16 @@ pub const ObjMap = struct {
             .map = std.AutoHashMap(HashableValue, Value).init(allocator),
         };
     }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        var it = self.map.iterator();
+        while (it.next()) |kv| {
+            try markValue(vm, hashableToValue(kv.key_ptr.*));
+            try markValue(vm, kv.value_ptr.*);
+        }
+        try markObj(vm, self.key_type.toObj());
+        try markObj(vm, self.value_type.toObj());
+    }
     
     pub fn deinit(self: *Self) void {
         self.map.deinit();
@@ -780,6 +766,15 @@ pub const ObjEnum = struct {
             .name = def.resolved_type.?.Enum.name,
             .cases = std.ArrayList(Value).init(allocator),
         };
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.name.toObj());
+        try markObj(vm, self.enum_def.toObj());
+        try markObj(vm, self.name.toObj());
+        for (self.cases.items) |case| {
+            try markValue(vm, case);
+        } 
     }
 
     pub fn deinit(self: *Self) void {
@@ -829,6 +824,10 @@ pub const ObjEnumInstance = struct {
     enum_ref: *ObjEnum,
     case: u8,
 
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.enum_ref.toObj());
+    }
+
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
@@ -856,6 +855,11 @@ pub const ObjBoundMethod = struct {
 
     receiver: Value,
     closure: *ObjClosure,
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try markValue(vm, self.receiver);
+        try markObj(vm, self.closure.toObj());
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -926,6 +930,20 @@ pub const ObjTypeDef = struct {
     def_type: Type,
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
+
+    pub fn deinit(_: *Self) void {
+        std.debug.warn("ObjTypeDef.deinit not implemented\n", .{});
+    }
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        if (self.resolved_type) |resolved| {
+            if (resolved == .ObjectInstance) {
+                try markObj(vm, resolved.ObjectInstance.toObj());
+            } else if (resolved == .EnumInstance) {
+                try markObj(vm, resolved.EnumInstance.toObj());
+            }
+        }
+    }
 
     /// Beware: allocates a string, caller owns it
     pub fn toString(self: Self, allocator: *Allocator) anyerror![]const u8 {
@@ -1133,7 +1151,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         },
         .UpValue => {
             var upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
-            var upvalue_str: []const u8 = try _value.valueToString(allocator, upvalue.closed orelse upvalue.location.*);
+            var upvalue_str: []const u8 = try valueToString(allocator, upvalue.closed orelse upvalue.location.*);
             defer allocator.free(upvalue_str);
 
             return try std.fmt.bufPrint(buf, "upvalue: 0x{x} `{s}`", .{ @ptrToInt(upvalue), upvalue_str });
@@ -1174,7 +1192,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
         },
         .Bound => {
             var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
-            var receiver_str: []const u8 = try _value.valueToString(allocator, bound.receiver);
+            var receiver_str: []const u8 = try valueToString(allocator, bound.receiver);
             defer allocator.free(receiver_str);
 
             var closure_name: []const u8 =  bound.closure.function.name.string;

@@ -61,7 +61,7 @@ pub const VM = struct {
     open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
-    next_gc: usize = 1024 * 1024,
+    next_gc: usize = 1024, //1024 * 1024,
     // TODO: replace with SinglyLinkedList(*Obj)
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
@@ -111,7 +111,7 @@ pub const VM = struct {
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         // Don't intern placeholders
         if (type_def.def_type == .Placeholder) {
-            var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self, .Type)).?;
+            var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
             type_def_ptr.* = type_def;
             return type_def_ptr;
         }
@@ -123,7 +123,7 @@ pub const VM = struct {
             return type_def_ptr;
         }
 
-        var type_def_ptr: *ObjTypeDef = ObjTypeDef.cast(try allocateObject(self, .Type)).?;
+        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         type_def_ptr.* = type_def;
 
         _ = try self.type_defs.put(type_def_str, type_def_ptr);
@@ -245,8 +245,7 @@ pub const VM = struct {
                 },
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant().Obj).?;
-                    var closure: *ObjClosure = ObjClosure.cast(try allocateObject(self, .Closure)).?;
-                    closure.* = try ObjClosure.init(self.allocator, function);
+                    var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
 
                     self.push(Value{ .Obj = closure.toObj() });
 
@@ -303,8 +302,7 @@ pub const VM = struct {
                 },
 
                 .OP_LIST => {
-                    var list: *ObjList = ObjList.cast(try allocateObject(self, .List)).?;
-                    list.* = ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?);
+                    var list: *ObjList = try allocateObject(self, ObjList, ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?));
 
                     self.push(Value{ .Obj = list.toObj() });
                 },
@@ -312,12 +310,11 @@ pub const VM = struct {
                 .OP_LIST_APPEND => try self.appendToList(),
 
                 .OP_MAP => {
-                    var map: *ObjMap = ObjMap.cast(try allocateObject(self, .Map)).?;
-                    map.* = ObjMap.init(
+                    var map: *ObjMap = try allocateObject(self, ObjMap, ObjMap.init(
                         self.allocator,
                         ObjTypeDef.cast(self.readConstant().Obj).?,
                         ObjTypeDef.cast(self.readConstant().Obj).?
-                    );
+                    ));
 
                     self.push(Value{ .Obj = map.toObj() });
                 },
@@ -342,8 +339,7 @@ pub const VM = struct {
                 },
 
                 .OP_ENUM => {
-                    var enum_: *ObjEnum = ObjEnum.cast(try allocateObject(self, .Enum)).?;
-                    enum_.* = ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?);
+                    var enum_: *ObjEnum = try allocateObject(self, ObjEnum, ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?));
 
                     self.push(Value{ .Obj = enum_.toObj() });
                 },
@@ -355,11 +351,10 @@ pub const VM = struct {
 
                     _ = self.pop();
                     
-                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(try allocateObject(self, .EnumInstance)).?;
-                    enum_case.* = ObjEnumInstance{
+                    var enum_case: *ObjEnumInstance = try allocateObject(self, ObjEnumInstance, ObjEnumInstance{
                         .enum_ref = enum_,
                         .case = self.readByte(),
-                    };
+                    });
 
                     self.push(Value{ .Obj = enum_case.toObj() });
                 },
@@ -372,8 +367,7 @@ pub const VM = struct {
                 },
 
                 .OP_OBJECT => {
-                    var object: *ObjObject = ObjObject.cast(try allocateObject(self, .Object)).?;
-                    object.* = ObjObject.init(self.allocator, ObjString.cast(self.readConstant().Obj).?);
+                    var object: *ObjObject = try allocateObject(self, ObjObject, ObjObject.init(self.allocator, ObjString.cast(self.readConstant().Obj).?));
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
@@ -513,6 +507,7 @@ pub const VM = struct {
         self.closeUpValues(&self.current_frame.?.slots[0]);
 
         self.frame_count -= 1;
+        _ = self.frames.pop();
         if (self.frame_count == 0) {
             _ = self.pop();
             return true;
@@ -535,6 +530,7 @@ pub const VM = struct {
         // Pop frame
         self.closeUpValues(&self.current_frame.?.slots[0]);
         self.frame_count -= 1;
+        _ = self.frames.pop();
         if (self.frame_count == 0) {
             // No more frames, the error is uncaught.
             _ = self.pop();
@@ -652,11 +648,11 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: *ObjClosure) !void {
-        var bound: *ObjBoundMethod = ObjBoundMethod.cast(try allocateObject(self, .Bound)).?;
-        bound.* = .{
+        var bound: *ObjBoundMethod = try allocateObject(self, ObjBoundMethod, .{
             .receiver = self.peek(0),
             .closure = method,
-        };
+        });
+
         _ = self.pop(); // Pop instane
         self.push(Value{ .Obj = bound.toObj() });
     }
@@ -685,8 +681,11 @@ pub const VM = struct {
     }
 
     fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !bool {
-        var instance: *ObjObjectInstance = ObjObjectInstance.cast(try allocateObject(self, .ObjectInstance)).?;
-        instance.* = ObjObjectInstance.init(self.allocator, object);
+        var instance: *ObjObjectInstance = try allocateObject(self, ObjObjectInstance, ObjObjectInstance.init(self.allocator, object));
+
+        // Put new instance as first local of the constructor
+        // We do it right now so it doesn't get collected
+        (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
 
         // Set instance fields with default values
         var it = object.fields.iterator();
@@ -694,10 +693,7 @@ pub const VM = struct {
             try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
         }
 
-        // Put new instance as first local of the constructor
-        (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
-
-        // TODO: init should always exits. Default one provided by compiler asks for all fields.
+        // TODO: init should always exists. Default one provided by compiler asks for all fields.
         var initializer: ?*ObjClosure = object.methods.get("init");
         if (initializer) |uinit| {
             return try self.call(uinit, arg_count);
@@ -761,8 +757,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *ObjUpValue = ObjUpValue.cast(try allocateObject(self, .UpValue)).?;
-        created_upvalue.* = ObjUpValue.init(local);
+        var created_upvalue: *ObjUpValue = try allocateObject(self, ObjUpValue, ObjUpValue.init(local));
         created_upvalue.next = upvalue;
 
         if (prev_upvalue) |uprev_upvalue| {

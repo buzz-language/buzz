@@ -1,12 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
 
 // Using a global because of vm.stack which would overflow zig's stack
 
-fn repl() !void {
-    var vm = try VM.init(std.heap.c_allocator);
+fn repl(allocator: *Allocator) !void {
+    var vm = try VM.init(allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
     defer compiler.deinit();
@@ -26,13 +27,11 @@ fn repl() !void {
     }
 }
 
-fn runFile(file_name: []const u8, testing: bool) !void {
-    var vm = try VM.init(std.heap.c_allocator);
+fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
+    var vm = try VM.init(allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
     defer compiler.deinit();
-
-    const allocator: *Allocator = std.heap.c_allocator;
     
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});
@@ -51,8 +50,14 @@ fn runFile(file_name: []const u8, testing: bool) !void {
 }
 
 pub fn main() !void {
-    var arg_it = try std.process.argsAlloc(std.heap.c_allocator);
-    defer std.process.argsFree(std.heap.c_allocator, arg_it);
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    var allocator: *Allocator = if (builtin.mode == .Debug)
+            &gpa.allocator
+        else
+            std.heap.c_allocator;
+
+    var arg_it = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, arg_it);
 
     // TODO: use https://github.com/Hejsil/zig-clap
     var testing: bool = false;
@@ -61,12 +66,12 @@ pub fn main() !void {
             if (index == 1 and std.mem.eql(u8, arg, "test")) {
                 testing = true;
             } else {
-                try runFile(arg, testing);
+                try runFile(allocator, arg, testing);
 
                 return;
             }
         }
     }
 
-    try repl();
+    try repl(allocator);
 }

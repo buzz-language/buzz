@@ -1,12 +1,14 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const VM = @import("vm.zig").VM;
 const Compiler = @import("compiler.zig").Compiler;
 
 pub const Result = VM.InterpretResult;
 
-pub fn runString(string: []const u8) !Result {
-    var vm = try VM.init(std.heap.c_allocator);
+pub fn runString(allocator: *Allocator, string: []const u8) !Result {
+    var vm = try VM.init(allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
     defer compiler.deinit();
@@ -18,14 +20,12 @@ pub fn runString(string: []const u8) !Result {
     }
 }
 
-fn runFile(file_name: []const u8) !Result {
-    var vm = try VM.init(std.heap.c_allocator);
+fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
+    var vm = try VM.init(allocator);
     defer vm.deinit();
     var compiler = Compiler.init(&vm);
     defer compiler.deinit();
 
-    const allocator: *std.mem.Allocator = std.heap.c_allocator;
-    
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});
         return Result.RuntimeError;
@@ -45,15 +45,21 @@ fn runFile(file_name: []const u8) !Result {
 }
 
 test "Testing buzz" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, }){};
+    var allocator: *Allocator = if (builtin.mode == .Debug)
+            &gpa.allocator
+        else
+            std.heap.c_allocator;
+
     var test_dir = try std.fs.cwd().openDir("tests", .{ .iterate = true });
     var it = test_dir.iterate();
 
     while (try it.next()) |file| {
         if (file.kind == .File) {
-            var file_name: []u8 = try std.heap.c_allocator.alloc(u8, 6 + file.name.len);
-            defer std.heap.c_allocator.free(file_name);
+            var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+            defer allocator.free(file_name);
 
-            assert(runFile(try std.fmt.bufPrint(file_name, "tests/{s}", .{ file.name })) catch Result.RuntimeError == Result.Ok);
+            assert(runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{ file.name })) catch Result.RuntimeError == Result.Ok);
         }
     }
 }
