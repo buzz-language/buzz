@@ -1344,9 +1344,17 @@ pub const Compiler = struct {
                 .def_type = .Type,
             });
         } else if (try self.match(.LeftBracket)) {
-            unreachable;
+            type_def = try self.parseListType();
+            
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
         } else if (try self.match(.LeftBrace)) {
-            unreachable;
+            type_def = try self.parseMapType();
+            
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
         } else if (try self.match(.Function)) {
             unreachable;
         } else if (try self.match(.Identifier)) {
@@ -1440,6 +1448,7 @@ pub const Compiler = struct {
 
         var test_id: []u8 = try self.vm.allocator.alloc(u8, 11);
         test_id = try std.fmt.bufPrint(test_id, "$test#{}", .{ self.test_count });
+        // TODO: this string is never freed
 
         self.test_count += 1;
 
@@ -1572,7 +1581,7 @@ pub const Compiler = struct {
         try self.defineGlobalVariable(@intCast(u8, slot));
     }
 
-    fn listDeclaration(self: *Self) !void {
+    fn parseListType(self: *Self) !*ObjTypeDef {
         var list_item_type: *ObjTypeDef = try self.parseTypeDef();
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
@@ -1582,16 +1591,18 @@ pub const Compiler = struct {
             .List = list_def
         };
 
-        var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+        return try self.vm.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .List,
             .resolved_type = resolved_type
         });
-
-        try self.varDeclaration(list_type);
     }
 
-    fn mapDeclaration(self: *Self) !void {
+    fn listDeclaration(self: *Self) !void {
+        try self.varDeclaration(try self.parseListType());
+    }
+
+    fn parseMapType(self: *Self) !*ObjTypeDef {
         var key_type: *ObjTypeDef = try self.parseTypeDef();
 
         try self.consume(.Comma, "Expected `,` after key type.");
@@ -1605,13 +1616,15 @@ pub const Compiler = struct {
             .Map = map_def
         };
 
-        var map_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+        return try self.vm.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .Map,
             .resolved_type = resolved_type
         });
+    }
 
-        try self.varDeclaration(map_type);
+    fn mapDeclaration(self: *Self) !void {
+        try self.varDeclaration(try self.parseMapType());
     }
 
     fn enumDeclaration(self: *Self) !void {
