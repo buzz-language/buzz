@@ -1,0 +1,19 @@
+fun assert(bool condition, str message) {
+    if (!condition) {
+        throw message;
+    }
+}
+
+object Hey {
+    [num] ages = <num>[1, 2, 3];
+    {num, str} names = <num, str>{
+        1: "hello"
+    };
+}
+
+test "List and Map as Object properties" {
+    Hey hey = Hey();
+
+    assert(hey.ages[0] == 1, message: "list access");
+    assert(hey.names[1] == "hello", message: "map access");
+}

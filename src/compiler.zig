@@ -1659,16 +1659,20 @@ pub const Compiler = struct {
             }
         }
 
+        var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
+            self.vm.allocator,
+            try copyString(self.vm, enum_name.lexeme),
+            enum_case_type,
+        );
+
+        var enum_resolved: ObjTypeDef.TypeUnion = .{
+            .Enum = enum_def
+        };
+
         var enum_type: *ObjTypeDef = try allocateObject(self.vm, ObjTypeDef, .{
             .optional = false,
             .def_type = .Enum,
-            .resolved_type = .{
-                .Enum = ObjEnum.EnumDef.init(
-                    self.vm.allocator,
-                    try copyString(self.vm, enum_name.lexeme),
-                    enum_case_type,
-                ),
-            }
+            .resolved_type = enum_resolved
         });
 
         const constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
