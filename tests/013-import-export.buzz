@@ -1,0 +1,6 @@
+import "tests/utils/testing.buzz";
+
+test "Using a function coming from an import" {
+    hey("world");
+    assert(true, message: "yeah!");
+}

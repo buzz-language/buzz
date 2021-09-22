@@ -79,6 +79,9 @@ pub const OpCode = enum(u8) {
     OP_MAP,
     OP_SET_MAP,
 
+    OP_EXPORT,
+    OP_IMPORT,
+
     // TODO: remove
     OP_PRINT,
 };
@@ -117,10 +120,10 @@ pub const Chunk = struct {
         _ = try self.lines.append(line);
     }
 
-    pub fn addConstant(self: *Self, vm: *VM, value: Value) !u8 {
-        vm.push(value);
+    pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u8 {
+        if (vm) |uvm| uvm.push(value);
         try self.constants.append(value);
-        _ = vm.pop();
+        if (vm) |uvm| _ = uvm.pop();
 
         return @intCast(u8, self.constants.items.len - 1);
     }

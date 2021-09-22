@@ -11,7 +11,7 @@ pub const Result = VM.InterpretResult;
 pub fn runString(allocator: *Allocator, string: []const u8) !Result {
     var vm = try VM.init(allocator);
     defer vm.deinit();
-    var compiler = Compiler.init(&vm);
+    var compiler = Compiler.init(allocator);
     defer compiler.deinit();
 
     if (try compiler.compile(string[0..], "<test>", true)) |function| {
@@ -24,7 +24,7 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
 fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
     var vm = try VM.init(allocator);
     defer vm.deinit();
-    var compiler = Compiler.init(&vm);
+    var compiler = Compiler.init(allocator);
     defer compiler.deinit();
 
     var file = std.fs.cwd().openFile(file_name, .{}) catch {

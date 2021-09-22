@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
                 "test",
-                "tests/012-lambda.buzz"
+                "tests/013-import-export.buzz"
             ],
             "cwd": "${workspaceFolder}"
         },

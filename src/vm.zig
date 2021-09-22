@@ -57,8 +57,6 @@ pub const VM = struct {
     globals: std.ArrayList(Value),
     // Interned strings
     strings: std.StringHashMap(*ObjString),
-    // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
-    type_defs: std.StringHashMap(*ObjTypeDef),
     open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
@@ -78,7 +76,6 @@ pub const VM = struct {
             .globals = std.ArrayList(Value).init(allocator),
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = std.StringHashMap(*ObjString).init(allocator),
-            .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .open_upvalues = null,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
@@ -93,50 +90,11 @@ pub const VM = struct {
 
         self.frames.deinit();
         self.strings.deinit();
-
-        // TODO: key are strings on the heap so free them, does this work?
-        var it = self.type_defs.iterator();
-        while (it.next()) |kv| {
-            self.allocator.free(kv.key_ptr.*);
-        }
-
-        self.type_defs.deinit();
         
-        while (self.open_upvalues) |upvalue| {
-            self.open_upvalues = upvalue.next;
-
-            self.allocator.destroy(upvalue);
-        }
+        // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
 
         self.gray_stack.deinit();
         self.globals.deinit();
-    }
-
-    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        // Don't intern placeholders
-        if (type_def.def_type == .Placeholder) {
-            var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-            type_def_ptr.* = type_def;
-            return type_def_ptr;
-        }
-
-        var type_def_str: []const u8 = try type_def.toString(self.allocator);
-
-        if (self.type_defs.get(type_def_str)) |type_def_ptr| {
-            self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
-            return type_def_ptr;
-        }
-
-        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        type_def_ptr.* = type_def;
-
-        _ = try self.type_defs.put(type_def_str, type_def_ptr);
-
-        return type_def_ptr;
-    }
-
-    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
-        return self.type_defs.get(name);
     }
 
     pub fn push(self: *Self, value: Value) void {
@@ -287,8 +245,17 @@ pub const VM = struct {
 
                 .OP_RETURN => {
                     if (try self.returnFrame()) {
-                        return  .Ok;
+                        return .Ok;
                     }
+                },
+
+                .OP_EXPORT => {
+                    self.push(Value{ .Number = @intToFloat(f64, self.readByte()) });
+                    return  .Ok;
+                },
+
+                .OP_IMPORT => {
+                    try self.import(self.peek(0));
                 },
 
                 .OP_THROW => {
@@ -506,8 +473,9 @@ pub const VM = struct {
         return InterpretResult.Ok;
     }
 
+    // result_count > 0 when the return is `export`
     fn returnFrame(self: *Self) !bool {
-        var result: Value = self.pop();
+        var result = self.pop();
 
         self.closeUpValues(&self.current_frame.?.slots[0]);
 
@@ -521,9 +489,32 @@ pub const VM = struct {
         self.stack_top = self.current_frame.?.slots;
 
         self.push(result);
+
         self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
         return false;
+    }
+
+    fn import(self: *Self, value: Value) anyerror!void {
+        var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
+
+        var vm = try VM.init(self.allocator);
+        defer vm.deinit();
+
+        if (((vm.interpret(function) catch null) orelse .RuntimeError) == .Ok) {
+            // Top of stack is how many export we got
+            var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
+
+            // Copy them to this vm globals
+            if (exported_count > 0) {
+                var i: u8 = exported_count;
+                while (i > 0) : (i -= 1) {
+                    try self.globals.append(vm.peek(i));
+                }
+            }
+        } else {
+            try self.runtimeError("Error while executing import", null);
+        }
     }
 
     fn throw(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
@@ -632,13 +623,13 @@ pub const VM = struct {
 
         self.frame_count += 1;
 
-        // if (builtin.mode == .Debug) {
-        //     try disassembleChunk(
-        //         &frame.closure.function.chunk,
-        //         frame.closure.function.name.string
-        //     );
-        //     std.debug.print("\n\n", .{});
-        // }
+        if (builtin.mode == .Debug) {
+            try disassembleChunk(
+                &frame.closure.function.chunk,
+                frame.closure.function.name.string
+            );
+            std.debug.print("\n\n", .{});
+        }
 
         return true;
     }

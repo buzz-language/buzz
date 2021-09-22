@@ -7,6 +7,7 @@ const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
+const Compiler = @import("./compiler.zig").Compiler;
 usingnamespace @import("./memory.zig");
 usingnamespace @import("./value.zig");
 const Token = @import("./token.zig").Token;
@@ -89,6 +90,24 @@ pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
     mem.copy(u8, copy, chars);
 
     return try allocateString(vm, copy);
+}
+
+pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: *Allocator, chars: []const u8) !*ObjString {
+    if (strings.get(chars)) |interned| {
+        return interned;
+    }
+
+    var copy: []u8 = try allocator.alloc(u8, chars.len);
+    mem.copy(u8, copy, chars);
+
+    var obj_string: *ObjString = try allocator.create(ObjString);
+    obj_string.* = ObjString {
+        .string = copy
+    };
+
+    try strings.put(chars, obj_string);
+
+    return obj_string;
 }
 
 pub const Obj = struct {
@@ -626,7 +645,7 @@ pub const ObjList = struct {
             self.methods.deinit();
         }
         
-        pub fn member(obj_list: *ObjTypeDef, vm: *VM, method: []const u8) !?*ObjTypeDef {
+        pub fn member(obj_list: *ObjTypeDef, compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
             var self = obj_list.resolved_type.?.List;
             
             if (self.methods.get(method)) |native_def| {
@@ -634,7 +653,7 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -643,7 +662,7 @@ pub const ObjList = struct {
                 try  parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyString(vm, "append"),
+                    .name = try copyStringRaw(&compiler.strings, compiler.allocator, "append"),
                     .parameters = parameters,
                     .return_type = obj_list
                 };
@@ -652,7 +671,7 @@ pub const ObjList = struct {
                     .Native = method_def
                 };
 
-                var native_type = try vm.getTypeDef(ObjTypeDef{
+                var native_type = try compiler.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type
@@ -662,12 +681,12 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(vm.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyString(vm, "len"),
+                    .name = try copyStringRaw(&compiler.strings, compiler.allocator, "len"),
                     .parameters = parameters,
-                    .return_type = try vm.getTypeDef(ObjTypeDef{
+                    .return_type = try compiler.getTypeDef(ObjTypeDef{
                         .optional = false,
                         .def_type = .Number,
                     })
@@ -677,7 +696,7 @@ pub const ObjList = struct {
                     .Native = method_def
                 };
 
-                var native_type = try vm.getTypeDef(ObjTypeDef{
+                var native_type = try compiler.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type

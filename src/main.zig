@@ -9,7 +9,7 @@ const Compiler = @import("./compiler.zig").Compiler;
 fn repl(allocator: *Allocator) !void {
     var vm = try VM.init(allocator);
     defer vm.deinit();
-    var compiler = Compiler.init(&vm);
+    var compiler = Compiler.init(allocator);
     defer compiler.deinit();
 
     std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
@@ -30,7 +30,7 @@ fn repl(allocator: *Allocator) !void {
 fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     var vm = try VM.init(allocator);
     defer vm.deinit();
-    var compiler = Compiler.init(&vm);
+    var compiler = Compiler.init(allocator);
     defer compiler.deinit();
     
     var file = std.fs.cwd().openFile(file_name, .{}) catch {

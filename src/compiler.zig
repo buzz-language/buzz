@@ -38,6 +38,7 @@ pub const Global = struct {
     name: *ObjString, // TODO: do i need to mark those?
     type_def: *ObjTypeDef,
     initialized: bool = false,
+    exported: bool = false,
 };
 
 pub const UpValue = struct {
@@ -64,13 +65,13 @@ pub const ChunkCompiler = struct {
     scope_depth: u32 = 0,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
-        var file_name_string: ?*ObjString = if (file_name) |name| try copyString(compiler.vm, name) else null;
+        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(&compiler.strings, compiler.allocator, name) else null;
 
-        var function = try ObjFunction.init(compiler.vm.allocator, if (function_type != .Script)
-            try copyString(compiler.vm, compiler.parser.previous_token.?.lexeme)
+        var function = try ObjFunction.init(compiler.allocator, if (function_type != .Script)
+            try copyStringRaw(&compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme)
         else
-            file_name_string orelse try copyString(compiler.vm, VM.script_string),
-        try compiler.vm.getTypeDef(.{
+            file_name_string orelse try copyStringRaw(&compiler.strings, compiler.allocator, VM.script_string),
+        try compiler.getTypeDef(.{
             .def_type = .Void,
             .optional = false,
         }));
@@ -80,10 +81,12 @@ pub const ChunkCompiler = struct {
             .upvalues = [_]UpValue{undefined} ** 255,
             .enclosing = compiler.current,
             .function_type = function_type,
-            .function = try allocateObject(compiler.vm, ObjFunction, function),
+            .function = try compiler.allocator.create(ObjFunction),
         };
 
-        compiler.current = try compiler.vm.allocator.create(ChunkCompiler);
+        self.function.* = function;
+
+        compiler.current = try compiler.allocator.create(ChunkCompiler);
         compiler.current.?.* = self;
 
         // First local is reserved for an eventual `this`
@@ -97,19 +100,23 @@ pub const ChunkCompiler = struct {
                 .ObjectInstance = this.?
             };
 
-            local.type_def = try compiler.vm.getTypeDef(ObjTypeDef{
+            local.type_def = try compiler.getTypeDef(ObjTypeDef{
                 .def_type = .ObjectInstance,
                 .optional = false,
                 .resolved_type = type_def
             });
         } else {
-            local.type_def = try compiler.vm.getTypeDef(ObjTypeDef{
+            local.type_def = try compiler.getTypeDef(ObjTypeDef{
                 .def_type = .Void,
                 .optional = false,
             });
         }
 
-        local.name = try copyString(compiler.vm, if (function_type != .Function) VM.this_string else VM.empty_string);
+        local.name = try copyStringRaw(
+            &compiler.strings,
+            compiler.allocator,
+            if (function_type != .Function) VM.this_string else VM.empty_string
+        );
     }
 
     pub fn getRootCompiler(self: *Self) *Self {
@@ -226,6 +233,8 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Try
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Catch
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Test
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Import
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Export
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
 
@@ -233,27 +242,41 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null, .precedence = .None }, // Print
     };
 
-    vm: *VM,
-
+    allocator: *Allocator,
     scanner: ?Scanner = null,
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
+    // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
+    type_defs: std.StringHashMap(*ObjTypeDef),
+    // Intered strings, will be copied over to the vm
+    strings: std.StringHashMap(*ObjString),
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
     test_count: u64 = 0,
 
-    pub fn init(vm: *VM) Self {
+    pub fn init(allocator: *Allocator) Self {
         return .{
-            .vm = vm,
-            .globals = std.ArrayList(Global).init(vm.allocator),
+            .allocator = allocator,
+            .globals = std.ArrayList(Global).init(allocator),
+            .strings = std.StringHashMap(*ObjString).init(allocator),
+            .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.globals.deinit();
+        self.strings.deinit();
+
+        // TODO: key are strings on the heap so free them, does this work?
+        var it = self.type_defs.iterator();
+        while (it.next()) |kv| {
+            self.allocator.free(kv.key_ptr.*);
+        }
+
+        self.type_defs.deinit();
     }
 
     // TODO: walk the chain of compiler and destroy them in deinit
@@ -277,7 +300,9 @@ pub const Compiler = struct {
 
         // Enter AST
         while (!(try self.match(.Eof))) {
-            self.declarationOrReturnStatement() catch return null;
+            if (!(self.declarationOrReturnStatement() catch return null)) {
+                return null;
+            }
         }
 
         // Is there any placeholders left
@@ -292,8 +317,35 @@ pub const Compiler = struct {
         return if (self.parser.had_error) null else function;
     }
 
+    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+        // Don't intern placeholders
+        if (type_def.def_type == .Placeholder) {
+            var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
+            type_def_ptr.* = type_def;
+            return type_def_ptr;
+        }
+
+        var type_def_str: []const u8 = try type_def.toString(self.allocator);
+
+        if (self.type_defs.get(type_def_str)) |type_def_ptr| {
+            self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
+            return type_def_ptr;
+        }
+
+        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
+        type_def_ptr.* = type_def;
+
+        _ = try self.type_defs.put(type_def_str, type_def_ptr);
+
+        return type_def_ptr;
+    }
+
+    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
+        return self.type_defs.get(name);
+    }
+
     fn report(self: *Self, token: Token, message: []const u8) !void {
-        if (try self.scanner.?.getLine(self.vm.allocator, token.line)) |line| {
+        if (try self.scanner.?.getLine(self.allocator, token.line)) |line| {
             std.debug.warn("\n{} | {s}\n", .{ token.line, line });
             var i: usize = 0;
             // TODO: how to do this better?
@@ -333,13 +385,13 @@ pub const Compiler = struct {
     }
 
     fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var expected_str: []const u8 = try expected_type.toString(self.vm.allocator);
-        var actual_str: []const u8 = try actual_type.toString(self.vm.allocator);
-        var error_message: []u8 = try self.vm.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
+        var expected_str: []const u8 = try expected_type.toString(self.allocator);
+        var actual_str: []const u8 = try actual_type.toString(self.allocator);
+        var error_message: []u8 = try self.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
         defer {
-            self.vm.allocator.free(error_message);
-            self.vm.allocator.free(expected_str);
-            self.vm.allocator.free(actual_str);
+            self.allocator.free(error_message);
+            self.allocator.free(expected_str);
+            self.allocator.free(actual_str);
         }
 
         error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
@@ -435,7 +487,7 @@ pub const Compiler = struct {
 
                 // Otherwise argument list should be empty
                 if (!found_init) {
-                    parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+                    parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
                 }
             } else {
                 unreachable;
@@ -492,7 +544,7 @@ pub const Compiler = struct {
                             .ObjectInstance = resolved_type
                         };
                         
-                        var instance_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+                        var instance_type: *ObjTypeDef = try self.getTypeDef(.{
                             .optional = false,
                             .def_type = .ObjectInstance,
                             .resolved_type = instance_union,
@@ -544,7 +596,7 @@ pub const Compiler = struct {
 
                                     try self.resolvePlaceholder(
                                         child,
-                                        try self.vm.getTypeDef(
+                                        try self.getTypeDef(
                                             .{
                                                 .optional = false,
                                                 .def_type = .EnumInstance,
@@ -585,7 +637,7 @@ pub const Compiler = struct {
                     .ObjectInstance = instantiable
                 };
 
-                break :obj_instance try self.vm.getTypeDef(ObjTypeDef {
+                break :obj_instance try self.getTypeDef(ObjTypeDef {
                     .optional = false,
                     .def_type = .ObjectInstance,
                     .resolved_type = instance_type,
@@ -596,7 +648,7 @@ pub const Compiler = struct {
                     .EnumInstance = instantiable
                 };
 
-                break :enum_instance try self.vm.getTypeDef(ObjTypeDef {
+                break :enum_instance try self.getTypeDef(ObjTypeDef {
                     .optional = false,
                     .def_type = .EnumInstance,
                     .resolved_type = instance_type,
@@ -643,8 +695,50 @@ pub const Compiler = struct {
     }
 
     fn endCompiler(self: *Self) !*ObjFunction {
+        // If .Script, search for exported globals and return them in a map
+        if (self.current.?.function_type == .Script) {
+            // If top level, search `main` or `test` function(s) and call them
+            // Then put any exported globals on the stack
+            if (!self.testing) {
+                var found_main: bool = false;
+                for (self.globals.items) |global, index| {
+                    if (mem.eql(u8, global.name.string, "main")) {
+                        found_main = true;
+
+                        // TODO: Somehow push cli args on the stack
+                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                        break;
+                    }
+                }
+            } else {
+                // Create an entry point wich runs all `test`
+                for (self.globals.items) |global, index| {
+                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test")) {
+                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                    }
+                }
+            }
+
+            // Put exported globals on the stack
+            var exported_count: usize = 0;
+            for (self.globals.items) |global, index| {
+                if (global.exported) {
+                    exported_count += 1;
+
+                    if (exported_count > 255) {
+                        try self.reportError("Can't export more than 255 values.");
+                        break;
+                    }
+
+                    try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                }
+            }
+
+            try self.emitBytes(@enumToInt(OpCode.OP_EXPORT), @intCast(u8, exported_count));
         // Emit `return void;` if no returnStatement was parsed
-        if (self.current.?.returned_type == null) {
+        } else if (self.current.?.returned_type == null) {
             try self.emitReturn();
         }
 
@@ -759,57 +853,8 @@ pub const Compiler = struct {
         if (self.current.?.function_type == .Initializer) {
             return_type = self.current.?.function.return_type;
             try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
-        } else if (self.current.?.function_type == .Script) {
-            // If top level, search `main` function and call it, otherwise just return null
-            // If user returned something that code won't be reachable
-            if (!self.testing) {
-                var found_main: bool = false;
-                for (self.globals.items) |global, index| {
-                    if (mem.eql(u8, global.name.string, "main")) {
-                        found_main = true;
-
-                        // TODO: Somehow push cli args on the stack
-                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
-
-                        if (global.type_def.def_type != .Placeholder) {
-                            return_type = global.type_def.resolved_type.?.Function.return_type;
-                        } else {
-                            unreachable;
-                        }
-
-                        break;
-                    }
-                }
-
-                if (!found_main) {
-                    return_type = try self.vm.getTypeDef(
-                        .{
-                            .optional = false,
-                            .def_type = .Void
-                        }
-                    );
-                }
-            } else {
-                // Create an entry point wich runs all `test`
-                for (self.globals.items) |global, index| {
-                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test")) {
-                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
-                    }
-                }
-
-                return_type = try self.vm.getTypeDef(
-                    .{
-                        .optional = false,
-                        .def_type = .Void
-                    }
-                );
-
-                // TODO: print "X/X tests passed"
-            }
-        } else {
-            return_type = try self.vm.getTypeDef(
+        } else if (self.current.?.function_type != .Script) {
+            return_type = try self.getTypeDef(
                 .{
                     .optional = false,
                     .def_type = .Void
@@ -833,7 +878,7 @@ pub const Compiler = struct {
     // TODO: minimize code redundancy between declaration and declarationOrStatement
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
-    fn declarationOrReturnStatement(self: *Self) !void {
+    fn declarationOrReturnStatement(self: *Self) !bool {
         if (try self.match(.Object)) {
             try self.objectDeclaration(false);
         } else if (try self.match(.Class)) {
@@ -844,7 +889,7 @@ pub const Compiler = struct {
             try self.funDeclaration();
         } else if (try self.match(.Str)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .String
@@ -853,7 +898,7 @@ pub const Compiler = struct {
             );
         } else if (try self.match(.Num)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Number
@@ -862,7 +907,7 @@ pub const Compiler = struct {
             );
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Bool
@@ -871,7 +916,7 @@ pub const Compiler = struct {
             );
         } else if (try self.match(.Type)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Type
@@ -907,7 +952,17 @@ pub const Compiler = struct {
             try self.varDeclaration(var_type.?);
         } else if (try self.match(.Return)) {
             try self.returnStatement();
+        } else if (try self.match(.Import)) {
+            try self.importStatement();
+        } else if (try self.match(.Export)) {
+            try self.exportStatement();
+        } else {
+            try self.reportError("No declaration or statement.");
+
+            return false;
         }
+
+        return true;
     }
 
     fn declarationOrStatement(self: *Self) !?std.ArrayList(usize) {
@@ -919,7 +974,7 @@ pub const Compiler = struct {
             return null;
         } else if (try self.match(.Str)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .String
@@ -930,7 +985,7 @@ pub const Compiler = struct {
             return null;
         } else if (try self.match(.Num)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Number
@@ -941,7 +996,7 @@ pub const Compiler = struct {
             return null;
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Bool
@@ -952,7 +1007,7 @@ pub const Compiler = struct {
             return null;
         } else if (try self.match(.Type)) {
             try self.varDeclaration(
-                try self.vm.getTypeDef(
+                try self.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
                         .def_type = .Type
@@ -986,12 +1041,12 @@ pub const Compiler = struct {
                 // If none found, create a placeholder
                 if (var_type == null) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                        .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                     };
 
-                    placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
+                    placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
 
-                    var_type = try self.vm.getTypeDef(.{
+                    var_type = try self.getTypeDef(.{
                         .optional = try self.match(.Question),
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type
@@ -1029,7 +1084,7 @@ pub const Compiler = struct {
             try self.returnStatement();
         } else if (try self.match(.Break)) {
             assert(!hanging);
-            var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(self.vm.allocator);
+            var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(self.allocator);
             try breaks.append(try self.breakStatement());
 
             return breaks;
@@ -1046,7 +1101,7 @@ pub const Compiler = struct {
             } else {
                 try self.emitBytes(
                     @enumToInt(OpCode.OP_CONSTANT),
-                    try self.makeConstant(Value{ .Obj = (try copyString(self.vm, "uncaught error")).toObj() })
+                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(&self.strings, self.allocator, "uncaught error")).toObj() })
                 );
             }
 
@@ -1068,7 +1123,9 @@ pub const Compiler = struct {
     }
 
     fn returnStatement(self: *Self) !void {
-        // TODO: we allow return from top-level, but in that case we have to not emit the last OP_RETURN
+        if (self.current.?.scope_depth == 0) {
+            try self.reportError("Can't use `return` at top-level.");
+        }
 
         if (try self.match(.Semicolon)) {
             try self.emitReturn();
@@ -1091,28 +1148,28 @@ pub const Compiler = struct {
 
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
         if (try self.match(.Str)) {
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .String
             });
         } else if (try self.match(.Num)) {
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .Number
             });
         } else if (try self.match(.Bool)) {
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .Bool
             });
         } else if (try self.match(.Type)) {
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .Type
             });
         } else if (try self.match(.LeftBracket)) {
             var item_type: *ObjTypeDef = try self.parseTypeDef();
-            var list_def = ObjList.ListDef.init(self.vm.allocator, item_type);
+            var list_def = ObjList.ListDef.init(self.allocator, item_type);
 
             try self.consume(.RightBracket, "Expected `]` to end list type.");
 
@@ -1120,7 +1177,7 @@ pub const Compiler = struct {
                 .List = list_def
             };
 
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .List,
                 .resolved_type = resolved_type
@@ -1134,7 +1191,7 @@ pub const Compiler = struct {
 
             try self.consume(.RightBrace, "Expected `}}` to end map type.");
 
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .List,
                 .resolved_type = ObjTypeDef.TypeUnion{
@@ -1161,12 +1218,12 @@ pub const Compiler = struct {
             // If none found, create a placeholder
             if (var_type == null) {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
 
-                var_type = try self.vm.getTypeDef(.{
+                var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
@@ -1177,7 +1234,7 @@ pub const Compiler = struct {
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 
-            return try self.vm.getTypeDef(.{
+            return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
                 .def_type = .Void
             });
@@ -1224,7 +1281,7 @@ pub const Compiler = struct {
 
     // Returns a list of break jumps to patch
     fn block(self: *Self) anyerror!std.ArrayList(usize) {
-        var breaks = std.ArrayList(usize).init(self.vm.allocator);
+        var breaks = std.ArrayList(usize).init(self.allocator);
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             if (try self.declarationOrStatement()) |jumps| {
@@ -1243,7 +1300,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
-        var parameters: std.StringArrayHashMap(*ObjTypeDef) = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var parameters: std.StringArrayHashMap(*ObjTypeDef) = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
         var arity: usize = 0;
         if (!self.check(.RightParen)) {
             while (true) {
@@ -1267,7 +1324,7 @@ pub const Compiler = struct {
         if (try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
-            return_type = try self.vm.getTypeDef(
+            return_type = try self.getTypeDef(
                 .{
                     .optional = false,
                     .def_type = .Void
@@ -1281,7 +1338,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = try copyString(self.vm, "anonymous"),
+            .name = try copyStringRaw(&self.strings, self.allocator, "anonymous"),
             .return_type = return_type,
             .parameters = parameters,
         };
@@ -1292,7 +1349,7 @@ pub const Compiler = struct {
 
         function_typedef.resolved_type = function_resolved_type;
 
-        return try self.vm.getTypeDef(function_typedef);
+        return try self.getTypeDef(function_typedef);
     }
 
     fn fun(self: *Self, _: bool) anyerror!*ObjTypeDef {
@@ -1309,7 +1366,7 @@ pub const Compiler = struct {
         if (function_type != .TryCatch and function_type != .Test) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
-            parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+            parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
             var arity: usize = 0;
             if (!self.check(.RightParen)) {
                 while (true) {
@@ -1346,7 +1403,7 @@ pub const Compiler = struct {
         if (function_type != .TryCatch and function_type != .Test and try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
-            return_type = try self.vm.getTypeDef(
+            return_type = try self.getTypeDef(
                 .{
                     .optional = false,
                     .def_type = .Void
@@ -1368,7 +1425,7 @@ pub const Compiler = struct {
             try self.consume(.LeftBrace, "Expected `{{` before function body.");
             _ = try self.block();
 
-            var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.vm.getTypeDef(
+            var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.getTypeDef(
                 .{
                     .optional = false,
                     .def_type = .Void
@@ -1396,9 +1453,9 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try copyString(self.vm, uname.lexeme) else try copyString(self.vm, "anonymous"),
+            .name = if (name) |uname| try copyStringRaw(&self.strings, self.allocator, uname.lexeme) else try copyStringRaw(&self.strings, self.allocator, "anonymous"),
             .return_type = return_type,
-            .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator),
+            .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -1407,7 +1464,7 @@ pub const Compiler = struct {
 
         function_typedef.resolved_type = function_resolved_type;
 
-        return try self.vm.getTypeDef(function_typedef);
+        return try self.getTypeDef(function_typedef);
     }
 
     fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
@@ -1444,7 +1501,7 @@ pub const Compiler = struct {
             name = self.parser.previous_token.?.clone();
             constant = try self.identifierConstant(name.?);
 
-            type_def = try self.vm.getTypeDef(ObjTypeDef{
+            type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .String,
             });
@@ -1453,7 +1510,7 @@ pub const Compiler = struct {
             name = self.parser.previous_token.?.clone();
             constant = try self.identifierConstant(name.?);
 
-            type_def = try self.vm.getTypeDef(ObjTypeDef{
+            type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Number,
             });
@@ -1462,7 +1519,7 @@ pub const Compiler = struct {
             name = self.parser.previous_token.?.clone();
             constant = try self.identifierConstant(name.?);
 
-            type_def = try self.vm.getTypeDef(ObjTypeDef{
+            type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Bool,
             });
@@ -1471,7 +1528,7 @@ pub const Compiler = struct {
             name = self.parser.previous_token.?.clone();
             constant = try self.identifierConstant(name.?);
 
-            type_def = try self.vm.getTypeDef(ObjTypeDef{
+            type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Type,
             });
@@ -1513,12 +1570,12 @@ pub const Compiler = struct {
             // If none found, create a placeholder
             if (var_type == null) {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
 
-                var_type = try self.vm.getTypeDef(.{
+                var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
@@ -1582,7 +1639,7 @@ pub const Compiler = struct {
             .def_type = .Function,
         };
 
-        var test_id: []u8 = try self.vm.allocator.alloc(u8, 11);
+        var test_id: []u8 = try self.allocator.alloc(u8, 11);
         test_id = try std.fmt.bufPrint(test_id, "$test#{}", .{ self.test_count });
         // TODO: this string is never freed
 
@@ -1617,6 +1674,60 @@ pub const Compiler = struct {
 
         // Call try clause immediately
         try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+    }
+
+    fn importStatement(self: *Self) anyerror!void {
+        try self.consume(.String, "Expected path after `import`.");
+
+        var file_name: []const u8 = self.parser.previous_token.?.lexeme[1..(self.parser.previous_token.?.lexeme.len - 1)];
+
+        try self.consume(.Semicolon, "Expected `;` after import.");
+
+        // Find and read file
+        var file = std.fs.cwd().openFile(file_name, .{}) catch {
+            try self.reportError("File not found.");
+            return;
+        };
+        defer file.close();
+        
+        const source = try self.allocator.alloc(u8, (try file.stat()).size);
+        defer self.allocator.free(source);
+        
+        _ = try file.readAll(source);
+
+        var compiler = Compiler.init(self.allocator);
+        defer compiler.deinit();
+
+        if (try compiler.compile(source, file_name, self.testing)) |import_function| {
+            try self.emitBytes(@enumToInt(OpCode.OP_CONSTANT), try self.makeConstant(Value { .Obj = import_function.toObj() }));
+            try self.emitOpCode(.OP_IMPORT);
+
+            // Copy exported globals into our own
+            for (compiler.globals.items) |*global| {
+                if (global.exported) {
+                    global.*.exported = false;
+                    try self.globals.append(global.*);
+                }
+            }
+        } else {
+            try self.reportError("Could not compile import.");
+        }
+    }
+
+    fn exportStatement(self: *Self) !void {
+        try self.consume(.Identifier, "Expected identifier after `export`.");
+
+        // Search for a global with that name
+        for (self.globals.items) |global, index| {
+            if (mem.eql(u8, global.name.string, self.parser.previous_token.?.lexeme)) {
+                self.globals.items[index].exported = true;
+
+                try self.consume(.Semicolon, "Expected `;` after export.");
+                return;
+            }
+        }
+
+        try self.reportError("Unknown global.");
     }
 
     fn funDeclaration(self: *Self) !void {
@@ -1657,7 +1768,7 @@ pub const Compiler = struct {
                     .ObjectInstance = parsed_type
                 };
 
-                break :object try self.vm.getTypeDef(.{
+                break :object try self.getTypeDef(.{
                     .optional = parsed_type.optional,
                     .def_type = .ObjectInstance,
                     .resolved_type = resolved_type
@@ -1668,7 +1779,7 @@ pub const Compiler = struct {
                     .EnumInstance = parsed_type
                 };
 
-                break :enum_instance try self.vm.getTypeDef(.{
+                break :enum_instance try self.getTypeDef(.{
                     .optional = parsed_type.optional,
                     .def_type = .EnumInstance,
                     .resolved_type = resolved_type
@@ -1722,12 +1833,12 @@ pub const Compiler = struct {
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
-        var list_def = ObjList.ListDef.init(self.vm.allocator, list_item_type);
+        var list_def = ObjList.ListDef.init(self.allocator, list_item_type);
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .List = list_def
         };
 
-        return try self.vm.getTypeDef(.{
+        return try self.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .List,
             .resolved_type = resolved_type
@@ -1752,7 +1863,7 @@ pub const Compiler = struct {
             .Map = map_def
         };
 
-        return try self.vm.getTypeDef(.{
+        return try self.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .Map,
             .resolved_type = resolved_type
@@ -1777,7 +1888,7 @@ pub const Compiler = struct {
 
             case_type_picked = true;
         } else {
-            enum_case_type = try self.vm.getTypeDef(.{
+            enum_case_type = try self.getTypeDef(.{
                 .optional = false,
                 .def_type = .Number
             });
@@ -1796,8 +1907,8 @@ pub const Compiler = struct {
         }
 
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
-            self.vm.allocator,
-            try copyString(self.vm, enum_name.lexeme),
+            self.allocator,
+            try copyStringRaw(&self.strings, self.allocator, enum_name.lexeme),
             enum_case_type,
         );
 
@@ -1805,11 +1916,12 @@ pub const Compiler = struct {
             .Enum = enum_def
         };
 
-        var enum_type: *ObjTypeDef = try allocateObject(self.vm, ObjTypeDef, .{
+        var enum_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
+        enum_type.* = ObjTypeDef {
             .optional = false,
             .def_type = .Enum,
             .resolved_type = enum_resolved
-        });
+        };
 
         const constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
 
@@ -1896,14 +2008,14 @@ pub const Compiler = struct {
             }
         }
 
-        var object_type: *ObjTypeDef = try self.vm.allocator.create(ObjTypeDef); //ObjTypeDef.cast(try allocateObject(self.vm, .Type)).?;
+        var object_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         object_type.* = .{
             .optional = false,
             .def_type = .Object,
             .resolved_type = .{
                 .Object = ObjObject.ObjectDef.init(
-                    self.vm.allocator,
-                    try copyString(self.vm, object_name.lexeme)
+                    self.allocator,
+                    try copyStringRaw(&self.strings, self.allocator, object_name.lexeme)
                 ),
             }
         };
@@ -2010,7 +2122,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
         }
 
         try self.consume(.RightParen, "Expected `)` after `while` condition.");
@@ -2054,7 +2166,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
         }
 
         try self.consume(.RightParen, "Expected `)` after `until` condition.");
@@ -2079,7 +2191,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.vm.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `if` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `if` condition");
         }
         
         try self.consume(.RightParen, "Expected `)` after `if` condition.");
@@ -2134,11 +2246,11 @@ pub const Compiler = struct {
         }
 
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+            .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
         };
-        placeholder_resolved_type.Placeholder.name = try copyString(self.vm, name.lexeme);
+        placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, name.lexeme);
 
-        const placeholder_type = try self.vm.getTypeDef(.{
+        const placeholder_type = try self.getTypeDef(.{
             .optional = false,
             .def_type = .Placeholder,
             .resolved_type = placeholder_resolved_type
@@ -2191,7 +2303,7 @@ pub const Compiler = struct {
         }
 
         // Otherwise parse the argument list as we find it and enrich placeholder assumptions
-        var parsed_arguments = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var parsed_arguments = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
         var arg_count: u8 = 0;
         while (!self.check(.RightParen)) {
             var hanging = false;
@@ -2249,7 +2361,7 @@ pub const Compiler = struct {
             var parameter_keys: [][]const u8 = parameters.keys();
             
             if (!self.check(.RightParen)) {
-                var parsed_arguments = std.ArrayList(ParsedArg).init(self.vm.allocator);
+                var parsed_arguments = std.ArrayList(ParsedArg).init(self.allocator);
                 defer parsed_arguments.deinit();
 
                 while (arg_count < parameter_keys.len) {
@@ -2311,13 +2423,13 @@ pub const Compiler = struct {
                         if (param_type) |ptype| {
                             // Is the argument type correct?
                             if (!ptype.eql(argument.arg_type)) {
-                                var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                                var param_type_str: []const u8 = try ptype.toString(self.vm.allocator);
-                                var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
+                                var wrong_type_str: []u8 = try self.allocator.alloc(u8, 100);
+                                var param_type_str: []const u8 = try ptype.toString(self.allocator);
+                                var expr_type_str: []const u8 = try argument.arg_type.toString(self.allocator);
                                 defer {
-                                    self.vm.allocator.free(wrong_type_str);
-                                    self.vm.allocator.free(param_type_str);
-                                    self.vm.allocator.free(expr_type_str);
+                                    self.allocator.free(wrong_type_str);
+                                    self.allocator.free(param_type_str);
+                                    self.allocator.free(expr_type_str);
                                 }
 
                                 try self.reportError(
@@ -2333,8 +2445,8 @@ pub const Compiler = struct {
                                 return 0;
                             }
                         } else {
-                            var wrong_name_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                            defer self.vm.allocator.free(wrong_name_str);
+                            var wrong_name_str: []u8 = try self.allocator.alloc(u8, 100);
+                            defer self.allocator.free(wrong_name_str);
 
                             try self.reportError(
                                 try std.fmt.bufPrint(
@@ -2352,13 +2464,13 @@ pub const Compiler = struct {
                         // First argument without name, check its type
                         var param_type: *ObjTypeDef = parameters.get(parameter_keys[0]).?;
                         if (!param_type.eql(argument.arg_type)) {
-                            var wrong_type_str: []u8 = try self.vm.allocator.alloc(u8, 100);
-                            var param_type_str: []const u8 = try param_type.toString(self.vm.allocator);
-                            var expr_type_str: []const u8 = try argument.arg_type.toString(self.vm.allocator);
+                            var wrong_type_str: []u8 = try self.allocator.alloc(u8, 100);
+                            var param_type_str: []const u8 = try param_type.toString(self.allocator);
+                            var expr_type_str: []const u8 = try argument.arg_type.toString(self.allocator);
                             defer {
-                                self.vm.allocator.free(wrong_type_str);
-                                self.vm.allocator.free(param_type_str);
-                                self.vm.allocator.free(expr_type_str);
+                                self.allocator.free(wrong_type_str);
+                                self.allocator.free(param_type_str);
+                                self.allocator.free(expr_type_str);
                             }
                             var name: []const u8 = parameter_keys[0];
 
@@ -2379,7 +2491,7 @@ pub const Compiler = struct {
 
                 // If order differ we emit OP_SWAP so that OP_CALL know where its arguments are
                 if (order_differs) {
-                    var already_swapped = std.AutoHashMap(u8, u8).init(self.vm.allocator);
+                    var already_swapped = std.AutoHashMap(u8, u8).init(self.allocator);
                     defer already_swapped.deinit();
 
                     for (parsed_arguments.items) |argument, index| {
@@ -2410,8 +2522,8 @@ pub const Compiler = struct {
             }
 
             if (parameter_keys.len != arg_count) {
-                var arity: []u8 = try self.vm.allocator.alloc(u8, 100);
-                defer self.vm.allocator.free(arity);
+                var arity: []u8 = try self.allocator.alloc(u8, 100);
+                defer self.allocator.free(arity);
 
                 try self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
 
@@ -2443,10 +2555,10 @@ pub const Compiler = struct {
 
     fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
         try self.emitConstant(Value {
-            .Obj = (try copyString(self.vm, self.parser.previous_token.?.literal_string.?)).toObj()
+            .Obj = (try copyStringRaw(&self.strings, self.allocator, self.parser.previous_token.?.literal_string.?)).toObj()
         });
 
-        return try self.vm.getTypeDef(.{
+        return try self.getTypeDef(.{
             .def_type = .String,
             .optional = false,
         });
@@ -2584,7 +2696,7 @@ pub const Compiler = struct {
 
                 try self.emitOpCode(.OP_GREATER);
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2610,7 +2722,7 @@ pub const Compiler = struct {
 
                 try self.emitOpCode(.OP_LESS);
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2636,7 +2748,7 @@ pub const Compiler = struct {
 
                 try self.emitBytes(@enumToInt(OpCode.OP_LESS), @enumToInt(OpCode.OP_NOT));
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2662,7 +2774,7 @@ pub const Compiler = struct {
 
                 try self.emitBytes(@enumToInt(OpCode.OP_GREATER), @enumToInt(OpCode.OP_NOT));
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2684,7 +2796,7 @@ pub const Compiler = struct {
 
                 try self.emitBytes(@enumToInt(OpCode.OP_EQUAL), @enumToInt(OpCode.OP_NOT));
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2706,7 +2818,7 @@ pub const Compiler = struct {
 
                 try self.emitOpCode(.OP_EQUAL);
 
-                return self.vm.getTypeDef(ObjTypeDef{
+                return self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Bool,
                 });
@@ -2861,7 +2973,7 @@ pub const Compiler = struct {
 
                 // item_type is a placeholder
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
@@ -2873,7 +2985,7 @@ pub const Compiler = struct {
                     }
                 }
 
-                item_type = try self.vm.getTypeDef(.{
+                item_type = try self.getTypeDef(.{
                     .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
@@ -2889,7 +3001,7 @@ pub const Compiler = struct {
                     and (index_type.resolved_type.?.Placeholder.resolved_type == null
                         or index_type.resolved_type.?.Placeholder.resolved_type.?.def_type == .Number)) {
                     index_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
-                    index_type.resolved_type.?.Placeholder.resolved_type = try self.vm.getTypeDef(.{
+                    index_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(.{
                         .optional = false,
                         .def_type = .Number,
                     });
@@ -2907,7 +3019,7 @@ pub const Compiler = struct {
 
                 // item_type is a placeholder
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
@@ -2915,7 +3027,7 @@ pub const Compiler = struct {
                     placeholder_resolved_type.Placeholder.resolved_type = resolved.resolved_type.?.Map.value_type;
                 }
 
-                item_type = try self.vm.getTypeDef(.{
+                item_type = try self.getTypeDef(.{
                     .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
@@ -2934,7 +3046,7 @@ pub const Compiler = struct {
 
                 // key_type is a placeholder
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
@@ -2999,7 +3111,7 @@ pub const Compiler = struct {
                 .ObjectInstance = callee_type
             };
 
-            return try self.vm.getTypeDef(ObjTypeDef {
+            return try self.getTypeDef(ObjTypeDef {
                 .optional = false,
                 .def_type = .ObjectInstance,
                 .resolved_type = instance_type,
@@ -3030,10 +3142,10 @@ pub const Compiler = struct {
             
             // We know nothing of the return value
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
             };
 
-            var placeholder = try self.vm.getTypeDef(.{
+            var placeholder = try self.getTypeDef(.{
                 .optional = false,
                 .def_type = .Placeholder,
                 .resolved_type = placeholder_resolved_type
@@ -3079,10 +3191,10 @@ pub const Compiler = struct {
                 // TODO: don't create placeholder if we're not in the process of parsing the object def
                 if (property_type == null) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?),
+                        .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
                     };
 
-                    var placeholder: *ObjTypeDef = try self.vm.getTypeDef(.{
+                    var placeholder: *ObjTypeDef = try self.getTypeDef(.{
                         .optional = try self.match(.Question),
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
@@ -3157,7 +3269,7 @@ pub const Compiler = struct {
                             .EnumInstance = callee_type,
                         };
 
-                        var enum_instance: *ObjTypeDef = try self.vm.getTypeDef(.{
+                        var enum_instance: *ObjTypeDef = try self.getTypeDef(.{
                             .optional = try self.match(.Question),
                             .def_type = .EnumInstance,
                             .resolved_type = enum_instance_resolved_type,
@@ -3182,7 +3294,7 @@ pub const Compiler = struct {
                 return callee_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
             },
             .List => {
-                if (try ObjList.ListDef.member(callee_type, self.vm, member_name)) |member| {
+                if (try ObjList.ListDef.member(callee_type, self, member_name)) |member| {
                     try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
                     // The first argument should be list but it's "under the call frame"
                     try self.emitBytes(@enumToInt(OpCode.OP_SWAP), 1);
@@ -3215,12 +3327,12 @@ pub const Compiler = struct {
 
                 // We know nothing of field
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.vm.allocator, self.parser.previous_token.?)
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyString(self.vm, member_name);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, member_name);
 
-                var placeholder = try self.vm.getTypeDef(.{
+                var placeholder = try self.getTypeDef(.{
                     .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
@@ -3320,13 +3432,13 @@ pub const Compiler = struct {
         const constant: u8 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
         try self.patchList(list_offset, constant);
 
-        var list_def = ObjList.ListDef.init(self.vm.allocator, item_type.?);
+        var list_def = ObjList.ListDef.init(self.allocator, item_type.?);
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .List = list_def
         };
 
-        var list_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+        var list_type: *ObjTypeDef = try self.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .List,
             .resolved_type = resolved_type
@@ -3434,7 +3546,7 @@ pub const Compiler = struct {
             .Map = map_def
         };
 
-        var map_type: *ObjTypeDef = try self.vm.getTypeDef(.{
+        var map_type: *ObjTypeDef = try self.getTypeDef(.{
             .optional = try self.match(.Question),
             .def_type = .Map,
             .resolved_type = resolved_type
@@ -3455,7 +3567,7 @@ pub const Compiler = struct {
             .False => {
                 try self.emitOpCode(.OP_FALSE);
 
-                return try self.vm.getTypeDef(.{
+                return try self.getTypeDef(.{
                     .def_type = .Bool,
                     .optional = false,
                 });
@@ -3463,7 +3575,7 @@ pub const Compiler = struct {
             .True => {
                 try self.emitOpCode(.OP_TRUE);
 
-                return try self.vm.getTypeDef(.{
+                return try self.getTypeDef(.{
                     .def_type = .Bool,
                     .optional = false,
                 });
@@ -3471,7 +3583,7 @@ pub const Compiler = struct {
             .Null => {
                 try self.emitOpCode(.OP_NULL);
 
-                return try self.vm.getTypeDef(.{
+                return try self.getTypeDef(.{
                     .def_type = .Void,
                     .optional = false,
                 });
@@ -3485,7 +3597,7 @@ pub const Compiler = struct {
 
         try self.emitConstant(Value{ .Number = value });
 
-        return try self.vm.getTypeDef(.{
+        return try self.getTypeDef(.{
             .def_type = .Number,
             .optional = false,
         });
@@ -3504,7 +3616,7 @@ pub const Compiler = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = try copyString(self.vm, name.lexeme),
+            .name = try copyStringRaw(&self.strings, self.allocator, name.lexeme),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -3533,7 +3645,7 @@ pub const Compiler = struct {
         }
 
         try self.globals.append(Global{
-            .name = try copyString(self.vm, name.lexeme),
+            .name = try copyStringRaw(&self.strings, self.allocator, name.lexeme),
             .type_def = global_type,
         });
 
@@ -3698,7 +3810,7 @@ pub const Compiler = struct {
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
-        var constant: u8 = try self.current.?.function.chunk.addConstant(self.vm, value);
+        var constant: u8 = try self.current.?.function.chunk.addConstant(null, value);
         if (constant > Chunk.max_constants) {
             try self.reportError("Too many constants in one chunk.");
             return 0;
@@ -3708,6 +3820,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: Token) !u8 {
-        return try self.makeConstant(Value{ .Obj = (try copyString(self.vm, name.lexeme)).toObj() });
+        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(&self.strings, self.allocator, name.lexeme)).toObj() });
     }
 };
