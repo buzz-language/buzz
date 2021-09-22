@@ -16,5 +16,41 @@ Attempt to make a small/lightweight typed scripting language written in Zig
 - No nonsense coercion
 - TBD: coroutines?
 
+# TODO
+- [X] "Native" functions
+- [X] Arithmetic operations
+- [X] Arrow and anonymous functions
+- [X] do until statement
+- [X] Enum
+- [X] Garbage collection
+- [X] if statement
+- [X] List
+- [X] Logical operations
+- [X] Map
+- [X] Objects (class you can't inherit from)
+- [X] Test system
+- [X] while statement
+- [ ] Assignment shortcuts (+=, -=, etc.)
+- [ ] Bitwise operations
+- [ ] Classes or Interface (TBD)
+- [ ] Compiled chunk serialization
+- [ ] Constructor strategy
+- [ ] Error stack trace
+- [ ] FFI or Lua-like API
+- [ ] First-class types
+- [ ] for statement
+- [ ] Generics
+- [ ] import/require
+- [ ] Increment/Decrement (++/--)
+- [ ] is and as
+- [ ] Optionals
+- [ ] Spread operator
+- [ ] std lib
+- [ ] String escape sequences
+- [ ] Strings (interpolation)
+- [ ] switch statement
+- [ ] Tuples
+- [ ] UTF-8 strings
+
 # Resources
 - http://www.craftinginterpreters.com/contents.html
