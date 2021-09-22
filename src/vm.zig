@@ -65,6 +65,9 @@ pub const VM = struct {
     // TODO: replace with SinglyLinkedList(*Obj)
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
+    // Set at true once compilation is over
+    // Avoids gc sweep during compilation
+    ready: bool = false,
 
     pub fn init(allocator: *Allocator) !Self {
         var self: Self = .{
@@ -156,6 +159,8 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {
+        self.ready = true;
+
         self.push(.{
             .Obj = function.toObj()
         });

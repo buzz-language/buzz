@@ -214,6 +214,8 @@ fn sweep(vm: *VM) void {
 }
 
 pub fn collectGarbage(vm: *VM) !void {
+    if (!vm.ready) return;
+
     if (Config.debug_gc) {
         std.debug.warn("-- gc starts\n", .{});
 
