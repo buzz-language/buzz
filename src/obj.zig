@@ -10,6 +10,7 @@ const VM = @import("./vm.zig").VM;
 usingnamespace @import("./memory.zig");
 usingnamespace @import("./value.zig");
 const Token = @import("./token.zig").Token;
+const Config = @import("./config.zig").Config;
 
 pub const ObjType = enum {
     String,
@@ -34,7 +35,7 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
     var obj: *T = try allocate(vm, T);
     obj.* = data;
 
-    if (builtin.mode == .Debug) {
+    if (Config.debug_gc) {
         std.debug.warn("allocated {*}\n", .{ obj });
         std.debug.warn("{} allocated, total {}\n", .{ @sizeOf(T), vm.bytes_allocated });
     }

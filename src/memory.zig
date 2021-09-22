@@ -4,6 +4,7 @@ const VM = @import("./vm.zig").VM;
 usingnamespace @import("./value.zig");
 usingnamespace @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
+const Config = @import("./config.zig").Config;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);
@@ -29,16 +30,20 @@ pub fn free(vm: *VM, comptime T: type, pointer: *T) void {
     vm.bytes_allocated -= @sizeOf(T);
     vm.allocator.destroy(pointer);
 
-    std.debug.warn("freed {}, {} allocated\n", .{ @sizeOf(T), vm.bytes_allocated });
+    if (Config.debug_gc) {
+        std.debug.warn("freed {}, {} allocated\n", .{ @sizeOf(T), vm.bytes_allocated });
+    }
 }
 
 pub fn markObj(vm: *VM, obj: *Obj) !void {
     if (obj.is_marked) {
-        std.debug.warn("{*} already marked\n", .{ obj });
+        if (Config.debug_gc) {
+            std.debug.warn("{*} already marked\n", .{ obj });
+        }
         return;
     }
 
-    if (builtin.mode == .Debug) {
+    if (Config.debug_gc) {
         std.debug.warn("marking {*}: {s}\n", .{ obj, try valueToString(vm.allocator, Value{ .Obj = obj }) });
     }
 
@@ -67,7 +72,7 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
 }
 
 fn freeObj(vm: *VM, obj: *Obj) void {
-    if (builtin.mode == .Debug) {
+    if (Config.debug_gc) {
         std.debug.warn("freeing {*}: {}\n", .{ obj, obj.obj_type });
     }
 
@@ -160,6 +165,8 @@ fn traceReference(vm: *VM) !void {
 }
 
 fn sweep(vm: *VM) void {
+    var swept: usize = vm.bytes_allocated;
+
     var previous: ?*Obj = null;
     var obj: ?*Obj = vm.objects;
     while (obj) |uobj| {
@@ -181,10 +188,19 @@ fn sweep(vm: *VM) void {
             freeObj(vm, unreached);
         }
     }
+
+    if (Config.debug_gc) {
+        std.debug.warn("Swept {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated });
+        obj = vm.objects;
+        while (obj) |uobj| {
+            std.debug.warn("\t{*}: {s}\n", .{ uobj, uobj });
+            obj = uobj.next;
+        }
+    }
 }
 
 pub fn collectGarbage(vm: *VM) !void {
-    if (builtin.mode == .Debug) {
+    if (Config.debug_gc) {
         std.debug.warn("-- gc starts\n", .{});
 
         try dumpStack(vm);
@@ -203,7 +219,7 @@ pub fn collectGarbage(vm: *VM) !void {
 
     vm.next_gc = vm.bytes_allocated * 2;
 
-    if (builtin.mode == .Debug) {
+    if (Config.debug_gc) {
         std.debug.warn("-- gc end\n", .{});
     }
 }
