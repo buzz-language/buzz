@@ -30,15 +30,10 @@ pub const ObjType = enum {
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
-    var size: usize = @sizeOf(*ObjError);
+    var before: usize = vm.bytes_allocated;
 
     var obj: *T = try allocate(vm, T);
     obj.* = data;
-
-    if (Config.debug_gc) {
-        std.debug.warn("allocated {*}\n", .{ obj });
-        std.debug.warn("{} allocated, total {}\n", .{ @sizeOf(T), vm.bytes_allocated });
-    }
 
     // TODO: How to avoid this?
     var object: *Obj = switch (T) {
@@ -59,11 +54,14 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         else => {}
     };
 
+    if (Config.debug_gc) {
+        std.debug.warn("allocated {*} {*}\n", .{ obj, object });
+        std.debug.warn("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
+    }
+
     // Add new object at start of vm.objects linked list
     object.next = vm.objects;
     vm.objects = object;
-
-    vm.bytes_allocated += size;
 
     return obj;
 }

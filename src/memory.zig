@@ -204,7 +204,7 @@ fn sweep(vm: *VM) void {
     }
 
     if (Config.debug_gc) {
-        std.debug.warn("Swept {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated });
+        std.debug.warn("Swept {} bytes, now {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated, vm.bytes_allocated });
         obj = vm.objects;
         while (obj) |uobj| {
             std.debug.warn("\t{*}: {s}\n", .{ uobj, uobj });
