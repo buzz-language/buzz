@@ -73,9 +73,6 @@ pub const ChunkCompiler = struct {
             .optional = false,
         }));
 
-        // TODO: is this needed? Why would we care if the GC collected compiler stuff since the compiler's job is over?
-        function.obj.is_marked = true;
-
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
             .upvalues = [_]UpValue{undefined} ** 255,

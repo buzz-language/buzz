@@ -97,6 +97,7 @@ pub const Obj = struct {
 
     obj_type: ObjType,
     is_marked: bool = false,
+    // If true, will never be collected: useful for compiler functions which are never on the stack
     next: ?*Obj = null,
 
     pub fn eql(self: *Self, other: *Self) bool {

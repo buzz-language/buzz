@@ -160,8 +160,7 @@ pub const VM = struct {
             .Obj = function.toObj()
         });
 
-        var closure: *ObjClosure = try self.allocator.create(ObjClosure);
-        closure.* = try ObjClosure.init(self.allocator, function);
+        var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
 
         _ = self.pop();
 
