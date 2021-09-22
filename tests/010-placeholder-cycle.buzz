@@ -1,0 +1,12 @@
+object A {
+    B b;
+}
+
+object B {
+    A a;
+}
+
+test "Cyclic placeholders" {
+    print(A);
+    print(B);
+}

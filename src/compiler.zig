@@ -1389,8 +1389,6 @@ pub const Compiler = struct {
             if (try self.match(.Equal)) {
                 var expr_type: *ObjTypeDef = try self.expression(false);
 
-                try self.consume(.Semicolon, "Expected `;` after property definition.");
-                
                 // If only receiver is placeholder, make the assumption that its type if what the expression's return
                 if (type_def.?.def_type == .Placeholder and expr_type.def_type != .Placeholder) {
                     type_def.?.resolved_type.?.Placeholder.resolved_def_type = expr_type.def_type;
@@ -1421,6 +1419,8 @@ pub const Compiler = struct {
                 // Create property default value
                 try self.emitBytes(@enumToInt(OpCode.OP_PROPERTY), constant.?);
             }
+            
+            try self.consume(.Semicolon, "Expected `;` after property definition.");
 
             return Property{
                 .name = name.?.lexeme,
