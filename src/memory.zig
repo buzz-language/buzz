@@ -31,7 +31,17 @@ pub fn free(vm: *VM, comptime T: type, pointer: *T) void {
     vm.allocator.destroy(pointer);
 
     if (Config.debug_gc) {
-        std.debug.warn("freed {}, {} allocated\n", .{ @sizeOf(T), vm.bytes_allocated });
+        std.debug.warn("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + @sizeOf(T), @sizeOf(T), vm.bytes_allocated });
+    }
+}
+
+pub fn freeMany(vm: *VM, comptime T: type, pointer: []const T) void {
+    const n: usize = (@sizeOf(T) * pointer.len);
+    vm.bytes_allocated -= n;
+    vm.allocator.free(pointer);
+
+    if (Config.debug_gc) {
+        std.debug.warn("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + n, n, vm.bytes_allocated });
     }
 }
 
@@ -77,7 +87,11 @@ fn freeObj(vm: *VM, obj: *Obj) void {
     }
 
     switch (obj.obj_type) {
-        .String => free(vm, ObjString, ObjString.cast(obj).?),
+        .String => {
+            var obj_string = ObjString.cast(obj).?;
+            freeMany(vm, u8, obj_string.string);
+            free(vm, ObjString, obj_string);
+        },
         .Type => {
             var obj_typedef = ObjTypeDef.cast(obj).?;
             obj_typedef.deinit();
