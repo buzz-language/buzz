@@ -9,6 +9,7 @@ usingnamespace @import("./disassembler.zig");
 const Allocator = std.mem.Allocator;
 // TODO: usingnamespace ?
 usingnamespace @import("./obj.zig");
+const Config = @import("./config.zig").Config;
 
 fn invertedList(comptime T: type, list: std.ArrayList(T)) !std.ArrayList(T) {
     var inverted = try std.ArrayList(T).initCapacity(list.allocator, list.items.len);
@@ -61,7 +62,7 @@ pub const VM = struct {
     open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
-    next_gc: usize = 1024, //1024 * 1024,
+    next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 1024,
     // TODO: replace with SinglyLinkedList(*Obj)
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
