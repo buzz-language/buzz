@@ -24,6 +24,7 @@ pub const FunctionType = enum {
     Script,
     TryCatch,
     Test,
+    Anonymous,
 };
 
 pub const Local = struct {
@@ -55,6 +56,7 @@ pub const ChunkCompiler = struct {
     enclosing: ?*ChunkCompiler = null,
     function: *ObjFunction,
     function_type: FunctionType,
+    returned_type: ?*ObjTypeDef = null,
 
     locals: [255]Local,
     local_count: u8 = 0,
@@ -216,7 +218,7 @@ pub const Compiler = struct {
         .{ .prefix = number,   .infix = null,      .precedence = .None }, // Number
         .{ .prefix = string,   .infix = null,      .precedence = .None }, // String
         .{ .prefix = variable, .infix = null,      .precedence = .None }, // Identifier
-        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Fun
+        .{ .prefix = fun,      .infix = null,      .precedence = .None }, // Fun
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Object
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Class
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Enum
@@ -641,7 +643,10 @@ pub const Compiler = struct {
     }
 
     fn endCompiler(self: *Self) !*ObjFunction {
-        try self.emitReturn();
+        // Emit `return void;` if no returnStatement was parsed
+        if (self.current.?.returned_type == null) {
+            try self.emitReturn();
+        }
 
         var function: *ObjFunction = self.current.?.function;
 
@@ -749,18 +754,41 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) !void {
+        var return_type: *ObjTypeDef = undefined;
+
         if (self.current.?.function_type == .Initializer) {
+            return_type = self.current.?.function.return_type;
             try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
         } else if (self.current.?.function_type == .Script) {
             // If top level, search `main` function and call it, otherwise just return null
             // If user returned something that code won't be reachable
             if (!self.testing) {
+                var found_main: bool = false;
                 for (self.globals.items) |global, index| {
                     if (mem.eql(u8, global.name.string, "main")) {
+                        found_main = true;
+
                         // TODO: Somehow push cli args on the stack
                         try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
                         try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+
+                        if (global.type_def.def_type != .Placeholder) {
+                            return_type = global.type_def.resolved_type.?.Function.return_type;
+                        } else {
+                            unreachable;
+                        }
+
+                        break;
                     }
+                }
+
+                if (!found_main) {
+                    return_type = try self.vm.getTypeDef(
+                        .{
+                            .optional = false,
+                            .def_type = .Void
+                        }
+                    );
                 }
             } else {
                 // Create an entry point wich runs all `test`
@@ -771,11 +799,32 @@ pub const Compiler = struct {
                     }
                 }
 
+                return_type = try self.vm.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .Void
+                    }
+                );
+
                 // TODO: print "X/X tests passed"
             }
         } else {
+            return_type = try self.vm.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Void
+                }
+            );
             try self.emitOpCode(.OP_NULL);
         }
+
+        if (self.current.?.returned_type) |already_returned| {
+            if (!already_returned.eql(return_type)) {
+                try self.reportError("Returning multiple incompatible types.");
+            }
+        }
+
+        self.current.?.returned_type = return_type;
 
         try self.emitOpCode(.OP_RETURN);
     }
@@ -836,8 +885,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Test)) {
             try self.testStatement();
         } else if (try self.match(.Function)) {
-            // self.funVarDeclaraction();
-            unreachable;
+            try self.varDeclaration(try self.functionType());
         // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
@@ -920,8 +968,8 @@ pub const Compiler = struct {
             try self.mapDeclaration();
             return null;
         } else if (try self.match(.Function)) {
-            // self.funVarDeclaraction();
-            unreachable;
+            try self.varDeclaration(try self.functionType());
+            return null;
         } else if (try self.match(.Identifier)) {
             if (self.check(.Identifier)) {
                 var user_type_name: Token = self.parser.previous_token.?.clone();
@@ -1034,6 +1082,8 @@ pub const Compiler = struct {
                 try self.reportTypeCheck(self.current.?.function.return_type, return_type, "Return value");
             }
 
+            self.current.?.returned_type = return_type;
+
             try self.consume(.Semicolon, "Expected `;` after return value.");
             try self.emitOpCode(.OP_RETURN);
         }
@@ -1095,7 +1145,7 @@ pub const Compiler = struct {
                 }
             });
         } else if (try self.match(.Function)) {
-            unreachable;
+            return try self.functionType();
         } else if ((try self.match(.Identifier))) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
             var var_type: ?*ObjTypeDef = null;
@@ -1188,6 +1238,67 @@ pub const Compiler = struct {
         return breaks;
     }
 
+    fn functionType(self: *Self) !*ObjTypeDef {
+        assert(self.parser.previous_token.?.token_type == .Function);
+
+        try self.consume(.LeftParen, "Expected `(` after function name.");
+
+        var parameters: std.StringArrayHashMap(*ObjTypeDef) = std.StringArrayHashMap(*ObjTypeDef).init(self.vm.allocator);
+        var arity: usize = 0;
+        if (!self.check(.RightParen)) {
+            while (true) {
+                arity += 1;
+                if (arity > 255) {
+                    try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                }
+
+                var param_type: *ObjTypeDef = try self.parseTypeDef();
+                var param_name: []const u8 = if (try self.match(.Identifier)) self.parser.previous_token.?.lexeme else "_";
+
+                try parameters.put(param_name, param_type);
+
+                if (!try self.match(.Comma)) break;
+            }
+        }
+
+        try self.consume(.RightParen, "Expected `)` after function parameters.");
+        
+        var return_type: *ObjTypeDef = undefined;
+        if (try self.match(.Greater)) {
+            return_type = try self.parseTypeDef();
+        } else {
+            return_type = try self.vm.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Void
+                }
+            );
+        }
+
+        var function_typedef: ObjTypeDef = .{
+            .optional = false,
+            .def_type = .Function,
+        };
+
+        var function_def: ObjFunction.FunctionDef = .{
+            .name = try copyString(self.vm, "anonymous"),
+            .return_type = return_type,
+            .parameters = parameters,
+        };
+
+        var function_resolved_type: ObjTypeDef.TypeUnion = .{
+            .Function = function_def
+        };
+
+        function_typedef.resolved_type = function_resolved_type;
+
+        return try self.vm.getTypeDef(function_typedef);
+    }
+
+    fn fun(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        return try self.function(null, .Anonymous, null);
+    }
+
     fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
         try ChunkCompiler.init(self, function_type, null, this);
         var compiler: *ChunkCompiler = self.current.?;
@@ -1245,8 +1356,29 @@ pub const Compiler = struct {
 
         self.current.?.function.return_type = return_type;
 
-        try self.consume(.LeftBrace, "Expected `{{` before function body.");
-        _ = try self.block();
+        if (function_type == .Anonymous and try self.match(.Arrow)) {
+            var expr_type: *ObjTypeDef = try self.expression(false);
+
+            if (!return_type.eql(expr_type)) {
+                try self.reportTypeCheck(return_type, expr_type, "Bad return type");
+            }
+
+            try self.emitOpCode(.OP_RETURN); // Lambda functions returns its single expression
+        } else {
+            try self.consume(.LeftBrace, "Expected `{{` before function body.");
+            _ = try self.block();
+
+            var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.vm.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Void
+                }
+            );
+
+            if (!return_type.eql(returned_type)) {
+                try self.reportTypeCheck(return_type, returned_type, "Bad return type");
+            }
+        }
 
         var new_function: *ObjFunction = try self.endCompiler();
 
@@ -1356,7 +1488,11 @@ pub const Compiler = struct {
             name = self.parser.previous_token.?.clone();
             constant = try self.identifierConstant(name.?);
         } else if (try self.match(.Function)) {
-            unreachable;
+            type_def = try self.functionType();
+
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            constant = try self.identifierConstant(name.?);
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
             

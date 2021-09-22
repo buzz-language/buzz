@@ -228,6 +228,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
         return .Print;
     }
 
+    if (mem.eql(u8, literal, "Function")) {
+        return .Function;
+    }
+
     return null;
 }
 

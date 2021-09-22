@@ -143,7 +143,7 @@ switch (expression) {
 fun aFunction(str hello, num world, num? wat) > str {  | Basic function definition
 }
 
-(num age) -> age * 2; | Arrow function
+fun (num age) -> age * 2; | Arrow function
 
 (str name, num age) {     | Anonymous function
     print("{name} is {age} years old");
@@ -151,7 +151,7 @@ fun aFunction(str hello, num world, num? wat) > str {  | Basic function definiti
     return age * 2;
 };
 
-fun call(Function(str, num) > str fn) { | Function as first class objects
+fun call(fun (str, num) > str fn) { | Function as first class objects
     fn("hello", 12);
 }
 

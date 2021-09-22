@@ -1,0 +1,21 @@
+fun assert(bool condition, str message) {
+    if (!condition) {
+        throw message;
+    }
+}
+
+test "Lambda/Anonymous functions" {
+    Function(num) > num mul = fun (num n) > num -> n * 2;
+
+    assert(mul(1) == 2, message: "called a lambda function");
+}
+
+fun callThis(Function(num) > num fn, num arg) > num {
+    return fn(arg);
+}
+
+test "Function as arguments" {
+    assert((fun (num n) > num { return n * n; })(10) == 100, message: "called anonymous function");
+    assert((fun (num n) > num -> n * n)(10) == 100, message: "called lambda function");
+    assert(callThis(fun (num n) > num -> n * 2, arg: 2) == 4, message: "called a function from a function");
+}
