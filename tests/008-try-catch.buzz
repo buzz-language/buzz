@@ -4,15 +4,28 @@ fun assert(bool condition, str message) {
     }
 }
 
-fun willThrow() {
-    throw "me around!";
-}
+| fun willThrow() {
+|     throw "me around!";
+| }
 
-test "try-catch" {
+| test "try-catch" {
+|     try {
+|         willThrow();
+|         assert(false, message: "unreachable");
+|     } catch {
+|         assert(true, message: "error caught");
+|     }
+| }
+
+test "catch runtime error" {
+    [num] list = [1, 2, 3];
+
     try {
-        willThrow();
-        assert(false, message: "unreachable");
+        print(list[100]); | out of bound access
     } catch {
-        assert(true, message: "error caught");
+        print("caugh it!");
+        assert(true, message: "caught it!");
     }
+
+    | print(list[200]); | out of bound access
 }

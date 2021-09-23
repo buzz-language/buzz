@@ -459,7 +459,7 @@ pub const VM = struct {
             }
 
             // if (builtin.mode == .Debug) {
-            //     std.debug.warn("{}\n", .{instruction});
+            //     std.debug.warn("frame: {s}, code: {}\n", .{self.current_frame.?.closure.function.name.string, instruction});
             //     try dumpStack(self);
             // }
         }
@@ -541,6 +541,10 @@ pub const VM = struct {
         }
 
         self.stack_top = self.current_frame.?.slots;
+
+        // We don't care about a return value but call assumes it when setting frame.slots
+        self.push(Value { .Null = null });
+
         self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
         // Call catch closure or continue unwinding frames to find one

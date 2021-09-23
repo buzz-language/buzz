@@ -82,10 +82,15 @@ pub fn dumpStack(vm: *VM) !void {
         var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, value[0]);
         defer std.heap.c_allocator.free(value_str);
 
-        print("{s}\n ", .{ value_str });
+        if (vm.current_frame.?.slots == value) {
+            print("{*} {s} frame\n ", .{ value, value_str });
+        } else {
+            print("{*} {s}\n ", .{ value, value_str });
+        }
 
         value += 1;
     }
+    print("{*} top\n", .{vm.stack_top});
 
     print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
     print("\u{001b}[0m", .{});
