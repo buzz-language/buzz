@@ -5,14 +5,19 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const VM = @import("vm.zig").VM;
 const Compiler = @import("compiler.zig").Compiler;
+const ObjString = @import("./obj.zig").ObjString;
 
 pub const Result = VM.InterpretResult;
 
 pub fn runString(allocator: *Allocator, string: []const u8) !Result {
-    var vm = try VM.init(allocator);
-    defer vm.deinit();
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
+    var strings = std.StringHashMap(*ObjString).init(allocator);
+    var vm = try VM.init(allocator, &strings);
+    var compiler = Compiler.init(allocator, &strings);
+    defer {
+        vm.deinit();
+        compiler.deinit();
+        strings.deinit();
+    }
 
     if (try compiler.compile(string[0..], "<test>", true)) |function| {
         return (try vm.interpret(function)) orelse Result.RuntimeError;
@@ -22,10 +27,14 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
 }
 
 fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
-    var vm = try VM.init(allocator);
-    defer vm.deinit();
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
+    var strings = std.StringHashMap(*ObjString).init(allocator);
+    var vm = try VM.init(allocator, &strings);
+    var compiler = Compiler.init(allocator, &strings);
+    defer {
+        vm.deinit();
+        compiler.deinit();
+        strings.deinit();
+    }
 
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});

@@ -3,14 +3,19 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
+const ObjString = @import("./obj.zig").ObjString;
 
 // Using a global because of vm.stack which would overflow zig's stack
 
 fn repl(allocator: *Allocator) !void {
-    var vm = try VM.init(allocator);
-    defer vm.deinit();
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
+    var strings = std.StringHashMap(*ObjString).init(allocator);
+    var vm = try VM.init(allocator, &strings);
+    var compiler = Compiler.init(allocator, &strings);
+    defer {
+        vm.deinit();
+        compiler.deinit();
+        strings.deinit();
+    }
 
     std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
     while (true) {
@@ -28,10 +33,14 @@ fn repl(allocator: *Allocator) !void {
 }
 
 fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
-    var vm = try VM.init(allocator);
-    defer vm.deinit();
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
+    var strings = std.StringHashMap(*ObjString).init(allocator);
+    var vm = try VM.init(allocator, &strings);
+    var compiler = Compiler.init(allocator, &strings);
+    defer {
+        vm.deinit();
+        compiler.deinit();
+        strings.deinit();
+    }
     
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});

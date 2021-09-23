@@ -56,7 +56,7 @@ pub const VM = struct {
     stack_top: [*]Value,
     globals: std.ArrayList(Value),
     // Interned strings
-    strings: std.StringHashMap(*ObjString),
+    strings: *std.StringHashMap(*ObjString),
     open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
@@ -65,14 +65,14 @@ pub const VM = struct {
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
-    pub fn init(allocator: *Allocator) !Self {
+    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString)) !Self {
         var self: Self = .{
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
             .stack_top = undefined,
             .globals = std.ArrayList(Value).init(allocator),
             .frames = std.ArrayList(CallFrame).init(allocator),
-            .strings = std.StringHashMap(*ObjString).init(allocator),
+            .strings = strings,
             .open_upvalues = null,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
         };
@@ -86,7 +86,6 @@ pub const VM = struct {
         self.allocator.free(self.stack);
 
         self.frames.deinit();
-        self.strings.deinit();
         
         // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
 
@@ -493,7 +492,7 @@ pub const VM = struct {
     fn import(self: *Self, value: Value) anyerror!void {
         var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
 
-        var vm = try VM.init(self.allocator);
+        var vm = try VM.init(self.allocator, self.strings);
         defer vm.deinit();
 
         if (((vm.interpret(function) catch null) orelse .RuntimeError) == .Ok) {

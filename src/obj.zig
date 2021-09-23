@@ -662,7 +662,7 @@ pub const ObjList = struct {
                 try  parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(&compiler.strings, compiler.allocator, "append"),
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "append"),
                     .parameters = parameters,
                     .return_type = obj_list
                 };
@@ -684,7 +684,7 @@ pub const ObjList = struct {
                 var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(&compiler.strings, compiler.allocator, "len"),
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "len"),
                     .parameters = parameters,
                     .return_type = try compiler.getTypeDef(ObjTypeDef{
                         .optional = false,

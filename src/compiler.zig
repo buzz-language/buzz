@@ -65,12 +65,12 @@ pub const ChunkCompiler = struct {
     scope_depth: u32 = 0,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
-        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(&compiler.strings, compiler.allocator, name) else null;
+        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(compiler.strings, compiler.allocator, name) else null;
 
         var function = try ObjFunction.init(compiler.allocator, if (function_type != .Script)
-            try copyStringRaw(&compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme)
+            try copyStringRaw(compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme)
         else
-            file_name_string orelse try copyStringRaw(&compiler.strings, compiler.allocator, VM.script_string),
+            file_name_string orelse try copyStringRaw(compiler.strings, compiler.allocator, VM.script_string),
         try compiler.getTypeDef(.{
             .def_type = .Void,
             .optional = false,
@@ -113,7 +113,7 @@ pub const ChunkCompiler = struct {
         }
 
         local.name = try copyStringRaw(
-            &compiler.strings,
+            compiler.strings,
             compiler.allocator,
             if (function_type != .Function) VM.this_string else VM.empty_string
         );
@@ -251,24 +251,23 @@ pub const Compiler = struct {
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
     type_defs: std.StringHashMap(*ObjTypeDef),
     // Intered strings, will be copied over to the vm
-    strings: std.StringHashMap(*ObjString),
+    strings: *std.StringHashMap(*ObjString),
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
     test_count: u64 = 0,
 
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString)) Self {
         return .{
             .allocator = allocator,
             .globals = std.ArrayList(Global).init(allocator),
-            .strings = std.StringHashMap(*ObjString).init(allocator),
+            .strings = strings,
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.globals.deinit();
-        self.strings.deinit();
 
         // TODO: key are strings on the heap so free them, does this work?
         var it = self.type_defs.iterator();
@@ -1044,7 +1043,7 @@ pub const Compiler = struct {
                         .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                     };
 
-                    placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
+                    placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
 
                     var_type = try self.getTypeDef(.{
                         .optional = try self.match(.Question),
@@ -1101,7 +1100,7 @@ pub const Compiler = struct {
             } else {
                 try self.emitBytes(
                     @enumToInt(OpCode.OP_CONSTANT),
-                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(&self.strings, self.allocator, "uncaught error")).toObj() })
+                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, "uncaught error")).toObj() })
                 );
             }
 
@@ -1221,7 +1220,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
 
                 var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -1338,7 +1337,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = try copyStringRaw(&self.strings, self.allocator, "anonymous"),
+            .name = try copyStringRaw(self.strings, self.allocator, "anonymous"),
             .return_type = return_type,
             .parameters = parameters,
         };
@@ -1453,7 +1452,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try copyStringRaw(&self.strings, self.allocator, uname.lexeme) else try copyStringRaw(&self.strings, self.allocator, "anonymous"),
+            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme) else try copyStringRaw(self.strings, self.allocator, "anonymous"),
             .return_type = return_type,
             .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
         };
@@ -1573,7 +1572,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
 
                 var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -1695,7 +1694,7 @@ pub const Compiler = struct {
         
         _ = try file.readAll(source);
 
-        var compiler = Compiler.init(self.allocator);
+        var compiler = Compiler.init(self.allocator, self.strings);
         defer compiler.deinit();
 
         if (try compiler.compile(source, file_name, self.testing)) |import_function| {
@@ -1908,7 +1907,7 @@ pub const Compiler = struct {
 
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.allocator,
-            try copyStringRaw(&self.strings, self.allocator, enum_name.lexeme),
+            try copyStringRaw(self.strings, self.allocator, enum_name.lexeme),
             enum_case_type,
         );
 
@@ -2015,7 +2014,7 @@ pub const Compiler = struct {
             .resolved_type = .{
                 .Object = ObjObject.ObjectDef.init(
                     self.allocator,
-                    try copyStringRaw(&self.strings, self.allocator, object_name.lexeme)
+                    try copyStringRaw(self.strings, self.allocator, object_name.lexeme)
                 ),
             }
         };
@@ -2248,7 +2247,7 @@ pub const Compiler = struct {
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
             .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
         };
-        placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, name.lexeme);
+        placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme);
 
         const placeholder_type = try self.getTypeDef(.{
             .optional = false,
@@ -2555,7 +2554,7 @@ pub const Compiler = struct {
 
     fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
         try self.emitConstant(Value {
-            .Obj = (try copyStringRaw(&self.strings, self.allocator, self.parser.previous_token.?.literal_string.?)).toObj()
+            .Obj = (try copyStringRaw(self.strings, self.allocator, self.parser.previous_token.?.literal_string.?)).toObj()
         });
 
         return try self.getTypeDef(.{
@@ -3330,7 +3329,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(&self.strings, self.allocator, member_name);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, member_name);
 
                 var placeholder = try self.getTypeDef(.{
                     .optional = false,
@@ -3616,7 +3615,7 @@ pub const Compiler = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = try copyStringRaw(&self.strings, self.allocator, name.lexeme),
+            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -3645,7 +3644,7 @@ pub const Compiler = struct {
         }
 
         try self.globals.append(Global{
-            .name = try copyStringRaw(&self.strings, self.allocator, name.lexeme),
+            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme),
             .type_def = global_type,
         });
 
@@ -3820,6 +3819,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: Token) !u8 {
-        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(&self.strings, self.allocator, name.lexeme)).toObj() });
+        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name.lexeme)).toObj() });
     }
 };
