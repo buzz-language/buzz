@@ -2,14 +2,42 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-usingnamespace @import("./value.zig");
-usingnamespace @import("./obj.zig");
-usingnamespace @import("./chunk.zig");
-usingnamespace @import("./disassembler.zig");
+const _value = @import("./value.zig");
+const _chunk = @import("./chunk.zig");
+const _disassembler = @import("./disassembler.zig");
+const _obj = @import("./obj.zig");
 const Allocator = std.mem.Allocator;
-// TODO: usingnamespace ?
-usingnamespace @import("./obj.zig");
 const Config = @import("./config.zig").Config;
+
+const Value = _value.Value;
+const ValueType = _value.ValueType;
+const valueToHashable = _value.valueToHashable;
+const hashableToValue = _value.hashableToValue;
+const valueToString = _value.valueToString;
+const valueEql = _value.valueEql;
+const ObjType = _obj.ObjType;
+const Obj = _obj.Obj;
+const ObjNative = _obj.ObjNative;
+const ObjError = _obj.ObjError;
+const ObjString = _obj.ObjString;
+const ObjUpValue = _obj.ObjUpValue;
+const ObjClosure = _obj.ObjClosure;
+const ObjFunction = _obj.ObjFunction;
+const ObjObjectInstance = _obj.ObjObjectInstance;
+const ObjObject = _obj.ObjObject;
+const ObjectDef = _obj.ObjectDef;
+const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
+const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
+const ObjBoundMethod = _obj.ObjBoundMethod;
+const ObjTypeDef = _obj.ObjTypeDef;
+const allocateObject = _obj.allocateObject;
+const allocateString = _obj.allocateString;
+const OpCode = _chunk.OpCode;
+const Chunk = _chunk.Chunk;
+const disassembleChunk = _disassembler.disassembleChunk;
+const dumpStack = _disassembler.dumpStack;
 
 fn invertedList(comptime T: type, list: std.ArrayList(T)) !std.ArrayList(T) {
     var inverted = try std.ArrayList(T).initCapacity(list.allocator, list.items.len);
@@ -511,7 +539,7 @@ pub const VM = struct {
         }
     }
 
-    fn runtimeError(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
+    pub fn runtimeError(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
         var frame: *CallFrame = self.current_frame.?;
@@ -646,7 +674,10 @@ pub const VM = struct {
     }
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8) !bool {
-        var result: Value = try native.native(self);
+        var result: Value = Value { .Null = null };
+        if (native.native(self)) {
+            result = self.pop();
+        }
 
         self.stack_top = self.stack_top - arg_count - 1;
         self.push(result);

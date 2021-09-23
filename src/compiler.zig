@@ -5,13 +5,52 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
-usingnamespace @import("./chunk.zig");
-usingnamespace @import("./obj.zig");
-usingnamespace @import("./token.zig");
-usingnamespace @import("./vm.zig");
-usingnamespace @import("./value.zig");
-usingnamespace @import("./scanner.zig");
-usingnamespace @import("./disassembler.zig");
+const _chunk = @import("./chunk.zig");
+const _obj = @import("./obj.zig");
+const _token = @import("./token.zig");
+const _vm = @import("./vm.zig");
+const _value = @import("./value.zig");
+const _scanner = @import("./scanner.zig");
+const _disassembler = @import("./disassembler.zig");
+const _utils = @import("./utils.zig");
+
+const Value = _value.Value;
+const ValueType = _value.ValueType;
+const valueToHashable = _value.valueToHashable;
+const hashableToValue = _value.hashableToValue;
+const valueToString = _value.valueToString;
+const valueEql = _value.valueEql;
+const ObjType = _obj.ObjType;
+const Obj = _obj.Obj;
+const ObjNative = _obj.ObjNative;
+const ObjError = _obj.ObjError;
+const ObjString = _obj.ObjString;
+const ObjUpValue = _obj.ObjUpValue;
+const ObjClosure = _obj.ObjClosure;
+const ObjFunction = _obj.ObjFunction;
+const ObjObjectInstance = _obj.ObjObjectInstance;
+const ObjObject = _obj.ObjObject;
+const ObjectDef = _obj.ObjectDef;
+const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
+const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
+const ObjBoundMethod = _obj.ObjBoundMethod;
+const ObjTypeDef = _obj.ObjTypeDef;
+const PlaceholderDef = _obj.PlaceholderDef;
+const allocateObject = _obj.allocateObject;
+const allocateString = _obj.allocateString;
+const OpCode = _chunk.OpCode;
+const Chunk = _chunk.Chunk;
+const Token = _token.Token;
+const TokenType = _token.TokenType;
+const copyStringRaw = _obj.copyStringRaw;
+const Scanner = _scanner.Scanner;
+const VM = _vm.VM;
+const toNullTerminated = _utils.toNullTerminated;
+const NativeFn = _obj.NativeFn;
+
+extern fn dlerror() [*:0]u8;
 
 const CompileError = error {
     Unrecoverable
@@ -311,9 +350,9 @@ pub const Compiler = struct {
             }
         }
 
-        var function: *ObjFunction = try self.endCompiler();
+        var new_function: *ObjFunction = try self.endCompiler();
 
-        return if (self.parser.had_error) null else function;
+        return if (self.parser.had_error) null else new_function;
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
@@ -575,8 +614,8 @@ pub const Compiler = struct {
 
                             // Search for a method matching the placeholder
                             if (!resolved_as_field) {
-                                if (object_def.methods.get(child_placeholder.name.?.string)) |method| {
-                                    try self.resolvePlaceholder(child, method);
+                                if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                                    try self.resolvePlaceholder(child, method_def);
                                 }
                             }
                         },
@@ -741,7 +780,7 @@ pub const Compiler = struct {
             try self.emitReturn();
         }
 
-        var function: *ObjFunction = self.current.?.function;
+        var current_function: *ObjFunction = self.current.?.function;
 
         self.current = self.current.?.enclosing;
 
@@ -752,7 +791,7 @@ pub const Compiler = struct {
         // );
         // std.debug.print("\n\n==========================", .{});
 
-        return function;
+        return current_function;
     }
 
     inline fn beginScope(self: *Self) void {
@@ -1675,13 +1714,7 @@ pub const Compiler = struct {
         try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
     }
 
-    fn importStatement(self: *Self) anyerror!void {
-        try self.consume(.String, "Expected path after `import`.");
-
-        var file_name: []const u8 = self.parser.previous_token.?.lexeme[1..(self.parser.previous_token.?.lexeme.len - 1)];
-
-        try self.consume(.Semicolon, "Expected `;` after import.");
-
+    fn importScript(self: *Self, file_name: []const u8) anyerror!void {
         // Find and read file
         var file = std.fs.cwd().openFile(file_name, .{}) catch {
             try self.reportError("File not found.");
@@ -1710,6 +1743,110 @@ pub const Compiler = struct {
             }
         } else {
             try self.reportError("Could not compile import.");
+        }
+    }
+
+    pub const LoadLib = fn () [*][*:0]const u8;
+    pub const LoadLibCount = fn () usize;
+    pub const LibTypeDef = fn () *ObjTypeDef;
+
+    // TODO: support other platform lib formats
+    fn importLib(self: *Self, file_name: []const u8) anyerror!void {
+        var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
+
+        if (lib) |*dlib| {
+            // search the openLib function
+            var dopenLib = dlib.lookup(LoadLib, "openLib");
+            var dopenLibCount = dlib.lookup(LoadLibCount, "openLibCount");
+            if (dopenLib != null and dopenLibCount != null) {
+                var exported: [*][*:0]const u8 = (dopenLib.?)();
+                var count: usize = (dopenLibCount.?)();
+
+                var i: usize = 0;
+                while (i < count) : (i += 1) {
+                    // Convert symbol names to zig slices
+                    var ssymbol = std.mem.span(exported[i]);
+
+                    var symbol_def_name = try self.allocator.alloc(u8, ssymbol.len + 8);
+                    defer self.allocator.free(symbol_def_name);
+                    symbol_def_name = try std.fmt.bufPrint(symbol_def_name, "{s}TypeDef", .{ ssymbol });
+                    var symbol_def_name_c = toNullTerminated(self.allocator, symbol_def_name);
+                    
+                    if (symbol_def_name_c == null) {
+                        return std.mem.Allocator.Error.OutOfMemory;
+                    }
+
+                    defer self.allocator.free(symbol_def_name_c.?);
+
+                    // Lookup symbol NativeFn
+                    var symbol_method = dlib.lookup(NativeFn, ssymbol);
+
+                    if (symbol_method == null) {
+                        try self.reportError("Could not find lib method symbol");
+                        return;
+                    }
+                    
+                    // lookup `<symbol>TypeDef` in the loaded library
+                    var symbol_typedef = dlib.lookup(LibTypeDef, symbol_def_name_c.?);
+                    
+                    if (symbol_typedef == null) {
+                        try self.reportError("Could not find lib method typedef");
+                        return;
+                    }
+
+                    // Create global
+                    var global_typedef: ?*ObjTypeDef = (symbol_typedef.?)();
+
+                    if (global_typedef == null) {
+                        try self.reportError("Could not find out method typedef");
+                    } 
+
+                    var slot: usize = try self.addGlobal(
+                        Token{
+                            .token_type = .Identifier,
+                            .lexeme = ssymbol,
+                            .line = self.parser.current_token.?.line,
+                            .column = self.parser.current_token.?.column,
+                        },
+                        global_typedef.?
+                    );
+
+                    self.markInitialized();
+
+                    // Create a ObjNative constant with it
+                    var native = try self.allocator.create(ObjNative);
+                    native.* = .{
+                        .native = symbol_method.?
+                    };
+                    
+                    try self.emitBytes(
+                        @enumToInt(OpCode.OP_CONSTANT),
+                        try self.makeConstant(Value{ .Obj = native.toObj() })
+                    );
+                    try self.emitBytes(
+                        @enumToInt(OpCode.OP_DEFINE_GLOBAL),
+                        @intCast(u8, slot)
+                    );
+                }
+            } else {
+                try self.reportError("Could not find `openLib` in library.");
+            }
+        } else {
+            try self.reportError(std.mem.span(dlerror()));
+        }
+    }
+
+    fn importStatement(self: *Self) anyerror!void {
+        try self.consume(.String, "Expected path after `import`.");
+
+        var file_name: []const u8 = self.parser.previous_token.?.lexeme[1..(self.parser.previous_token.?.lexeme.len - 1)];
+
+        try self.consume(.Semicolon, "Expected `;` after import.");
+
+        if (mem.eql(u8, file_name[file_name.len - 5..file_name.len], ".buzz")) {
+            try self.importScript(file_name);
+        } else if (mem.eql(u8, file_name[file_name.len - 6..file_name.len], ".dylib")) {
+            try self.importLib(file_name);
         }
     }
 

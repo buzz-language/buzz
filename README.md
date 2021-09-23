@@ -3,11 +3,13 @@
 </p>
 
 # 👨‍🚀 buzz
-Attempt to make a small/lightweight typed scripting language written in Zig
+A small/lightweight typed scripting language written in Zig
 
 <p align="center">
     <img src="https://github.com/giann/buzz/raw/main/example.png" alt="buzz code example">
 </p>
+
+**Note: This is very much in development. Seriously, don't even try to build it.**
 
 # Goal
 - Small in size and complexity (just a bit more than Lua though)
@@ -24,6 +26,7 @@ Attempt to make a small/lightweight typed scripting language written in Zig
 - [X] Enum
 - [X] Garbage collection
 - [X] if statement
+- [X] import/export
 - [X] List
 - [X] Logical operations
 - [X] Map
@@ -40,7 +43,6 @@ Attempt to make a small/lightweight typed scripting language written in Zig
 - [ ] First-class types
 - [ ] for statement
 - [ ] Generics
-- [ ] import/require
 - [ ] Increment/Decrement (++/--)
 - [ ] is and as
 - [ ] Optionals

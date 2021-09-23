@@ -1,0 +1,5 @@
+import "tests/utils/libtesting.dylib";
+
+test "Using a function coming from a library" {
+    assert(true, message: "yeah!");
+}

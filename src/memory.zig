@@ -1,10 +1,28 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const VM = @import("./vm.zig").VM;
-usingnamespace @import("./value.zig");
-usingnamespace @import("./obj.zig");
+const _value = @import("./value.zig");
+const _obj = @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
 const Config = @import("./config.zig").Config;
+
+const Value = _value.Value;
+const valueToString = _value.valueToString;
+const Obj = _obj.Obj;
+const ObjString = _obj.ObjString;
+const ObjTypeDef = _obj.ObjTypeDef;
+const ObjUpValue = _obj.ObjUpValue;
+const ObjClosure = _obj.ObjClosure;
+const ObjFunction = _obj.ObjFunction;
+const ObjObjectInstance = _obj.ObjObjectInstance;
+const ObjObject = _obj.ObjObject;
+const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
+const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
+const ObjBoundMethod = _obj.ObjBoundMethod;
+const ObjNative = _obj.ObjNative;
+const ObjError = _obj.ObjError;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);

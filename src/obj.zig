@@ -8,10 +8,25 @@ const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
-usingnamespace @import("./memory.zig");
-usingnamespace @import("./value.zig");
+const _memory = @import("./memory.zig");
+const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
 const Config = @import("./config.zig").Config;
+
+const Value = _value.Value;
+const HashableValue = _value.HashableValue;
+const ValueType = _value.ValueType;
+const valueToHashable = _value.valueToHashable;
+const hashableToValue = _value.hashableToValue;
+const valueToString = _value.valueToString;
+const valueEql = _value.valueEql;
+const allocate = _memory.allocate;
+const allocateMany = _memory.allocateMany;
+const free = _memory.free;
+const freeMany = _memory.freeMany;
+const markObj = _memory.markObj;
+const markValue = _memory.markValue;
+const collectGarbage = _memory.collectGarbage;
 
 pub const ObjType = enum {
     String,
@@ -159,7 +174,8 @@ pub const Obj = struct {
     }
 };
 
-pub const NativeFn = fn (vm: *VM) anyerror!Value;
+// If returns false, no return value
+pub const NativeFn = fn (vm: *VM) bool;
 
 /// Native function
 pub const ObjNative = struct {
@@ -612,20 +628,30 @@ pub const ObjList = struct {
         return null;
     }
 
-    fn append(vm: *VM) anyerror!Value {
+    fn append(vm: *VM) bool {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
 
-        try list.items.append(value);
+        list.items.append(value) catch {
+            vm.runtimeError("Could not append to list", null) catch {
+                std.debug.warn("Could not append to list", .{});
+                return false;
+            };
+            return false;
+        };
 
-        return list_value;
+        vm.push(list_value);
+
+        return true;
     }
 
-    fn len(vm: *VM) anyerror!Value {
+    fn len(vm: *VM) bool {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
-        return Value{ .Number = @intToFloat(f64, list.items.items.len) };
+        vm.push(Value{ .Number = @intToFloat(f64, list.items.items.len) });
+
+        return true;
     }
 
     pub const ListDef = struct {
