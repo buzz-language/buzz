@@ -255,7 +255,7 @@ pub const VM = struct {
                 .OP_THROW => {
                     var message: *ObjString = ObjString.cast(self.peek(0).Obj).?;
 
-                    try self.throw(message.string, null);
+                    try self.runtimeError(message.string, null);
                 },
 
                 .OP_CATCH => {
@@ -511,7 +511,7 @@ pub const VM = struct {
         }
     }
 
-    fn throw(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
+    fn runtimeError(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
         var frame: *CallFrame = self.current_frame.?;
@@ -525,8 +525,21 @@ pub const VM = struct {
             // No more frames, the error is uncaught.
             _ = self.pop();
             
-            try self.runtimeError(message, stack);
+            // Raise the runtime error
+            std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ message });
+
+            for (stack.items) |stack_frame| {
+                std.debug.warn("\tat {s}", .{ stack_frame.closure.function.name.string });
+                if (stack_frame.call_site) |call_site| {
+                    std.debug.warn(":{}\n", .{ call_site });
+                } else {
+                    std.debug.warn("\n", .{});
+                }
+            }
+
+            std.os.exit(1);
         }
+
         self.stack_top = self.current_frame.?.slots;
         self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
@@ -540,7 +553,7 @@ pub const VM = struct {
 
             self.current_frame.? = &self.frames.items[self.frame_count - 1];
         } else {
-            return try self.throw(message, stack);
+            return try self.runtimeError(message, stack);
         }
     }
 
@@ -876,22 +889,5 @@ pub const VM = struct {
             // Push the value
             self.push(value);
         }
-    }
-
-    fn runtimeError(self: *Self, error_message: []const u8, call_stack: ?std.ArrayList(CallFrame)) !void {
-        var stack = call_stack orelse (try invertedList(CallFrame, self.frames));
-
-        std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ error_message });
-
-        for (stack.items) |frame| {
-            std.debug.warn("\tat {s}", .{ frame.closure.function.name.string });
-            if (frame.call_site) |call_site| {
-                std.debug.warn(":{}\n", .{ call_site });
-            } else {
-                std.debug.warn("\n", .{});
-            }
-        }
-
-        std.os.exit(1);
     }
 };
