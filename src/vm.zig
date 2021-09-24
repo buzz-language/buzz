@@ -219,6 +219,14 @@ pub const VM = struct {
                 .OP_GET_UPVALUE => self.push(self.current_frame.?.closure.upvalues.items[self.readByte()].location.*),
                 .OP_SET_UPVALUE => self.current_frame.?.closure.upvalues.items[self.readByte()].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant()),
+                .OP_TO_STRING => self.push(
+                        Value{
+                            .Obj = (try _obj.copyString(
+                                self,
+                                try valueToString(self.allocator, self.pop())
+                            )).toObj()
+                        }
+                    ),
                 .OP_NEGATE => {
                     if (@as(ValueType, self.peek(0)) != .Number) {
                         try self.runtimeError("Operand must be a number.", null);

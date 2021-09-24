@@ -2688,10 +2688,100 @@ pub const Compiler = struct {
         return parsed_type;
     }
 
+    fn parseInterpolation(self: *Self, str: []const u8) !bool {
+        var interp_start: ?usize = null;
+        var previous_interp: ?usize = null;
+        var depth: usize = 0;
+        var parsed_interp: bool = false;
+        var interp_count: usize = 0;
+        for (str) |char, index| {
+            // std.debug.warn("'{c}', {}, start {}, depth {}\n", .{char, index, interp_start, depth});
+            // We finished parsing an interpolation
+            if (interp_start != null and char == '}' and depth == 0) {
+                var expr: []const u8 = str[interp_start.? + 1..index];
+
+                var expr_scanner = Scanner.init(expr);
+
+                // Replace compiler scanner with one that only looks at that substring
+                var scanner = self.scanner;
+                self.scanner = expr_scanner;
+                var parser = self.parser;
+                self.parser = .{};
+
+                try self.advance();
+
+                // Parse expression
+                _ = try self.expression(false);
+                try self.emitOpCode(.OP_TO_STRING);
+
+                // Put back compiler's scanner
+                self.scanner = scanner;
+                self.parser = parser;
+
+                // Reset interp state
+                interp_start = null;
+
+                parsed_interp = true;
+
+                try self.emitOpCode(.OP_ADD);
+
+                interp_count += 1;
+                previous_interp = index;
+            } else if (interp_start != null and char == '}') {
+                depth -= 1;
+            } else if (interp_start == null and char == '{') {
+                // Push regular string that lives before or between the last interpolation
+                if (previous_interp) |previous| {
+                    try self.emitConstant(Value {
+                        .Obj = (try copyStringRaw(
+                            self.strings,
+                            self.allocator,
+                            str[previous + 1..index]
+                        )).toObj()
+                    });
+
+                    try self.emitOpCode(.OP_ADD);
+                } else {
+                    try self.emitConstant(Value {
+                        .Obj = (try copyStringRaw(
+                            self.strings,
+                            self.allocator,
+                            str[0..index]
+                        )).toObj()
+                    });
+                }
+
+                interp_start = index;
+                interp_count += 1;
+            } else if (interp_start != null and char == '{') {
+                depth += 1;
+            }
+        }
+
+        if (parsed_interp
+            and interp_start == null
+            and previous_interp != null
+            and previous_interp.? < str.len) {
+            try self.emitConstant(Value {
+                .Obj = (try copyStringRaw(
+                    self.strings,
+                    self.allocator,
+                    str[previous_interp.? + 1..str.len]
+                )).toObj()
+            });
+
+            try self.emitOpCode(.OP_ADD);
+        }
+
+        return parsed_interp;
+    }
+
     fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
-        try self.emitConstant(Value {
-            .Obj = (try copyStringRaw(self.strings, self.allocator, self.parser.previous_token.?.literal_string.?)).toObj()
-        });
+        if (!try self.parseInterpolation(self.parser.previous_token.?.literal_string.?)) {
+            try self.emitConstant(Value {
+                .Obj = (try copyStringRaw(self.strings, self.allocator, self.parser.previous_token.?.literal_string.?)).toObj()
+            });
+        }
 
         return try self.getTypeDef(.{
             .def_type = .String,

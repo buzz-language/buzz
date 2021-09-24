@@ -82,6 +82,8 @@ pub const OpCode = enum(u8) {
     OP_EXPORT,
     OP_IMPORT,
 
+    OP_TO_STRING,
+
     // TODO: remove
     OP_PRINT,
 };

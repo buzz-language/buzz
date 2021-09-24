@@ -224,9 +224,29 @@ pub const Scanner = struct {
     }
 
     fn string(self: *Self) !Token {
-        while (self.peek() != '"' and !self.isEOF()) {
+        var in_interp: bool = false;
+        var interp_depth: usize = 0;
+        while ((self.peek() != '"' or in_interp) and !self.isEOF()) {
             if (self.peek() == '\n') {
                 return self.makeToken(.Error, "Unterminated string.", null);
+            }
+
+            if (self.peek() == '{') {
+                if (!in_interp) {
+                    in_interp = true;
+                } else {
+                    interp_depth += 1;
+                }
+            } else if (self.peek() == '}') {
+                if (in_interp) {
+                    if (interp_depth > 0) {
+                        interp_depth -= 1;
+                    }
+
+                    if (interp_depth == 0) {
+                        in_interp = false;
+                    }
+                }
             }
 
             _ = self.advance();
