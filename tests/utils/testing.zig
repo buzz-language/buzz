@@ -26,23 +26,6 @@ const ObjString = opaque {
     extern fn bz_string(string: [*:0]const u8) ?*ObjString;
 };
 
-fn toSlice(c_string: [*:0]const u8) []const u8 {
-    var c_slice: [:0]const u8 = std.mem.span(c_string);
-
-    return c_slice[0 .. c_slice.len];
-}
-
-// TODO: maybe use [:0]u8 throughout so we don't have to do this
-fn toCString(string: []const u8) ?[*:0]const u8 {
-    var c_string: ?[]u8 = std.heap.c_allocator.dupeZ(u8, string) catch null;
-
-    if (c_string == null) {
-        return null;
-    }
-
-    return @ptrCast([*:0]u8, c_string.?);
-}
-
 export fn assert(vm: *VM) bool {
     var condition: bool = vm.bz_peek(1).bz_valueToBool();
 
@@ -54,21 +37,15 @@ export fn assert(vm: *VM) bool {
 }
 
 export fn assertTypeDef() *ObjTypeDef {
-    var type_def: *ObjTypeDef = ObjTypeDef.bz_newFunctionType(toCString("assert").?, null).?;
-    _ = type_def.bz_addFunctionArgument(toCString("condition").?, ObjTypeDef.bz_boolType().?);
-    _ = type_def.bz_addFunctionArgument(toCString("message").?, ObjTypeDef.bz_stringType().?);
+    var type_def: *ObjTypeDef = ObjTypeDef.bz_newFunctionType("assert", null).?;
+    _ = type_def.bz_addFunctionArgument("condition", ObjTypeDef.bz_boolType().?);
+    _ = type_def.bz_addFunctionArgument("message", ObjTypeDef.bz_stringType().?);
 
     return type_def;
 }
 
-export fn openLib() [*][*:0]const u8 {
-    var lib = [_][*:0]const u8{ toCString("assert").? };
-
-    return @ptrCast([*][*:0]const u8, lib[0..]);
-}
-
-export fn openLibCount() usize {
-    return 1;
+export fn openLib() [*:0]const u8 {
+    return "assert";
 }
 
 // zig build-lib -dynamic tests/utils/testing.zig -lbuzz -Lzig-out/lib -rpath zig-out/lib

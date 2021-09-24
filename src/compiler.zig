@@ -1746,8 +1746,7 @@ pub const Compiler = struct {
         }
     }
 
-    pub const LoadLib = fn () [*][*:0]const u8;
-    pub const LoadLibCount = fn () usize;
+    pub const LoadLib = fn () [*:0]const u8;
     pub const LibTypeDef = fn () *ObjTypeDef;
 
     // TODO: support other platform lib formats
@@ -1757,19 +1756,16 @@ pub const Compiler = struct {
         if (lib) |*dlib| {
             // search the openLib function
             var dopenLib = dlib.lookup(LoadLib, "openLib");
-            var dopenLibCount = dlib.lookup(LoadLibCount, "openLibCount");
-            if (dopenLib != null and dopenLibCount != null) {
-                var exported: [*][*:0]const u8 = (dopenLib.?)();
-                var count: usize = (dopenLibCount.?)();
+            if (dopenLib) |openLib| {
+                var exported: [*:0]const u8 = openLib();
 
-                var i: usize = 0;
-                while (i < count) : (i += 1) {
+                var it = std.mem.split(u8, std.mem.span(exported), ",");
+                while (it.next()) |symbol| {
                     // Convert symbol names to zig slices
-                    var ssymbol = std.mem.span(exported[i]);
-
-                    var symbol_def_name = try self.allocator.alloc(u8, ssymbol.len + 8);
+                    var ssymbol = toNullTerminated(self.allocator, symbol);
+                    var symbol_def_name = try self.allocator.alloc(u8, symbol.len + 8);
                     defer self.allocator.free(symbol_def_name);
-                    symbol_def_name = try std.fmt.bufPrint(symbol_def_name, "{s}TypeDef", .{ ssymbol });
+                    symbol_def_name = try std.fmt.bufPrint(symbol_def_name, "{s}TypeDef", .{ symbol });
                     var symbol_def_name_c = toNullTerminated(self.allocator, symbol_def_name);
                     
                     if (symbol_def_name_c == null) {
@@ -1779,7 +1775,7 @@ pub const Compiler = struct {
                     defer self.allocator.free(symbol_def_name_c.?);
 
                     // Lookup symbol NativeFn
-                    var symbol_method = dlib.lookup(NativeFn, ssymbol);
+                    var symbol_method = dlib.lookup(NativeFn, ssymbol.?);
 
                     if (symbol_method == null) {
                         try self.reportError("Could not find lib method symbol");
@@ -1804,7 +1800,7 @@ pub const Compiler = struct {
                     var slot: usize = try self.addGlobal(
                         Token{
                             .token_type = .Identifier,
-                            .lexeme = ssymbol,
+                            .lexeme = symbol,
                             .line = self.parser.current_token.?.line,
                             .column = self.parser.current_token.?.column,
                         },
