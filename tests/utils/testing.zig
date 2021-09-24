@@ -71,4 +71,4 @@ export fn openLibCount() usize {
     return 1;
 }
 
-// zig build-lib -dynamic tests/utils/testing.zig -lbuzz_api -L. -rpath .
+// zig build-lib -dynamic tests/utils/testing.zig -lbuzz -Lzig-out/lib -rpath zig-out/lib
