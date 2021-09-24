@@ -1839,10 +1839,13 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after import.");
 
+        // TODO: search for a name instead of parsing file extension
         if (mem.eql(u8, file_name[file_name.len - 5..file_name.len], ".buzz")) {
             try self.importScript(file_name);
         } else if (mem.eql(u8, file_name[file_name.len - 6..file_name.len], ".dylib")) {
             try self.importLib(file_name);
+        } else {
+            try self.reportError("Unknown library extension.");
         }
     }
 

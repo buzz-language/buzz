@@ -1,4 +1,4 @@
-import "tests/utils/libtesting.dylib";
+import "zig-out/lib/libstd.dylib";
 
 test "Using a function coming from a library" {
     assert(true, message: "yeah!");
