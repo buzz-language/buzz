@@ -76,7 +76,6 @@ pub const TokenType = enum {
     Export,           // export
     Eof,              // EOF
     Error,            // Error
-    Print,            // print
 };
 
 pub const Keywords = [_]TokenType{
@@ -226,10 +225,6 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "test")) {
         return .Test;
-    }
-
-    if (mem.eql(u8, literal, "print")) {
-        return .Print;
     }
 
     if (mem.eql(u8, literal, "Function")) {

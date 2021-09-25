@@ -24,6 +24,9 @@ export fn print(vm: *api.VM) bool {
         vm.bz_throw("Could not print.");
         return false;
     };
+    _ = std.io.getStdOut().write("\n") catch {
+        return false;
+    };
 
     return false;
 }

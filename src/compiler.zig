@@ -277,9 +277,6 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Export
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
-
-        // TODO: remove
-        .{ .prefix = null,     .infix = null, .precedence = .None }, // Print
     };
 
     allocator: *Allocator,
@@ -349,7 +346,7 @@ pub const Compiler = struct {
 
         // Is there any placeholders left
         for (self.globals.items) |global| {
-            if (global.type_def.def_type == .Placeholder and !global.hidden) {
+            if (global.type_def.def_type == .Placeholder) {
                 try self.reportErrorAt(global.type_def.resolved_type.?.Placeholder.where, "Unknown variable.");
             }
         }
@@ -1118,10 +1115,7 @@ pub const Compiler = struct {
     // When a break statement, will return index of jump to patch
     fn statement(self: *Self, hanging: bool) !?std.ArrayList(usize) {
         // TODO: remove
-        if (try self.match(.Print)) {
-            assert(!hanging);
-            try self.printStatement();
-        } else if (try self.match(.If)) {
+        if (try self.match(.If)) {
             assert(!hanging);
             return try self.ifStatement();
         } else if (try self.match(.While)) {
@@ -1164,13 +1158,6 @@ pub const Compiler = struct {
         }
 
         return null;
-    }
-
-    // TODO: remove
-    fn printStatement(self: *Self) !void {
-        _ = try self.expression(false);
-        try self.consume(.Semicolon, "Expected `;` after value.");
-        try self.emitOpCode(.OP_PRINT);
     }
 
     fn returnStatement(self: *Self) !void {

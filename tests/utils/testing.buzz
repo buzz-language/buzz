@@ -1,10 +1,6 @@
-num unexported = 42;
+import "zig-out/lib/libstd.dylib";
 
-fun assert(bool condition, str message) {
-    if (!condition) {
-        throw message;
-    }
-}
+num unexported = 42;
 
 fun hey(str message) > num {
     print(message);

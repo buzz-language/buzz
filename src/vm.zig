@@ -501,7 +501,7 @@ pub const VM = struct {
                 }
             }
 
-            // if (builtin.mode == .Debug) {
+            // if (Config.debug) {
             //     std.debug.warn("frame: {s}, code: {}\n", .{self.current_frame.?.closure.function.name.string, instruction});
             //     try dumpStack(self);
             // }
@@ -679,7 +679,7 @@ pub const VM = struct {
 
         self.frame_count += 1;
 
-        if (builtin.mode == .Debug) {
+        if (Config.debug) {
             try disassembleChunk(
                 &frame.closure.function.chunk,
                 frame.closure.function.name.string

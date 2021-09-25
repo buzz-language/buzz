@@ -17,7 +17,7 @@ test "catch runtime error" {
     [num] list = [1, 2, 3];
 
     try {
-        print(list[100]); | out of bound access
+        print("{list[100]}"); | out of bound access
     } catch {
         print("caugh it!");
         assert(true, message: "caught it!");
