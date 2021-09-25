@@ -666,7 +666,9 @@ pub const VM = struct {
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.stack_top - arg_count - 1,
-            .call_site = if (self.current_frame) |current_frame| current_frame.closure.function.chunk.lines.items[self.current_frame.?.ip] else null
+            .call_site = if (self.current_frame) |current_frame|
+                current_frame.closure.function.chunk.lines.items[self.current_frame.?.ip - 1]
+                else null
         };
 
         if (self.frames.items.len <= self.frame_count) {

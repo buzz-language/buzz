@@ -25,7 +25,7 @@ fn repl(allocator: *Allocator) !void {
         _ = try std.io.getStdIn().read(line[0..]);
 
         if (line.len > 0) {
-            if (try compiler.compile(line[0..], "<repl>", false)) |function| {
+            if (try compiler.compile(line[0..], "<repl>", false, null)) |function| {
                 _ = try vm.interpret(function);
             }
         }
@@ -53,7 +53,7 @@ fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     
     _ = try file.readAll(source);
 
-    if (try compiler.compile(source, file_name, testing)) |function| {
+    if (try compiler.compile(source, file_name, testing, null)) |function| {
         _ = try vm.interpret(function);
     }
 }

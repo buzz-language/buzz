@@ -1,6 +1,8 @@
 import "tests/utils/testing.buzz";
 
+num mine = 42;
+
 test "Using a function coming from an import" {
-    hey("world");
+    assert(hey("world") == mine, message: "unexported symbol is reachable");
     assert(true, message: "yeah!");
 }

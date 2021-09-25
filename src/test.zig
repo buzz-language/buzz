@@ -19,7 +19,7 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
         strings.deinit();
     }
 
-    if (try compiler.compile(string[0..], "<test>", true)) |function| {
+    if (try compiler.compile(string[0..], "<test>", true, null)) |function| {
         return (try vm.interpret(function)) orelse Result.RuntimeError;
     } else {
         return Result.CompileError;
@@ -47,7 +47,7 @@ fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
 
     _ = try file.readAll(source);
 
-    if (try compiler.compile(source, file_name, true)) |function| {
+    if (try compiler.compile(source, file_name, true, null)) |function| {
         return (try vm.interpret(function)) orelse Result.RuntimeError;
     } else {
         return Result.CompileError;

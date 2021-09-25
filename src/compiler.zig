@@ -78,6 +78,7 @@ pub const Global = struct {
     type_def: *ObjTypeDef,
     initialized: bool = false,
     exported: bool = false,
+    hidden: bool = false,
 };
 
 pub const UpValue = struct {
@@ -295,6 +296,8 @@ pub const Compiler = struct {
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
     test_count: u64 = 0,
+    /// When script is being imported, add this offset to globals so OP_[GET|SET|DEFINE]_GLOBAL is still valid 
+    global_offset: ?usize = null,
 
     pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString)) Self {
         return .{
@@ -319,8 +322,9 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool) !?*ObjFunction {
+    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool, global_offset: ?usize) !?*ObjFunction {
         self.testing = testing;
+        self.global_offset = global_offset;
 
         if (self.scanner != null) {
             self.scanner = null;
@@ -345,7 +349,7 @@ pub const Compiler = struct {
 
         // Is there any placeholders left
         for (self.globals.items) |global| {
-            if (global.type_def.def_type == .Placeholder) {
+            if (global.type_def.def_type == .Placeholder and !global.hidden) {
                 try self.reportErrorAt(global.type_def.resolved_type.?.Placeholder.where, "Unknown variable.");
             }
         }
@@ -740,11 +744,11 @@ pub const Compiler = struct {
             if (!self.testing) {
                 var found_main: bool = false;
                 for (self.globals.items) |global, index| {
-                    if (mem.eql(u8, global.name.string, "main")) {
+                    if (mem.eql(u8, global.name.string, "main") and !global.hidden) {
                         found_main = true;
 
                         // TODO: Somehow push cli args on the stack
-                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
                         try self.emitCodeArg(.OP_CALL, 0);
                         break;
                     }
@@ -752,29 +756,32 @@ pub const Compiler = struct {
             } else {
                 // Create an entry point wich runs all `test`
                 for (self.globals.items) |global, index| {
-                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test")) {
-                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden) {
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
                         try self.emitCodeArg(.OP_CALL, 0);
                     }
                 }
             }
 
-            // Put exported globals on the stack
-            var exported_count: usize = 0;
-            for (self.globals.items) |global, index| {
-                if (global.exported) {
+            // If we're being imported, put all globals on the stack
+            if (self.global_offset != null) {
+                var exported_count: usize = 0;
+                for (self.globals.items) |_, index| {
                     exported_count += 1;
 
-                    if (exported_count > 255) {
-                        try self.reportError("Can't export more than 255 values.");
+                    if (exported_count > 16777215) {
+                        try self.reportError("Can't export more than 16777215 values.");
                         break;
                     }
 
-                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
                 }
-            }
 
-            try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
+                try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
+            } else {
+                try self.emitOpCode(.OP_NULL);
+                try self.emitOpCode(.OP_RETURN);
+            }
         // Emit `return void;` if no returnStatement was parsed
         } else if (self.current.?.returned_type == null) {
             try self.emitReturn();
@@ -1430,7 +1437,7 @@ pub const Compiler = struct {
                         try parameters.?.put(global.name.string, global.type_def);
                     }
 
-                    try self.defineGlobalVariable(@intCast(u8, slot));
+                    try self.defineGlobalVariable(@intCast(u24, slot));
 
                     if (!try self.match(.Comma)) break;
                 }
@@ -1702,7 +1709,7 @@ pub const Compiler = struct {
 
         _ = try self.function(name_token, FunctionType.Test, null);
 
-        try self.defineGlobalVariable(@intCast(u8, slot));
+        try self.defineGlobalVariable(@intCast(u24, slot));
     }
 
     fn tryCatchStatement(self: *Self) !void {
@@ -1736,7 +1743,7 @@ pub const Compiler = struct {
         var compiler = Compiler.init(self.allocator, self.strings);
         defer compiler.deinit();
 
-        if (try compiler.compile(source, file_name, self.testing)) |import_function| {
+        if (try compiler.compile(source, file_name, self.testing, self.globals.items.len + (self.global_offset orelse 0))) |import_function| {
             try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = import_function.toObj() }));
             try self.emitOpCode(.OP_IMPORT);
 
@@ -1744,8 +1751,11 @@ pub const Compiler = struct {
             for (compiler.globals.items) |*global| {
                 if (global.exported) {
                     global.*.exported = false;
-                    try self.globals.append(global.*);
+                } else {
+                    global.*.hidden = true;
                 }
+
+                try self.globals.append(global.*);
             }
         } else {
             try self.reportError("Could not compile import.");
@@ -1827,7 +1837,7 @@ pub const Compiler = struct {
                     );
                     try self.emitCodeArg(
                         .OP_DEFINE_GLOBAL,
-                        @intCast(u24, slot)
+                        @intCast(u24, slot + (self.global_offset orelse 0))
                     );
                 }
             } else {
@@ -1898,7 +1908,7 @@ pub const Compiler = struct {
             }
         }
 
-        try self.defineGlobalVariable(@intCast(u8, slot));
+        try self.defineGlobalVariable(@intCast(u24, slot));
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef) !void {
@@ -1966,7 +1976,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after variable declaration.");
 
-        try self.defineGlobalVariable(@intCast(u8, slot));
+        try self.defineGlobalVariable(@intCast(u24, slot));
     }
 
     fn parseListType(self: *Self) !*ObjTypeDef {
@@ -2072,7 +2082,7 @@ pub const Compiler = struct {
         );
 
         try self.emitCodeArg(.OP_ENUM, constant);
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot + (self.global_offset orelse 0)));
 
         self.markInitialized();
 
@@ -2174,7 +2184,7 @@ pub const Compiler = struct {
         );
 
         try self.emitCodeArg(.OP_OBJECT, constant);
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot + (self.global_offset orelse 0)));
 
         self.markInitialized();
 
@@ -2370,14 +2380,14 @@ pub const Compiler = struct {
         return breaks;
     }
 
-    inline fn defineGlobalVariable(self: *Self, slot: u8) !void {
+    inline fn defineGlobalVariable(self: *Self, slot: u24) !void {
         self.markInitialized();
 
         if (self.current.?.scope_depth > 0) {
             return;
         }
 
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot);
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot + if (self.global_offset) |offset| @intCast(u24, offset) else 0);
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
@@ -2413,7 +2423,7 @@ pub const Compiler = struct {
             );
         }
 
-        try self.defineGlobalVariable(@intCast(u8, global));
+        try self.defineGlobalVariable(@intCast(u24, global));
 
         return global;
     }
@@ -2819,6 +2829,9 @@ pub const Compiler = struct {
                 set_op = .OP_SET_GLOBAL;
 
                 arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name));
+                if (self.global_offset) |offset| {
+                    arg.? += offset;
+                }
 
                 var_def = self.globals.items[arg.?].type_def;
             }
@@ -4019,7 +4032,7 @@ pub const Compiler = struct {
         } else {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global, index| {
-                if (mem.eql(u8, name.lexeme, global.name.string)) {
+                if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden and !global.hidden) {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
                     if (global.type_def.def_type == .Placeholder
                         and global.type_def.resolved_type.?.Placeholder.name != null
