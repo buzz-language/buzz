@@ -1,8 +1,4 @@
-fun assert(bool condition, str message) {
-    if (!condition) {
-        throw message;
-    }
-}
+import "zig-out/lib/libstd.dylib";
 
 object First {
     str name = "Joe";

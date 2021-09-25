@@ -1,26 +1,22 @@
-fun assert(bool condition, str message) {
-    if (!condition) {
-        throw message;
-    }
-}
+import "zig-out/lib/libstd.dylib";
 
 test "Binary operators" {
-    | assert(12 == 12, message: "equality (number)");
-    | assert(12 + 12 == 24, message: "addition");
-    | assert(12 - 12 == 0, message: "substraction");
-    | assert(12 * 12 == 144, message: "multiplication");
-    | assert(12 / 12 == 1, message: "division");
-    | assert(12 % 12 == 0, message: "modulo");
-    | assert(12 != 13, message: "inequality");
-    | assert(12 >= 12, message: "greater or equal");
-    | assert(12 <= 12, message: "less or equal");
-    | assert(12 > 11, message: "greater");
-    | assert(12 < 13, message: "less");
-    | assert(12 > 3 and 5 < 12, message: "and");
+    assert(12 == 12, message: "equality (number)");
+    assert(12 + 12 == 24, message: "addition");
+    assert(12 - 12 == 0, message: "substraction");
+    assert(12 * 12 == 144, message: "multiplication");
+    assert(12 / 12 == 1, message: "division");
+    assert(12 % 12 == 0, message: "modulo");
+    assert(12 != 13, message: "inequality");
+    assert(12 >= 12, message: "greater or equal");
+    assert(12 <= 12, message: "less or equal");
+    assert(12 > 11, message: "greater");
+    assert(12 < 13, message: "less");
+    assert(12 > 3 and 5 < 12, message: "and");
     assert(12 > 3 or 12 < 5, message: "or");
 }
 
-| test "Binary operators for strings" {
-|     assert("hello " + "world" == "hello world", message: "string concat");
-|     assert("hello" == "hello", message: "equality (string");
-| }
+test "Binary operators for strings" {
+    assert("hello " + "world" == "hello world", message: "string concat");
+    assert("hello" == "hello", message: "equality (string");
+}

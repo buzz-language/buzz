@@ -1,8 +1,4 @@
-fun assert(bool condition, str message) {
-    if (!condition) {
-        throw message;
-    }
-}
+import "zig-out/lib/libstd.dylib";
 
 test "Lists" {
     [num] list = [1, 2, 3, 4];
