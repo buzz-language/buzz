@@ -159,13 +159,24 @@ pub const VM = struct {
         return try self.run();
     }
 
-    inline fn readByte(self: *Self) u8 {
-        // TODO: measure if [*]OpCode[0] is faster
-        var byte: u8 = self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip];
+    fn readInstruction(self: *Self) u32 {
+        var instruction: u32 = self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip];
 
         self.current_frame.?.ip += 1;
 
-        return byte;
+        return instruction;
+    }
+
+    inline fn getCode(instruction: u32) OpCode {
+        return @intToEnum(OpCode, @intCast(u8, instruction >> 24));
+    }
+
+    inline fn getArg(instruction: u32) u24 {
+        return @intCast(u24, 0x00ffffff & instruction);
+    }
+
+    inline fn readByte(self: *Self) u8 {
+        return @intCast(u8, self.readInstruction());
     }
 
     inline fn readShort(self: *Self) u16 {
@@ -186,39 +197,41 @@ pub const VM = struct {
         return opcode;
     }
 
-    inline fn readConstant(self: *Self) Value {
-        return self.current_frame.?.closure.function.chunk.constants.items[self.readByte()];
+    inline fn readConstant(self: *Self, arg: u24) Value {
+        return self.current_frame.?.closure.function.chunk.constants.items[arg];
     }
 
-    inline fn readString(self: *Self) *ObjString {
-        return ObjString.cast(self.readConstant().Obj).?;
+    inline fn readString(self: *Self, arg: u24) *ObjString {
+        return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
     fn run(self: *Self) !InterpretResult {
         self.current_frame = &self.frames.items[self.frame_count - 1];
 
         while (true) {
-            var instruction: OpCode = self.readOpCode();
+            var full_instruction: u32 = self.readInstruction();
+            var instruction: OpCode = getCode(full_instruction);
+            var arg: u24 = getArg(full_instruction);
             switch(instruction) {
                 .OP_NULL => self.push(Value { .Null = null }),
                 .OP_TRUE => self.push(Value { .Boolean = true }),
                 .OP_FALSE => self.push(Value { .Boolean = false }),
                 .OP_POP => _ = self.pop(),
-                .OP_SWAP => self.swap(self.readByte(), self.readByte()),
+                .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
                 .OP_DEFINE_GLOBAL => {
-                    const slot: u8 = self.readByte();
+                    const slot: u24 = arg;
                     try self.globals.ensureTotalCapacity(slot + 1);
                     self.globals.expandToCapacity();
                     self.globals.items[slot] = self.peek(0);
                     _ = self.pop();
                 },
-                .OP_GET_GLOBAL => self.push(self.globals.items[self.readByte()]),
-                .OP_SET_GLOBAL => self.globals.items[self.readByte()] = self.peek(0),
-                .OP_GET_LOCAL => self.push(self.current_frame.?.slots[self.readByte()]),
-                .OP_SET_LOCAL => self.current_frame.?.slots[self.readByte()] = self.peek(0),
-                .OP_GET_UPVALUE => self.push(self.current_frame.?.closure.upvalues.items[self.readByte()].location.*),
-                .OP_SET_UPVALUE => self.current_frame.?.closure.upvalues.items[self.readByte()].location.* = self.peek(0),
-                .OP_CONSTANT => self.push(self.readConstant()),
+                .OP_GET_GLOBAL => self.push(self.globals.items[arg]),
+                .OP_SET_GLOBAL => self.globals.items[arg] = self.peek(0),
+                .OP_GET_LOCAL => self.push(self.current_frame.?.slots[arg]),
+                .OP_SET_LOCAL => self.current_frame.?.slots[arg] = self.peek(0),
+                .OP_GET_UPVALUE => self.push(self.current_frame.?.closure.upvalues.items[arg].location.*),
+                .OP_SET_UPVALUE => self.current_frame.?.closure.upvalues.items[arg].location.* = self.peek(0),
+                .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => self.push(
                         Value{
                             .Obj = (try _obj.copyString(
@@ -237,7 +250,7 @@ pub const VM = struct {
                     self.push(Value{ .Number = -self.pop().Number });
                 },
                 .OP_CLOSURE => {
-                    var function: *ObjFunction = ObjFunction.cast(self.readConstant().Obj).?;
+                    var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
                     var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
 
                     self.push(Value{ .Obj = closure.toObj() });
@@ -255,7 +268,7 @@ pub const VM = struct {
                     }
                 },
                 .OP_CALL => {
-                    var arg_count: u8 = self.readByte();
+                    var arg_count: u8 = @intCast(u8, arg);
                     if (!(try self.callValue(self.peek(arg_count), arg_count))) {
                         return .RuntimeError;
                     }
@@ -264,7 +277,7 @@ pub const VM = struct {
                 },
 
                 .OP_INVOKE => {
-                    var method: *ObjString = self.readString();
+                    var method: *ObjString = self.readString(arg);
                     var arg_count: u8 = self.readByte();
                     if (!try self.invoke(method, arg_count)) {
                         return .RuntimeError;
@@ -280,7 +293,7 @@ pub const VM = struct {
                 },
 
                 .OP_EXPORT => {
-                    self.push(Value{ .Number = @intToFloat(f64, self.readByte()) });
+                    self.push(Value{ .Number = @intToFloat(f64, arg) });
                     return  .Ok;
                 },
 
@@ -304,7 +317,7 @@ pub const VM = struct {
                 },
 
                 .OP_LIST => {
-                    var list: *ObjList = try allocateObject(self, ObjList, ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?));
+                    var list: *ObjList = try allocateObject(self, ObjList, ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?));
 
                     self.push(Value{ .Obj = list.toObj() });
                 },
@@ -314,8 +327,8 @@ pub const VM = struct {
                 .OP_MAP => {
                     var map: *ObjMap = try allocateObject(self, ObjMap, ObjMap.init(
                         self.allocator,
-                        ObjTypeDef.cast(self.readConstant().Obj).?,
-                        ObjTypeDef.cast(self.readConstant().Obj).?
+                        ObjTypeDef.cast(self.readConstant(arg).Obj).?,
+                        ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?
                     ));
 
                     self.push(Value{ .Obj = map.toObj() });
@@ -341,7 +354,7 @@ pub const VM = struct {
                 },
 
                 .OP_ENUM => {
-                    var enum_: *ObjEnum = try allocateObject(self, ObjEnum, ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant().Obj).?));
+                    var enum_: *ObjEnum = try allocateObject(self, ObjEnum, ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?));
 
                     self.push(Value{ .Obj = enum_.toObj() });
                 },
@@ -355,7 +368,7 @@ pub const VM = struct {
                     
                     var enum_case: *ObjEnumInstance = try allocateObject(self, ObjEnumInstance, ObjEnumInstance{
                         .enum_ref = enum_,
-                        .case = self.readByte(),
+                        .case = @intCast(u8, arg),
                     });
 
                     self.push(Value{ .Obj = enum_case.toObj() });
@@ -369,17 +382,17 @@ pub const VM = struct {
                 },
 
                 .OP_OBJECT => {
-                    var object: *ObjObject = try allocateObject(self, ObjObject, ObjObject.init(self.allocator, ObjString.cast(self.readConstant().Obj).?));
+                    var object: *ObjObject = try allocateObject(self, ObjObject, ObjObject.init(self.allocator, ObjString.cast(self.readConstant(arg).Obj).?));
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
                 .OP_METHOD => {
-                    try self.defineMethod(self.readString());
+                    try self.defineMethod(self.readString(arg));
                 },
 
                 .OP_PROPERTY => {
-                    try self.definePropertyDefaultValue(self.readString());
+                    try self.definePropertyDefaultValue(self.readString(arg));
                 },
                 
                 .OP_GET_PROPERTY => {
@@ -388,7 +401,7 @@ pub const VM = struct {
                     switch (obj.obj_type) {
                         .ObjectInstance => instance: {
                             var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                            var name: *ObjString = self.readString();
+                            var name: *ObjString = self.readString(arg);
 
                             if (instance.fields.get(name.string)) |field| {
                                 _ = self.pop(); // Pop instance
@@ -405,7 +418,7 @@ pub const VM = struct {
                         },
                         .List => list: {
                             var list = ObjList.cast(obj).?;
-                            var name: *ObjString = self.readString();
+                            var name: *ObjString = self.readString(arg);
 
                             if (try list.member(self, name.string)) |member| {
                                 // We don't pop the list, it'll be the first argument
@@ -421,7 +434,7 @@ pub const VM = struct {
 
                 .OP_SET_PROPERTY => {
                     var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
-                    var name: *ObjString = self.readString();
+                    var name: *ObjString = self.readString(arg);
 
                     // Set new value
                     try instance.fields.put(name.string, self.peek(0));
@@ -468,23 +481,17 @@ pub const VM = struct {
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
                 .OP_JUMP => {
-                    const jump = self.readShort();
-
-                    self.current_frame.?.ip += jump;
+                    self.current_frame.?.ip += arg;
                 },
 
                 .OP_JUMP_IF_FALSE => {
-                    const jump: u16 = self.readShort();
-
                     if (!self.peek(0).Boolean) {
-                        self.current_frame.?.ip += jump;
+                        self.current_frame.?.ip += arg;
                     }
                 },
 
                 .OP_LOOP => {
-                    const jump = self.readShort();
-
-                    self.current_frame.?.ip -= jump;
+                    self.current_frame.?.ip -= arg;
                 },
 
                 else => {

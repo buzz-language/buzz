@@ -370,7 +370,7 @@ pub const ObjFunction = struct {
             .name = name,
             .return_type = return_type,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-            .chunk = try Chunk.init(allocator),
+            .chunk = Chunk.init(allocator),
         };
     }
 

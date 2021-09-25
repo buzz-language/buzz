@@ -744,8 +744,8 @@ pub const Compiler = struct {
                         found_main = true;
 
                         // TODO: Somehow push cli args on the stack
-                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                        try self.emitCodeArg(.OP_CALL, 0);
                         break;
                     }
                 }
@@ -753,8 +753,8 @@ pub const Compiler = struct {
                 // Create an entry point wich runs all `test`
                 for (self.globals.items) |global, index| {
                     if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test")) {
-                        try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                        try self.emitCodeArg(.OP_CALL, 0);
                     }
                 }
             }
@@ -770,11 +770,11 @@ pub const Compiler = struct {
                         break;
                     }
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_GLOBAL), @intCast(u8, index));
+                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                 }
             }
 
-            try self.emitBytes(@enumToInt(OpCode.OP_EXPORT), @intCast(u8, exported_count));
+            try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
         // Emit `return void;` if no returnStatement was parsed
         } else if (self.current.?.returned_type == null) {
             try self.emitReturn();
@@ -817,72 +817,78 @@ pub const Compiler = struct {
 
     // BYTE EMITTING
 
-    inline fn emitOpCode(self: *Self, code: OpCode) !void {
-        try self.emitByte(@enumToInt(code));
+    fn emit(self: *Self, code: u32) !void {
+        try self.current.?.function.chunk.write(code, self.parser.previous_token.?.line);
     }
 
-    fn emitByte(self: *Self, byte: u8) !void {
-        try self.current.?.function.chunk.write(byte, self.parser.previous_token.?.line);
+    fn emitCodeArg(self: *Self, code: OpCode, arg: u24) !void {
+        try self.emit(
+            (@intCast(u32, @enumToInt(code)) << 24)
+            | @intCast(u32, arg)
+        );
     }
 
-    inline fn emitBytes(self: *Self, byte1: u8, byte2: u8) !void {
-        try self.emitByte(byte1);
-        try self.emitByte(byte2);
+    fn emitOpCode(self: *Self, code: OpCode) !void {
+        try self.emit(@intCast(u32, @intCast(u32, @enumToInt(code)) << 24));
     }
 
     fn emitLoop(self: *Self, loop_start: usize) !void {
-        try self.emitOpCode(.OP_LOOP);
-
-        const offset: usize = self.current.?.function.chunk.code.items.len - loop_start + 2;
-        if (offset > 65535) {
+        const offset: usize = self.current.?.function.chunk.code.items.len - loop_start + 1;
+        if (offset > 16777215) {
             try self.reportError("Loop body to large.");
         }
 
-        try self.emitByte(@intCast(u8, (offset >> 8) & 0xff));
-        try self.emitByte(@intCast(u8, offset & 0xff));
+        try self.emitCodeArg(.OP_LOOP, @intCast(u24, offset));
     }
 
     fn emitJump(self: *Self, instruction: OpCode) !usize {
-        try self.emitOpCode(instruction);
-        try self.emitByte(0xff);
-        try self.emitByte(0xff);
-
-        return self.current.?.function.chunk.code.items.len - 2;
-    }
-
-    fn patchJump(self: *Self, offset: usize) !void {
-        const jump: usize = self.current.?.function.chunk.code.items.len - offset - 2;
-
-        // TODO: 32 bit instructions will allow larger jump too
-        if (jump > 65535) {
-            try self.reportError("Jump to large.");
-        }
-
-        self.current.?.function.chunk.code.items[offset] = @intCast(u8, (jump >> 8) & 0xff);
-        self.current.?.function.chunk.code.items[offset + 1] = @intCast(u8, jump & 0xff);
-    }
-
-    fn emitList(self: *Self) !usize {
-        try self.emitBytes(@enumToInt(OpCode.OP_LIST), 0xff);
+        try self.emitCodeArg(instruction, 0xffffff);
 
         return self.current.?.function.chunk.code.items.len - 1;
     }
 
+    fn patchJump(self: *Self, offset: usize) !void {
+        const jump: usize = self.current.?.function.chunk.code.items.len - offset - 1;
+
+        if (jump > 16777215) {
+            try self.reportError("Jump to large.");
+        }
+
+        const original: u32 = self.current.?.function.chunk.code.items[offset];
+        const instruction: u8 = @intCast(u8, original >> 24);
+
+        self.current.?.function.chunk.code.items[offset] =
+            (@intCast(u32, instruction) << 24) | @intCast(u32, jump);
+    }
+
+    fn emitList(self: *Self) !usize {
+        try self.emitCodeArg(.OP_LIST, 0xffffff);
+
+        return self.current.?.function.chunk.code.items.len - 1;
+    }
+
+    fn patchList(self: *Self, offset: usize, constant: u24) !void {
+        const original: u32 = self.current.?.function.chunk.code.items[offset];
+        const instruction: u8 = @intCast(u8, original >> 24);
+
+        self.current.?.function.chunk.code.items[offset] =
+            (@intCast(u32, instruction) << 24) | @intCast(u32, constant);
+    }
+
     fn emitMap(self: *Self) !usize {
-        try self.emitOpCode(.OP_MAP);
-        try self.emitByte(0xff);
-        try self.emitByte(0xff);
+        try self.emitCodeArg(.OP_MAP, 0xffffff);
+        try self.emit(0xffffffff);
 
         return self.current.?.function.chunk.code.items.len - 2;
     }
 
-    fn patchList(self: *Self, offset: usize, constant: u8) !void {
-        self.current.?.function.chunk.code.items[offset] = constant;
-    }
+    fn patchMap(self: *Self, offset: usize, key_constant: u24, value_constant: u24) !void {
+        const original: u32 = self.current.?.function.chunk.code.items[offset];
+        const instruction: u8 = @intCast(u8, original >> 24);
 
-    fn patchMap(self: *Self, offset: usize, key_constant: u8, value_constant: u8) !void {
-        self.current.?.function.chunk.code.items[offset] = key_constant;
-        self.current.?.function.chunk.code.items[offset + 1] = value_constant;
+        self.current.?.function.chunk.code.items[offset] =
+            (@intCast(u32, instruction) << 24) | @intCast(u32, key_constant);
+        self.current.?.function.chunk.code.items[offset + 1] = @intCast(u32, value_constant);
     }
 
     fn emitReturn(self: *Self) !void {
@@ -890,7 +896,7 @@ pub const Compiler = struct {
 
         if (self.current.?.function_type == .Initializer) {
             return_type = self.current.?.function.return_type;
-            try self.emitBytes(@enumToInt(OpCode.OP_GET_LOCAL), 0);
+            try self.emitCodeArg(.OP_GET_LOCAL, 0);
         } else if (self.current.?.function_type != .Script) {
             return_type = try self.getTypeDef(
                 .{
@@ -1137,8 +1143,8 @@ pub const Compiler = struct {
                     try self.reportError("Expected string after `throw`.");
                 }
             } else {
-                try self.emitBytes(
-                    @enumToInt(OpCode.OP_CONSTANT),
+                try self.emitCodeArg(
+                    .OP_CONSTANT,
                     try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, "uncaught error")).toObj() })
                 );
             }
@@ -1477,12 +1483,12 @@ pub const Compiler = struct {
 
         var new_function: *ObjFunction = try self.endCompiler();
 
-        try self.emitBytes(@enumToInt(OpCode.OP_CLOSURE), try self.makeConstant(Value { .Obj = new_function.toObj() }));
+        try self.emitCodeArg(.OP_CLOSURE, try self.makeConstant(Value { .Obj = new_function.toObj() }));
 
         var i: usize = 0;
         while (i < new_function.upvalue_count) : (i += 1) {
-            try self.emitByte(if (compiler.upvalues[i].is_local) 1 else 0);
-            try self.emitByte(compiler.upvalues[i].index);
+            try self.emit(if (compiler.upvalues[i].is_local) 1 else 0);
+            try self.emit(compiler.upvalues[i].index);
         }
 
         var function_typedef: ObjTypeDef = .{
@@ -1507,7 +1513,7 @@ pub const Compiler = struct {
 
     fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
         try self.consume(.Identifier, "Expected method name.");
-        var constant: u8 = try self.identifierConstant(self.parser.previous_token.?);
+        var constant: u24 = try self.identifierConstant(self.parser.previous_token.?);
 
         var fun_type: FunctionType = .Method;
 
@@ -1518,7 +1524,7 @@ pub const Compiler = struct {
 
         var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object);
 
-        try self.emitBytes(@enumToInt(OpCode.OP_METHOD), constant);
+        try self.emitCodeArg(.OP_METHOD, constant);
 
         return fun_typedef;
     }
@@ -1531,7 +1537,7 @@ pub const Compiler = struct {
     fn property(self: *Self) !?Property {
         var name: ?Token = null;
         var type_def: ?*ObjTypeDef = null;
-        var constant: ?u8 = null;
+        var constant: ?u24 = null;
 
         // Parse type and name
         if (try self.match(.Str)) {
@@ -1656,7 +1662,7 @@ pub const Compiler = struct {
                 }
 
                 // Create property default value
-                try self.emitBytes(@enumToInt(OpCode.OP_PROPERTY), constant.?);
+                try self.emitCodeArg(.OP_PROPERTY, constant.?);
             }
             
             try self.consume(.Semicolon, "Expected `;` after property definition.");
@@ -1711,7 +1717,7 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_CATCH);
 
         // Call try clause immediately
-        try self.emitBytes(@enumToInt(OpCode.OP_CALL), 0);
+        try self.emitCodeArg(.OP_CALL, 0);
     }
 
     fn importScript(self: *Self, file_name: []const u8) anyerror!void {
@@ -1731,7 +1737,7 @@ pub const Compiler = struct {
         defer compiler.deinit();
 
         if (try compiler.compile(source, file_name, self.testing)) |import_function| {
-            try self.emitBytes(@enumToInt(OpCode.OP_CONSTANT), try self.makeConstant(Value { .Obj = import_function.toObj() }));
+            try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = import_function.toObj() }));
             try self.emitOpCode(.OP_IMPORT);
 
             // Copy exported globals into our own
@@ -1815,13 +1821,13 @@ pub const Compiler = struct {
                         .native = symbol_method.?
                     };
                     
-                    try self.emitBytes(
-                        @enumToInt(OpCode.OP_CONSTANT),
+                    try self.emitCodeArg(
+                        .OP_CONSTANT,
                         try self.makeConstant(Value{ .Obj = native.toObj() })
                     );
-                    try self.emitBytes(
-                        @enumToInt(OpCode.OP_DEFINE_GLOBAL),
-                        @intCast(u8, slot)
+                    try self.emitCodeArg(
+                        .OP_DEFINE_GLOBAL,
+                        @intCast(u24, slot)
                     );
                 }
             } else {
@@ -2058,15 +2064,15 @@ pub const Compiler = struct {
             .resolved_type = enum_resolved
         };
 
-        const constant: u8 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
+        const constant: u24 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
 
         const slot: usize = try self.declareVariable(
             enum_type,
             enum_name
         );
 
-        try self.emitBytes(@enumToInt(OpCode.OP_ENUM), constant);
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), @intCast(u8, slot));
+        try self.emitCodeArg(.OP_ENUM, constant);
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
 
@@ -2160,15 +2166,15 @@ pub const Compiler = struct {
             // TODO: parse super class here
         }
 
-        var constant: u8 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
+        var constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
 
         const slot: usize = try self.declareVariable(
             object_type,
             object_name
         );
 
-        try self.emitBytes(@enumToInt(OpCode.OP_OBJECT), constant);
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), @intCast(u8, slot));
+        try self.emitCodeArg(.OP_OBJECT, constant);
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
 
@@ -2371,7 +2377,7 @@ pub const Compiler = struct {
             return;
         }
 
-        try self.emitBytes(@enumToInt(OpCode.OP_DEFINE_GLOBAL), slot);
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot);
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
@@ -2642,11 +2648,10 @@ pub const Compiler = struct {
                                         break;
                                     }
 
-                                    try self.emitOpCode(.OP_SWAP);
-                                    // from where it is on the stack
-                                    try self.emitByte(@intCast(u8, index));
+                                    // TODO: both OP_SWAP args could fit in a 32 bit instruction
+                                    try self.emitCodeArg(.OP_SWAP, @intCast(u24, index));
                                     // to where it should be
-                                    try self.emitByte(@intCast(u8, pindex));
+                                    try self.emit(@intCast(u32, pindex));
 
                                     try already_swapped.put(@intCast(u8, index), @intCast(u8, pindex));
                                 }
@@ -2826,9 +2831,9 @@ pub const Compiler = struct {
                 try self.reportTypeCheck(var_def, expr_type, "Wrong value type");
             }
 
-            try self.emitBytes(@enumToInt(set_op), @intCast(u8, arg.?));
+            try self.emitCodeArg(set_op, @intCast(u24, arg.?));
         } else {
-            try self.emitBytes(@enumToInt(get_op), @intCast(u8, arg.?));
+            try self.emitCodeArg(get_op, @intCast(u24, arg.?));
         }
 
         return var_def;
@@ -2971,7 +2976,8 @@ pub const Compiler = struct {
                     try self.reportError("Can't be `num`.");
                 }
 
-                try self.emitBytes(@enumToInt(OpCode.OP_LESS), @enumToInt(OpCode.OP_NOT));
+                try self.emitOpCode(.OP_LESS);
+                try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
                     .optional = false,
@@ -2997,7 +3003,8 @@ pub const Compiler = struct {
                     try self.reportError("Can't be `num`.");
                 }
 
-                try self.emitBytes(@enumToInt(OpCode.OP_GREATER), @enumToInt(OpCode.OP_NOT));
+                try self.emitOpCode(.OP_GREATER);
+                try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
                     .optional = false,
@@ -3019,7 +3026,8 @@ pub const Compiler = struct {
                     try self.reportError("Bad type.");
                 }
 
-                try self.emitBytes(@enumToInt(OpCode.OP_EQUAL), @enumToInt(OpCode.OP_NOT));
+                try self.emitOpCode(.OP_EQUAL);
+                try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
                     .optional = false,
@@ -3317,7 +3325,7 @@ pub const Compiler = struct {
         if (callee_type.def_type == .Function) {
             arg_count = try self.argumentList(callee_type.resolved_type.?.Function.parameters);
 
-            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+            try self.emitCodeArg(.OP_CALL, arg_count);
 
             return callee_type.resolved_type.?.Function.return_type;
         } else if (callee_type.def_type == .Object) {
@@ -3330,7 +3338,7 @@ pub const Compiler = struct {
                 arg_count = 0;
             }
 
-            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+            try self.emitCodeArg(.OP_CALL, arg_count);
 
             var instance_type: ObjTypeDef.TypeUnion = .{
                 .ObjectInstance = callee_type
@@ -3344,7 +3352,7 @@ pub const Compiler = struct {
         } else if (callee_type.def_type == .Native) {
             arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters);
 
-            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+            try self.emitCodeArg(.OP_CALL, arg_count);
 
             return callee_type.resolved_type.?.Native.return_type;
         } else if (callee_type.def_type == .Placeholder) {
@@ -3363,7 +3371,7 @@ pub const Compiler = struct {
             // Call it
             arg_count = try self.placeholderArgumentList(callee_type);
 
-            try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count);
+            try self.emitCodeArg(.OP_CALL, arg_count);
             
             // We know nothing of the return value
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -3398,7 +3406,7 @@ pub const Compiler = struct {
 
         try self.consume(.Identifier, "Expected property name after `.`");
         var member_name: []const u8 = self.parser.previous_token.?.lexeme;
-        var name: u8 = try self.identifierConstant(self.parser.previous_token.?);
+        var name: u24 = try self.identifierConstant(self.parser.previous_token.?);
 
         // Check that name is a property
         switch (callee_type.def_type) {
@@ -3450,7 +3458,7 @@ pub const Compiler = struct {
                         try self.reportTypeCheck(property_type.?, parsed_type, "Property value");
                     }
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
+                    try self.emitCodeArg(.OP_SET_PROPERTY, name);
 
                     return parsed_type;             
                 }
@@ -3472,14 +3480,14 @@ pub const Compiler = struct {
 
                     var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
-                    try self.emitByte(arg_count);
+                    try self.emitCodeArg(.OP_INVOKE, name);
+                    try self.emit(arg_count);
 
                     return property_type.?.resolved_type.?.Function.return_type;
                 }
 
                 // Else just get it
-                try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+                try self.emitCodeArg(.OP_GET_PROPERTY, name);
 
                 return property_type.?;
             },
@@ -3488,7 +3496,7 @@ pub const Compiler = struct {
 
                 for (enum_def.cases.items) |case, index| {
                     if (mem.eql(u8, case, member_name)) {
-                        try self.emitBytes(@enumToInt(OpCode.OP_GET_ENUM_CASE), @intCast(u8, index));
+                        try self.emitCodeArg(.OP_GET_ENUM_CASE, @intCast(u24, index));
 
                         var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
                             .EnumInstance = callee_type,
@@ -3520,17 +3528,17 @@ pub const Compiler = struct {
             },
             .List => {
                 if (try ObjList.ListDef.member(callee_type, self, member_name)) |member| {
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
                     // The first argument should be list but it's "under the call frame"
-                    try self.emitBytes(@enumToInt(OpCode.OP_SWAP), 1);
-                    try self.emitByte(0);
+                    try self.emitCodeArg(.OP_SWAP, 1);
+                    try self.emit(0);
 
 
                     if (try self.match(.LeftParen)) {
                         var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
                         
                         // We add one because first arg is always the list and it was parsed before argumentList was called
-                        try self.emitBytes(@enumToInt(OpCode.OP_CALL), arg_count + 1);
+                        try self.emitCodeArg(.OP_CALL, arg_count + 1);
 
                         return member.resolved_type.?.Native.return_type;
                     }
@@ -3568,7 +3576,7 @@ pub const Compiler = struct {
                 if (can_assign and try self.match(.Equal)) {
                     var parsed_type: *ObjTypeDef = try self.expression(false);
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_SET_PROPERTY), name);
+                    try self.emitCodeArg(.OP_SET_PROPERTY, name);
 
                     placeholder.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
                     placeholder.resolved_type.?.Placeholder.resolved_type = parsed_type;
@@ -3585,10 +3593,10 @@ pub const Compiler = struct {
 
                     var arg_count: u8 = try self.placeholderArgumentList(placeholder);
 
-                    try self.emitBytes(@enumToInt(OpCode.OP_INVOKE), name);
-                    try self.emitByte(arg_count);
+                    try self.emitCodeArg(.OP_INVOKE, name);
+                    try self.emit(arg_count);
                 } else {
-                    try self.emitBytes(@enumToInt(OpCode.OP_GET_PROPERTY), name);
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
                 }
 
                 return placeholder;
@@ -3654,7 +3662,7 @@ pub const Compiler = struct {
         }
 
         // Should be fine if placeholder because when resolved, it's always the same pointer
-        const constant: u8 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
+        const constant: u24 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
         try self.patchList(list_offset, constant);
 
         var list_def = ObjList.ListDef.init(self.allocator, item_type.?);
@@ -3761,8 +3769,8 @@ pub const Compiler = struct {
         }
 
         // Should be fine if placeholder because when resolved, it's always the same pointer
-        const key_constant: u8 = try self.makeConstant(Value { .Obj = key_type.?.toObj() });
-        const value_constant: u8 = try self.makeConstant(Value { .Obj = value_type.?.toObj() });
+        const key_constant: u24 = try self.makeConstant(Value { .Obj = key_type.?.toObj() });
+        const value_constant: u24 = try self.makeConstant(Value { .Obj = value_type.?.toObj() });
         try self.patchMap(map_offset, key_constant, value_constant);
 
         var map_def = ObjMap.MapDef{ .key_type = key_type.?, .value_type = value_type.? };
@@ -3829,7 +3837,7 @@ pub const Compiler = struct {
     }
 
     fn emitConstant(self: *Self, value: Value) !void {
-        try self.emitBytes(@enumToInt(OpCode.OP_CONSTANT), try self.makeConstant(value));
+        try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(value));
     }
 
     // LOCALS
@@ -4034,8 +4042,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn makeConstant(self: *Self, value: Value) !u8 {
-        var constant: u8 = try self.current.?.function.chunk.addConstant(null, value);
+    fn makeConstant(self: *Self, value: Value) !u24 {
+        var constant: u24 = try self.current.?.function.chunk.addConstant(null, value);
         if (constant > Chunk.max_constants) {
             try self.reportError("Too many constants in one chunk.");
             return 0;
@@ -4044,7 +4052,7 @@ pub const Compiler = struct {
         return constant;
     }
 
-    fn identifierConstant(self: *Self, name: Token) !u8 {
+    fn identifierConstant(self: *Self, name: Token) !u24 {
         return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name.lexeme)).toObj() });
     }
 };

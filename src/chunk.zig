@@ -92,10 +92,10 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
-    pub const max_constants: usize = 255;
+    pub const max_constants: u24 = 16777215;
 
     /// List of opcodes to execute
-    code: std.ArrayList(u8),
+    code: std.ArrayList(u32),
     /// List of lines
     lines: std.ArrayList(usize),
     /// List of constants defined in this chunk
@@ -103,10 +103,10 @@ pub const Chunk = struct {
 
     // TODO: correlate opcodes and line number in source code
 
-    pub fn init(allocator: *Allocator) !Self {
+    pub fn init(allocator: *Allocator) Self {
         return Self {
-            .code = std.ArrayList(u8).init(allocator),
-            .constants = try std.ArrayList(Value).initCapacity(allocator, max_constants),
+            .code = std.ArrayList(u32).init(allocator),
+            .constants = std.ArrayList(Value).init(allocator),
             .lines = std.ArrayList(usize).init(allocator),
         };
     }
@@ -117,16 +117,16 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write(self: *Self, byte: u8, line: usize) !void {
-        _ = try self.code.append(byte);
+    pub fn write(self: *Self, code: u32, line: usize) !void {
+        _ = try self.code.append(code);
         _ = try self.lines.append(line);
     }
 
-    pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u8 {
+    pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
         if (vm) |uvm| uvm.push(value);
         try self.constants.append(value);
         if (vm) |uvm| _ = uvm.pop();
 
-        return @intCast(u8, self.constants.items.len - 1);
+        return @intCast(u24, self.constants.items.len - 1);
     }
 };

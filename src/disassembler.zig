@@ -22,55 +22,56 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
 }
 
 fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
-    const constant: u8 = chunk.code.items[offset + 1];
-    const arg_count: u8 = chunk.code.items[offset + 2];
+    const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const arg_count: u8 = @intCast(u8, chunk.code.items[offset + 1]);
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
 
     print("{}\t{s}({} args)", .{ code, value_str, arg_count });
 
-    return offset + 3;
+    return offset + 1;
 }
 
-inline fn simpleInstruction(code: OpCode, offset: usize) usize {
+fn simpleInstruction(code: OpCode, offset: usize) usize {
     print("{}\t", .{ code });
 
     return offset + 1;
 }
 
 fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
-    var slot: u8 = chunk.code.items[offset + 1];
+    const slot: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
     print("{}\t{}", .{ code, slot });
-    return offset + 2;
+    return offset + 1;
 }
 
 fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
-    var a: u8 = chunk.code.items[offset + 1];
-    var b: u8 = chunk.code.items[offset + 2];
+    const a: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const b: u24 = @intCast(u24, chunk.code.items[offset + 1]);
+
     print("{}\t{} {}", .{ code, a, b });
-    return offset + 3;
+    return offset + 1;
 }
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
-    const constant: u8 = chunk.code.items[offset + 1];
+    const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
 
     print("{}\t{} {s}", .{ code, constant, value_str });
 
-    return offset + 2;
+    return offset + 1;
 }
 
 fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) !usize {
-    const jump: u16 = (@intCast(u16, chunk.code.items[offset + 1]) << 8) | @intCast(u16, chunk.code.items[offset + 2]);
+    const jump: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
 
     if (direction) {
-        print("{}\t{} -> {}", .{ code, offset, offset + 3 + 1 * jump });
+        print("{}\t{} -> {}", .{ code, offset, offset + 1 + 1 * jump });
     } else {
-        print("{}\t{} -> {}", .{ code, offset, offset + 3 - 1 * jump });
+        print("{}\t{} -> {}", .{ code, offset, offset + 1 - 1 * jump });
     }
 
-    return offset + 3;
+    return offset + 1;
 }
 
 pub fn dumpStack(vm: *VM) !void {
@@ -105,7 +106,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         print("{:0>3} ", .{ chunk.lines.items[offset] });
     }
 
-    const instruction: OpCode = @intToEnum(OpCode, chunk.code.items[offset]);
+    const full_instruction: u32 = chunk.code.items[offset];
+    const instruction: OpCode = @intToEnum(OpCode, @intCast(u8, full_instruction >> 24));
+    const arg: u24 = @intCast(u24, 0x00ffffff & full_instruction);
     return switch (instruction) {
         .OP_NULL,
         .OP_TRUE,
@@ -170,10 +173,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 
         .OP_CLOSURE => closure: {
-            var off_offset: usize = offset;
-            off_offset += 1;
-            var constant: u8 = chunk.code.items[off_offset];
-            off_offset += 1;
+            var constant: u24 = arg;
+            var off_offset: usize = offset + 1;
 
             var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
             defer std.heap.c_allocator.free(value_str);
@@ -185,7 +186,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             while (i < function.upvalue_count) : (i += 1) {
                 var is_local: bool = chunk.code.items[off_offset] == 1;
                 off_offset += 1;
-                var index: u8 = chunk.code.items[off_offset];
+                var index: u8 = @intCast(u8, chunk.code.items[off_offset]);
                 off_offset += 1;
                 print("\n{:0>3} |                         \t{s} {}\n", .{ off_offset - 2, if (is_local) "local  " else "upvalue", index });
             }

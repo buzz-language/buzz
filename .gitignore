@@ -107,3 +107,4 @@ target/
 # zig
 zig-cache/
 zig-out/
+zig-test/
