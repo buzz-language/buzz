@@ -9,12 +9,17 @@ const ObjString = @import("./obj.zig").ObjString;
 
 fn repl(allocator: *Allocator) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
+    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
-    var compiler = Compiler.init(allocator, &strings, false);
+    var compiler = Compiler.init(allocator, &strings, &imports, false);
     defer {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
+        for (imports.items) |import| {
+            import.globals.deinit();
+        }
+        imports.deinit();
     }
 
     std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
@@ -34,12 +39,17 @@ fn repl(allocator: *Allocator) !void {
 
 fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
+    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
-    var compiler = Compiler.init(allocator, &strings, false);
+    var compiler = Compiler.init(allocator, &strings, &imports, false);
     defer {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
+        for (imports.items) |import| {
+            import.globals.deinit();
+        } 
+        imports.deinit();
     }
     
     var file = std.fs.cwd().openFile(file_name, .{}) catch {

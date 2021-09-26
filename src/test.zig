@@ -17,6 +17,10 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
+        for (imports.items) |import| {
+            import.globals.deinit();
+        }
+        imports.deinit();
     }
 
     if (try compiler.compile(string[0..], "<test>", true)) |function| {
@@ -34,6 +38,10 @@ fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
+        for (imports.items) |import| {
+            import.globals.deinit();
+        }
+        imports.deinit();
     }
 
     var file = std.fs.cwd().openFile(file_name, .{}) catch {

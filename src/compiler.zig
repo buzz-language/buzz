@@ -279,6 +279,11 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
 
+    pub const ScriptImport = struct {
+        function: *ObjFunction,
+        globals: std.ArrayList(Global),
+    };
+
     allocator: *Allocator,
     scanner: ?Scanner = null,
     parser: ParserState = .{},
@@ -291,14 +296,17 @@ pub const Compiler = struct {
     strings: *std.StringHashMap(*ObjString),
     // If true the script is being imported
     imported: bool = false,
+    // Cached imported functions
+    imports: *std.StringHashMap(ScriptImport),
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
     test_count: u64 = 0,
 
-    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), imported: bool) Self {
+    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
         return .{
             .allocator = allocator,
+            .imports = imports,
             .globals = std.ArrayList(Global).init(allocator),
             .strings = strings,
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -1715,33 +1723,49 @@ pub const Compiler = struct {
     }
 
     fn importScript(self: *Self, file_name: []const u8) anyerror!void {
-        // Find and read file
-        var file = std.fs.cwd().openFile(file_name, .{}) catch {
-            try self.reportError("File not found.");
-            return;
-        };
-        defer file.close();
+        var import: ?ScriptImport = self.imports.get(file_name);
+
+        if (import == null) {
+            // Find and read file
+            var file = std.fs.cwd().openFile(file_name, .{}) catch {
+                try self.reportError("File not found.");
+                return;
+            };
+            defer file.close();
+            
+            const source = try self.allocator.alloc(u8, (try file.stat()).size);
+            defer self.allocator.free(source);
+            
+            _ = try file.readAll(source);
+
+            var compiler = Compiler.init(self.allocator, self.strings, self.imports, true);
+            defer compiler.deinit();
         
-        const source = try self.allocator.alloc(u8, (try file.stat()).size);
-        defer self.allocator.free(source);
-        
-        _ = try file.readAll(source);
+            if (try compiler.compile(source, file_name, self.testing)) |import_function| {
+                import = ScriptImport {
+                    .function = import_function,
+                    .globals = std.ArrayList(Global).init(self.allocator),
+                };
 
-        var compiler = Compiler.init(self.allocator, self.strings, true);
-        defer compiler.deinit();
+                for (compiler.globals.items) |*global| {
+                    if (global.exported) {
+                        global.*.exported = false;
+                    } else {
+                        global.*.hidden = true;
+                    }
 
-        if (try compiler.compile(source, file_name, self.testing)) |import_function| {
-            try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = import_function.toObj() }));
-            try self.emitOpCode(.OP_IMPORT);
-
-            // Copy exported globals into our own
-            for (compiler.globals.items) |*global| {
-                if (global.exported) {
-                    global.*.exported = false;
-                } else {
-                    global.*.hidden = true;
+                    try import.?.globals.append(global.*);
                 }
 
+                try self.imports.put(file_name, import.?);
+            }
+        }
+
+        if (import) |imported| {
+            try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = imported.function.toObj() }));
+            try self.emitOpCode(.OP_IMPORT);
+
+            for (imported.globals.items) |*global| {
                 try self.globals.append(global.*);
             }
         } else {
