@@ -1105,8 +1105,8 @@ pub const ObjTypeDef = struct {
         return switch (a) {
             .Bool, .Number, .String, .Type, .Void => return true,
 
-            .ObjectInstance => return a.ObjectInstance == b.ObjectInstance,
-            .EnumInstance => return a.EnumInstance == b.EnumInstance,
+            .ObjectInstance => return a.ObjectInstance.eql(b.ObjectInstance),
+            .EnumInstance => return a.EnumInstance.eql(b.EnumInstance),
 
             .Object,
             .Enum => false, // Thore are never equal even if definition is the same

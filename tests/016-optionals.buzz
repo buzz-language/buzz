@@ -1,6 +1,6 @@
 import "zig-out/lib/libstd.dylib";
 
-test "Can i put null in optional variables yet?" {
+test "Optional force unwrapping with `!`" {
     str? hello = null;
 
     try {
@@ -19,4 +19,20 @@ test "Can i put null in optional variables yet?" {
     } catch {
         assert(false, message: "should not fail");
     }
+}
+
+test "Optional graceful unwrapping with `?`" {
+    [num]? optList = [1, 2, 3];
+
+    assert(optList?.len() == 3, message: "could unwrap optList");
+}
+
+object Me {
+    [num]? list = [1, 2, 3];
+}
+
+test "Optional chaining" {
+    Me? me = Me();
+
+    assert(me?.list?.len() == 3, message: "chaining optionals work");
 }

@@ -49,7 +49,7 @@ fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const b: u24 = @intCast(u24, chunk.code.items[offset + 1]);
 
     print("{}\t{} {}", .{ code, a, b });
-    return offset + 1;
+    return offset + 2;
 }
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
@@ -114,6 +114,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_TRUE,
         .OP_FALSE,
         .OP_POP,
+        .OP_COPY,
         .OP_EQUAL,
         .OP_GREATER,
         .OP_LESS,

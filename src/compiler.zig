@@ -169,6 +169,7 @@ pub const ParserState = struct {
 
     current_token: ?Token = null,
     previous_token: ?Token = null,
+    next_token: ?Token = null,
     had_error: bool = false,
     panic_mode: bool = false,
 };
@@ -194,8 +195,8 @@ pub const Compiler = struct {
         Primary, // literal, (grouped expression), super.ref, identifier, <type>[alist], <a, map>{...}
     };
 
-    const ParseFn = fn (*Compiler, bool) anyerror!*ObjTypeDef;
-    const InfixParseFn = fn (*Compiler, bool, *ObjTypeDef) anyerror!*ObjTypeDef;
+    const ParseFn = fn (compiler: *Compiler, can_assign: bool) anyerror!*ObjTypeDef;
+    const InfixParseFn = fn (compiler: *Compiler, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
@@ -221,8 +222,8 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Star
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Slash
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Percent
-        .{ .prefix = null,     .infix = null,      .precedence = .Call }, // Question
-        .{ .prefix = unary,    .infix = forceUnwrap,    .precedence = .Call }, // Bang
+        .{ .prefix = null,     .infix = unwrap,    .precedence = .Call }, // Question
+        .{ .prefix = unary,    .infix = forceUnwrap,.precedence = .Call }, // Bang
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Colon
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Equal
         .{ .prefix = null,     .infix = binary,    .precedence = .Equality }, // EqualEqual
@@ -284,6 +285,11 @@ pub const Compiler = struct {
         globals: std.ArrayList(Global),
     };
 
+    pub const OptJump = struct {
+        jump: usize,
+        precedence: Precedence,
+    };
+
     allocator: *Allocator,
     scanner: ?Scanner = null,
     parser: ParserState = .{},
@@ -298,6 +304,9 @@ pub const Compiler = struct {
     imported: bool = false,
     // Cached imported functions
     imports: *std.StringHashMap(ScriptImport),
+
+    // Jump to patch at end of current expression with a optional unwrapping in the middle of it
+    opt_jumps: ?std.ArrayList(OptJump) = null,
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
@@ -707,14 +716,31 @@ pub const Compiler = struct {
 
     fn advance(self: *Self) !void {
         self.parser.previous_token = self.parser.current_token;
+        self.parser.current_token = self.parser.next_token;
+
+        if (self.parser.current_token == null) {
+            while (true) {
+                self.parser.current_token = try self.scanner.?.scanToken();
+                if (self.parser.current_token.?.token_type != .Error) {
+                    break;
+                }
+
+                try self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
+            }
+        }
+
+        if (self.parser.current_token.?.token_type == .Eof) {
+            self.parser.next_token = null;
+            return;
+        }
 
         while (true) {
-            self.parser.current_token = try self.scanner.?.scanToken();
-            if (self.parser.current_token.?.token_type != .Error) {
+            self.parser.next_token = try self.scanner.?.scanToken();
+            if (self.parser.next_token.?.token_type != .Error) {
                 break;
             }
 
-            try self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
+            try self.reportErrorAtCurrent(self.parser.next_token.?.literal_string orelse "Unknown error.");
         }
     }
 
@@ -729,6 +755,10 @@ pub const Compiler = struct {
 
     fn check(self: *Self, token_type: TokenType) bool {
         return self.parser.current_token.?.token_type == token_type;
+    }
+
+    fn checkAhead(self: *Self, token_type: TokenType) bool {
+        return if (self.parser.next_token) |next| next.token_type == token_type else false;
     }
 
     fn match(self: *Self, token_type: TokenType) !bool {
@@ -1082,7 +1112,7 @@ pub const Compiler = struct {
             try self.varDeclaration(try self.functionType());
             return null;
         } else if (try self.match(.Identifier)) {
-            if (self.check(.Identifier)) {
+            if (self.check(.Identifier) or (self.check(.Question) and self.checkAhead(.Identifier))) {
                 var user_type_name: Token = self.parser.previous_token.?.clone();
                 var var_type: ?*ObjTypeDef = null;
 
@@ -1308,8 +1338,31 @@ pub const Compiler = struct {
         var canAssign: bool = @enumToInt(precedence) <= @enumToInt(Precedence.Assignment);
         var parsed_type: *ObjTypeDef = try prefixRule.?(self, canAssign);
 
-        while (@enumToInt(precedence) <= @enumToInt(getRule(self.parser.current_token.?.token_type).precedence)) {
+        while (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) >= @enumToInt(precedence)) {
+            // Patch optional jumps
+            if (self.opt_jumps) |jumps| {
+                assert(jumps.items.len > 0);
+                var first_jump: OptJump = jumps.items[0];
+
+                if (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) < @enumToInt(first_jump.precedence)) {
+                    // Hope over pop if actual value
+                    const njump: usize = try self.emitJump(.OP_JUMP);
+
+                    for (jumps.items) |jump| {
+                        try self.patchJump(jump.jump);
+                    }
+                    // If aborted by a null optional, will result in null on the stackl
+                    try self.emitOpCode(.OP_POP);
+
+                    try self.patchJump(njump);
+
+                    jumps.deinit();
+                    self.opt_jumps = null;
+                }
+            }
+
             _ = try self.advance();
+
             var infixRule: InfixParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
             parsed_type = try infixRule(self, canAssign, parsed_type);
         }
@@ -1942,7 +1995,7 @@ pub const Compiler = struct {
                 };
 
                 break :object try self.getTypeDef(.{
-                    .optional = parsed_type.optional,
+                    .optional = try self.match(.Question),
                     .def_type = .ObjectInstance,
                     .resolved_type = resolved_type
                 });
@@ -1953,7 +2006,7 @@ pub const Compiler = struct {
                 };
 
                 break :enum_instance try self.getTypeDef(.{
-                    .optional = parsed_type.optional,
+                    .optional = try self.match(.Question),
                     .def_type = .EnumInstance,
                     .resolved_type = resolved_type
                 });
@@ -3424,6 +3477,33 @@ pub const Compiler = struct {
         try self.reportError("Can't be called");
 
         return callee_type;
+    }
+
+    fn unwrap(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (!callee_type.optional) {
+            try self.reportError("Not an optional.");
+        }
+
+        try self.emitOpCode(.OP_COPY);
+        try self.emitOpCode(.OP_NULL);
+        try self.emitOpCode(.OP_EQUAL);
+        try self.emitOpCode(.OP_NOT);
+        
+        const jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        if (self.opt_jumps == null) {
+            self.opt_jumps = std.ArrayList(OptJump).init(self.allocator);
+        }
+        try self.opt_jumps.?.append(.{
+            .jump = jump,
+            .precedence = getRule(self.parser.current_token.?.token_type).precedence
+        });
+        
+        try self.emitOpCode(.OP_POP); // Pop test result
+
+        var unwrapped: ObjTypeDef = callee_type.*;
+        unwrapped.optional = false;
+
+        return self.getTypeDef(unwrapped);
     }
 
     fn forceUnwrap(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {

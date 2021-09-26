@@ -11,8 +11,9 @@ pub const Result = VM.InterpretResult;
 
 pub fn runString(allocator: *Allocator, string: []const u8) !Result {
     var strings = std.StringHashMap(*ObjString).init(allocator);
+    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
-    var compiler = Compiler.init(allocator, &strings, false);
+    var compiler = Compiler.init(allocator, &strings, &imports, false);
     defer {
         vm.deinit();
         compiler.deinit();
@@ -33,8 +34,9 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
 
 fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
     var strings = std.StringHashMap(*ObjString).init(allocator);
+    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
-    var compiler = Compiler.init(allocator, &strings, false);
+    var compiler = Compiler.init(allocator, &strings, &imports, false);
     defer {
         vm.deinit();
         compiler.deinit();

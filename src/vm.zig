@@ -220,6 +220,7 @@ pub const VM = struct {
                 .OP_TRUE => self.push(Value { .Boolean = true }),
                 .OP_FALSE => self.push(Value { .Boolean = false }),
                 .OP_POP => _ = self.pop(),
+                .OP_COPY => self.push(self.peek(0)),
                 .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
                 .OP_DEFINE_GLOBAL => {
                     const slot: u24 = arg + @intCast(u24, self.global_offset orelse 0);
