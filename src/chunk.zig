@@ -39,6 +39,7 @@ pub const OpCode = enum(u8) {
     // OP_XOR,
     OP_SHL,
     OP_SHR,
+    OP_NULL_OR,
 
     OP_UNWRAP,
 

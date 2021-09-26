@@ -36,3 +36,9 @@ test "Optional chaining" {
 
     assert(me?.list?.len() == 3, message: "chaining optionals work");
 }
+
+test "Null coalescing operator" {
+    str? hello = null;
+
+    assert(hello ?? "world" == "world", message: "null coalescing");
+}

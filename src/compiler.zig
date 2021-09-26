@@ -181,12 +181,12 @@ pub const Compiler = struct {
         None,
         Assignment, // =, -=, +=, *=, /=
         Is, // is
-        NullOr, // ??
         Or, // or
         And, // and
         Xor, // xor
         Equality, // ==, !=
         Comparison, // >=, <=, >, <
+        NullCoalescing, // ??
         Term, // +, -
         Shift, // >>, <<
         Factor, // /, *, %
@@ -230,7 +230,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = binary,    .precedence = .Equality }, // BangEqual
         .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // GreaterEqual
         .{ .prefix = null,     .infix = binary,    .precedence = .Comparison }, // LessEqual
-        .{ .prefix = null,     .infix = null,      .precedence = .None }, // QuestionQuestion
+        .{ .prefix = null,     .infix = binary,    .precedence = .NullCoalescing }, // QuestionQuestion
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // PlusEqual
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // MinusEqual
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // StarEqual
@@ -2990,6 +2990,18 @@ pub const Compiler = struct {
         }
 
         switch (operator_type) {
+            .QuestionQuestion => {
+                if (!left_operand_type.optional
+                    or (left_operand_type.def_type == .Placeholder
+                        and left_operand_type.resolved_type.?.Placeholder.resolved_type != null
+                        and !left_operand_type.resolved_type.?.Placeholder.resolved_type.?.optional)) {
+                    try self.reportError("Not an optinal");
+                }
+
+                try self.emitOpCode(.OP_NULL_OR);
+
+                return right_operand_type;
+            },
             .Greater => {
                 if (left_operand_type.def_type == .Placeholder) {
                     left_operand_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
@@ -3480,7 +3492,10 @@ pub const Compiler = struct {
     }
 
     fn unwrap(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (!callee_type.optional) {
+        if (!callee_type.optional
+            or (callee_type.def_type == .Placeholder
+                and callee_type.resolved_type.?.Placeholder.resolved_type != null
+                and !callee_type.resolved_type.?.Placeholder.resolved_type.?.optional)) {
             try self.reportError("Not an optional.");
         }
 
@@ -3507,7 +3522,10 @@ pub const Compiler = struct {
     }
 
     fn forceUnwrap(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (!callee_type.optional) {
+        if (!callee_type.optional
+            or (callee_type.def_type == .Placeholder
+                and callee_type.resolved_type.?.Placeholder.resolved_type != null
+                and !callee_type.resolved_type.?.Placeholder.resolved_type.?.optional)) {
             try self.reportError("Not an optional.");
         }
 

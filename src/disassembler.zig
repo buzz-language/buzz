@@ -128,6 +128,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SHL,
         .OP_SHR,
         .OP_UNWRAP,
+        .OP_NULL_OR,
         .OP_ENUM_CASE,
         .OP_GET_ENUM_CASE_VALUE,
         .OP_LIST_APPEND,

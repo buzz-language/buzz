@@ -31,6 +31,7 @@ A small/lightweight typed scripting language written in Zig
 - [X] Logical operations
 - [X] Map
 - [X] Objects (class you can't inherit from)
+- [X] Optionals
 - [X] Strings (interpolation)
 - [X] Test system
 - [X] while statement
@@ -46,7 +47,6 @@ A small/lightweight typed scripting language written in Zig
 - [ ] Generics
 - [ ] Increment/Decrement (++/--)
 - [ ] is and as
-- [ ] Optionals
 - [ ] Spread operator
 - [ ] std lib
 - [ ] String escape sequences

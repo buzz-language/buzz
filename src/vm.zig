@@ -504,6 +504,19 @@ pub const VM = struct {
                     }
                 },
 
+                .OP_NULL_OR => {
+                    if (self.peek(1) == .Null) {
+                        var else_: Value = self.peek(0);
+                        // Pop operands
+                        _ = self.pop();
+                        _ = self.pop();
+                        // Push left operand
+                        self.push(else_);
+                    } else {
+                        _ = self.pop(); // Pop right operand
+                    }
+                },
+
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });
 
