@@ -1750,7 +1750,7 @@ pub const Compiler = struct {
                 for (compiler.globals.items) |*global| {
                     if (global.exported) {
                         global.*.exported = false;
-                    } else {
+                     } else {
                         global.*.hidden = true;
                     }
 
@@ -1766,6 +1766,17 @@ pub const Compiler = struct {
             try self.emitOpCode(.OP_IMPORT);
 
             for (imported.globals.items) |*global| {
+                if (!global.hidden) {
+                    // Search for name collision
+                    // TODO: could be slow if many globals
+                    for (self.globals.items) |sglobal| {
+                        if (std.mem.eql(u8, sglobal.name.string, global.name.string)) {
+                            try self.reportError("Shadowed global");
+                            break;
+                        }
+                    }
+                }
+
                 try self.globals.append(global.*);
             }
         } else {

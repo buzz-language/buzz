@@ -17,8 +17,9 @@ pub fn runString(allocator: *Allocator, string: []const u8) !Result {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
-        for (imports.items) |import| {
-            import.globals.deinit();
+        var it = imports.iterator();
+        while (it.next()) |kv| {
+            kv.value_ptr.*.globals.deinit();
         }
         imports.deinit();
     }
@@ -38,8 +39,9 @@ fn runFile(allocator: *Allocator, file_name: []const u8) !Result {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
-        for (imports.items) |import| {
-            import.globals.deinit();
+        var it = imports.iterator();
+        while (it.next()) |kv| {
+            kv.value_ptr.*.globals.deinit();
         }
         imports.deinit();
     }

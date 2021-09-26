@@ -16,8 +16,9 @@ fn repl(allocator: *Allocator) !void {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
-        for (imports.items) |import| {
-            import.globals.deinit();
+        var it = imports.iterator();
+        while (it.next()) |kv| {
+            kv.value_ptr.*.globals.deinit();
         }
         imports.deinit();
     }
@@ -46,9 +47,10 @@ fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
         vm.deinit();
         compiler.deinit();
         strings.deinit();
-        for (imports.items) |import| {
-            import.globals.deinit();
-        } 
+        var it = imports.iterator();
+        while (it.next()) |kv| {
+            kv.value_ptr.*.globals.deinit();
+        }
         imports.deinit();
     }
     
