@@ -497,6 +497,12 @@ pub const VM = struct {
                     self.current_frame.?.ip -= arg;
                 },
 
+                .OP_UNWRAP => {
+                    if (self.peek(0) == .Null) {
+                        try self.runtimeError("Force unwrapped optional is null", null);
+                    }
+                },
+
                 else => {
                     std.debug.warn("{} not yet implemented\n", .{ instruction });
 

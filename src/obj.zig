@@ -994,10 +994,6 @@ pub const ObjTypeDef = struct {
     pub fn toString(self: Self, allocator: *Allocator) anyerror![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
-        if (self.optional) {
-            try type_str.append('?');
-        }
-
         switch (self.def_type) {
             .Bool => try type_str.appendSlice("bool"),
             .Number => try type_str.appendSlice("num"),
@@ -1079,6 +1075,10 @@ pub const ObjTypeDef = struct {
                 try type_str.appendSlice(ref);
                 try type_str.appendSlice(")");
             }
+        }
+
+        if (self.optional) {
+            try type_str.append('?');
         }
 
         return type_str.items;
@@ -1177,8 +1177,7 @@ pub const ObjTypeDef = struct {
 
         return self == other
             or (self.optional and other.def_type == .Void) // Void is equal to any optional type
-            or (self.optional == other.optional
-                and (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder));
+            or (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder);
     }
 };
 

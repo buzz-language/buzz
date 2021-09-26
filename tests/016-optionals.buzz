@@ -1,0 +1,22 @@
+import "zig-out/lib/libstd.dylib";
+
+test "Can i put null in optional variables yet?" {
+    str? hello = null;
+
+    try {
+        print(hello!);
+        assert(false, message: "can't be here");
+    } catch {
+        assert(true, message: "can't force unwrap a null");
+    }
+
+    hello = "hello world";
+
+    try {
+        print(hello!);
+
+        assert(true, message: "force unwrap of actual value is ok");
+    } catch {
+        assert(false, message: "should not fail");
+    }
+}

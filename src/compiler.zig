@@ -221,8 +221,8 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Star
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Slash
         .{ .prefix = null,     .infix = binary,    .precedence = .Factor }, // Percent
-        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Question
-        .{ .prefix = unary,    .infix = null,      .precedence = .None }, // Bang
+        .{ .prefix = null,     .infix = null,      .precedence = .Call }, // Question
+        .{ .prefix = unary,    .infix = forceUnwrap,    .precedence = .Call }, // Bang
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Colon
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Equal
         .{ .prefix = null,     .infix = binary,    .precedence = .Equality }, // EqualEqual
@@ -3424,6 +3424,19 @@ pub const Compiler = struct {
         try self.reportError("Can't be called");
 
         return callee_type;
+    }
+
+    fn forceUnwrap(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (!callee_type.optional) {
+            try self.reportError("Not an optional.");
+        }
+
+        try self.emitOpCode(.OP_UNWRAP);
+
+        var unwrapped: ObjTypeDef = callee_type.*;
+        unwrapped.optional = false;
+
+        return self.getTypeDef(unwrapped);
     }
 
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
