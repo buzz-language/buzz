@@ -83,6 +83,8 @@ pub const VM = struct {
     stack: []Value,
     stack_top: [*]Value,
     globals: std.ArrayList(Value),
+    /// When script is being imported, add this offset to globals so OP_[GET|SET|DEFINE]_GLOBAL is still valid 
+    global_offset: ?usize = null,
     // Interned strings
     strings: *std.StringHashMap(*ObjString),
     open_upvalues: ?*ObjUpValue,
@@ -93,12 +95,13 @@ pub const VM = struct {
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
-    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString)) !Self {
+    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), global_offset: ?usize) !Self {
         var self: Self = .{
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
             .stack_top = undefined,
             .globals = std.ArrayList(Value).init(allocator),
+            .global_offset = global_offset,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = strings,
             .open_upvalues = null,
@@ -219,14 +222,14 @@ pub const VM = struct {
                 .OP_POP => _ = self.pop(),
                 .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
                 .OP_DEFINE_GLOBAL => {
-                    const slot: u24 = arg;
+                    const slot: u24 = arg + @intCast(u24, self.global_offset orelse 0);
                     try self.globals.ensureTotalCapacity(slot + 1);
                     self.globals.expandToCapacity();
                     self.globals.items[slot] = self.peek(0);
                     _ = self.pop();
                 },
-                .OP_GET_GLOBAL => self.push(self.globals.items[arg]),
-                .OP_SET_GLOBAL => self.globals.items[arg] = self.peek(0),
+                .OP_GET_GLOBAL => self.push(self.globals.items[arg + (self.global_offset orelse 0)]),
+                .OP_SET_GLOBAL => self.globals.items[arg + (self.global_offset orelse 0)] = self.peek(0),
                 .OP_GET_LOCAL => self.push(self.current_frame.?.slots[arg]),
                 .OP_SET_LOCAL => self.current_frame.?.slots[arg] = self.peek(0),
                 .OP_GET_UPVALUE => self.push(self.current_frame.?.closure.upvalues.items[arg].location.*),
@@ -535,7 +538,7 @@ pub const VM = struct {
     fn import(self: *Self, value: Value) anyerror!void {
         var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
 
-        var vm = try VM.init(self.allocator, self.strings);
+        var vm = try VM.init(self.allocator, self.strings, self.globals.items.len);
         defer vm.deinit();
 
         if (((vm.interpret(function) catch null) orelse .RuntimeError) == .Ok) {

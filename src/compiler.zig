@@ -287,21 +287,22 @@ pub const Compiler = struct {
     globals: std.ArrayList(Global),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
     type_defs: std.StringHashMap(*ObjTypeDef),
-    // Intered strings, will be copied over to the vm
+    // Interned strings, will be copied over to the vm
     strings: *std.StringHashMap(*ObjString),
+    // If true the script is being imported
+    imported: bool = false,
 
     /// If true, will search for a `test` entry point instead of `main`
     testing: bool = false,
     test_count: u64 = 0,
-    /// When script is being imported, add this offset to globals so OP_[GET|SET|DEFINE]_GLOBAL is still valid 
-    global_offset: ?usize = null,
 
-    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString)) Self {
+    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), imported: bool) Self {
         return .{
             .allocator = allocator,
             .globals = std.ArrayList(Global).init(allocator),
             .strings = strings,
             .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
+            .imported = imported
         };
     }
 
@@ -319,9 +320,8 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool, global_offset: ?usize) !?*ObjFunction {
+    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool) !?*ObjFunction {
         self.testing = testing;
-        self.global_offset = global_offset;
 
         if (self.scanner != null) {
             self.scanner = null;
@@ -745,7 +745,7 @@ pub const Compiler = struct {
                         found_main = true;
 
                         // TODO: Somehow push cli args on the stack
-                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                         try self.emitCodeArg(.OP_CALL, 0);
                         break;
                     }
@@ -754,14 +754,14 @@ pub const Compiler = struct {
                 // Create an entry point wich runs all `test`
                 for (self.globals.items) |global, index| {
                     if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden) {
-                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
+                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                         try self.emitCodeArg(.OP_CALL, 0);
                     }
                 }
             }
 
             // If we're being imported, put all globals on the stack
-            if (self.global_offset != null) {
+            if (self.imported) {
                 var exported_count: usize = 0;
                 for (self.globals.items) |_, index| {
                     exported_count += 1;
@@ -771,7 +771,7 @@ pub const Compiler = struct {
                         break;
                     }
 
-                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index + (self.global_offset orelse 0)));
+                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                 }
 
                 try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
@@ -1727,10 +1727,10 @@ pub const Compiler = struct {
         
         _ = try file.readAll(source);
 
-        var compiler = Compiler.init(self.allocator, self.strings);
+        var compiler = Compiler.init(self.allocator, self.strings, true);
         defer compiler.deinit();
 
-        if (try compiler.compile(source, file_name, self.testing, self.globals.items.len + (self.global_offset orelse 0))) |import_function| {
+        if (try compiler.compile(source, file_name, self.testing)) |import_function| {
             try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = import_function.toObj() }));
             try self.emitOpCode(.OP_IMPORT);
 
@@ -1824,7 +1824,7 @@ pub const Compiler = struct {
                     );
                     try self.emitCodeArg(
                         .OP_DEFINE_GLOBAL,
-                        @intCast(u24, slot + (self.global_offset orelse 0))
+                        @intCast(u24, slot)
                     );
                 }
             } else {
@@ -2069,7 +2069,7 @@ pub const Compiler = struct {
         );
 
         try self.emitCodeArg(.OP_ENUM, constant);
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot + (self.global_offset orelse 0)));
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
 
@@ -2171,7 +2171,7 @@ pub const Compiler = struct {
         );
 
         try self.emitCodeArg(.OP_OBJECT, constant);
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot + (self.global_offset orelse 0)));
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
 
@@ -2374,7 +2374,7 @@ pub const Compiler = struct {
             return;
         }
 
-        try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot + if (self.global_offset) |offset| @intCast(u24, offset) else 0);
+        try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot);
     }
 
     fn declarePlaceholder(self: *Self, name: Token) !usize {
@@ -2816,9 +2816,6 @@ pub const Compiler = struct {
                 set_op = .OP_SET_GLOBAL;
 
                 arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name));
-                if (self.global_offset) |offset| {
-                    arg.? += offset;
-                }
 
                 var_def = self.globals.items[arg.?].type_def;
             }

@@ -9,8 +9,8 @@ const ObjString = @import("./obj.zig").ObjString;
 
 fn repl(allocator: *Allocator) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
-    var vm = try VM.init(allocator, &strings);
-    var compiler = Compiler.init(allocator, &strings);
+    var vm = try VM.init(allocator, &strings, null);
+    var compiler = Compiler.init(allocator, &strings, false);
     defer {
         vm.deinit();
         compiler.deinit();
@@ -25,7 +25,7 @@ fn repl(allocator: *Allocator) !void {
         _ = try std.io.getStdIn().read(line[0..]);
 
         if (line.len > 0) {
-            if (try compiler.compile(line[0..], "<repl>", false, null)) |function| {
+            if (try compiler.compile(line[0..], "<repl>", false)) |function| {
                 _ = try vm.interpret(function);
             }
         }
@@ -34,8 +34,8 @@ fn repl(allocator: *Allocator) !void {
 
 fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
-    var vm = try VM.init(allocator, &strings);
-    var compiler = Compiler.init(allocator, &strings);
+    var vm = try VM.init(allocator, &strings, null);
+    var compiler = Compiler.init(allocator, &strings, false);
     defer {
         vm.deinit();
         compiler.deinit();
@@ -53,7 +53,7 @@ fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     
     _ = try file.readAll(source);
 
-    if (try compiler.compile(source, file_name, testing, null)) |function| {
+    if (try compiler.compile(source, file_name, testing)) |function| {
         _ = try vm.interpret(function);
     }
 }
