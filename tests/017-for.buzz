@@ -1,0 +1,20 @@
+import "zig-out/lib/libstd.dylib";
+
+test "for loop" {
+    num sum = 0;
+    for (num i = 0; i < 10; i = i + 1) {
+        sum = sum + i;
+    }
+
+    assert(sum == 45, message: "for loop");
+}
+
+test "multiple variable and expressions in for loop" {
+    num sum = 0;
+    for (num i = 0, num j = 9; i < 10 and j >= 0; i = i + 1, j = j - 1) {
+        sum = sum + i + j;
+    }
+    
+
+    assert(sum = 90, message: "multiple var loop");
+}

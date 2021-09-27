@@ -1354,6 +1354,12 @@ pub const PlaceholderDef = struct {
         }
     }
 
+    // TODO: zig bug here
+    pub fn isBasicType(self: Self, basic_type: ObjTypeDef.Type) bool {
+        return self.resolved_def_type == basic_type
+                or (self.resolved_type != null and self.resolved_type.?.def_type == basic_type);
+    }
+
     pub fn isAssignable(self: *Self) bool {
         if (self.assignable == null) {
             return true;

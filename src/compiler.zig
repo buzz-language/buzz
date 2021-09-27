@@ -980,7 +980,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .String
                     }
-                )
+                ),
+                false
             );
         } else if (try self.match(.Num)) {
             try self.varDeclaration(
@@ -989,7 +990,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Number
                     }
-                )
+                ),
+                false
             );
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
@@ -998,7 +1000,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Bool
                     }
-                )
+                ),
+                false
             );
         } else if (try self.match(.Type)) {
             try self.varDeclaration(
@@ -1007,7 +1010,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Type
                     }
-                )
+                ),
+                false
             );
         } else if (try self.match(.LeftBracket)) {
             try self.listDeclaration();
@@ -1016,7 +1020,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Test)) {
             try self.testStatement();
         } else if (try self.match(.Function)) {
-            try self.varDeclaration(try self.functionType());
+            try self.varDeclaration(try self.functionType(), false);
         // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
@@ -1035,7 +1039,7 @@ pub const Compiler = struct {
                 try self.reportError("Unknown identifier");
             }
 
-            try self.varDeclaration(var_type.?);
+            try self.varDeclaration(var_type.?, false);
         } else if (try self.match(.Return)) {
             try self.returnStatement();
         } else if (try self.match(.Import)) {
@@ -1065,7 +1069,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .String
                     }
-                )
+                ),
+                false
             );
 
             return null;
@@ -1076,7 +1081,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Number
                     }
-                )
+                ),
+                false
             );
 
             return null;
@@ -1087,7 +1093,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Bool
                     }
-                )
+                ),
+                false
             );
 
             return null;
@@ -1098,7 +1105,8 @@ pub const Compiler = struct {
                         .optional = try self.match(.Question),
                         .def_type = .Type
                     }
-                )
+                ),
+                false
             );
 
             return null;
@@ -1109,7 +1117,7 @@ pub const Compiler = struct {
             try self.mapDeclaration();
             return null;
         } else if (try self.match(.Function)) {
-            try self.varDeclaration(try self.functionType());
+            try self.varDeclaration(try self.functionType(), false);
             return null;
         } else if (try self.match(.Identifier)) {
             if (self.check(.Identifier) or (self.check(.Question) and self.checkAhead(.Identifier))) {
@@ -1139,7 +1147,7 @@ pub const Compiler = struct {
                     });
                 }
 
-                try self.varDeclaration(var_type.?);
+                try self.varDeclaration(var_type.?, false);
 
                 return null;
             } else {
@@ -1156,6 +1164,9 @@ pub const Compiler = struct {
         if (try self.match(.If)) {
             assert(!hanging);
             return try self.ifStatement();
+        } else if (try self.match(.For)) {
+            assert(!hanging);
+            try self.forStatement();
         } else if (try self.match(.While)) {
             assert(!hanging);
             try self.whileStatement();
@@ -1986,7 +1997,7 @@ pub const Compiler = struct {
         try self.defineGlobalVariable(@intCast(u24, slot));
     }
 
-    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef) !void {
+    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, in_list: bool) !void {
         // If var_type is Class/Object/Enum, we expect instance of them
         var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
             .Object => object: {
@@ -2049,7 +2060,9 @@ pub const Compiler = struct {
             try self.emitOpCode(.OP_NULL);
         }
 
-        try self.consume(.Semicolon, "Expected `;` after variable declaration.");
+        if (!in_list) {
+            try self.consume(.Semicolon, "Expected `;` after variable declaration.");
+        }
 
         try self.defineGlobalVariable(@intCast(u24, slot));
     }
@@ -2072,7 +2085,7 @@ pub const Compiler = struct {
     }
 
     fn listDeclaration(self: *Self) !void {
-        try self.varDeclaration(try self.parseListType());
+        try self.varDeclaration(try self.parseListType(), false);
     }
 
     fn parseMapType(self: *Self) !*ObjTypeDef {
@@ -2097,7 +2110,7 @@ pub const Compiler = struct {
     }
 
     fn mapDeclaration(self: *Self) !void {
-        try self.varDeclaration(try self.parseMapType());
+        try self.varDeclaration(try self.parseMapType(), false);
     }
 
     fn enumDeclaration(self: *Self) !void {
@@ -2339,6 +2352,71 @@ pub const Compiler = struct {
         try self.consume(.Semicolon, "Expected `;` after `break`.");
 
         return try self.emitJump(.OP_JUMP);
+    }
+
+    fn forStatement(self: *Self) !void {
+        try self.consume(.LeftParen, "Expected `(` after `for`.");
+
+        self.beginScope();
+
+        while (!self.check(.Semicolon) and !self.check(.Eof)) {
+            try self.varDeclaration(try self.parseTypeDef(), true);
+            
+            if (!self.check(.Semicolon)) {
+                try self.consume(.Comma, "Expected `,` after for loop variable");
+            }
+        }
+
+        try self.consume(.Semicolon, "Expected `;` after for loop variables.");
+
+        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+
+        var expr_type: *ObjTypeDef = try self.expression(false);
+
+        if (expr_type.def_type != .Bool and expr_type.def_type != .Placeholder) {
+            // TODO: should use Placeholder.isBasicType but breaks zig
+            try self.reportError("Expected `bool` condition.");
+        }
+
+        try self.consume(.Semicolon, "Expected `;` after for loop condition.");
+
+        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOpCode(.OP_POP);
+
+        // Jump over expressions which will be executed at end of loop
+        var body_jump: usize = try self.emitJump(.OP_JUMP);
+
+        const expr_loop: usize = self.current.?.function.chunk.code.items.len;
+        while (!self.check(.RightParen) and !self.check(.Eof)) {
+            _ = try self.expression(false);
+
+            if (!self.check(.RightParen)) {
+                try self.consume(.Comma, "Expected `,` after for loop expression");
+            }
+        }
+
+        try self.consume(.RightParen, "Expected `)` after `for` expressions.");
+
+        try self.emitLoop(loop_start);
+
+        try self.patchJump(body_jump);
+
+        try self.consume(.LeftBrace, "Expected `{` after `for` definition.");
+
+        var breaks: std.ArrayList(usize) = try self.block();
+        defer breaks.deinit();
+
+        try self.emitLoop(expr_loop);
+
+        try self.endScope();
+
+        try self.patchJump(exit_jump);
+        try self.emitOpCode(.OP_POP);
+
+        // Patch breaks
+        for (breaks.items) |jump| {
+            try self.patchJump(jump);
+        }
     }
 
     fn whileStatement(self: *Self) !void {
