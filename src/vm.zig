@@ -10,6 +10,7 @@ const Allocator = std.mem.Allocator;
 const Config = @import("./config.zig").Config;
 
 const Value = _value.Value;
+const HashableValue = _value.HashableValue;
 const ValueType = _value.ValueType;
 const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
@@ -547,10 +548,6 @@ pub const VM = struct {
         return InterpretResult.Ok;
     }
 
-    // local list
-    // local key null
-    // local value null
-    // list
     fn foreach(self: *Self) void {
         var iterable_value: Value = self.peek(0);
         var iterable: *Obj = iterable_value.Obj;
@@ -583,7 +580,19 @@ pub const VM = struct {
                 value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() }
                     else Value{ .Null = null });
             },
-            .Map => unreachable,
+            .Map => {
+                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var map: *ObjMap = ObjMap.cast(iterable).?;
+                var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
+
+                var next_key: ?HashableValue = map.rawNext(current_key);
+                key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = null };
+
+                if (next_key) |unext_key| {
+                    value_slot.* = map.map.get(unext_key) orelse Value{ .Null = null };
+                }
+            },
             else => unreachable,
         }
     }

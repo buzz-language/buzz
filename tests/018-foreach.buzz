@@ -20,21 +20,20 @@ test "list.next" {
     assert(list.next(0) == 1, message: "calling next native");
 }
 
-| test "foreach on map" {
-|     {str, num} map = {
-|         "one": 1,
-|         "two": 2,
-|         "three": 3
-|     };
+test "foreach on map" {
+    {str, num} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3
+    };
 
-|     num sum = 0;
-|     for (str key, num value in map) {
-|         print("{key}: {value}");
-|         sum = sum + item;
-|     }
+    num sum = 0;
+    foreach (str key, num value in map) {
+        sum = sum + value;
+    }
 
-|     assert(sum == 6, message: "foreach on map");
-| }
+    assert(sum == 6, message: "foreach on map");
+}
 
 enum Hey {
     one,

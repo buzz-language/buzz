@@ -13,6 +13,7 @@ const _value = @import("./value.zig");
 const _scanner = @import("./scanner.zig");
 const _disassembler = @import("./disassembler.zig");
 const _utils = @import("./utils.zig");
+const Config = @import("./config.zig").Config;
 
 const Value = _value.Value;
 const ValueType = _value.ValueType;
@@ -464,6 +465,13 @@ pub const Compiler = struct {
     // If not we raise a compile error.
     pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) anyerror!void {
         assert(placeholder.def_type == .Placeholder);
+
+        if (resolved_type.def_type == .Placeholder) {
+            if (Config.debug) {
+                std.debug.warn("Attempted to resolve placeholder with placeholder.", .{});
+            }
+            return;
+        }
 
         // If two placeholders, see if they can be merged        
         if (resolved_type.def_type == .Placeholder) {
@@ -2439,8 +2447,16 @@ pub const Compiler = struct {
                     try self.reportTypeCheck(iterable_type, key_type, "Should be instance of");
                 }
 
-                if (key_type.def_type == .Placeholder) {
-                    key_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                if (key_type.def_type == .Placeholder and iterable_type.def_type != .Placeholder) {
+                    // TODO: we could enrich with placeholder.resolved_def_type/resolved_type
+                    key_type.resolved_type.?.Placeholder.resolved_def_type = .EnumInstance;
+                    key_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(ObjTypeDef{
+                        .optional = false,
+                        .def_type = .EnumInstance,
+                        .resolved_type = ObjTypeDef.TypeUnion {
+                            .EnumInstance = iterable_type
+                        }
+                    });
                     if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
                         try self.reportError("Is not a Enum.");
                     }
@@ -2449,6 +2465,13 @@ pub const Compiler = struct {
             .List => {
                 if (value_type == null) {
                     try self.reportError("Missing value variable.");
+                }
+
+                if (!key_type.eql(try self.getTypeDef(ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Number,
+                }))) {
+                    try self.reportTypeCheck(iterable_type, key_type, "Bad key type.");
                 }
 
                 if (key_type.def_type == .Placeholder) {
@@ -2460,7 +2483,8 @@ pub const Compiler = struct {
 
                 if (!value_type.?.eql(iterable_type.resolved_type.?.List.item_type)) {
                     try self.reportTypeCheck(iterable_type.resolved_type.?.List.item_type, value_type.?, "Wrong value type");
-                } else if (value_type.?.def_type == .Placeholder) {
+                } else if (value_type.?.def_type == .Placeholder and iterable_type.def_type != .Placeholder) {
+                    // TODO: we could enrich with placeholder.resolved_def_type/resolved_type
                     value_type.?.resolved_type.?.Placeholder.resolved_def_type = iterable_type.resolved_type.?.List.item_type.def_type;
                     value_type.?.resolved_type.?.Placeholder.resolved_type = iterable_type.resolved_type.?.List.item_type;
                     if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
@@ -2468,7 +2492,35 @@ pub const Compiler = struct {
                     }
                 }
             },
-            .Map => unreachable,
+            .Map => {
+                if (value_type == null) {
+                    try self.reportError("Missing value variable.");
+                }
+
+                var map_key_type: *ObjTypeDef = iterable_type.resolved_type.?.Map.key_type;
+                var map_value_type: *ObjTypeDef = iterable_type.resolved_type.?.Map.value_type;
+
+                if (!key_type.eql(map_key_type)) {
+                    try self.reportTypeCheck(map_key_type, key_type, "Bad key type.");
+                }
+
+                if (key_type.def_type == .Placeholder and map_key_type.def_type != .Placeholder) {
+                    key_type.resolved_type.?.Placeholder.resolved_type = map_key_type;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportTypeCheck(map_key_type, key_type, "Wrong value type");
+                    }
+                }
+
+                if (!value_type.?.eql(map_value_type)) {
+                    try self.reportTypeCheck(map_value_type, value_type.?, "Wrong value type");
+                } else if (value_type.?.def_type == .Placeholder and map_value_type.def_type != .Placeholder) {
+                    // TODO: we could enrich with placeholder.resolved_def_type/resolved_type
+                    value_type.?.resolved_type.?.Placeholder.resolved_type = map_value_type;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportTypeCheck(map_value_type, value_type.?, "Wrong value type");
+                    }
+                }
+            },
             else => {
                 // If placeholder, it doesn't give any insight to what the placeholder could be
                 // But the rest of foreachStatement should still works since the only difference
@@ -2726,7 +2778,7 @@ pub const Compiler = struct {
         // markInitialized but we don't care what depth we are in
         self.globals.items[global].initialized = true;
 
-        if (builtin.mode == .Debug) {
+        if (Config.debug) {
             std.debug.warn(
                 "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
                 .{
@@ -3958,11 +4010,13 @@ pub const Compiler = struct {
 
                     try self.emitCodeArg(.OP_SET_PROPERTY, name);
 
-                    placeholder.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
-                    placeholder.resolved_type.?.Placeholder.resolved_type = parsed_type;
+                    if (parsed_type.def_type != .Placeholder) {
+                        placeholder.resolved_type.?.Placeholder.resolved_def_type = parsed_type.def_type;
+                        placeholder.resolved_type.?.Placeholder.resolved_type = parsed_type;
 
-                    if (!placeholder.resolved_type.?.Placeholder.isCoherent()) {
-                        try self.reportErrorAt(placeholder.resolved_type.?.Placeholder.where, "[Bad assumption] can't be set or bad type.");
+                        if (!placeholder.resolved_type.?.Placeholder.isCoherent()) {
+                            try self.reportErrorAt(placeholder.resolved_type.?.Placeholder.where, "[Bad assumption] can't be set or bad type.");
+                        }
                     }
                 } else if (try self.match(.LeftParen)) {
                     placeholder.resolved_type.?.Placeholder.callable = true;

@@ -130,7 +130,6 @@ pub const Obj = struct {
 
     obj_type: ObjType,
     is_marked: bool = false,
-    // If true, will never be collected: useful for compiler functions which are never on the stack
     next: ?*Obj = null,
 
     pub fn eql(self: *Self, other: *Self) bool {
@@ -820,7 +819,9 @@ pub const ObjMap = struct {
         .obj_type = .Map
     },
 
-    map: std.AutoHashMap(HashableValue, Value),
+    // We need an ArrayHashMap for `next`
+    // In order to use a regular HashMap, we would have to hack are away around it to implement next
+    map: std.AutoArrayHashMap(HashableValue, Value),
     // Use when printing a map
     key_type: *ObjTypeDef,
     value_type: *ObjTypeDef,
@@ -829,7 +830,7 @@ pub const ObjMap = struct {
         return .{
             .key_type = key_type,
             .value_type = value_type,
-            .map = std.AutoHashMap(HashableValue, Value).init(allocator),
+            .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
         };
     }
 
@@ -841,6 +842,22 @@ pub const ObjMap = struct {
         }
         try markObj(vm, self.key_type.toObj());
         try markObj(vm, self.value_type.toObj());
+    }
+
+    pub fn rawNext(self: *Self, key: ?HashableValue) ?HashableValue {
+        const keys: []HashableValue = self.map.keys();
+
+        if (key) |ukey| {
+            const index: usize = self.map.getIndex(ukey).?;
+
+            if (index < keys.len - 1) {
+                return keys[index + 1];
+            } else {
+                return null;
+            }
+        } else {
+            return if (keys.len > 0) keys[0] else null;
+        }
     }
     
     pub fn deinit(self: *Self) void {

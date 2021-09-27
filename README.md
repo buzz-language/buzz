@@ -24,6 +24,8 @@ A small/lightweight typed scripting language written in Zig
 - [X] Arrow and anonymous functions
 - [X] do until statement
 - [X] Enum
+- [X] for statement
+- [X] foreach statement
 - [X] Garbage collection
 - [X] if statement
 - [X] import/export
@@ -43,7 +45,6 @@ A small/lightweight typed scripting language written in Zig
 - [ ] Error stack trace
 - [ ] FFI or Lua-like API
 - [ ] First-class types
-- [ ] for statement
 - [ ] Generics
 - [ ] Increment/Decrement (++/--)
 - [ ] is and as
