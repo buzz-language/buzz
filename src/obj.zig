@@ -1460,7 +1460,7 @@ pub const PlaceholderDef = struct {
 
     // TODO: zig bug here
     pub fn isBasicType(self: Self, basic_type: ObjTypeDef.Type) bool {
-        return self.resolved_def_type == basic_type
+        return (self.resolved_def_type != null and self.resolved_def_type.? == basic_type)
                 or (self.resolved_type != null and self.resolved_type.?.def_type == basic_type);
     }
 
@@ -1522,6 +1522,17 @@ pub const PlaceholderDef = struct {
             and (self.resolved_type == null
                 or self.resolved_type.?.def_type == .List
                 or self.resolved_type.?.def_type == .Map);
+    }
+
+    pub fn isIterable(self: *Self) bool {
+        return (self.resolved_def_type == null
+            or self.resolved_def_type.? == .List
+            or self.resolved_def_type.? == .Map
+            or self.resolved_def_type.? == .Enum)
+            and (self.resolved_type == null
+                or self.resolved_type.?.def_type == .List
+                or self.resolved_type.?.def_type == .Map
+                or self.resolved_type.?.def_type == .Enum);
     }
 
     pub fn couldBeList(self: *Self) bool {

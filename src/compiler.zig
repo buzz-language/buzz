@@ -2423,8 +2423,8 @@ pub const Compiler = struct {
         if (iterable_type.def_type != .List
             and iterable_type.def_type != .Map
             and iterable_type.def_type != .Enum
-            // TODO: better placeholder test + enrich it
-            and iterable_type.def_type != .Placeholder) {
+            and (iterable_type.def_type != .Placeholder
+                or !iterable_type.resolved_type.?.Placeholder.isIterable())) {
             try self.reportError("Not iterable.");
         }
 
@@ -2435,11 +2435,15 @@ pub const Compiler = struct {
                     try self.reportError("Only one variable allowed when iterating over Enum.");
                 }
 
-                if ((key_type.def_type != .Enum
-                    or !key_type.eql(iterable_type))
-                    and key_type.def_type != .Placeholder) {
-                    // TODO: better placeholder test + enrich it
+                if (!key_type.eql(iterable_type)) {
                     try self.reportTypeCheck(iterable_type, key_type, "Should be instance of");
+                }
+
+                if (key_type.def_type == .Placeholder) {
+                    key_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Is not a Enum.");
+                    }
                 }
             },
             .List => {
@@ -2447,18 +2451,30 @@ pub const Compiler = struct {
                     try self.reportError("Missing value variable.");
                 }
 
-                if (key_type.def_type != .Number
-                    and key_type.def_type != .Placeholder) {
-                    // TODO: better placeholder test + enrich it
-                    try self.reportError("List key must be `num`.");
+                if (key_type.def_type == .Placeholder) {
+                    key_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Is not a `num`.");
+                    }
                 }
 
                 if (!value_type.?.eql(iterable_type.resolved_type.?.List.item_type)) {
                     try self.reportTypeCheck(iterable_type.resolved_type.?.List.item_type, value_type.?, "Wrong value type");
+                } else if (value_type.?.def_type == .Placeholder) {
+                    value_type.?.resolved_type.?.Placeholder.resolved_def_type = iterable_type.resolved_type.?.List.item_type.def_type;
+                    value_type.?.resolved_type.?.Placeholder.resolved_type = iterable_type.resolved_type.?.List.item_type;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Type mismatch.");
+                    }
                 }
             },
             .Map => unreachable,
-            else => {} // TODO: what if placeholder?
+            else => {
+                // If placeholder, it doesn't give any insight to what the placeholder could be
+                // But the rest of foreachStatement should still works since the only difference
+                // between all types iteration is the presence of the value or not.
+                // Which doesn't impact at all the following code.
+            }
         }
 
         var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
@@ -2513,9 +2529,15 @@ pub const Compiler = struct {
 
         var expr_type: *ObjTypeDef = try self.expression(false);
 
-        if (expr_type.def_type != .Bool and expr_type.def_type != .Placeholder) {
-            // TODO: should use Placeholder.isBasicType but breaks zig
+        if (expr_type.def_type != .Bool
+            and (expr_type.def_type != .Placeholder
+                or !expr_type.resolved_type.?.Placeholder.isBasicType(.Bool))) {
             try self.reportError("Expected `bool` condition.");
+        } else if (expr_type.def_type == .Placeholder) {
+            expr_type.resolved_type.?.Placeholder.resolved_def_type = .Bool;
+            if (!expr_type.resolved_type.?.Placeholder.isCoherent()) {
+                try self.reportError("Type mismatch.");
+            }
         }
 
         try self.consume(.Semicolon, "Expected `;` after for loop condition.");
