@@ -119,11 +119,11 @@ for (num i = 0; i < 10; i++) {
     | do something
 }
 
-for (num element in list) {
+foreach (num element in list) {
     | do something
 }
 
-for (str key, num value in map) {
+foreach (str key, num value in map) {
     | do something
 }
 
@@ -183,7 +183,7 @@ enum(str) MyEnum {
 
 MyEnum.hello == "hello";
 
-for (MyEnum value in MyEnum) {
+foreach (MyEnum value in MyEnum) {
     | Iterate over enum values
 }
 

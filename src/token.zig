@@ -56,6 +56,7 @@ pub const TokenType = enum {
     Until,            // until
     While,            // while
     For,              // for
+    ForEach,          // foreach
     Switch,           // switch
     Break,            // break
     Default,          // default
@@ -89,6 +90,7 @@ pub const Keywords = [_]TokenType{
     .Else,
     .While,
     .For,
+    .ForEach,
     .Switch,
     .Break,
     .Continue,
@@ -145,6 +147,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "for")) {
         return .For;
+    }
+
+    if (mem.eql(u8, literal, "foreach")) {
+        return .ForEach;
     }
 
     if (mem.eql(u8, literal, "switch")) {

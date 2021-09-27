@@ -613,6 +613,8 @@ pub const ObjList = struct {
             nativeFn = append;
         } else if (mem.eql(u8, method, "len")) {
             nativeFn = len;
+        } else if (mem.eql(u8, method, "next")) {
+            nativeFn = next;
         }
 
         if (nativeFn) |unativeFn| {
@@ -636,7 +638,7 @@ pub const ObjList = struct {
         list.items.append(value) catch {
             vm.runtimeError("Could not append to list", null) catch {
                 std.debug.warn("Could not append to list", .{});
-                return false;
+                std.os.exit(1);
             };
             return false;
         };
@@ -650,6 +652,35 @@ pub const ObjList = struct {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Number = @intToFloat(f64, list.items.items.len) });
+
+        return true;
+    }
+
+    fn next(vm: *VM) bool {
+        var list_value: Value = vm.peek(1);
+        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var list_index: Value = vm.peek(0);
+
+        if (list_index == .Null) {
+            if (list.items.items.len > 0) {
+                vm.push(Value{ .Number = 0 });
+            } else {
+                vm.push(Value{ .Null = null });
+            }
+        } else {
+            if (list_index.Number < 0 or list_index.Number >= @intToFloat(f64, list.items.items.len)) {
+                vm.runtimeError("Out of bound acces to list", null) catch {
+                    std.debug.warn("Out of bound access to list", .{});
+                    std.os.exit(1);
+                };
+            }
+
+            if (list_index.Number + 1 >= @intToFloat(f64, list.items.items.len)) {
+                vm.push(Value{ .Null = null });
+            } else {
+                vm.push(Value{ .Number = list_index.Number + 1 });
+            }
+        }
 
         return true;
     }
@@ -729,6 +760,41 @@ pub const ObjList = struct {
                 });
 
                 try self.methods.put("len", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "next")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                // `key` arg is number
+                try  parameters.put("key", try compiler.getTypeDef(ObjTypeDef{
+                    .def_type = .Number,
+                    .optional = false
+                }));
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "next"),
+                    .parameters = parameters,
+                    // When reached end of list, returns null
+                    .return_type = try compiler.getTypeDef(ObjTypeDef{
+                        .def_type = .Number,
+                        .optional = true
+                    })
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Native = method_def
+                };
+
+                var native_type = try compiler.getTypeDef(ObjTypeDef{
+                    .optional = false,
+                    .def_type = .Native,
+                    .resolved_type = resolved_type
+                });
+
+                try self.methods.put("next", native_type);
 
                 return native_type;
             }

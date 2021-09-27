@@ -257,6 +257,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Until
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // While
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // For
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // ForEach
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Switch
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Break
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Default
@@ -1166,6 +1167,9 @@ pub const Compiler = struct {
         } else if (try self.match(.For)) {
             assert(!hanging);
             try self.forStatement();
+        } else if (try self.match(.ForEach)) {
+            assert(!hanging);
+            try self.forEachStatement();
         } else if (try self.match(.While)) {
             assert(!hanging);
             try self.whileStatement();
@@ -1578,7 +1582,7 @@ pub const Compiler = struct {
 
     fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
         try self.consume(.Identifier, "Expected method name.");
-        var constant: u24 = try self.identifierConstant(self.parser.previous_token.?);
+        var constant: u24 = try self.identifierConstant(self.parser.previous_token.?.lexeme);
 
         var fun_type: FunctionType = .Method;
 
@@ -1608,7 +1612,7 @@ pub const Compiler = struct {
         if (try self.match(.Str)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1617,7 +1621,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Num)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1626,7 +1630,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Bool)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1635,7 +1639,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Type)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1646,25 +1650,25 @@ pub const Compiler = struct {
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.LeftBrace)) {
             type_def = try self.parseMapType();
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.Function)) {
             type_def = try self.functionType();
 
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?);
+            constant = try self.identifierConstant(name.?.lexeme);
 
             var var_type: ?*ObjTypeDef = null;
 
@@ -1994,6 +1998,42 @@ pub const Compiler = struct {
         }
 
         try self.defineGlobalVariable(@intCast(u24, slot));
+    }
+
+    // TODO: factorize with varDeclaration + another param
+    fn varDeclarationOnly(self: *Self, parsed_type: *ObjTypeDef) !void {
+        // If var_type is Class/Object/Enum, we expect instance of them
+        var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
+            .Object => object: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .ObjectInstance = parsed_type
+                };
+
+                break :object try self.getTypeDef(.{
+                    .optional = try self.match(.Question),
+                    .def_type = .ObjectInstance,
+                    .resolved_type = resolved_type
+                });
+            },
+            .Enum => enum_instance: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .EnumInstance = parsed_type
+                };
+
+                break :enum_instance try self.getTypeDef(.{
+                    .optional = try self.match(.Question),
+                    .def_type = .EnumInstance,
+                    .resolved_type = resolved_type
+                });
+            },
+            else => parsed_type
+        };
+
+        try self.emitOpCode(.OP_NULL);
+
+        try self.defineGlobalVariable(
+            @intCast(u24, try self.parseVariable(var_type, "Expected variable name."))
+        );
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, in_list: bool) !void {
@@ -2351,6 +2391,102 @@ pub const Compiler = struct {
         try self.consume(.Semicolon, "Expected `;` after `break`.");
 
         return try self.emitJump(.OP_JUMP);
+    }
+
+    fn forEachStatement(self: *Self) !void {
+        try self.consume(.LeftParen, "Expected `(` after `foreach`.");
+
+        self.beginScope();
+
+        var key_type: *ObjTypeDef = try self.parseTypeDef();
+        try self.varDeclarationOnly(key_type);
+        var key_name: Token = self.parser.previous_token.?;
+
+        try self.consume(.Comma, "Expected `,` after key variable.");
+
+        var value_type: ?*ObjTypeDef = try self.parseTypeDef();
+        try self.varDeclarationOnly(value_type.?);
+        var value_name: Token = self.parser.previous_token.?;
+
+        try self.consume(.In, "Expected `in` after `foreach` variables.");
+
+        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+
+        var iterable_type: *ObjTypeDef = try self.expression(false);
+
+        try self.consume(.RightParen, "Expected `)` after `foreach`.");
+
+        // TODO: object with `next` method
+        if (iterable_type.def_type != .List
+            and iterable_type.def_type != .Map
+            and iterable_type.def_type != .Enum
+            // TODO: better placeholder test + enrich it
+            and iterable_type.def_type != .Placeholder) {
+            try self.reportError("Not iterable.");
+        }
+
+        // Call `next`
+        switch (iterable_type.def_type) {
+            .List => {
+                if (key_type.def_type != .Number
+                    and key_type.def_type != .Placeholder) {
+                    // TODO: better placeholder test + enrich it
+                    try self.reportError("List key must be `num`.");
+                }
+
+                var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
+                var value_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, value_name)).?);
+
+                // Copy list so it's still there after `next` call and key/value set
+                try self.emitCodeArg(.OP_COPY, 1);
+
+                // Argument list of `next`
+                try self.emitCodeArg(.OP_COPY, 1); // Put list as first arg
+                try self.emitCodeArg(.OP_GET_LOCAL, key_slot);
+
+                // Invoke `next`
+                try self.emitCodeArg(.OP_INVOKE, try self.identifierConstant("next"));
+                try self.emit(2);
+
+                // If `next` returned null, exit loop
+                try self.emitOpCode(.OP_COPY);
+                try self.emitOpCode(.OP_NULL);
+                try self.emitOpCode(.OP_EQUAL);
+                try self.emitOpCode(.OP_NOT);
+                const exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
+
+                // Pop test result
+                try self.emitOpCode(.OP_POP);
+
+                // Else, put `next` result (the new index) in the key variable
+                try self.emitCodeArg(.OP_SET_LOCAL, key_slot);
+                // Use that index and get the value under it in the list
+                try self.emitOpCode(.OP_GET_SUBSCRIPT);
+                // Put that in the value variable
+                try self.emitCodeArg(.OP_SET_LOCAL, value_slot);
+                try self.emitOpCode(.OP_POP);
+
+                try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
+
+                var breaks: std.ArrayList(usize) = try self.block();
+                defer breaks.deinit();
+
+                try self.emitLoop(loop_start);
+
+                try self.endScope();
+
+                try self.patchJump(exit_jump);
+                try self.emitOpCode(.OP_POP);
+
+                // Patch breaks
+                for (breaks.items) |jump| {
+                    try self.patchJump(jump);
+                }
+            },
+            .Map => unreachable,
+            .Enum => unreachable,
+            else => {}
+        }
     }
 
     fn forStatement(self: *Self) !void {
@@ -3576,7 +3712,7 @@ pub const Compiler = struct {
             try self.reportError("Not an optional.");
         }
 
-        try self.emitOpCode(.OP_COPY);
+        try self.emitCodeArg(.OP_COPY, 1);
         try self.emitOpCode(.OP_NULL);
         try self.emitOpCode(.OP_EQUAL);
         try self.emitOpCode(.OP_NOT);
@@ -3626,7 +3762,7 @@ pub const Compiler = struct {
 
         try self.consume(.Identifier, "Expected property name after `.`");
         var member_name: []const u8 = self.parser.previous_token.?.lexeme;
-        var name: u24 = try self.identifierConstant(self.parser.previous_token.?);
+        var name: u24 = try self.identifierConstant(self.parser.previous_token.?.lexeme);
 
         // Check that name is a property
         switch (callee_type.def_type) {
@@ -4269,7 +4405,7 @@ pub const Compiler = struct {
         return constant;
     }
 
-    fn identifierConstant(self: *Self, name: Token) !u24 {
-        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name.lexeme)).toObj() });
+    fn identifierConstant(self: *Self, name: []const u8) !u24 {
+        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name)).toObj() });
     }
 };
