@@ -656,21 +656,21 @@ pub const ObjList = struct {
         return true;
     }
 
-    pub fn rawNext(vm: *VM, list: *ObjList, list_index: ?f64) ?f64 {
+    pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) ?f64 {
         if (list_index) |index| {
-            if (index < 0 or index >= @intToFloat(f64, list.items.items.len)) {
+            if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
                 vm.runtimeError("Out of bound access to list", null) catch {
                     std.debug.warn("Out of bound access to list", .{});
                     std.os.exit(1);
                 };
             }
 
-            return if (index + 1 >= @intToFloat(f64, list.items.items.len))
+            return if (index + 1 >= @intToFloat(f64, self.items.items.len))
                 null
             else
                 index + 1;
         } else {
-            return if (list.items.items.len > 0) 0 else null;
+            return if (self.items.items.len > 0) 0 else null;
         }
     }
 
@@ -679,9 +679,8 @@ pub const ObjList = struct {
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
 
-        var next_index: ?f64 = rawNext(
+        var next_index: ?f64 = list.rawNext(
             vm,
-            list,
             if (list_index == .Null) null
             else list_index.Number
         );
@@ -895,6 +894,26 @@ pub const ObjEnum = struct {
         for (self.cases.items) |case| {
             try markValue(vm, case);
         } 
+    }
+
+    pub fn rawNext(self: *Self, vm: *VM, enum_case: ?*ObjEnumInstance) !?*ObjEnumInstance {
+        if (enum_case) |case| {
+            assert(case.enum_ref == self);
+            
+            if (case.case == self.cases.items.len - 1) {
+                return null;
+            }
+            
+            return try allocateObject(vm, ObjEnumInstance, ObjEnumInstance{
+                .enum_ref = self,
+                .case = @intCast(u8, case.case + 1),
+            });
+        } else {
+            return try allocateObject(vm, ObjEnumInstance, ObjEnumInstance{
+                .enum_ref = self,
+                .case = 0,
+            });
+        }
     }
 
     pub fn deinit(self: *Self) void {

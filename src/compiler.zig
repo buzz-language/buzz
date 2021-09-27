@@ -2267,6 +2267,10 @@ pub const Compiler = struct {
 
         try self.consume(.RightBrace, "Expected `}` after enum body.");
 
+        if (case_index == 0) {
+            try self.reportError("Enum must have at least one case.");
+        }
+
         try self.emitOpCode(.OP_POP);
     }
 
@@ -2402,10 +2406,12 @@ pub const Compiler = struct {
         try self.varDeclarationOnly(key_type);
         var key_name: Token = self.parser.previous_token.?;
 
-        try self.consume(.Comma, "Expected `,` after key variable.");
-
-        var value_type: ?*ObjTypeDef = try self.parseTypeDef();
-        try self.varDeclarationOnly(value_type.?);
+        var value_type: ?*ObjTypeDef = null;
+        
+        if (try self.match(.Comma)) {
+            value_type = try self.parseTypeDef();
+            try self.varDeclarationOnly(value_type.?);
+        }
 
         try self.consume(.In, "Expected `in` after `foreach` variables.");
 
@@ -2422,50 +2428,69 @@ pub const Compiler = struct {
             try self.reportError("Not iterable.");
         }
 
-        // Call `next`
+        // Check key and value type
         switch (iterable_type.def_type) {
+            .Enum => {
+                if (value_type != null) {
+                    try self.reportError("Only one variable allowed when iterating over Enum.");
+                }
+
+                if ((key_type.def_type != .Enum
+                    or !key_type.eql(iterable_type))
+                    and key_type.def_type != .Placeholder) {
+                    // TODO: better placeholder test + enrich it
+                    try self.reportTypeCheck(iterable_type, key_type, "Should be instance of");
+                }
+            },
             .List => {
+                if (value_type == null) {
+                    try self.reportError("Missing value variable.");
+                }
+
                 if (key_type.def_type != .Number
                     and key_type.def_type != .Placeholder) {
                     // TODO: better placeholder test + enrich it
                     try self.reportError("List key must be `num`.");
                 }
 
-                var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
-
-                const loop_start: usize = self.current.?.function.chunk.code.items.len;
-
-                // Calls `next` and update key and value locals
-                try self.emitOpCode(.OP_FOREACH);
-
-                // If next key is null, exit loop
-                try self.emitCodeArg(.OP_GET_LOCAL, key_slot);
-                try self.emitOpCode(.OP_NULL);
-                try self.emitOpCode(.OP_EQUAL);
-                try self.emitOpCode(.OP_NOT);
-                const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
-                try self.emitOpCode(.OP_POP);
-
-                try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
-
-                var breaks: std.ArrayList(usize) = try self.block();
-                defer breaks.deinit();
-
-                try self.emitLoop(loop_start);
-
-                try self.endScope();
-
-                try self.patchJump(exit_jump);
-                try self.emitOpCode(.OP_POP);
-
-                // Patch breaks
-                for (breaks.items) |jump| {
-                    try self.patchJump(jump);
+                if (!value_type.?.eql(iterable_type.resolved_type.?.List.item_type)) {
+                    try self.reportTypeCheck(iterable_type.resolved_type.?.List.item_type, value_type.?, "Wrong value type");
                 }
             },
             .Map => unreachable,
-            .Enum => unreachable,
-            else => {}
+            else => {} // TODO: what if placeholder?
+        }
+
+        var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
+
+        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+
+        // Calls `next` and update key and value locals
+        try self.emitOpCode(.OP_FOREACH);
+
+        // If next key is null, exit loop
+        try self.emitCodeArg(.OP_GET_LOCAL, key_slot);
+        try self.emitOpCode(.OP_NULL);
+        try self.emitOpCode(.OP_EQUAL);
+        try self.emitOpCode(.OP_NOT);
+        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+        try self.emitOpCode(.OP_POP);
+
+        try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
+
+        var breaks: std.ArrayList(usize) = try self.block();
+        defer breaks.deinit();
+
+        try self.emitLoop(loop_start);
+
+        try self.endScope();
+
+        try self.patchJump(exit_jump);
+        try self.emitOpCode(.OP_POP);
+
+        // Patch breaks
+        for (breaks.items) |jump| {
+            try self.patchJump(jump);
         }
     }
 

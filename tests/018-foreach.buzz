@@ -36,17 +36,17 @@ test "list.next" {
 |     assert(sum == 6, message: "foreach on map");
 | }
 
-| enum Hey {
-|     one,
-|     two,
-|     three
-| }
+enum Hey {
+    one,
+    two,
+    three,
+}
 
-| test "foreach on enum" {
-|     num sum = 0;
-|     foreach (Hey case in Hey) {
-|         sum = sum + case.value;
-|     }
+test "foreach on enum" {
+    num sum = 0;
+    foreach (Hey case in Hey) {
+        sum = sum + case.value;
+    }
 
-|     assert(sum == 6, message: "foreach on enum");
-| }
+    assert(sum == 3, message: "foreach on enum");
+}

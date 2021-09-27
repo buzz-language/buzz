@@ -552,16 +552,16 @@ pub const VM = struct {
     // local value null
     // list
     fn foreach(self: *Self) void {
-        var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
-        var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
         var iterable_value: Value = self.peek(0);
         var iterable: *Obj = iterable_value.Obj;
         switch (iterable.obj_type) {
             .List => {
+                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
                 var list: *ObjList = ObjList.cast(iterable).?;
 
                 // Get next index
-                key_slot.* = if (ObjList.rawNext(self, list, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
+                key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
                     Value{ .Number = new_index }
                     else Value{ .Null = null };
                 
@@ -570,8 +570,20 @@ pub const VM = struct {
                     value_slot.* = list.items.items[@floatToInt(usize, key_slot.Number)];
                 }
             },
+            .Enum => {
+                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var enum_case: ?*ObjEnumInstance = if (value_slot.* == .Null) null else ObjEnumInstance.cast(value_slot.Obj).?;
+                var enum_: *ObjEnum = ObjEnum.cast(iterable).?;
+
+                // Get next enum case
+                var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch {
+                    self.runtimeError("Could not get next enum case.", null) catch std.os.exit(1);
+                    return;
+                };
+                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() }
+                    else Value{ .Null = null });
+            },
             .Map => unreachable,
-            .Enum => unreachable,
             else => unreachable,
         }
     }
