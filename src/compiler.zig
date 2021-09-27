@@ -35,7 +35,6 @@ const ObjList = _obj.ObjList;
 const ObjMap = _obj.ObjMap;
 const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
-const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const PlaceholderDef = _obj.PlaceholderDef;
 const allocateObject = _obj.allocateObject;
@@ -3749,20 +3748,17 @@ pub const Compiler = struct {
             },
             .List => {
                 if (try ObjList.ListDef.member(callee_type, self, member_name)) |member| {
-                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
-                    // The first argument should be list but it's "under the call frame"
-                    try self.emitCodeArg(.OP_SWAP, 1);
-                    try self.emit(0);
-
-
                     if (try self.match(.LeftParen)) {
+                        try self.emitOpCode(.OP_COPY); // List is first argument
                         var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
-                        
-                        // We add one because first arg is always the list and it was parsed before argumentList was called
-                        try self.emitCodeArg(.OP_CALL, arg_count + 1);
+                        try self.emitCodeArg(.OP_INVOKE, name);
+                        try self.emit(arg_count + 1);
 
                         return member.resolved_type.?.Native.return_type;
                     }
+
+                    // Else just get it
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
 
                     return member;
                 }

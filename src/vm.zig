@@ -286,8 +286,6 @@ pub const VM = struct {
                     if (!try self.invoke(method, arg_count)) {
                         return .RuntimeError;
                     }
-
-                    self.current_frame.? = &self.frames.items[self.frame_count - 1];
                 },
 
                 .OP_RETURN => {
@@ -414,20 +412,18 @@ pub const VM = struct {
                             }
                             
                             if (instance.object.methods.get(name.string)) |method| {
-                                try self.bindMethod(method);
+                                try self.bindMethod(method, null);
                             }
                         },
                         .Enum => {
                             unreachable;
                         },
-                        .List => list: {
+                        .List => {
                             var list = ObjList.cast(obj).?;
                             var name: *ObjString = self.readString(arg);
 
                             if (try list.member(self, name.string)) |member| {
-                                // We don't pop the list, it'll be the first argument
-                                self.push(Value{ .Obj = member.toObj() });
-                                break :list;
+                                try self.bindMethod(null, member);
                             } else {
                                 try self.runtimeError("Property doesn't exists", null);
                             }
@@ -725,10 +721,11 @@ pub const VM = struct {
         return true;
     }
 
-    fn bindMethod(self: *Self, method: *ObjClosure) !void {
+    fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
         var bound: *ObjBoundMethod = try allocateObject(self, ObjBoundMethod, .{
             .receiver = self.peek(0),
             .closure = method,
+            .native = native,
         });
 
         _ = self.pop(); // Pop instane
@@ -739,7 +736,15 @@ pub const VM = struct {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {
-                unreachable;
+                var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
+                (self.stack_top - arg_count - 1)[0] = bound.receiver;
+
+                if (bound.closure) |closure| {
+                    return try self.call(closure, arg_count);
+                } else {
+                    assert(bound.native != null);
+                    return try self.callNative(bound.native.?, arg_count);
+                }
             },
             .Object => {
                 var object: *ObjObject = ObjObject.cast(obj).?;
@@ -806,7 +811,23 @@ pub const VM = struct {
                     return try self.callValue(field, arg_count);
                 }
 
-                return try self.invokeFromObject(instance.object, name, arg_count);
+                var ok: bool = try self.invokeFromObject(instance.object, name, arg_count);
+
+                self.current_frame.? = &self.frames.items[self.frame_count - 1];
+
+                return ok;
+            },
+            .List => {
+                var list: *ObjList = ObjList.cast(obj).?;
+
+                if (try list.member(self, name.string)) |member| {
+                    var member_value: Value = Value { .Obj = member.toObj() };
+                    (self.stack_top - arg_count - 1)[0] = member_value;
+
+                    return try self.callValue(member_value, arg_count);
+                }
+                
+                try self.runtimeError("Undefined list property", null);
             },
             else => return false
         }

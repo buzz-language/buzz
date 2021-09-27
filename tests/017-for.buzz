@@ -16,5 +16,5 @@ test "multiple variable and expressions in for loop" {
     }
     
 
-    assert(sum = 90, message: "multiple var loop");
+    assert(sum == 90, message: "multiple var loop");
 }

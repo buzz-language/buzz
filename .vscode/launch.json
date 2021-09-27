@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
                 "test",
-                "tests/017-for.buzz"
+                "tests/004-lists.buzz"
             ],
             "cwd": "${workspaceFolder}"
         },

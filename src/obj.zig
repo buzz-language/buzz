@@ -899,11 +899,17 @@ pub const ObjBoundMethod = struct {
     },
 
     receiver: Value,
-    closure: *ObjClosure,
+    closure: ?*ObjClosure = null,
+    native: ?*ObjNative = null,
 
     pub fn mark(self: *Self, vm: *VM) !void {
         try markValue(vm, self.receiver);
-        try markObj(vm, self.closure.toObj());
+        if (self.closure) |closure| {
+            try markObj(vm, closure.toObj());
+        }
+        if (self.native) |native| {
+            try markObj(vm, native.toObj());
+        }
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -1239,9 +1245,13 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
             var receiver_str: []const u8 = try valueToString(allocator, bound.receiver);
             defer allocator.free(receiver_str);
 
-            var closure_name: []const u8 =  bound.closure.function.name.string;
-
-            return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
+            if (bound.closure) |closure| {
+                var closure_name: []const u8 =  closure.function.name.string;
+                return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
+            } else {
+                assert(bound.native != null);
+                return try std.fmt.bufPrint(buf, "bound method: {s} to native 0x{}", .{ receiver_str, @ptrToInt(bound.native.?) });
+            }
         },
         .Native => {
             var native: *ObjNative = ObjNative.cast(obj).?;
