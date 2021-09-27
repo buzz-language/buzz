@@ -13,6 +13,13 @@ test "foreach on list" {
     assert(sum == 6, message: "foreach on list");
 }
 
+test "list.next" {
+    [num] list = [1, 2, 3];
+
+    assert(list.next(null) == 0, message: "calling next native");
+    assert(list.next(0) == 1, message: "calling next native");
+}
+
 | test "foreach on map" {
 |     {str, num} map = {
 |         "one": 1,

@@ -656,31 +656,40 @@ pub const ObjList = struct {
         return true;
     }
 
-    fn next(vm: *VM) bool {
-        var list_value: Value = vm.peek(1);
-        var list: *ObjList = ObjList.cast(list_value.Obj).?;
-        var list_index: Value = vm.peek(0);
-
-        if (list_index == .Null) {
-            if (list.items.items.len > 0) {
-                vm.push(Value{ .Number = 0 });
-            } else {
-                vm.push(Value{ .Null = null });
-            }
-        } else {
-            if (list_index.Number < 0 or list_index.Number >= @intToFloat(f64, list.items.items.len)) {
-                vm.runtimeError("Out of bound acces to list", null) catch {
+    pub fn rawNext(vm: *VM, list: *ObjList, list_index: ?f64) ?f64 {
+        if (list_index) |index| {
+            if (index < 0 or index >= @intToFloat(f64, list.items.items.len)) {
+                vm.runtimeError("Out of bound access to list", null) catch {
                     std.debug.warn("Out of bound access to list", .{});
                     std.os.exit(1);
                 };
             }
 
-            if (list_index.Number + 1 >= @intToFloat(f64, list.items.items.len)) {
-                vm.push(Value{ .Null = null });
-            } else {
-                vm.push(Value{ .Number = list_index.Number + 1 });
-            }
+            return if (index + 1 >= @intToFloat(f64, list.items.items.len))
+                null
+            else
+                index + 1;
+        } else {
+            return if (list.items.items.len > 0) 0 else null;
         }
+    }
+
+    fn next(vm: *VM) bool {
+        var list_value: Value = vm.peek(1);
+        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var list_index: Value = vm.peek(0);
+
+        var next_index: ?f64 = rawNext(
+            vm,
+            list,
+            if (list_index == .Null) null
+            else list_index.Number
+        );
+
+        vm.push(
+            if (next_index) |unext_index| Value{ .Number = unext_index }
+            else Value{ .Null = null }
+        );
 
         return true;
     }
@@ -771,7 +780,7 @@ pub const ObjList = struct {
                 // `key` arg is number
                 try  parameters.put("key", try compiler.getTypeDef(ObjTypeDef{
                     .def_type = .Number,
-                    .optional = false
+                    .optional = true
                 }));
 
                 var method_def = ObjFunction.FunctionDef{

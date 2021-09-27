@@ -2406,11 +2406,8 @@ pub const Compiler = struct {
 
         var value_type: ?*ObjTypeDef = try self.parseTypeDef();
         try self.varDeclarationOnly(value_type.?);
-        var value_name: Token = self.parser.previous_token.?;
 
         try self.consume(.In, "Expected `in` after `foreach` variables.");
-
-        const loop_start: usize = self.current.?.function.chunk.code.items.len;
 
         var iterable_type: *ObjTypeDef = try self.expression(false);
 
@@ -2435,35 +2432,18 @@ pub const Compiler = struct {
                 }
 
                 var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
-                var value_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, value_name)).?);
 
-                // Copy list so it's still there after `next` call and key/value set
-                try self.emitCodeArg(.OP_COPY, 1);
+                const loop_start: usize = self.current.?.function.chunk.code.items.len;
 
-                // Argument list of `next`
-                try self.emitCodeArg(.OP_COPY, 1); // Put list as first arg
+                // Calls `next` and update key and value locals
+                try self.emitOpCode(.OP_FOREACH);
+
+                // If next key is null, exit loop
                 try self.emitCodeArg(.OP_GET_LOCAL, key_slot);
-
-                // Invoke `next`
-                try self.emitCodeArg(.OP_INVOKE, try self.identifierConstant("next"));
-                try self.emit(2);
-
-                // If `next` returned null, exit loop
-                try self.emitOpCode(.OP_COPY);
                 try self.emitOpCode(.OP_NULL);
                 try self.emitOpCode(.OP_EQUAL);
                 try self.emitOpCode(.OP_NOT);
-                const exit_jump = try self.emitJump(.OP_JUMP_IF_FALSE);
-
-                // Pop test result
-                try self.emitOpCode(.OP_POP);
-
-                // Else, put `next` result (the new index) in the key variable
-                try self.emitCodeArg(.OP_SET_LOCAL, key_slot);
-                // Use that index and get the value under it in the list
-                try self.emitOpCode(.OP_GET_SUBSCRIPT);
-                // Put that in the value variable
-                try self.emitCodeArg(.OP_SET_LOCAL, value_slot);
+                const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
                 try self.emitOpCode(.OP_POP);
 
                 try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");

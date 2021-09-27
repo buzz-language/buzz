@@ -510,6 +510,8 @@ pub const VM = struct {
                     self.current_frame.?.ip -= arg;
                 },
 
+                .OP_FOREACH => self.foreach(),
+
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
                         try self.runtimeError("Force unwrapped optional is null", null);
@@ -543,6 +545,35 @@ pub const VM = struct {
         }
 
         return InterpretResult.Ok;
+    }
+
+    // local list
+    // local key null
+    // local value null
+    // list
+    fn foreach(self: *Self) void {
+        var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
+        var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+        var iterable_value: Value = self.peek(0);
+        var iterable: *Obj = iterable_value.Obj;
+        switch (iterable.obj_type) {
+            .List => {
+                var list: *ObjList = ObjList.cast(iterable).?;
+
+                // Get next index
+                key_slot.* = if (ObjList.rawNext(self, list, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
+                    Value{ .Number = new_index }
+                    else Value{ .Null = null };
+                
+                // Set new value
+                if (key_slot.* != .Null) {
+                    value_slot.* = list.items.items[@floatToInt(usize, key_slot.Number)];
+                }
+            },
+            .Map => unreachable,
+            .Enum => unreachable,
+            else => unreachable,
+        }
     }
 
     // result_count > 0 when the return is `export`
