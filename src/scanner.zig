@@ -229,9 +229,7 @@ pub const Scanner = struct {
         while ((self.peek() != '"' or in_interp) and !self.isEOF()) {
             if (self.peek() == '\n') {
                 return self.makeToken(.Error, "Unterminated string.", null);
-            }
-
-            if (self.peek() == '{') {
+            } else if (self.peek() == '{') {
                 if (!in_interp) {
                     in_interp = true;
                 } else {
@@ -247,6 +245,12 @@ pub const Scanner = struct {
                         in_interp = false;
                     }
                 }
+            } else if (self.peek() == '\\' and self.peekNext() == '"') {
+                // Escaped string delimiter, go past it
+                _ = self.advance();
+            } else if (self.peek() == '\\' and self.peekNext() == '{') {
+                // Escaped interpolation delimiter, go past it
+                _ = self.advance();
             }
 
             _ = self.advance();

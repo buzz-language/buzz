@@ -1,8 +1,16 @@
 import "zig-out/lib/libstd.dylib";
 
+test "Escape sequences" {
+    print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");
+}
+
 test "String interpolation" {
     str name = "joe";
     num age = 12;
 
-    assert("{"$"} hello {name} i'm {age} years old {3+4}" == "$ hello joe i'm 12 years old 7", message: "interpolation");
+    assert(
+        "{"$"} hello {name} i'm {age} years old {3+4}"
+            == "$ hello joe i'm 12 years old 7",
+        message: "interpolation"
+    );
 }
