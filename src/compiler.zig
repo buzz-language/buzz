@@ -106,12 +106,12 @@ pub const ChunkCompiler = struct {
     scope_depth: u32 = 0,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
-        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(compiler.strings, compiler.allocator, name) else null;
+        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(compiler.strings, compiler.allocator, name, false) else null;
 
         var function = try ObjFunction.init(compiler.allocator, if (function_type != .Script)
-            try copyStringRaw(compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme)
+            try copyStringRaw(compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme, false)
         else
-            file_name_string orelse try copyStringRaw(compiler.strings, compiler.allocator, VM.script_string),
+            file_name_string orelse try copyStringRaw(compiler.strings, compiler.allocator, VM.script_string, false),
         try compiler.getTypeDef(.{
             .def_type = .Void,
             .optional = false,
@@ -156,7 +156,8 @@ pub const ChunkCompiler = struct {
         local.name = try copyStringRaw(
             compiler.strings,
             compiler.allocator,
-            if (function_type != .Function) VM.this_string else VM.empty_string
+            if (function_type != .Function) VM.this_string else VM.empty_string,
+            false
         );
     }
 
@@ -1147,7 +1148,7 @@ pub const Compiler = struct {
                         .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                     };
 
-                    placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
+                    placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme, false);
 
                     var_type = try self.getTypeDef(.{
                         .optional = try self.match(.Question),
@@ -1207,7 +1208,7 @@ pub const Compiler = struct {
             } else {
                 try self.emitCodeArg(
                     .OP_CONSTANT,
-                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, "uncaught error")).toObj() })
+                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, "uncaught error", false)).toObj() })
                 );
             }
 
@@ -1320,7 +1321,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme, false);
 
                 var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -1460,7 +1461,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = try copyStringRaw(self.strings, self.allocator, "anonymous"),
+            .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = return_type,
             .parameters = parameters,
         };
@@ -1575,7 +1576,7 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme) else try copyStringRaw(self.strings, self.allocator, "anonymous"),
+            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme, false) else try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = return_type,
             .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
         };
@@ -1695,7 +1696,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme, false);
 
                 var_type = try self.getTypeDef(.{
                     .optional = try self.match(.Question),
@@ -2195,7 +2196,7 @@ pub const Compiler = struct {
 
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.allocator,
-            try copyStringRaw(self.strings, self.allocator, enum_name.lexeme),
+            try copyStringRaw(self.strings, self.allocator, enum_name.lexeme, false),
             enum_case_type,
         );
 
@@ -2306,7 +2307,7 @@ pub const Compiler = struct {
             .resolved_type = .{
                 .Object = ObjObject.ObjectDef.init(
                     self.allocator,
-                    try copyStringRaw(self.strings, self.allocator, object_name.lexeme)
+                    try copyStringRaw(self.strings, self.allocator, object_name.lexeme, false)
                 ),
             }
         };
@@ -2767,7 +2768,7 @@ pub const Compiler = struct {
         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
             .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
         };
-        placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme);
+        placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false);
 
         const placeholder_type = try self.getTypeDef(.{
             .optional = false,
@@ -3073,7 +3074,6 @@ pub const Compiler = struct {
 
     fn string(self: *Self, _: bool) anyerror!*ObjTypeDef {
         var string_scanner: StringScanner = StringScanner.init(self, self.parser.previous_token.?.literal_string.?);
-        defer string_scanner.deinit();
 
         try string_scanner.parse();
 
@@ -3907,7 +3907,7 @@ pub const Compiler = struct {
                     .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, member_name);
+                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, member_name, false);
 
                 var placeholder = try self.getTypeDef(.{
                     .optional = false,
@@ -4195,7 +4195,7 @@ pub const Compiler = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme),
+            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -4224,7 +4224,7 @@ pub const Compiler = struct {
         }
 
         try self.globals.append(Global{
-            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme),
+            .name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false),
             .type_def = global_type,
         });
 
@@ -4399,6 +4399,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: []const u8) !u24 {
-        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name)).toObj() });
+        return try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, name, false)).toObj() });
     }
 };

@@ -15,6 +15,9 @@ pub const StringScanner = struct {
 
     compiler: *Compiler,
     current: ?u8 = null,
+    // TODO: this memory is never freed: it end up as key of the `strings` hashmap
+    //       and since not all of its keys come from here, we don't know which we can
+    //       free when we deinit strings.
     current_chunk: std.ArrayList(u8),
     offset: usize = 0,
     previous_interp: ?usize = null,
@@ -26,10 +29,6 @@ pub const StringScanner = struct {
             .source = source,
             .current_chunk = std.ArrayList(u8).init(compiler.allocator)
         };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.current_chunk.deinit();
     }
 
     fn advance(self: *Self) ?u8 {
@@ -58,7 +57,8 @@ pub const StringScanner = struct {
                     if (self.previous_interp == null or self.previous_interp.? < self.offset - 1) {
                         if (self.current_chunk.items.len > 0) {
                             try self.push(self.current_chunk.items);
-                            self.current_chunk.clearAndFree();
+                            // The previous `current_chunk` memory is owned by the compiler
+                            self.current_chunk = std.ArrayList(u8).init(self.compiler.allocator);
 
                             try self.inc();
                         }
@@ -76,7 +76,8 @@ pub const StringScanner = struct {
         if ((self.previous_interp == null or self.previous_interp.? < self.offset)
             and self.current_chunk.items.len > 0) {
             try self.push(self.current_chunk.items);
-            self.current_chunk.clearAndFree();
+            // The previous `current_chunk` memory is owned by the compiler
+            self.current_chunk = std.ArrayList(u8).init(self.compiler.allocator);
         }
     }
 
@@ -85,7 +86,8 @@ pub const StringScanner = struct {
             .Obj = (try copyStringRaw(
                 self.compiler.strings,
                 self.compiler.allocator,
-                chars
+                chars,
+                true // The substring we built is now owned by compiler
             )).toObj()
         });
     }

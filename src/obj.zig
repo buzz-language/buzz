@@ -107,17 +107,20 @@ pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
     return try allocateString(vm, copy);
 }
 
-pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: *Allocator, chars: []const u8) !*ObjString {
+pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: *Allocator, chars: []const u8, owned: bool) !*ObjString {
     if (strings.get(chars)) |interned| {
         return interned;
     }
 
-    var copy: []u8 = try allocator.alloc(u8, chars.len);
-    mem.copy(u8, copy, chars);
+    var copy: []u8 = undefined;
+    if (!owned) {
+        copy = try allocator.alloc(u8, chars.len);
+        mem.copy(u8, copy, chars);
+    }
 
     var obj_string: *ObjString = try allocator.create(ObjString);
     obj_string.* = ObjString {
-        .string = copy
+        .string = if (owned) chars else copy
     };
 
     try strings.put(chars, obj_string);
@@ -726,7 +729,7 @@ pub const ObjList = struct {
                 try  parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "append"),
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "append", false),
                     .parameters = parameters,
                     .return_type = obj_list
                 };
@@ -748,7 +751,7 @@ pub const ObjList = struct {
                 var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "len"),
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
                     .parameters = parameters,
                     .return_type = try compiler.getTypeDef(ObjTypeDef{
                         .optional = false,
@@ -782,7 +785,7 @@ pub const ObjList = struct {
                 }));
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "next"),
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "next", false),
                     .parameters = parameters,
                     // When reached end of list, returns null
                     .return_type = try compiler.getTypeDef(ObjTypeDef{

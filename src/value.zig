@@ -36,6 +36,7 @@ pub fn valueToHashable(value: Value) HashableValue {
                 return HashableValue { .Number = @floatToInt(i64, value.Number) };
             } else {
                 // TODO: something like: https://github.com/lua/lua/blob/master/ltable.c#L117-L143
+                // See: https://github.com/ziglang/zig/pull/6145
                 unreachable;
             }            
         },
