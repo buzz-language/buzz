@@ -3121,9 +3121,23 @@ pub const Compiler = struct {
         var parsed_type: *ObjTypeDef = try self.parsePrecedence(.Unary, false);
 
         switch (operator_type) {
-            .Bang => try self.emitOpCode(.OP_NOT),
-            .Minus => try self.emitOpCode(.OP_NEGATE),
-            else => {},
+            .Bang => {
+                const bool_type = try self.getTypeDef(.{ .optional = false, .def_type = .Bool });
+                if (!bool_type.eql(parsed_type)) {
+                    try self.reportTypeCheck(bool_type, parsed_type, "Wrong operand type");
+                }
+
+                try self.emitOpCode(.OP_NOT);
+            },
+            .Minus => {
+                const number_type = try self.getTypeDef(.{ .optional = false, .def_type = .Number });
+                if (!number_type.eql(parsed_type)) {
+                    try self.reportTypeCheck(number_type, parsed_type, "Wrong operand type");
+                }
+
+                try self.emitOpCode(.OP_NEGATE);
+            },
+            else => unreachable,
         }
 
         return parsed_type;

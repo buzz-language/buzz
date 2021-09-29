@@ -63,17 +63,12 @@ pub const CallFrame = struct {
 pub const VM = struct {
     const Self = @This();
 
-    pub const init_string: []const u8 = "init";
-    pub const this_string: []const u8 = "this";
-    pub const args_string: []const u8 = "args";
-    pub const empty_string: []const u8 = "";
-    pub const script_string: []const u8 = "<script>";
-
-    pub const InterpretResult = enum {
-        Ok,
-        CompileError,
-        RuntimeError,
-    };
+    pub const Error = error {
+        UnwrappedNull,
+        OutOfBound,
+        NumberOverflow,
+        Custom, // TODO: remove when user can use this set directly in buzz code
+    } || Allocator.Error || std.fmt.BufPrintError;
 
     allocator: *Allocator,
 
@@ -193,12 +188,16 @@ pub const VM = struct {
         (self.stack_top - from - 1)[0] = temp;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) !?InterpretResult {        
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {        
         self.push(.{
             .Obj = function.toObj()
         });
 
-        var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
+        var closure: *ObjClosure = try allocateObject(
+            self,
+            ObjClosure,
+            try ObjClosure.init(self.allocator, function)
+        );
 
         _ = self.pop();
 
@@ -260,7 +259,7 @@ pub const VM = struct {
         return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
-    fn run(self: *Self) !InterpretResult {
+    fn run(self: *Self) Error!void {
         self.current_frame = &self.frames.items[self.frame_count - 1];
 
         while (true) {
@@ -296,15 +295,7 @@ pub const VM = struct {
                             )).toObj()
                         }
                     ),
-                .OP_NEGATE => {
-                    if (@as(ValueType, self.peek(0)) != .Number) {
-                        try self.runtimeError("Operand must be a number.", null);
-
-                        return .RuntimeError;
-                    }
-
-                    self.push(Value{ .Number = -self.pop().Number });
-                },
+                .OP_NEGATE => self.push(Value{ .Number = -self.pop().Number }),
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
                     var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
@@ -325,9 +316,7 @@ pub const VM = struct {
                 },
                 .OP_CALL => {
                     var arg_count: u8 = @intCast(u8, arg);
-                    if (!(try self.callValue(self.peek(arg_count), arg_count))) {
-                        return .RuntimeError;
-                    }
+                    try self.callValue(self.peek(arg_count), arg_count);
 
                     self.current_frame.? = &self.frames.items[self.frame_count - 1];
                 },
@@ -335,20 +324,18 @@ pub const VM = struct {
                 .OP_INVOKE => {
                     var method: *ObjString = self.readString(arg);
                     var arg_count: u8 = self.readByte();
-                    if (!try self.invoke(method, arg_count)) {
-                        return .RuntimeError;
-                    }
+                    try self.invoke(method, arg_count);
                 },
 
                 .OP_RETURN => {
                     if (try self.returnFrame()) {
-                        return .Ok;
+                        return;
                     }
                 },
 
                 .OP_EXPORT => {
                     self.push(Value{ .Number = @intToFloat(f64, arg) });
-                    return  .Ok;
+                    return;
                 },
 
                 .OP_IMPORT => {
@@ -358,7 +345,7 @@ pub const VM = struct {
                 .OP_THROW => {
                     var message: *ObjString = ObjString.cast(self.peek(0).Obj).?;
 
-                    try self.runtimeError(message.string, null);
+                    try self.runtimeError(Error.Custom, message.string, null);
                 },
 
                 .OP_CATCH => {
@@ -477,7 +464,7 @@ pub const VM = struct {
                             if (try list.member(self, name.string)) |member| {
                                 try self.bindMethod(null, member);
                             } else {
-                                try self.runtimeError("Property doesn't exists", null);
+                                unreachable;
                             }
                         },
                         else => unreachable
@@ -546,11 +533,11 @@ pub const VM = struct {
                     self.current_frame.?.ip -= arg;
                 },
 
-                .OP_FOREACH => self.foreach(),
+                .OP_FOREACH => try self.foreach(),
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.runtimeError("Force unwrapped optional is null", null);
+                        try self.runtimeError(Error.UnwrappedNull ,"Force unwrapped optional is null", null);
                     }
                 },
 
@@ -574,16 +561,16 @@ pub const VM = struct {
                 }
             }
 
-            // if (Config.debug) {
-            //     std.debug.warn("frame: {s}, code: {}\n", .{self.current_frame.?.closure.function.name.string, instruction});
-            //     try dumpStack(self);
-            // }
+            if (Config.debug_stack) {
+                std.debug.warn("frame: {s}, code: {}\n", .{self.current_frame.?.closure.function.name.string, instruction});
+                try dumpStack(self);
+            }
         }
 
-        return InterpretResult.Ok;
+        return true;
     }
 
-    fn foreach(self: *Self) void {
+    fn foreach(self: *Self) !void {
         var iterable_value: Value = self.peek(0);
         var iterable: *Obj = iterable_value.Obj;
         switch (iterable.obj_type) {
@@ -593,7 +580,7 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(iterable).?;
 
                 // Get next index
-                key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
+                key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
                     Value{ .Number = new_index }
                     else Value{ .Null = null };
                 
@@ -608,10 +595,7 @@ pub const VM = struct {
                 var enum_: *ObjEnum = ObjEnum.cast(iterable).?;
 
                 // Get next enum case
-                var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch {
-                    self.runtimeError("Could not get next enum case.", null) catch std.os.exit(1);
-                    return;
-                };
+                var next_case: ?*ObjEnumInstance = try enum_.rawNext(self, enum_case);
                 value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() }
                     else Value{ .Null = null });
             },
@@ -654,29 +638,27 @@ pub const VM = struct {
         return false;
     }
 
-    fn import(self: *Self, value: Value) anyerror!void {
+    fn import(self: *Self, value: Value) Error!void {
         var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
 
         var vm = try VM.init(self.allocator, self.strings, self.globals.items.len);
         defer vm.deinit();
 
-        if (((vm.interpret(function, null) catch null) orelse .RuntimeError) == .Ok) {
-            // Top of stack is how many export we got
-            var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
+        try vm.interpret(function, null);
 
-            // Copy them to this vm globals
-            if (exported_count > 0) {
-                var i: u8 = exported_count;
-                while (i > 0) : (i -= 1) {
-                    try self.globals.append(vm.peek(i));
-                }
+        // Top of stack is how many export we got
+        var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
+
+        // Copy them to this vm globals
+        if (exported_count > 0) {
+            var i: u8 = exported_count;
+            while (i > 0) : (i -= 1) {
+                try self.globals.append(vm.peek(i));
             }
-        } else {
-            try self.runtimeError("Error while executing import", null);
         }
     }
 
-    pub fn runtimeError(self: *Self, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) anyerror!void {
+    pub fn runtimeError(self: *Self, code: Error, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) Error!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
         var frame: *CallFrame = self.current_frame.?;
@@ -702,7 +684,7 @@ pub const VM = struct {
                 }
             }
 
-            std.os.exit(1);
+            return code;
         }
 
         self.stack_top = self.current_frame.?.slots;
@@ -716,13 +698,11 @@ pub const VM = struct {
         if (frame.closure.catch_closure) |catch_closure| {
             stack.deinit();
             // TODO: Push ObjError as first argument
-            if (!try self.call(catch_closure, 0)) {
-                try self.runtimeError("Error while executing catch clause.", null);
-            }
+            try self.call(catch_closure, 0);
 
             self.current_frame.? = &self.frames.items[self.frame_count - 1];
         } else {
-            return try self.runtimeError(message, stack);
+            return try self.runtimeError(code, message, stack);
         }
     }
 
@@ -778,7 +758,7 @@ pub const VM = struct {
         }
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !bool {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !void {
         // We don't type check or check arity because it was done at comptime
         
         // TODO: do we check for stack overflow
@@ -808,11 +788,9 @@ pub const VM = struct {
             );
             std.debug.print("\n\n", .{});
         }
-
-        return true;
     }
 
-    fn callNative(self: *Self, native: *ObjNative, arg_count: u8) !bool {
+    fn callNative(self: *Self, native: *ObjNative, arg_count: u8) !void {
         var result: Value = Value { .Null = null };
         if (native.native(self)) {
             result = self.pop();
@@ -820,8 +798,6 @@ pub const VM = struct {
 
         self.stack_top = self.stack_top - arg_count - 1;
         self.push(result);
-
-        return true;
     }
 
     fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
@@ -835,7 +811,7 @@ pub const VM = struct {
         self.push(Value{ .Obj = bound.toObj() });
     }
 
-    fn callValue(self: *Self, callee: Value, arg_count: u8) !bool {
+    fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {
@@ -860,13 +836,11 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(ObjNative.cast(obj).?, arg_count);
             },
-            else => {}
+            else => unreachable
         }
-
-        return false;
     }
 
-    fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !bool {
+    fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !void {
         var instance: *ObjObjectInstance = try allocateObject(self, ObjObjectInstance, ObjObjectInstance.init(self.allocator, object));
 
         // Put new instance as first local of the constructor
@@ -884,23 +858,19 @@ pub const VM = struct {
         if (initializer) |uinit| {
             return try self.call(uinit, arg_count);
         } else if (arg_count != 0) {
-            try self.runtimeError("Expected 0 arguments.", null);
-            return false;
+            unreachable;
         }
-
-        return true;
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !bool {
+    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !void {
         if (object.methods.get(name.string)) |method| {
             return self.call(method, arg_count);
         } else {
-            try self.runtimeError("Undefined property.", null);
-            return false;
+            unreachable;
         }
     }
 
-    fn invoke(self: *Self, name: *ObjString, arg_count: u8) !bool {
+    fn invoke(self: *Self, name: *ObjString, arg_count: u8) !void {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.Obj;
@@ -914,11 +884,9 @@ pub const VM = struct {
                     return try self.callValue(field, arg_count);
                 }
 
-                var ok: bool = try self.invokeFromObject(instance.object, name, arg_count);
+                try self.invokeFromObject(instance.object, name, arg_count);
 
                 self.current_frame.? = &self.frames.items[self.frame_count - 1];
-
-                return ok;
             },
             .List => {
                 var list: *ObjList = ObjList.cast(obj).?;
@@ -930,12 +898,10 @@ pub const VM = struct {
                     return try self.callValue(member_value, arg_count);
                 }
                 
-                try self.runtimeError("Undefined list property", null);
+                unreachable;
             },
-            else => return false
+            else => unreachable
         }
-
-        return false;
     }
 
     fn closeUpValues(self: *Self, last: *Value) void {
@@ -1015,7 +981,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError("Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1030,7 +996,7 @@ pub const VM = struct {
                 // Push value
                 self.push(list_item);
             } else {
-                try self.runtimeError("Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -1057,7 +1023,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError("Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1073,7 +1039,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.runtimeError("Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;

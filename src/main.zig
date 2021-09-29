@@ -7,7 +7,7 @@ const ObjString = @import("./obj.zig").ObjString;
 
 // Using a global because of vm.stack which would overflow zig's stack
 
-fn repl(allocator: *Allocator, args: [][:0]u8) !void {
+fn repl(allocator: *Allocator, args: ?[][:0]u8) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
@@ -38,7 +38,7 @@ fn repl(allocator: *Allocator, args: [][:0]u8) !void {
     }
 }
 
-fn runFile(allocator: *Allocator, file_name: []const u8, args: [][:0]u8, testing: bool) !void {
+fn runFile(allocator: *Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
@@ -87,9 +87,43 @@ pub fn main() !void {
             if (index == 1 and std.mem.eql(u8, arg, "test")) {
                 testing = true;
             } else {
-                try runFile(allocator, arg, args[index..], testing);
+                runFile(allocator, arg, args[index..], testing) catch {
+                    // TODO: should probably choses appropriate error code
+                    std.os.exit(1);
+                };
 
-                return;
+                std.os.exit(0);
+            }
+        }
+    }
+}
+
+
+test "Testing buzz" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .safety = true,
+    }){};
+    var allocator: *Allocator = if (builtin.mode == .Debug)
+        &gpa.allocator
+    else
+        std.heap.c_allocator;
+
+    var test_dir = try std.fs.cwd().openDir("tests", .{ .iterate = true });
+    var it = test_dir.iterate();
+
+    while (try it.next()) |file| {
+        if (file.kind == .File) {
+            var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+            defer allocator.free(file_name);
+
+            var had_error: bool = false;
+            runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, true) catch {
+                std.debug.warn("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
+                had_error = true;
+            };
+
+            if (!had_error) {
+                std.debug.warn("\u{001b}[32m[{s}... ✔️]\u{001b}[0m\n", .{file.name});
             }
         }
     }

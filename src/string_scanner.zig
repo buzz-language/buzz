@@ -79,6 +79,10 @@ pub const StringScanner = struct {
             try self.push(self.current_chunk.items);
             // The previous `current_chunk` memory is owned by the compiler
             self.current_chunk = std.ArrayList(u8).init(self.compiler.allocator);
+
+            if (self.previous_interp != null) {
+                try self.compiler.emitOpCode(.OP_ADD);
+            }
         }
     }
 

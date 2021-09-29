@@ -67,7 +67,7 @@ export fn bz_string(string: [*:0]const u8) ?*ObjString {
 
 /// Throw an error with the given [message]
 export fn bz_throw(self: *VM, message: [*:0]const u8) void {
-    self.runtimeError(utils.toSlice(message), null) catch {
+    self.runtimeError(VM.Error.Custom, utils.toSlice(message), null) catch {
         // We can't return zig erros so we have to handles them here
         std.debug.warn("Error occured\n", .{});
     };

@@ -21,7 +21,7 @@
             "name": "Debug cli",
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
-                "tests/manual/001-cli-args.buzz",
+                "tests/manual/002-error.buzz",
                 "hello",
                 "world"
             ],

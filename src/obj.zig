@@ -637,8 +637,8 @@ pub const ObjList = struct {
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
 
-        list.items.append(value) catch {
-            vm.runtimeError("Could not append to list", null) catch {
+        list.items.append(value) catch |err| {
+            vm.runtimeError(err, "Could not append to list", null) catch {
                 std.debug.warn("Could not append to list", .{});
                 std.os.exit(1);
             };
@@ -658,13 +658,10 @@ pub const ObjList = struct {
         return true;
     }
 
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) ?f64 {
+    pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
         if (list_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
-                vm.runtimeError("Out of bound access to list", null) catch {
-                    std.debug.warn("Out of bound access to list", .{});
-                    std.os.exit(1);
-                };
+                try vm.runtimeError(VM.Error.OutOfBound, "Out of bound access to list", null);
             }
 
             return if (index + 1 >= @intToFloat(f64, self.items.items.len))
@@ -672,7 +669,7 @@ pub const ObjList = struct {
             else
                 index + 1;
         } else {
-            return if (self.items.items.len > 0) 0 else null;
+            return if (self.items.items.len > 0) @intToFloat(f64, 0) else null;
         }
     }
 
@@ -685,7 +682,11 @@ pub const ObjList = struct {
             vm,
             if (list_index == .Null) null
             else list_index.Number
-        );
+        ) catch |err| {
+            // TODO: should we distinguish NativeFn and ExternFn ?
+            std.debug.warn("{}\n", .{err});
+            std.os.exit(1);
+        };
 
         vm.push(
             if (next_index) |unext_index| Value{ .Number = unext_index }
@@ -1111,7 +1112,7 @@ pub const ObjTypeDef = struct {
     }
 
     /// Beware: allocates a string, caller owns it
-    pub fn toString(self: Self, allocator: *Allocator) anyerror![]const u8 {
+    pub fn toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         switch (self.def_type) {
@@ -1302,7 +1303,7 @@ pub const ObjTypeDef = struct {
 };
 
 // TODO: use ArrayList writer instead of std.fmt.bufPrint
-pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) anyerror![]u8 {
+pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
     return switch (obj.obj_type) {
         .String => try std.fmt.bufPrint(buf, "{s}", .{ ObjString.cast(obj).?.string }),
         .Type => {
