@@ -65,6 +65,7 @@ pub const VM = struct {
 
     pub const init_string: []const u8 = "init";
     pub const this_string: []const u8 = "this";
+    pub const args_string: []const u8 = "args";
     pub const empty_string: []const u8 = "";
     pub const script_string: []const u8 = "<script>";
 
@@ -125,6 +126,37 @@ pub const VM = struct {
         self.globals.deinit();
     }
 
+    pub fn pushArgs(self: *Self, args: ?[][:0]u8) !void {
+        var list: *ObjList = try allocateObject(
+            self,
+            ObjList,
+            ObjList.init(
+                self.allocator,
+                // TODO: get instance that already exists
+                try allocateObject(
+                    self,
+                    ObjTypeDef,
+                    ObjTypeDef{
+                        .optional = false,
+                        .def_type = .String
+                    }
+                )
+            )
+        );
+
+        self.push(Value{ .Obj = list.toObj() });
+
+        if (args) |uargs| {
+            for (uargs) |arg| {
+                try list.items.append(
+                    Value{
+                        .Obj = (try _obj.copyString(self, std.mem.spanZ(arg))).toObj()
+                    }
+                );
+            }
+        }
+    }
+
     pub fn push(self: *Self, value: Value) void {
         self.stack_top[0] = value;
         self.stack_top += 1;
@@ -161,7 +193,7 @@ pub const VM = struct {
         (self.stack_top - from - 1)[0] = temp;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction) !?InterpretResult {        
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) !?InterpretResult {        
         self.push(.{
             .Obj = function.toObj()
         });
@@ -174,7 +206,10 @@ pub const VM = struct {
             .Obj = closure.toObj()
         });
 
-        _ = try self.call(closure, 0);
+        // Command line arguments are the first local
+        try self.pushArgs(args);
+
+        _ = try self.call(closure, 1);
 
         return try self.run();
     }
@@ -625,7 +660,7 @@ pub const VM = struct {
         var vm = try VM.init(self.allocator, self.strings, self.globals.items.len);
         defer vm.deinit();
 
-        if (((vm.interpret(function) catch null) orelse .RuntimeError) == .Ok) {
+        if (((vm.interpret(function, null) catch null) orelse .RuntimeError) == .Ok) {
             // Top of stack is how many export we got
             var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
 

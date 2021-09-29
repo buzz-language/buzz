@@ -18,6 +18,18 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug cli",
+            "program": "${workspaceFolder}/zig-out/bin/buzz",
+            "args": [
+                "tests/manual/001-cli-args.buzz",
+                "hello",
+                "world"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug REPL",
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [],

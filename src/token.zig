@@ -1,6 +1,30 @@
 const std = @import("std");
 const mem = std.mem;
 
+pub const Token = struct {
+    const Self = @This();
+
+    token_type: TokenType,
+    lexeme: []const u8,
+    // Literal is either a string or a number
+    literal_string: ?[]const u8 = null,
+    literal_number: ?f64 = null,
+    line: usize,
+    column: usize,
+    offset: usize = 0,
+
+    pub fn clone(self: Self) Self {
+        return .{
+            .token_type = self.token_type,
+            .lexeme = self.lexeme,
+            .literal_string = self.literal_string,
+            .literal_number = self.literal_number,
+            .line = self.line,
+            .column = self.column,
+        };
+    }
+};
+
 // WARNING: don't reorder without reordering `rules` in compiler.zig
 pub const TokenType = enum {
     Pipe,             // |
@@ -247,26 +271,3 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     return null;
 }
-
-pub const Token = struct {
-    const Self = @This();
-
-    token_type: TokenType,
-    lexeme: []const u8,
-    // Literal is either a string or a number
-    literal_string: ?[]const u8 = null,
-    literal_number: ?f64 = null,
-    line: usize,
-    column: usize,
-
-    pub fn clone(self: Self) Self {
-        return .{
-            .token_type = self.token_type,
-            .lexeme = self.lexeme,
-            .literal_string = self.literal_string,
-            .literal_number = self.literal_number,
-            .line = self.line,
-            .column = self.column,
-        };
-    }
-};

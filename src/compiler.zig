@@ -62,6 +62,8 @@ pub const FunctionType = enum {
     Initializer,
     Method,
     Script,
+    ScriptEntryPoint, // main script
+    EntryPoint, // main function
     TryCatch,
     Test,
     Anonymous,
@@ -106,16 +108,26 @@ pub const ChunkCompiler = struct {
     scope_depth: u32 = 0,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
-        var file_name_string: ?*ObjString = if (file_name) |name| try copyStringRaw(compiler.strings, compiler.allocator, name, false) else null;
+        const function_name: []const u8 = switch (function_type) {
+            .EntryPoint => "main",
+            .ScriptEntryPoint,
+            .Script => file_name orelse "<script>",
+            else => compiler.parser.previous_token.?.lexeme
+        };
 
-        var function = try ObjFunction.init(compiler.allocator, if (function_type != .Script)
-            try copyStringRaw(compiler.strings, compiler.allocator, compiler.parser.previous_token.?.lexeme, false)
-        else
-            file_name_string orelse try copyStringRaw(compiler.strings, compiler.allocator, VM.script_string, false),
-        try compiler.getTypeDef(.{
-            .def_type = .Void,
-            .optional = false,
-        }));
+        var function = try ObjFunction.init(
+            compiler.allocator,
+            try copyStringRaw(
+                compiler.strings,
+                compiler.allocator,
+                function_name,
+                false
+            ),
+            try compiler.getTypeDef(.{
+                .def_type = .Void,
+                .optional = false,
+            })
+        );
 
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
@@ -130,33 +142,68 @@ pub const ChunkCompiler = struct {
         compiler.current = try compiler.allocator.create(ChunkCompiler);
         compiler.current.?.* = self;
 
-        // First local is reserved for an eventual `this`
+        // First local is reserved for an eventual `this` or cli arguments
         var local: *Local = &compiler.current.?.locals[self.local_count];
         compiler.current.?.local_count += 1;
         local.depth = 0;
         local.is_captured = false;
 
-        if (function_type == .Method or function_type == .Initializer) {
-            var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                .ObjectInstance = this.?
-            };
+        switch (function_type) {
+            .Method, .Initializer => {
+                // `this`
+                var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .ObjectInstance = this.?
+                };
 
-            local.type_def = try compiler.getTypeDef(ObjTypeDef{
-                .def_type = .ObjectInstance,
-                .optional = false,
-                .resolved_type = type_def
-            });
-        } else {
-            local.type_def = try compiler.getTypeDef(ObjTypeDef{
-                .def_type = .Void,
-                .optional = false,
-            });
+                local.type_def = try compiler.getTypeDef(ObjTypeDef{
+                    .def_type = .ObjectInstance,
+                    .optional = false,
+                    .resolved_type = type_def
+                });
+            },
+            .EntryPoint,
+            .ScriptEntryPoint => {
+                // `args` is [str]
+                var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                    compiler.allocator,
+                    try compiler.getTypeDef(.{
+                        .optional = false,
+                        .def_type = .String
+                    })
+                );
+
+                var list_union: ObjTypeDef.TypeUnion = .{
+                    .List = list_def
+                };
+
+                local.type_def = try compiler.getTypeDef(ObjTypeDef{
+                    .def_type = .List,
+                    .optional = false,
+                    .resolved_type = list_union
+                });
+            },
+            else => {
+                // TODO: do we actually need to reserve that space since we statically know if we need it?
+                // nothing
+                local.type_def = try compiler.getTypeDef(ObjTypeDef{
+                    .def_type = .Void,
+                    .optional = false,
+                });
+            }
         }
+
+        const name: []const u8 = switch (function_type) {
+            .Method,
+            .Initializer => "this",
+            .EntryPoint => "$args",
+            .ScriptEntryPoint => "args",
+            else => "_"
+        };
 
         local.name = try copyStringRaw(
             compiler.strings,
             compiler.allocator,
-            if (function_type != .Function) VM.this_string else VM.empty_string,
+            name,
             false
         );
     }
@@ -350,7 +397,7 @@ pub const Compiler = struct {
         self.scanner = Scanner.init(source);
         defer self.scanner = null;
 
-        try ChunkCompiler.init(self, .Script, file_name, null);
+        try ChunkCompiler.init(self, if (self.imported) .Script else .ScriptEntryPoint, file_name, null);
 
         self.parser.had_error = false;
         self.parser.panic_mode = false;
@@ -783,10 +830,10 @@ pub const Compiler = struct {
 
     fn endCompiler(self: *Self) !*ObjFunction {
         // If .Script, search for exported globals and return them in a map
-        if (self.current.?.function_type == .Script) {
+        if (self.current.?.function_type == .Script or self.current.?.function_type == .ScriptEntryPoint) {
             // If top level, search `main` or `test` function(s) and call them
             // Then put any exported globals on the stack
-            if (!self.testing) {
+            if (!self.testing and self.current.?.function_type == .ScriptEntryPoint) {
                 var found_main: bool = false;
                 for (self.globals.items) |global, index| {
                     if (mem.eql(u8, global.name.string, "main") and !global.hidden) {
@@ -794,11 +841,12 @@ pub const Compiler = struct {
 
                         // TODO: Somehow push cli args on the stack
                         try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                        try self.emitCodeArg(.OP_CALL, 0);
+                        try self.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
+                        try self.emitCodeArg(.OP_CALL, 1);
                         break;
                     }
                 }
-            } else {
+            } else if (self.testing) {
                 // Create an entry point wich runs all `test`
                 for (self.globals.items) |global, index| {
                     if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden) {
@@ -949,7 +997,9 @@ pub const Compiler = struct {
         if (self.current.?.function_type == .Initializer) {
             return_type = self.current.?.function.return_type;
             try self.emitCodeArg(.OP_GET_LOCAL, 0);
-        } else if (self.current.?.function_type != .Script) {
+        } else if (self.current.?.function_type != .Script
+            and self.current.?.function_type != .EntryPoint
+            and self.current.?.function_type != .ScriptEntryPoint) {
             return_type = try self.getTypeDef(
                 .{
                     .optional = false,
@@ -1994,7 +2044,10 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        var function_def: *ObjTypeDef = try self.function(name_token, FunctionType.Function, null);
+        const is_main: bool = std.mem.eql(u8, name_token.lexeme, "main")
+            and self.current.?.function_type == .ScriptEntryPoint;
+
+        var function_def: *ObjTypeDef = try self.function(name_token, if (is_main) FunctionType.EntryPoint else FunctionType.Function, null);
         // Now that we have the full function type, get the local and update its type_def
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
@@ -2006,6 +2059,8 @@ pub const Compiler = struct {
                 self.globals.items[slot].type_def = function_def;
             }
         }
+
+        // TODO: if (is_main) check function signature is `fun ([str]) > num`
 
         try self.defineGlobalVariable(@intCast(u24, slot));
     }
@@ -2469,11 +2524,13 @@ pub const Compiler = struct {
                     try self.reportError("Missing value variable.");
                 }
 
-                if (!key_type.eql(try self.getTypeDef(ObjTypeDef{
+                const int_type: *ObjTypeDef = try self.getTypeDef(ObjTypeDef{
                     .optional = false,
                     .def_type = .Number,
-                }))) {
-                    try self.reportTypeCheck(iterable_type, key_type, "Bad key type.");
+                });
+
+                if (!key_type.eql(int_type)) {
+                    try self.reportTypeCheck(int_type, key_type, "Bad key type");
                 }
 
                 if (key_type.def_type == .Placeholder) {

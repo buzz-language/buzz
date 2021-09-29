@@ -319,6 +319,7 @@ pub const Scanner = struct {
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,
             .literal_number = literal_number,
+            .offset = self.current.start,
             .line = self.current.line,
             .column = self.current.column,
         };

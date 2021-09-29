@@ -7,7 +7,7 @@ const ObjString = @import("./obj.zig").ObjString;
 
 // Using a global because of vm.stack which would overflow zig's stack
 
-fn repl(allocator: *Allocator) !void {
+fn repl(allocator: *Allocator, args: [][:0]u8) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
@@ -32,13 +32,13 @@ fn repl(allocator: *Allocator) !void {
 
         if (line.len > 0) {
             if (try compiler.compile(line[0..], "<repl>", false)) |function| {
-                _ = try vm.interpret(function);
+                _ = try vm.interpret(function, args);
             }
         }
     }
 }
 
-fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
+fn runFile(allocator: *Allocator, file_name: []const u8, args: [][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings, null);
@@ -66,7 +66,7 @@ fn runFile(allocator: *Allocator, file_name: []const u8, testing: bool) !void {
     _ = try file.readAll(source);
 
     if (try compiler.compile(source, file_name, testing)) |function| {
-        _ = try vm.interpret(function);
+        _ = try vm.interpret(function, args);
     }
 }
 
@@ -77,22 +77,20 @@ pub fn main() !void {
         else
             std.heap.c_allocator;
 
-    var arg_it = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, arg_it);
+    var args: [][:0]u8 = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
     // TODO: use https://github.com/Hejsil/zig-clap
     var testing: bool = false;
-    for (arg_it) |arg, index| {
+    for (args) |arg, index| {
         if (index > 0) {
             if (index == 1 and std.mem.eql(u8, arg, "test")) {
                 testing = true;
             } else {
-                try runFile(allocator, arg, testing);
+                try runFile(allocator, arg, args[index..], testing);
 
                 return;
             }
         }
     }
-
-    try repl(allocator);
 }

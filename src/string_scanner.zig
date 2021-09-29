@@ -3,6 +3,7 @@ const Compiler = @import("./compiler.zig").Compiler;
 const Scanner = @import("./scanner.zig").Scanner;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
+const Token = @import("./token.zig").Token;
 
 const Value = _value.Value;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -120,10 +121,12 @@ pub const StringScanner = struct {
             try self.compiler.emitOpCode(.OP_TO_STRING);
         }
 
+        const current: Token = self.compiler.parser.current_token.?; // }
+        const next: Token = self.compiler.parser.next_token.?;
         self.offset += self.compiler.scanner.?.current.offset
-            - self.compiler.parser.current_token.?.lexeme.len
-            - self.compiler.parser.next_token.?.lexeme.len
-            - (if (self.compiler.parser.next_token.?.lexeme.len > 0) @intCast(usize, 1) else @intCast(usize, 0));
+            - next.lexeme.len
+            - next.offset
+            + current.offset;
         self.previous_interp = self.offset;
 
         // Put back compiler's scanner
