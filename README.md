@@ -19,9 +19,9 @@ A small/lightweight typed scripting language written in Zig
 - TBD: coroutines?
 
 # TODO
-- [X] "Native" functions
 - [X] Arithmetic operations
 - [X] Arrow and anonymous functions
+- [X] const qualifier
 - [X] do until statement
 - [X] Enum
 - [X] for statement
@@ -32,10 +32,11 @@ A small/lightweight typed scripting language written in Zig
 - [X] List
 - [X] Logical operations
 - [X] Map
+- [X] Native functions
 - [X] Objects (class you can't inherit from)
 - [X] Optionals
-- [X] Strings interpolation
 - [X] String escape sequences
+- [X] Strings interpolation
 - [X] Test system
 - [X] while statement
 - [ ] Assignment shortcuts (+=, -=, etc.)

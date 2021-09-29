@@ -144,7 +144,6 @@ export fn bz_newFunctionType(name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*O
     };
 
     function_type.?.* = .{
-        .optional = false,
         .def_type = .Function,
         .resolved_type = resolved_type
     };

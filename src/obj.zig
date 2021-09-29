@@ -740,7 +740,6 @@ pub const ObjList = struct {
                 };
 
                 var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type
                 });
@@ -755,7 +754,6 @@ pub const ObjList = struct {
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
                     .parameters = parameters,
                     .return_type = try compiler.getTypeDef(ObjTypeDef{
-                        .optional = false,
                         .def_type = .Number,
                     })
                 };
@@ -765,7 +763,6 @@ pub const ObjList = struct {
                 };
 
                 var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type
                 });
@@ -800,7 +797,6 @@ pub const ObjList = struct {
                 };
 
                 var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Native,
                     .resolved_type = resolved_type
                 });
@@ -1092,7 +1088,7 @@ pub const ObjTypeDef = struct {
     },
 
     /// True means its an optional (e.g `str?`)
-    optional: bool,
+    optional: bool = false,
     def_type: Type,
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,

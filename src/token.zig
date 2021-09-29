@@ -27,80 +27,81 @@ pub const Token = struct {
 
 // WARNING: don't reorder without reordering `rules` in compiler.zig
 pub const TokenType = enum {
-    Pipe,             // |
-    LeftBracket,      // [
-    RightBracket,     // ]
-    LeftParen,        // (
-    RightParen,       // )
-    LeftBrace,        // {
-    RightBrace,       // }
-    Dot,              // .
-    Comma,            // ,
-    Semicolon,        // ;
-    Greater,          // >
-    Less,             // <
-    Plus,             // +
-    Minus,            // -
-    Star,             // *
-    Slash,            // /
-    Percent,          // %
-    Question,         // ?
-    Bang,             // !
-    Colon,            // :
-    Equal,            // =
-    EqualEqual,       // ==
-    BangEqual,        // !=
-    GreaterEqual,     // >=
-    LessEqual,        // <=
+    Pipe, // |
+    LeftBracket, // [
+    RightBracket, // ]
+    LeftParen, // (
+    RightParen, // )
+    LeftBrace, // {
+    RightBrace, // }
+    Dot, // .
+    Comma, // ,
+    Semicolon, // ;
+    Greater, // >
+    Less, // <
+    Plus, // +
+    Minus, // -
+    Star, // *
+    Slash, // /
+    Percent, // %
+    Question, // ?
+    Bang, // !
+    Colon, // :
+    Equal, // =
+    EqualEqual, // ==
+    BangEqual, // !=
+    GreaterEqual, // >=
+    LessEqual, // <=
     QuestionQuestion, // ??
-    PlusEqual,        // +=
-    MinusEqual,       // -=
-    StarEqual,        // *=
-    SlashEqual,       // /=
-    Increment,        // ++
-    Decrement,        // --
-    Arrow,            // ->
-    True,             // true
-    False,            // false
-    Null,             // null
-    Str,              // str
-    Num,              // num
-    Type,             // type
-    Bool,             // bool
-    Function,         // Function
-    ShiftRight,       // >>
-    ShiftLeft,        // <<
-    Xor,              // xor
-    Or,               // or
-    And,              // and
-    Return,           // return
-    If,               // if
-    Else,             // else
-    Do,               // do
-    Until,            // until
-    While,            // while
-    For,              // for
-    ForEach,          // foreach
-    Switch,           // switch
-    Break,            // break
-    Default,          // default
-    In,               // in
-    Is,               // is
-    Number,           // 123
-    String,           // "hello"
-    Identifier,       // anIdentifier
-    Fun,              // fun
-    Object,           // object
-    Class,            // class
-    Enum,             // enum
-    Throw,            // throw
-    Try,              // try
-    Catch,            // catch
-    Test,             // test
-    Import,           // import
-    Export,           // export
-    Eof,              // EOF
-    Error,            // Error
+    PlusEqual, // +=
+    MinusEqual, // -=
+    StarEqual, // *=
+    SlashEqual, // /=
+    Increment, // ++
+    Decrement, // --
+    Arrow, // ->
+    True, // true
+    False, // false
+    Null, // null
+    Str, // str
+    Num, // num
+    Type, // type
+    Bool, // bool
+    Function, // Function
+    ShiftRight, // >>
+    ShiftLeft, // <<
+    Xor, // xor
+    Or, // or
+    And, // and
+    Return, // return
+    If, // if
+    Else, // else
+    Do, // do
+    Until, // until
+    While, // while
+    For, // for
+    ForEach, // foreach
+    Switch, // switch
+    Break, // break
+    Default, // default
+    In, // in
+    Is, // is
+    Number, // 123
+    String, // "hello"
+    Identifier, // anIdentifier
+    Fun, // fun
+    Object, // object
+    Class, // class
+    Enum, // enum
+    Throw, // throw
+    Try, // try
+    Catch, // catch
+    Test, // test
+    Import, // import
+    Export, // export
+    Const, // const
+    Eof, // EOF
+    Error, // Error
 };
 
 pub const Keywords = [_]TokenType{
@@ -128,7 +129,8 @@ pub const Keywords = [_]TokenType{
     .Catch,
     .Test,
     .Import,
-    .Export
+    .Export,
+    .Const,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -189,6 +191,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
         return .Default;
     }
 
+    if (mem.eql(u8, literal, "const")) {
+        return .Const;
+    }
+
     if (mem.eql(u8, literal, "fun")) {
         return .Fun;
     }
@@ -204,7 +210,7 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
     if (mem.eql(u8, literal, "num")) {
         return .Num;
     }
-    
+
     if (mem.eql(u8, literal, "type")) {
         return .Type;
     }

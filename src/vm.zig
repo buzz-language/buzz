@@ -132,7 +132,6 @@ pub const VM = struct {
                     self,
                     ObjTypeDef,
                     ObjTypeDef{
-                        .optional = false,
                         .def_type = .String
                     }
                 )

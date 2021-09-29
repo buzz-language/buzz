@@ -73,7 +73,8 @@ pub const Local = struct {
     name: *ObjString, // TODO: do i need to mark those?
     type_def: *ObjTypeDef,
     depth: i32,
-    is_captured: bool
+    is_captured: bool,
+    constant: bool
 };
 
 pub const Global = struct {
@@ -82,6 +83,9 @@ pub const Global = struct {
     initialized: bool = false,
     exported: bool = false,
     hidden: bool = false,
+    constant: bool,
+    // When resolving a placholder, the start of the resolution in the global
+    // If `constant` is true, we can search for any `.Assignment` link and fail then.
 };
 
 pub const UpValue = struct {
@@ -125,7 +129,6 @@ pub const ChunkCompiler = struct {
             ),
             try compiler.getTypeDef(.{
                 .def_type = .Void,
-                .optional = false,
             })
         );
 
@@ -157,7 +160,6 @@ pub const ChunkCompiler = struct {
 
                 local.type_def = try compiler.getTypeDef(ObjTypeDef{
                     .def_type = .ObjectInstance,
-                    .optional = false,
                     .resolved_type = type_def
                 });
             },
@@ -167,7 +169,6 @@ pub const ChunkCompiler = struct {
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     compiler.allocator,
                     try compiler.getTypeDef(.{
-                        .optional = false,
                         .def_type = .String
                     })
                 );
@@ -178,7 +179,6 @@ pub const ChunkCompiler = struct {
 
                 local.type_def = try compiler.getTypeDef(ObjTypeDef{
                     .def_type = .List,
-                    .optional = false,
                     .resolved_type = list_union
                 });
             },
@@ -187,7 +187,6 @@ pub const ChunkCompiler = struct {
                 // nothing
                 local.type_def = try compiler.getTypeDef(ObjTypeDef{
                     .def_type = .Void,
-                    .optional = false,
                 });
             }
         }
@@ -326,6 +325,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Test
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Import
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Export
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Const
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -451,18 +451,21 @@ pub const Compiler = struct {
     }
 
     fn report(self: *Self, token: Token, message: []const u8) !void {
+        var report_line = std.ArrayList(u8).init(self.allocator);
+        defer report_line.deinit();
+        var writer = report_line.writer();
+
         if (try self.scanner.?.getLine(self.allocator, token.line)) |line| {
-            std.debug.warn("\n{} | {s}\n", .{ token.line, line });
-            var i: usize = 0;
-            // TODO: how to do this better?
-            while (i < token.column - 1) : (i += 1) {
-                std.debug.warn(" ", .{});
-            }
-            std.debug.warn("   ^\n", .{});
+            try writer.print("\n{} |", .{ token.line + 1 });
+            const prefix_len: usize = report_line.items.len;
+            try writer.print(" {s}\n", .{ line });
+            try writer.writeByteNTimes(' ', token.column - 2 + prefix_len);
+            try writer.print("^\n", .{});
         }
         std.debug.warn(
-            "{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
+            "{s}\n{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
             .{
+                report_line.items,
                 self.current.?.getRootCompiler().function.name.string,
                 token.line + 1,
                 token.column + 1,
@@ -512,7 +515,7 @@ pub const Compiler = struct {
     // When we encounter the missing declaration we replace it with the resolved type.
     // We then follow the chain of placeholders to see if their assumptions were correct.
     // If not we raise a compile error.
-    pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef) anyerror!void {
+    pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef, constant: bool) anyerror!void {
         assert(placeholder.def_type == .Placeholder);
 
         if (resolved_type.def_type == .Placeholder) {
@@ -658,14 +661,13 @@ pub const Compiler = struct {
                         };
                         
                         var instance_type: *ObjTypeDef = try self.getTypeDef(.{
-                            .optional = false,
                             .def_type = .ObjectInstance,
                             .resolved_type = instance_union,
                         });
 
-                        try self.resolvePlaceholder(child, instance_type);
+                        try self.resolvePlaceholder(child, instance_type, false);
                     } else if (resolved_type.def_type != .Function) {
-                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type);
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type, false);
                     }
                 },
                 .Subscript => {
@@ -683,14 +685,14 @@ pub const Compiler = struct {
                             // Search for a field matching the placeholder
                             var resolved_as_field: bool = false;
                             if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
-                                try self.resolvePlaceholder(child, field);
+                                try self.resolvePlaceholder(child, field, false);
                                 resolved_as_field = true;
                             }
 
                             // Search for a method matching the placeholder
                             if (!resolved_as_field) {
                                 if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                                    try self.resolvePlaceholder(child, method_def);
+                                    try self.resolvePlaceholder(child, method_def, true);
                                 }
                             }
                         },
@@ -711,11 +713,11 @@ pub const Compiler = struct {
                                         child,
                                         try self.getTypeDef(
                                             .{
-                                                .optional = false,
                                                 .def_type = .EnumInstance,
                                                 .resolved_type = enum_instance_def,
                                             }
-                                        )
+                                        ),
+                                        true
                                     );
                                     break;
                                 }
@@ -726,12 +728,17 @@ pub const Compiler = struct {
                     }
                 },
                 .Assignment => {
+                    if (constant) {
+                        try self.reportErrorAt(placeholder_def.where, "Is constant.");
+                        return;
+                    }
+
                     // Assignment relation from a once Placeholder and now Class/Object/Enum is creating an instance
                     // TODO: but does this allow `AClass = something;` ?
                     var child_type: *ObjTypeDef = (try self.toInstance(resolved_type)) orelse resolved_type;
 
                     // Is child type matching the parent?
-                    try self.resolvePlaceholder(child, child_type);
+                    try self.resolvePlaceholder(child, child_type, false);
                 },
             }
         }
@@ -751,7 +758,6 @@ pub const Compiler = struct {
                 };
 
                 break :obj_instance try self.getTypeDef(ObjTypeDef {
-                    .optional = false,
                     .def_type = .ObjectInstance,
                     .resolved_type = instance_type,
                 });
@@ -762,7 +768,6 @@ pub const Compiler = struct {
                 };
 
                 break :enum_instance try self.getTypeDef(ObjTypeDef {
-                    .optional = false,
                     .def_type = .EnumInstance,
                     .resolved_type = instance_type,
                 });
@@ -1002,7 +1007,6 @@ pub const Compiler = struct {
             and self.current.?.function_type != .ScriptEntryPoint) {
             return_type = try self.getTypeDef(
                 .{
-                    .optional = false,
                     .def_type = .Void
                 }
             );
@@ -1025,13 +1029,15 @@ pub const Compiler = struct {
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
     fn declarationOrReturnStatement(self: *Self) !bool {
-        if (try self.match(.Object)) {
+        const constant: bool = try self.match(.Const);
+
+        if (!constant and try self.match(.Object)) {
             try self.objectDeclaration(false);
-        } else if (try self.match(.Class)) {
+        } else if (!constant and try self.match(.Class)) {
             try self.objectDeclaration(true);
-        } else if (try self.match(.Enum)) {
+        } else if (!constant and try self.match(.Enum)) {
             try self.enumDeclaration();
-        } else if (try self.match(.Fun)) {
+        } else if (!constant and try self.match(.Fun)) {
             try self.funDeclaration();
         } else if (try self.match(.Str)) {
             try self.varDeclaration(
@@ -1041,7 +1047,8 @@ pub const Compiler = struct {
                         .def_type = .String
                     }
                 ),
-                false
+                false,
+                constant
             );
         } else if (try self.match(.Num)) {
             try self.varDeclaration(
@@ -1051,7 +1058,8 @@ pub const Compiler = struct {
                         .def_type = .Number
                     }
                 ),
-                false
+                false,
+                constant
             );
         } else if (try self.match(.Bool)) {
             try self.varDeclaration(
@@ -1061,7 +1069,8 @@ pub const Compiler = struct {
                         .def_type = .Bool
                     }
                 ),
-                false
+                false,
+                constant
             );
         } else if (try self.match(.Type)) {
             try self.varDeclaration(
@@ -1071,16 +1080,17 @@ pub const Compiler = struct {
                         .def_type = .Type
                     }
                 ),
-                false
+                false,
+                constant
             );
         } else if (try self.match(.LeftBracket)) {
-            try self.listDeclaration();
+            try self.listDeclaration(constant);
         } else if (try self.match(.LeftBrace)) {
-            try self.mapDeclaration();
-        } else if (try self.match(.Test)) {
+            try self.mapDeclaration(constant);
+        } else if (!constant and try self.match(.Test)) {
             try self.testStatement();
         } else if (try self.match(.Function)) {
-            try self.varDeclaration(try self.functionType(), false);
+            try self.varDeclaration(try self.functionType(), false, constant);
         // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
@@ -1099,12 +1109,12 @@ pub const Compiler = struct {
                 try self.reportError("Unknown identifier");
             }
 
-            try self.varDeclaration(var_type.?, false);
-        } else if (try self.match(.Return)) {
+            try self.varDeclaration(var_type.?, false, constant);
+        } else if (!constant and try self.match(.Return)) {
             try self.returnStatement();
-        } else if (try self.match(.Import)) {
+        } else if (!constant and try self.match(.Import)) {
             try self.importStatement();
-        } else if (try self.match(.Export)) {
+        } else if (!constant and try self.match(.Export)) {
             try self.exportStatement();
         } else {
             try self.reportError("No declaration or statement.");
@@ -1117,8 +1127,9 @@ pub const Compiler = struct {
 
     fn declarationOrStatement(self: *Self) !?std.ArrayList(usize) {
         var hanging: bool = false;
+        var constant: bool = try self.match(.Const);
         // Things we can match with the first token
-        if (try self.match(.Fun)) {
+        if (!constant and try self.match(.Fun)) {
             try self.funDeclaration();
 
             return null;
@@ -1130,7 +1141,8 @@ pub const Compiler = struct {
                         .def_type = .String
                     }
                 ),
-                false
+                false,
+                constant
             );
 
             return null;
@@ -1142,7 +1154,8 @@ pub const Compiler = struct {
                         .def_type = .Number
                     }
                 ),
-                false
+                false,
+                constant
             );
 
             return null;
@@ -1154,7 +1167,8 @@ pub const Compiler = struct {
                         .def_type = .Bool
                     }
                 ),
-                false
+                false,
+                constant
             );
 
             return null;
@@ -1166,18 +1180,19 @@ pub const Compiler = struct {
                         .def_type = .Type
                     }
                 ),
-                false
+                false,
+                constant
             );
 
             return null;
         } else if (try self.match(.LeftBracket)) {
-            try self.listDeclaration();
+            try self.listDeclaration(constant);
             return null;
         } else if (try self.match(.LeftBrace)) {
-            try self.mapDeclaration();
+            try self.mapDeclaration(constant);
             return null;
         } else if (try self.match(.Function)) {
-            try self.varDeclaration(try self.functionType(), false);
+            try self.varDeclaration(try self.functionType(), false, constant);
             return null;
         } else if (try self.match(.Identifier)) {
             if (self.check(.Identifier) or (self.check(.Question) and self.checkAhead(.Identifier))) {
@@ -1207,12 +1222,16 @@ pub const Compiler = struct {
                     });
                 }
 
-                try self.varDeclaration(var_type.?, false);
+                try self.varDeclaration(var_type.?, false, constant);
 
                 return null;
             } else {
                 hanging = true;
             }
+        }
+
+        if (constant) {
+            try self.reportError("`const` not allowed here.");
         }
         
         return try self.statement(hanging);
@@ -1499,14 +1518,12 @@ pub const Compiler = struct {
         } else {
             return_type = try self.getTypeDef(
                 .{
-                    .optional = false,
                     .def_type = .Void
                 }
             );
         }
 
         var function_typedef: ObjTypeDef = .{
-            .optional = false,
             .def_type = .Function,
         };
 
@@ -1549,7 +1566,11 @@ pub const Compiler = struct {
                     }
 
                     var param_type: *ObjTypeDef = try self.parseTypeDef();
-                    var slot: usize = try self.parseVariable(param_type, "Expected parameter name");
+                    var slot: usize = try self.parseVariable(
+                        param_type,
+                        true, // function arguments are constant
+                        "Expected parameter name"
+                    );
 
                     if (self.current.?.scope_depth > 0) {
                         var local: Local = self.current.?.locals[slot];
@@ -1578,7 +1599,6 @@ pub const Compiler = struct {
         } else {
             return_type = try self.getTypeDef(
                 .{
-                    .optional = false,
                     .def_type = .Void
                 }
             );
@@ -1600,7 +1620,6 @@ pub const Compiler = struct {
 
             var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.getTypeDef(
                 .{
-                    .optional = false,
                     .def_type = .Void
                 }
             );
@@ -1621,7 +1640,6 @@ pub const Compiler = struct {
         }
 
         var function_typedef: ObjTypeDef = .{
-            .optional = false,
             .def_type = .Function,
         };
 
@@ -1661,18 +1679,20 @@ pub const Compiler = struct {
     const Property = struct {
         name: []const u8,
         type_def: *ObjTypeDef,
+        constant: bool,
     };
 
     fn property(self: *Self) !?Property {
         var name: ?Token = null;
         var type_def: ?*ObjTypeDef = null;
-        var constant: ?u24 = null;
+        var name_constant: ?u24 = null;
+        const constant: bool = try self.match(.Const);
 
         // Parse type and name
         if (try self.match(.Str)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1681,7 +1701,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Num)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1690,7 +1710,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Bool)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1699,7 +1719,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Type)) {
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
@@ -1710,25 +1730,25 @@ pub const Compiler = struct {
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.LeftBrace)) {
             type_def = try self.parseMapType();
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.Function)) {
             type_def = try self.functionType();
 
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.Identifier)) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            constant = try self.identifierConstant(name.?.lexeme);
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             var var_type: ?*ObjTypeDef = null;
 
@@ -1758,7 +1778,7 @@ pub const Compiler = struct {
             type_def = var_type.?;
         }
 
-        if (name != null and constant != null and type_def != null) {
+        if (name != null and name_constant != null and type_def != null) {
             // Parse default value
             if (try self.match(.Equal)) {
                 var expr_type: *ObjTypeDef = try self.expression(false);
@@ -1791,7 +1811,7 @@ pub const Compiler = struct {
                 }
 
                 // Create property default value
-                try self.emitCodeArg(.OP_PROPERTY, constant.?);
+                try self.emitCodeArg(.OP_PROPERTY, name_constant.?);
             }
             
             try self.consume(.Semicolon, "Expected `;` after property definition.");
@@ -1799,6 +1819,7 @@ pub const Compiler = struct {
             return Property{
                 .name = name.?.lexeme,
                 .type_def = type_def.?,
+                .constant = constant,
             };
         }
 
@@ -1808,7 +1829,6 @@ pub const Compiler = struct {
     // `test` is just like a function but we don't parse arguments and we don't care about its return type
     fn testStatement(self: *Self) !void {
         var function_def_placeholder: ObjTypeDef = .{
-            .optional = false,
             .def_type = .Function,
         };
 
@@ -1825,7 +1845,7 @@ pub const Compiler = struct {
             .column = 0,
         };
 
-        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token);
+        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token, true);
 
         self.markInitialized();
 
@@ -1969,7 +1989,8 @@ pub const Compiler = struct {
                             .line = self.parser.current_token.?.line,
                             .column = self.parser.current_token.?.column,
                         },
-                        global_typedef.?
+                        global_typedef.?,
+                        true
                     );
 
                     self.markInitialized();
@@ -2033,14 +2054,13 @@ pub const Compiler = struct {
     fn funDeclaration(self: *Self) !void {
         // Placeholder until `function()` provides all the necessary bits
         var function_def_placeholder: ObjTypeDef = .{
-            .optional = false,
             .def_type = .Function,
         };
         
         try self.consume(.Identifier, "Expected function name.");
         var name_token: Token = self.parser.previous_token.?;
 
-        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token);
+        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token, true);
 
         self.markInitialized();
 
@@ -2054,7 +2074,7 @@ pub const Compiler = struct {
         } else {
             if (self.globals.items[slot].type_def.def_type == .Placeholder) {
                 // Now that the function definition is complete, resolve the eventual placeholder
-                try self.resolvePlaceholder(self.globals.items[slot].type_def, function_def);
+                try self.resolvePlaceholder(self.globals.items[slot].type_def, function_def, true);
             } else {
                 self.globals.items[slot].type_def = function_def;
             }
@@ -2066,7 +2086,7 @@ pub const Compiler = struct {
     }
 
     // TODO: factorize with varDeclaration + another param
-    fn varDeclarationOnly(self: *Self, parsed_type: *ObjTypeDef) !void {
+    fn varDeclarationOnly(self: *Self, parsed_type: *ObjTypeDef, constant: bool) !void {
         // If var_type is Class/Object/Enum, we expect instance of them
         var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
             .Object => object: {
@@ -2097,11 +2117,11 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_NULL);
 
         try self.defineGlobalVariable(
-            @intCast(u24, try self.parseVariable(var_type, "Expected variable name."))
+            @intCast(u24, try self.parseVariable(var_type, constant, "Expected variable name."))
         );
     }
 
-    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, in_list: bool) !void {
+    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, in_list: bool, constant: bool) !void {
         // If var_type is Class/Object/Enum, we expect instance of them
         var var_type: *ObjTypeDef = switch (parsed_type.def_type) {
             .Object => object: {
@@ -2129,7 +2149,7 @@ pub const Compiler = struct {
             else => parsed_type
         };
 
-        const slot: usize = try self.parseVariable(var_type, "Expected variable name.");
+        const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
 
         if (try self.match(.Equal)) {
             var expr_type: *ObjTypeDef = try self.expression(false);
@@ -2188,8 +2208,8 @@ pub const Compiler = struct {
         });
     }
 
-    fn listDeclaration(self: *Self) !void {
-        try self.varDeclaration(try self.parseListType(), false);
+    fn listDeclaration(self: *Self, constant: bool) !void {
+        try self.varDeclaration(try self.parseListType(), false, constant);
     }
 
     fn parseMapType(self: *Self) !*ObjTypeDef {
@@ -2213,8 +2233,8 @@ pub const Compiler = struct {
         });
     }
 
-    fn mapDeclaration(self: *Self) !void {
-        try self.varDeclaration(try self.parseMapType(), false);
+    fn mapDeclaration(self: *Self, constant: bool) !void {
+        try self.varDeclaration(try self.parseMapType(), false, constant);
     }
 
     fn enumDeclaration(self: *Self) !void {
@@ -2232,7 +2252,6 @@ pub const Compiler = struct {
             case_type_picked = true;
         } else {
             enum_case_type = try self.getTypeDef(.{
-                .optional = false,
                 .def_type = .Number
             });
         }
@@ -2261,19 +2280,19 @@ pub const Compiler = struct {
 
         var enum_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         enum_type.* = ObjTypeDef {
-            .optional = false,
             .def_type = .Enum,
             .resolved_type = enum_resolved
         };
 
-        const constant: u24 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
+        const name_constant: u24 = try self.makeConstant(Value { .Obj = enum_type.toObj() });
 
         const slot: usize = try self.declareVariable(
             enum_type,
-            enum_name
+            enum_name,
+            true
         );
 
-        try self.emitCodeArg(.OP_ENUM, constant);
+        try self.emitCodeArg(.OP_ENUM, name_constant);
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
@@ -2357,7 +2376,6 @@ pub const Compiler = struct {
 
         var object_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         object_type.* = .{
-            .optional = false,
             .def_type = .Object,
             .resolved_type = .{
                 .Object = ObjObject.ObjectDef.init(
@@ -2372,14 +2390,15 @@ pub const Compiler = struct {
             // TODO: parse super class here
         }
 
-        var constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
+        var name_constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
 
         const slot: usize = try self.declareVariable(
             object_type,
-            object_name
+            object_name,
+            true // Object is always constant
         );
 
-        try self.emitCodeArg(.OP_OBJECT, constant);
+        try self.emitCodeArg(.OP_OBJECT, name_constant);
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
@@ -2407,7 +2426,7 @@ pub const Compiler = struct {
 
                 // Does a placeholder exists for this name ?
                 if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, method_def);
+                    try self.resolvePlaceholder(placeholder, method_def, true);
 
                     // Now we know the placeholder was a method
                     _ = object_type.resolved_type.?.Object.placeholders.remove(method_name);
@@ -2424,10 +2443,15 @@ pub const Compiler = struct {
 
                 // Does a placeholder exists for this name ?
                 if (object_type.resolved_type.?.Object.placeholders.get(prop.name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, prop.type_def);
+                    try self.resolvePlaceholder(placeholder, prop.type_def, prop.constant);
 
                     // Now we know the placeholder was a field
                     _ = object_type.resolved_type.?.Object.placeholders.remove(prop.name);
+                }
+
+                if (prop.constant) {
+                    // TODO: const qualifier for objects fields
+                    unreachable;
                 }
 
                 try object_type.resolved_type.?.Object.fields.put(
@@ -2468,14 +2492,14 @@ pub const Compiler = struct {
         self.beginScope();
 
         var key_type: *ObjTypeDef = try self.parseTypeDef();
-        try self.varDeclarationOnly(key_type);
+        try self.varDeclarationOnly(key_type, false);
         var key_name: Token = self.parser.previous_token.?;
 
         var value_type: ?*ObjTypeDef = null;
         
         if (try self.match(.Comma)) {
             value_type = try self.parseTypeDef();
-            try self.varDeclarationOnly(value_type.?);
+            try self.varDeclarationOnly(value_type.?, false);
         }
 
         try self.consume(.In, "Expected `in` after `foreach` variables.");
@@ -2508,7 +2532,6 @@ pub const Compiler = struct {
                     // TODO: we could enrich with placeholder.resolved_def_type/resolved_type
                     key_type.resolved_type.?.Placeholder.resolved_def_type = .EnumInstance;
                     key_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(ObjTypeDef{
-                        .optional = false,
                         .def_type = .EnumInstance,
                         .resolved_type = ObjTypeDef.TypeUnion {
                             .EnumInstance = iterable_type
@@ -2525,7 +2548,6 @@ pub const Compiler = struct {
                 }
 
                 const int_type: *ObjTypeDef = try self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Number,
                 });
 
@@ -2627,7 +2649,7 @@ pub const Compiler = struct {
         self.beginScope();
 
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
-            try self.varDeclaration(try self.parseTypeDef(), true);
+            try self.varDeclaration(try self.parseTypeDef(), true, false);
             
             if (!self.check(.Semicolon)) {
                 try self.consume(.Comma, "Expected `,` after for loop variable");
@@ -2699,7 +2721,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .def_type = .Bool }), parsed_type, "Bad `while` condition");
         }
 
         try self.consume(.RightParen, "Expected `)` after `while` condition.");
@@ -2743,7 +2765,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `while` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .def_type = .Bool }), parsed_type, "Bad `while` condition");
         }
 
         try self.consume(.RightParen, "Expected `)` after `until` condition.");
@@ -2768,7 +2790,7 @@ pub const Compiler = struct {
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
         if (parsed_type.def_type != .Bool and parsed_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .optional = false, .def_type = .Bool }), parsed_type, "Bad `if` condition");
+            try self.reportTypeCheck(try self.getTypeDef(ObjTypeDef{ .def_type = .Bool }), parsed_type, "Bad `if` condition");
         }
         
         try self.consume(.RightParen, "Expected `)` after `if` condition.");
@@ -2828,12 +2850,11 @@ pub const Compiler = struct {
         placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false);
 
         const placeholder_type = try self.getTypeDef(.{
-            .optional = false,
             .def_type = .Placeholder,
             .resolved_type = placeholder_resolved_type
         });
 
-        const global: usize = try self.addGlobal(name, placeholder_type);
+        const global: usize = try self.addGlobal(name, placeholder_type, false);
         // markInitialized but we don't care what depth we are in
         self.globals.items[global].initialized = true;
 
@@ -3122,7 +3143,7 @@ pub const Compiler = struct {
 
         switch (operator_type) {
             .Bang => {
-                const bool_type = try self.getTypeDef(.{ .optional = false, .def_type = .Bool });
+                const bool_type = try self.getTypeDef(.{ .def_type = .Bool });
                 if (!bool_type.eql(parsed_type)) {
                     try self.reportTypeCheck(bool_type, parsed_type, "Wrong operand type");
                 }
@@ -3130,7 +3151,7 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NOT);
             },
             .Minus => {
-                const number_type = try self.getTypeDef(.{ .optional = false, .def_type = .Number });
+                const number_type = try self.getTypeDef(.{ .def_type = .Number });
                 if (!number_type.eql(parsed_type)) {
                     try self.reportTypeCheck(number_type, parsed_type, "Wrong operand type");
                 }
@@ -3150,7 +3171,6 @@ pub const Compiler = struct {
 
         return try self.getTypeDef(.{
             .def_type = .String,
-            .optional = false,
         });
     }
 
@@ -3159,18 +3179,24 @@ pub const Compiler = struct {
         var set_op: OpCode = undefined;
 
         var var_def: *ObjTypeDef = undefined;
+        var constant: bool = false;
 
         var arg: ?usize = try self.resolveLocal(self.current.?, name);
         if (arg) |resolved| {
-            // TODO: should resolveLocal return the local itself?
-            var_def = self.current.?.locals[resolved].type_def;
+            const local: Local = self.current.?.locals[resolved];
+
+            var_def = local.type_def;
+            constant = local.constant;
 
             get_op = .OP_GET_LOCAL;
             set_op = .OP_SET_LOCAL;
         } else {
             arg = try self.resolveUpvalue(self.current.?, name);
             if (arg) |resolved| {
-                var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[resolved].index].type_def;
+                const local: Local = self.current.?.enclosing.?.locals[self.current.?.upvalues[resolved].index];
+
+                var_def = local.type_def;
+                constant = local.constant;
 
                 get_op = .OP_GET_UPVALUE;
                 set_op = .OP_SET_UPVALUE;
@@ -3180,11 +3206,18 @@ pub const Compiler = struct {
 
                 arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name));
 
+                const global = self.globals.items[arg.?];
+
                 var_def = self.globals.items[arg.?].type_def;
+                constant = global.constant;
             }
         }
 
         if (can_assign and try self.match(.Equal)) {
+            if (constant) {
+                try self.reportError("`const` variable can't be assigned to.");
+            }
+
             var expr_type: *ObjTypeDef = try self.expression(false);
 
             if (!expr_type.eql(var_def)) {
@@ -3299,7 +3332,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_GREATER);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3325,7 +3357,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_LESS);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3352,7 +3383,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3379,7 +3409,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3402,7 +3431,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NOT);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3424,7 +3452,6 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_EQUAL);
 
                 return self.getTypeDef(ObjTypeDef{
-                    .optional = false,
                     .def_type = .Bool,
                 });
             },
@@ -3591,7 +3618,6 @@ pub const Compiler = struct {
                 }
 
                 item_type = try self.getTypeDef(.{
-                    .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 });
@@ -3607,7 +3633,6 @@ pub const Compiler = struct {
                         or index_type.resolved_type.?.Placeholder.resolved_type.?.def_type == .Number)) {
                     index_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
                     index_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(.{
-                        .optional = false,
                         .def_type = .Number,
                     });
                 } else {
@@ -3633,7 +3658,6 @@ pub const Compiler = struct {
                 }
 
                 item_type = try self.getTypeDef(.{
-                    .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 });
@@ -3664,7 +3688,6 @@ pub const Compiler = struct {
                 }
 
                 var placeholder = ObjTypeDef{
-                    .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 };
@@ -3717,7 +3740,6 @@ pub const Compiler = struct {
             };
 
             return try self.getTypeDef(ObjTypeDef {
-                .optional = false,
                 .def_type = .ObjectInstance,
                 .resolved_type = instance_type,
             });
@@ -3751,7 +3773,6 @@ pub const Compiler = struct {
             };
 
             var placeholder = try self.getTypeDef(.{
-                .optional = false,
                 .def_type = .Placeholder,
                 .resolved_type = placeholder_resolved_type
             });
@@ -3857,6 +3878,7 @@ pub const Compiler = struct {
                 }
                 
                 // If its a field or placeholder, we can assign to it
+                // FIXME: here get info that field is constant or not
                 if (can_assign and try self.match(.Equal)) {
                     if (property_type.?.def_type == .Placeholder) {
                         property_type.?.resolved_type.?.Placeholder.assignable = true;
@@ -3981,7 +4003,6 @@ pub const Compiler = struct {
                 placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, member_name, false);
 
                 var placeholder = try self.getTypeDef(.{
-                    .optional = false,
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 });
@@ -4219,7 +4240,6 @@ pub const Compiler = struct {
 
                 return try self.getTypeDef(.{
                     .def_type = .Bool,
-                    .optional = false,
                 });
             },
             .True => {
@@ -4227,7 +4247,6 @@ pub const Compiler = struct {
 
                 return try self.getTypeDef(.{
                     .def_type = .Bool,
-                    .optional = false,
                 });
             },
             .Null => {
@@ -4235,7 +4254,6 @@ pub const Compiler = struct {
 
                 return try self.getTypeDef(.{
                     .def_type = .Void,
-                    .optional = false,
                 });
             },
             else => unreachable,
@@ -4249,7 +4267,6 @@ pub const Compiler = struct {
 
         return try self.getTypeDef(.{
             .def_type = .Number,
-            .optional = false,
         });
     }
 
@@ -4259,7 +4276,7 @@ pub const Compiler = struct {
 
     // LOCALS
 
-    fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef) !usize {
+    fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef, constant: bool) !usize {
         if (self.current.?.local_count == 255) {
             try self.reportError("Too many local variables in scope.");
             return 0;
@@ -4270,6 +4287,7 @@ pub const Compiler = struct {
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
+            .constant = constant,
         };
 
         self.current.?.local_count += 1;
@@ -4277,13 +4295,13 @@ pub const Compiler = struct {
         return self.current.?.local_count - 1;
     }
 
-    fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef) !usize {
+    fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef, constant: bool) !usize {
         // Search for an existing placeholder global with the same name
         for (self.globals.items) |global, index| {
             if (global.type_def.def_type == .Placeholder
                 and global.type_def.resolved_type.?.Placeholder.name != null
                 and mem.eql(u8, name.lexeme, global.name.string)) {
-                try self.resolvePlaceholder(global.type_def, global_type);
+                try self.resolvePlaceholder(global.type_def, global_type, constant);
 
                 return index;
             }
@@ -4297,6 +4315,7 @@ pub const Compiler = struct {
         try self.globals.append(Global{
             .name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false),
             .type_def = global_type,
+            .constant = constant
         });
 
         return self.globals.items.len - 1;
@@ -4398,10 +4417,10 @@ pub const Compiler = struct {
 
     // VARIABLES
 
-    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, error_message: []const u8) !usize {
+    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, constant: bool, error_message: []const u8) !usize {
         try self.consume(.Identifier, error_message);
 
-        return try self.declareVariable(variable_type, null);
+        return try self.declareVariable(variable_type, null, constant);
     }
 
     inline fn markInitialized(self: *Self) void {
@@ -4412,7 +4431,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token) !usize {
+    fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token, constant: bool) !usize {
         var name: Token = name_token orelse self.parser.previous_token.?;
 
         if (self.current.?.scope_depth > 0) {
@@ -4432,7 +4451,7 @@ pub const Compiler = struct {
                 if (i == 0) break;
             }
 
-            return try self.addLocal(name, variable_type);
+            return try self.addLocal(name, variable_type, constant);
         } else {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global, index| {
@@ -4445,7 +4464,7 @@ pub const Compiler = struct {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ObjectInstance)) {
-                            try self.resolvePlaceholder(global.type_def, variable_type);
+                            try self.resolvePlaceholder(global.type_def, variable_type, constant);
                         }
 
                         return index;
@@ -4455,7 +4474,7 @@ pub const Compiler = struct {
                 }
             }
 
-            return try self.addGlobal(name, variable_type);
+            return try self.addGlobal(name, variable_type, constant);
         }
     }
 
