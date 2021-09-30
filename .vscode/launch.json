@@ -21,9 +21,7 @@
             "name": "Debug cli",
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
-                "tests/manual/002-error.buzz",
-                "hello",
-                "world"
+                "tests/compile_errors/001-const.buzz",
             ],
             "cwd": "${workspaceFolder}"
         },

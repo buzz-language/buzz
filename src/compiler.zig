@@ -450,20 +450,63 @@ pub const Compiler = struct {
         return self.type_defs.get(name);
     }
 
+    // Skip tokens until we reach something that resembles a new statement
+    fn synchronize(self: *Self) !void {
+        self.parser.panic_mode = false;
+
+        while (self.parser.current_token.?.token_type != .Eof) : (try self.advance()) {
+            if (self.parser.previous_token.?.token_type == .Semicolon) {
+                return;
+            }
+
+            switch (self.parser.current_token.?.token_type) {
+                .Class,
+                .Object,
+                .Enum,
+                .Try,
+                .Test,
+                .Fun,
+                .Const,
+                .If,
+                .While,
+                .Do,
+                .For,
+                .ForEach,
+                .Return,
+                .Switch, => return,
+                else => {}
+            }
+        }
+    }
+
     fn report(self: *Self, token: Token, message: []const u8) !void {
+        const lines: std.ArrayList([]const u8) = try self.scanner.?.getLines(self.allocator, if (token.line > 0) token.line - 1 else 0, 3);
+        defer lines.deinit();
         var report_line = std.ArrayList(u8).init(self.allocator);
         defer report_line.deinit();
         var writer = report_line.writer();
 
-        if (try self.scanner.?.getLine(self.allocator, token.line)) |line| {
-            try writer.print("\n{} |", .{ token.line + 1 });
-            const prefix_len: usize = report_line.items.len;
-            try writer.print(" {s}\n", .{ line });
-            try writer.writeByteNTimes(' ', token.column - 2 + prefix_len);
-            try writer.print("^\n", .{});
+        try writer.print("\n", .{});
+        var l: usize = if (token.line > 0) token.line - 1 else 0;
+        for (lines.items) |line| {
+            if (l != token.line) {
+                try writer.print("\u{001b}[2m", .{});
+            }
+
+            var prefix_len: usize = report_line.items.len;
+            try writer.print(" {: >5} |", .{ l + 1 });
+            prefix_len = report_line.items.len - prefix_len;
+            try writer.print(" {s}\n\u{001b}[0m", .{ line });
+            
+            if (l == token.line) {
+                try writer.writeByteNTimes(' ', token.column - 1 + prefix_len);
+                try writer.print("^\n", .{});
+            }
+
+            l += 1;
         }
         std.debug.warn(
-            "{s}\n{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
+            "{s}{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
             .{
                 report_line.items,
                 self.current.?.getRootCompiler().function.name.string,
@@ -1120,6 +1163,10 @@ pub const Compiler = struct {
             try self.reportError("No declaration or statement.");
 
             return false;
+        }
+
+        if (self.parser.panic_mode) {
+            try self.synchronize();
         }
 
         return true;

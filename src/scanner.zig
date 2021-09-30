@@ -30,20 +30,22 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn getLine(self: *Self, allocator: *Allocator, index: usize) !?[]const u8 {
+    pub fn getLines(self: *Self, allocator: *Allocator, index: usize, n: usize) !std.ArrayList([]const u8) {
         var lines = std.ArrayList([]const u8).init(allocator);
-        defer lines.deinit();
 
         var it = std.mem.split(u8, self.source, "\n");
-        while (it.next()) |line| {
-            try lines.append(line);
+        var count: usize = 0;
+        while (it.next()) |line| : (count += 1) {
+            if (count >= index and count < index + n) {
+                try lines.append(line);
+            }
+
+            if (count > index + n) {
+                break;
+            }
         }
 
-        if (index >= lines.items.len) {
-            return null;
-        }
-
-        return lines.items[index];
+        return lines;
     }
 
     pub fn scanToken(self: *Self) !Token {
