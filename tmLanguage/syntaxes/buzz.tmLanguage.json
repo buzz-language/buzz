@@ -19,6 +19,9 @@
 		},
 		{
 			"include": "#comment"
+		},
+		{
+			"include": "#builtins"
 		}
 	],
 	"repository": {
