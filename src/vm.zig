@@ -16,6 +16,7 @@ const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
 const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
+const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
@@ -357,7 +358,14 @@ pub const VM = struct {
                 },
 
                 .OP_LIST => {
-                    var list: *ObjList = try allocateObject(self, ObjList, ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?));
+                    var list: *ObjList = try allocateObject(
+                        self,
+                        ObjList,
+                        ObjList.init(
+                            self.allocator,
+                            ObjTypeDef.cast(self.readConstant(arg).Obj).?
+                        )
+                    );
 
                     self.push(Value{ .Obj = list.toObj() });
                 },
@@ -524,6 +532,8 @@ pub const VM = struct {
                 .OP_MOD => try self.binary(instruction),
 
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
+
+                .OP_IS => self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) }),
 
                 .OP_JUMP => {
                     self.current_frame.?.ip += arg;

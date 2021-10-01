@@ -1,0 +1,34 @@
+import "zig-out/lib/libstd.dylib";
+
+object MyObj {
+    num id = 1;
+
+    fun bound() > bool {
+        return true;
+    }
+}
+
+enum MyEnum {
+    one,
+    two,
+    three,
+}
+
+fun myFun(num id) > num {
+    return id * 2;
+}
+
+test "`is` operator" {
+    assert(12 is num, message: "`is` on num");
+    assert(true is bool, message: "`is` on bool");
+    assert("yo" is str, message: "`is` on str");
+
+    assert(MyObj() is MyObj, message: "`is` for an object instance");
+    assert(MyEnum.one is MyEnum, message: "`is` for an enum instance");
+    assert(myFun is Function(num) > num, message: "`is` for a function");
+
+    assert(<num>[1,2,3] is [num], message: "`is` on a list");
+    assert(<str, num>{"one": 1} is {str, num}, message: "`is` on a map");
+    | TODO: should be `Function(MyObj) > bool`
+    assert(MyObj().bound is Function() > bool, message: "`is` on bound method");
+}

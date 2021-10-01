@@ -20,6 +20,7 @@ const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
 const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
+const valueIs = _value.valueIs;
 const allocate = _memory.allocate;
 const allocateMany = _memory.allocateMany;
 const free = _memory.free;
@@ -134,6 +135,46 @@ pub const Obj = struct {
     obj_type: ObjType,
     is_marked: bool = false,
     next: ?*Obj = null,
+
+    pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
+        return switch (self.obj_type) {
+            .String => type_def.def_type == .String,
+            
+            .Type,
+            .Object,
+            .Enum, => type_def.def_type == .Type,
+
+            .ObjectInstance => type_def.def_type == .Object
+                and ObjObjectInstance.cast(self).?.object.type_def == type_def,
+            .EnumInstance => type_def.def_type == .Enum
+                and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def,
+            .Function => function: {
+                const function: *ObjFunction = ObjFunction.cast(self).?;
+                break :function function.type_def.eql(type_def);
+            },
+
+            .UpValue => upvalue: {
+                const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+                break :upvalue valueIs(
+                    Value{ .Obj = type_def.toObj() },
+                    upvalue.closed orelse upvalue.location.*,
+                );
+            },
+            .Closure => ObjClosure.cast(self).?.function.toObj().is(type_def),
+            .List => ObjList.cast(self).?.type_def.eql(type_def),
+            .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .Bound => bound: {
+                const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
+                break :bound valueIs(
+                    Value{ .Obj = type_def.toObj() },
+                    Value{ .Obj = if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj() },
+                );
+            },
+
+            .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
+            .Error => unreachable, //type_def.def_type == .Error,
+        };
+    }
 
     pub fn eql(self: *Self, other: *Self) bool {
         if (self.obj_type != other.obj_type) {
@@ -1034,6 +1075,7 @@ pub const ObjBoundMethod = struct {
 pub const ObjTypeDef = struct {
     const Self = @This();
 
+    // TODO: merge this with ObjType
     pub const Type = enum {
         Bool,
         Number,
@@ -1102,7 +1144,7 @@ pub const ObjTypeDef = struct {
     }
 
     /// Beware: allocates a string, caller owns it
-    pub fn toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn   toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         switch (self.def_type) {
@@ -1227,7 +1269,7 @@ pub const ObjTypeDef = struct {
                 and a.Map.value_type.eql(b.Map.value_type),
             .Function => {
                 // Compare return types
-                if (a.Function.return_type.eql(b.Function.return_type)) {
+                if (!a.Function.return_type.eql(b.Function.return_type)) {
                     return false;
                 }
 
@@ -1236,14 +1278,17 @@ pub const ObjTypeDef = struct {
                     return false;
                 }
 
-                // Compare parameters
-                var it = a.Function.parameters.iterator();
-                while (it.next()) |kv| {
-                    if (b.Function.parameters.get(kv.key_ptr.*)) |value| {
-                        if (!kv.value_ptr.*.eql(value)) {
-                            return false;
-                        }
-                    } else {
+                // Compare parameters (we ignore argument names and only compare types)
+                const a_keys: [][]const u8 = a.Function.parameters.keys();
+                const b_keys: [][]const u8 = b.Function.parameters.keys();
+
+                if (a_keys.len != b_keys.len) {
+                    return false;
+                }
+
+                for (a_keys) |_, index| {
+                    if (!a.Function.parameters.get(a_keys[index]).?
+                        .eql(b.Function.parameters.get(b_keys[index]).?)) {
                         return false;
                     }
                 }

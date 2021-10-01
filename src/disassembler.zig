@@ -115,6 +115,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_FALSE,
         .OP_POP,
         .OP_EQUAL,
+        .OP_IS,
         .OP_GREATER,
         .OP_LESS,
         .OP_ADD,

@@ -308,7 +308,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Break
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Default
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // In
-        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Is
+        .{ .prefix = null,     .infix = is,        .precedence = .Is }, // Is
         .{ .prefix = number,   .infix = null,      .precedence = .None }, // Number
         .{ .prefix = string,   .infix = null,      .precedence = .None }, // String
         .{ .prefix = variable, .infix = null,      .precedence = .None }, // Identifier
@@ -1363,6 +1363,11 @@ pub const Compiler = struct {
                 .optional = try self.match(.Question),
                 .def_type = .String
             });
+        } else if (try self.match(.Type)) {
+            return try self.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Type
+            });
         } else if (try self.match(.Num)) {
             return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
@@ -1402,15 +1407,19 @@ pub const Compiler = struct {
 
             try self.consume(.RightBrace, "Expected `}}` to end map type.");
 
+            const map_def: ObjMap.MapDef = .{
+                .key_type = key_type,
+                .value_type = value_type,
+            };
+
+            const resolved_type: ObjTypeDef.TypeUnion = .{
+                .Map = map_def
+            };
+
             return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
-                .def_type = .List,
-                .resolved_type = ObjTypeDef.TypeUnion{
-                    .Map = ObjMap.MapDef {
-                        .key_type = key_type,
-                        .value_type = value_type,
-                    }
-                }
+                .def_type = .Map,
+                .resolved_type = resolved_type
             });
         } else if (try self.match(.Function)) {
             return try self.functionType();
@@ -3333,11 +3342,29 @@ pub const Compiler = struct {
         return right_operand_type;
     }
 
+    fn is(self: *Self, _: bool, _: *ObjTypeDef) anyerror!*ObjTypeDef {
+        try self.emitCodeArg(
+            .OP_CONSTANT,
+            try self.makeConstant(
+                Value{
+                    .Obj = (try self.parseTypeDef()).toObj()
+                }
+            )
+        );
+
+        try self.emitOpCode(.OP_IS);
+
+        return self.getTypeDef(ObjTypeDef{
+            .optional = false,
+            .def_type = .Bool,
+        });
+    }
+
     fn binary(self: *Self, _: bool, left_operand_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         const operator_type: TokenType = self.parser.previous_token.?.token_type;
         const rule: ParseRule = getRule(operator_type);
 
-        var right_operand_type: *ObjTypeDef = try self.parsePrecedence(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1), false);
+        const right_operand_type: *ObjTypeDef = try self.parsePrecedence(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1), false);
 
         if (!left_operand_type.eql(right_operand_type)
             and left_operand_type.def_type != .Placeholder

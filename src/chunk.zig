@@ -27,6 +27,7 @@ pub const OpCode = enum(u8) {
     OP_GET_SUPER,
 
     OP_EQUAL,
+    OP_IS,
     OP_GREATER,
     OP_LESS,
     OP_ADD,

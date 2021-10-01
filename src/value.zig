@@ -4,6 +4,7 @@ const StringHashMap = std.StringHashMap;
 const _obj = @import("./obj.zig");
 const Obj = _obj.Obj;
 const objToString = _obj.objToString;
+const ObjTypeDef = _obj.ObjTypeDef;
 
 pub const ValueType = enum {
     Boolean,
@@ -78,5 +79,17 @@ pub fn valueEql(a: Value, b: Value) bool {
         .Number => a.Number == b.Number,
         .Null => true,
         .Obj => a.Obj.eql(b.Obj),
+    };
+}
+
+pub fn valueIs(type_def_val: Value, value: Value) bool {
+    const type_def: *ObjTypeDef = ObjTypeDef.cast(type_def_val.Obj).?;
+
+    return switch (value) {
+        .Boolean => type_def.def_type == .Bool,
+        .Number => type_def.def_type == .Number,
+        // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
+        .Null => type_def.def_type == .Void or type_def.optional,
+        .Obj => value.Obj.is(type_def),
     };
 }
