@@ -187,6 +187,9 @@ pub const ObjNative = struct {
         .obj_type = .Native
     },
 
+    // TODO: issue is list.member which separate its type definition from its runtime creation
+    // type_def: *ObjTypeDef,
+
     native: NativeFn,
 
     pub fn mark(_: *Self, _: *VM) void {
@@ -361,35 +364,26 @@ pub const ObjFunction = struct {
         .obj_type = .Function
     },
 
+    type_def: *ObjTypeDef = undefined, // Undefined because function initialization is in several steps
+
     name: *ObjString,
-    parameters: std.StringArrayHashMap(*ObjTypeDef),
-    return_type: *ObjTypeDef,
     chunk: Chunk,
     upvalue_count: u8 = 0,
 
-    pub fn init(allocator: *Allocator, name: *ObjString, return_type: *ObjTypeDef) !Self {
+    pub fn init(allocator: *Allocator, name: *ObjString) !Self {
         return Self {
             .name = name,
-            .return_type = return_type,
-            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
             .chunk = Chunk.init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.parameters.deinit();
         self.chunk.deinit();
     }
 
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.name.toObj());
-        
-        var it = self.parameters.iterator();
-        while (it.next()) |kv| {
-            try markObj(vm, kv.value_ptr.*.toObj());
-        }
-        try markObj(vm, self.return_type.toObj());
-
+        try markObj(vm, self.type_def.toObj());
         for (self.chunk.constants.items) |constant| {
             try markValue(vm, constant);
         }
@@ -467,6 +461,8 @@ pub const ObjObject = struct {
         .obj_type = .Object
     },
 
+    type_def: *ObjTypeDef,
+
     /// Object name
     name: *ObjString,
     /// Object methods
@@ -478,11 +474,12 @@ pub const ObjObject = struct {
     /// If false, can't be inherited from
     inheritable: bool = false,
 
-    pub fn init(allocator: *Allocator, name: *ObjString) Self {
+    pub fn init(allocator: *Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
         return Self {
             .name = name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(Value).init(allocator),
+            .type_def = type_def,
         };
     }
 
@@ -561,17 +558,17 @@ pub const ObjList = struct {
         .obj_type = .List
     },
 
+    type_def: *ObjTypeDef,
+
     /// List items
     items: std.ArrayList(Value),
-    // Used when printing the list
-    item_type: *ObjTypeDef,
 
     methods: std.StringHashMap(*ObjNative),
 
-    pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) Self {
+    pub fn init(allocator: *Allocator, type_def: *ObjTypeDef) Self {
         return Self {
             .items = std.ArrayList(Value).init(allocator),
-            .item_type = item_type,
+            .type_def = type_def,
             .methods = std.StringHashMap(*ObjNative).init(allocator),
         };
     }
@@ -580,7 +577,7 @@ pub const ObjList = struct {
         for (self.items.items) |value| {
             try markValue(vm, value);
         }
-        try markObj(vm, self.item_type.toObj());
+        try markObj(vm, self.type_def.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
             try markObj(vm, kv.value_ptr.*.toObj());
@@ -819,17 +816,15 @@ pub const ObjMap = struct {
         .obj_type = .Map
     },
 
+    type_def: *ObjTypeDef,
+
     // We need an ArrayHashMap for `next`
     // In order to use a regular HashMap, we would have to hack are away around it to implement next
     map: std.AutoArrayHashMap(HashableValue, Value),
-    // Use when printing a map
-    key_type: *ObjTypeDef,
-    value_type: *ObjTypeDef,
 
-    pub fn init(allocator: *Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef) Self {
+    pub fn init(allocator: *Allocator, type_def: *ObjTypeDef) Self {
         return .{
-            .key_type = key_type,
-            .value_type = value_type,
+            .type_def = type_def,
             .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
         };
     }
@@ -840,8 +835,7 @@ pub const ObjMap = struct {
             try markValue(vm, hashableToValue(kv.key_ptr.*));
             try markValue(vm, kv.value_ptr.*);
         }
-        try markObj(vm, self.key_type.toObj());
-        try markObj(vm, self.value_type.toObj());
+        try markObj(vm, self.type_def.toObj());
     }
 
     pub fn rawNext(self: *Self, key: ?HashableValue) ?HashableValue {
@@ -891,14 +885,14 @@ pub const ObjEnum = struct {
     },
 
     /// Used to allow type checking at runtime
-    enum_def: *ObjTypeDef,
+    type_def: *ObjTypeDef,
 
     name: *ObjString,
     cases: std.ArrayList(Value),
 
     pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
         return Self {
-            .enum_def = def,
+            .type_def = def,
             .name = def.resolved_type.?.Enum.name,
             .cases = std.ArrayList(Value).init(allocator),
         };
@@ -906,7 +900,7 @@ pub const ObjEnum = struct {
 
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.name.toObj());
-        try markObj(vm, self.enum_def.toObj());
+        try markObj(vm, self.type_def.toObj());
         try markObj(vm, self.name.toObj());
         for (self.cases.items) |case| {
             try markValue(vm, case);
@@ -1323,16 +1317,16 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) (Allocator.Error
         .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{ @ptrToInt(ObjObject.cast(obj).?), ObjObject.cast(obj).?.name.string }),
         .List => {
             var list: *ObjList = ObjList.cast(obj).?;
-            var type_str: []const u8 = try list.item_type.toString(allocator);
+            var type_str: []const u8 = try list.type_def.resolved_type.?.List.item_type.toString(allocator);
             defer allocator.free(type_str);
 
             return try std.fmt.bufPrint(buf, "list: 0x{x} [{s}]", .{ @ptrToInt(list), type_str });
         },
         .Map => {
             var map: *ObjMap = ObjMap.cast(obj).?;
-            var key_type_str: []const u8 = try map.key_type.toString(allocator);
+            var key_type_str: []const u8 = try map.type_def.resolved_type.?.Map.key_type.toString(allocator);
             defer allocator.free(key_type_str);
-            var value_type_str: []const u8 = try map.value_type.toString(allocator);
+            var value_type_str: []const u8 = try map.type_def.resolved_type.?.Map.value_type.toString(allocator);
             defer allocator.free(value_type_str);
 
             return try std.fmt.bufPrint(buf, "map: 0x{x} {{{s}, {s}}}", .{ @ptrToInt(map), key_type_str, value_type_str });
@@ -1347,7 +1341,7 @@ pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) (Allocator.Error
                 "{s}.{s}",
                 .{
                     enum_.name.string,
-                    enum_.enum_def.resolved_type.?.Enum.cases.items[instance.case]
+                    enum_.type_def.resolved_type.?.Enum.cases.items[instance.case]
                 }
             );
         },

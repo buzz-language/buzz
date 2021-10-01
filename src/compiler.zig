@@ -127,9 +127,6 @@ pub const ChunkCompiler = struct {
                 function_name,
                 false
             ),
-            try compiler.getTypeDef(.{
-                .def_type = .Void,
-            })
         );
 
         var self: Self = .{
@@ -1025,25 +1022,23 @@ pub const Compiler = struct {
 
     fn emitMap(self: *Self) !usize {
         try self.emitCodeArg(.OP_MAP, 0xffffff);
-        try self.emit(0xffffffff);
 
-        return self.current.?.function.chunk.code.items.len - 2;
+        return self.current.?.function.chunk.code.items.len - 1;
     }
 
-    fn patchMap(self: *Self, offset: usize, key_constant: u24, value_constant: u24) !void {
+    fn patchMap(self: *Self, offset: usize, map_type_constant: u24) !void {
         const original: u32 = self.current.?.function.chunk.code.items[offset];
         const instruction: u8 = @intCast(u8, original >> 24);
 
         self.current.?.function.chunk.code.items[offset] =
-            (@intCast(u32, instruction) << 24) | @intCast(u32, key_constant);
-        self.current.?.function.chunk.code.items[offset + 1] = @intCast(u32, value_constant);
+            (@intCast(u32, instruction) << 24) | @intCast(u32, map_type_constant);
     }
 
     fn emitReturn(self: *Self) !void {
         var return_type: *ObjTypeDef = undefined;
 
         if (self.current.?.function_type == .Initializer) {
-            return_type = self.current.?.function.return_type;
+            return_type = self.current.?.function.type_def.resolved_type.?.Function.return_type;
             try self.emitCodeArg(.OP_GET_LOCAL, 0);
         } else if (self.current.?.function_type != .Script
             and self.current.?.function_type != .EntryPoint
@@ -1351,8 +1346,8 @@ pub const Compiler = struct {
             }
 
             var return_type: *ObjTypeDef= try self.expression(false);
-            if (!self.current.?.function.return_type.eql(return_type)) {
-                try self.reportTypeCheck(self.current.?.function.return_type, return_type, "Return value");
+            if (!self.current.?.function.type_def.resolved_type.?.Function.return_type.eql(return_type)) {
+                try self.reportTypeCheck(self.current.?.function.type_def.resolved_type.?.Function.return_type, return_type, "Return value");
             }
 
             self.current.?.returned_type = return_type;
@@ -1598,12 +1593,31 @@ pub const Compiler = struct {
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
 
-        var parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null;
+        // The functiont tyepdef is created in several steps, some need already parsed information like return type
+        // We create the incomplete type now and enrich it.
+        var function_typedef: ObjTypeDef = .{
+            .def_type = .Function,
+        };
 
+        var function_def: ObjFunction.FunctionDef = .{
+            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme, false) else try copyStringRaw(self.strings, self.allocator, "anonymous", false),
+            .return_type = undefined,
+            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
+        };
+
+        var function_resolved_type: ObjTypeDef.TypeUnion = .{
+            .Function = function_def
+        };
+
+        function_typedef.resolved_type = function_resolved_type;
+
+        // We replace it with a self.getTypeDef pointer at the end
+        self.current.?.function.type_def = &function_typedef;
+
+        // Parsing parameters
         if (function_type != .TryCatch and function_type != .Test) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
-            parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
             var arity: usize = 0;
             if (!self.check(.RightParen)) {
                 while (true) {
@@ -1621,10 +1635,10 @@ pub const Compiler = struct {
 
                     if (self.current.?.scope_depth > 0) {
                         var local: Local = self.current.?.locals[slot];
-                        try parameters.?.put(local.name.string, local.type_def);
+                        try function_typedef.resolved_type.?.Function.parameters.put(local.name.string, local.type_def);
                     } else {
                         var global: Global = self.globals.items[slot];
-                        try parameters.?.put(global.name.string, global.type_def);
+                        try function_typedef.resolved_type.?.Function.parameters.put(global.name.string, global.type_def);
                     }
 
                     try self.defineGlobalVariable(@intCast(u24, slot));
@@ -1640,24 +1654,23 @@ pub const Compiler = struct {
             try self.emitOpCode(.OP_PRINT);
         }
         
-        var return_type: *ObjTypeDef = undefined;
+        // Parse return type
         if (function_type != .TryCatch and function_type != .Test and try self.match(.Greater)) {
-            return_type = try self.parseTypeDef();
+            function_typedef.resolved_type.?.Function.return_type = try self.parseTypeDef();
         } else {
-            return_type = try self.getTypeDef(
+            function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef(
                 .{
                     .def_type = .Void
                 }
             );
         }
 
-        self.current.?.function.return_type = return_type;
-
+        // Parse body
         if (function_type == .Anonymous and try self.match(.Arrow)) {
             var expr_type: *ObjTypeDef = try self.expression(false);
 
-            if (!return_type.eql(expr_type)) {
-                try self.reportTypeCheck(return_type, expr_type, "Bad return type");
+            if (!function_typedef.resolved_type.?.Function.return_type.eql(expr_type)) {
+                try self.reportTypeCheck(function_typedef.resolved_type.?.Function.return_type, expr_type, "Bad return type");
             }
 
             try self.emitOpCode(.OP_RETURN); // Lambda functions returns its single expression
@@ -1671,10 +1684,12 @@ pub const Compiler = struct {
                 }
             );
 
-            if (!return_type.eql(returned_type)) {
-                try self.reportTypeCheck(return_type, returned_type, "Bad return type");
+            if (!function_typedef.resolved_type.?.Function.return_type.eql(returned_type)) {
+                try self.reportTypeCheck(function_typedef.resolved_type.?.Function.return_type, returned_type, "Bad return type");
             }
         }
+
+        self.current.?.function.type_def = try self.getTypeDef(function_typedef);
 
         var new_function: *ObjFunction = try self.endCompiler();
 
@@ -1686,23 +1701,7 @@ pub const Compiler = struct {
             try self.emit(compiler.upvalues[i].index);
         }
 
-        var function_typedef: ObjTypeDef = .{
-            .def_type = .Function,
-        };
-
-        var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme, false) else try copyStringRaw(self.strings, self.allocator, "anonymous", false),
-            .return_type = return_type,
-            .parameters = parameters orelse std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
-        };
-
-        var function_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Function = function_def
-        };
-
-        function_typedef.resolved_type = function_resolved_type;
-
-        return try self.getTypeDef(function_typedef);
+        return new_function.type_def;
     }
 
     fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
@@ -2437,7 +2436,8 @@ pub const Compiler = struct {
             // TODO: parse super class here
         }
 
-        var name_constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
+        const name_constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
+        const object_type_constant: u24 = try self.makeConstant(Value{ .Obj = object_type.toObj() });
 
         const slot: usize = try self.declareVariable(
             object_type,
@@ -2446,6 +2446,7 @@ pub const Compiler = struct {
         );
 
         try self.emitCodeArg(.OP_OBJECT, name_constant);
+        try self.emit(@intCast(u32, object_type_constant));
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();
@@ -4146,10 +4147,6 @@ pub const Compiler = struct {
             }
         }
 
-        // Should be fine if placeholder because when resolved, it's always the same pointer
-        const constant: u24 = try self.makeConstant(Value { .Obj = item_type.?.toObj() });
-        try self.patchList(list_offset, constant);
-
         var list_def = ObjList.ListDef.init(self.allocator, item_type.?);
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
@@ -4161,6 +4158,10 @@ pub const Compiler = struct {
             .def_type = .List,
             .resolved_type = resolved_type
         });
+
+        // Should be fine if placeholder because when resolved, it's always the same pointer
+        const list_type_constant: u24 = try self.makeConstant(Value { .Obj = list_type.toObj() });
+        try self.patchList(list_offset, list_type_constant);
 
         return list_type;
     }
@@ -4253,11 +4254,6 @@ pub const Compiler = struct {
             }
         }
 
-        // Should be fine if placeholder because when resolved, it's always the same pointer
-        const key_constant: u24 = try self.makeConstant(Value { .Obj = key_type.?.toObj() });
-        const value_constant: u24 = try self.makeConstant(Value { .Obj = value_type.?.toObj() });
-        try self.patchMap(map_offset, key_constant, value_constant);
-
         var map_def = ObjMap.MapDef{ .key_type = key_type.?, .value_type = value_type.? };
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
@@ -4269,6 +4265,10 @@ pub const Compiler = struct {
             .def_type = .Map,
             .resolved_type = resolved_type
         });
+
+        // Should be fine if placeholder because when resolved, it's always the same pointer
+        const map_type_constant: u24 = try self.makeConstant(Value { .Obj = map_type.toObj() });
+        try self.patchMap(map_offset, map_type_constant);
 
         return map_type;
     }

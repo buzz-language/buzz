@@ -368,7 +368,6 @@ pub const VM = struct {
                     var map: *ObjMap = try allocateObject(self, ObjMap, ObjMap.init(
                         self.allocator,
                         ObjTypeDef.cast(self.readConstant(arg).Obj).?,
-                        ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?
                     ));
 
                     self.push(Value{ .Obj = map.toObj() });
@@ -422,7 +421,15 @@ pub const VM = struct {
                 },
 
                 .OP_OBJECT => {
-                    var object: *ObjObject = try allocateObject(self, ObjObject, ObjObject.init(self.allocator, ObjString.cast(self.readConstant(arg).Obj).?));
+                    var object: *ObjObject = try allocateObject(
+                        self,
+                        ObjObject,
+                        ObjObject.init(
+                            self.allocator,
+                            ObjString.cast(self.readConstant(arg).Obj).?,
+                            ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?
+                        )
+                    );
 
                     self.push(Value{ .Obj = object.toObj() });
                 },
