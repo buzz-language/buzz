@@ -3,7 +3,7 @@ pub const VM = opaque {
     pub extern fn bz_pop(self: *VM) *Value;
     pub extern fn bz_peek(self: *VM, distance: u32) *Value;
     pub extern fn bz_pushBool(self: *VM, value: bool) void;
-    pub extern fn bz_throw(self: *VM, message: [*:0]const u8) void;
+    pub extern fn bz_throw(self: *VM, payload: *Value) void;
 };
 
 pub const Value = opaque {

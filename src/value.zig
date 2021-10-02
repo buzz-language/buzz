@@ -93,3 +93,13 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
         .Obj => value.Obj.is(type_def),
     };
 }
+
+pub fn valueTypeEql(self: Value, type_def: *ObjTypeDef) bool {
+    return switch (self) {
+        .Boolean => type_def.def_type == .Bool,
+        .Number => type_def.def_type == .Number,
+        // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
+        .Null => type_def.def_type == .Void or type_def.optional,
+        .Obj => self.Obj.typeEql(type_def)
+    };
+}

@@ -21,6 +21,7 @@ const hashableToValue = _value.hashableToValue;
 const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
 const valueIs = _value.valueIs;
+const valueTypeEql = _value.valueTypeEql;
 const allocate = _memory.allocate;
 const allocateMany = _memory.allocateMany;
 const free = _memory.free;
@@ -176,6 +177,40 @@ pub const Obj = struct {
         };
     }
 
+    pub fn typeEql(self: *Self, type_def: *ObjTypeDef) bool {
+        return switch (self.obj_type) {
+            .String => type_def.def_type == .String,
+            .Type => type_def.def_type == .Type,
+            .UpValue => uv: {
+                var upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+                break :uv valueTypeEql(upvalue.closed orelse upvalue.location.*, type_def);
+            },
+            .EnumInstance => ei: {
+                var instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
+                break :ei type_def.def_type == .EnumInstance
+                    and instance.enum_ref.type_def.eql(type_def.resolved_type.?.EnumInstance);
+            },
+            .ObjectInstance => oi: {
+                var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
+                break :oi type_def.def_type == .ObjectInstance
+                    and instance.object.type_def.eql(type_def.resolved_type.?.ObjectInstance);
+            },
+            .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
+            .Object => ObjObject.cast(self).?.type_def.eql(type_def),
+            .Function => ObjFunction.cast(self).?.type_def.eql(type_def),
+            .Closure => ObjClosure.cast(self).?.function.type_def.eql(type_def),
+            .Bound => bound: {
+                var bound = ObjBoundMethod.cast(self).?;
+                break :bound if (bound.closure) |cls| cls.function.type_def.eql(type_def)
+                    else unreachable; // TODO
+            },
+            .List => ObjList.cast(self).?.type_def.eql(type_def),
+            .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .Native => unreachable, // TODO
+            .Error => unreachable,
+        };
+    }
+
     pub fn eql(self: *Self, other: *Self) bool {
         if (self.obj_type != other.obj_type) {
             return false;
@@ -200,6 +235,13 @@ pub const Obj = struct {
 
                 return valueEql(self_upvalue.closed orelse self_upvalue.location.*, other_upvalue.closed orelse other_upvalue.location.*);
             },
+            .EnumInstance => {
+                const self_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
+                const other_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(other).?;
+
+                return self_enum_instance.enum_ref == other_enum_instance.enum_ref
+                    and self_enum_instance.case == other_enum_instance.case;
+            },
             .Bound,
             .Closure,
             .Function,
@@ -208,7 +250,6 @@ pub const Obj = struct {
             .List,
             .Map,
             .Enum,
-            .EnumInstance,
             .Native,
             .Error => {
                 return self == other;
@@ -240,6 +281,10 @@ pub const ObjNative = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Native) {
             return null;
@@ -267,6 +312,10 @@ pub const ObjError = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Error) {
             return null;
@@ -292,6 +341,10 @@ pub const ObjString = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -342,6 +395,10 @@ pub const ObjUpValue = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .UpValue) {
             return null;
@@ -388,6 +445,10 @@ pub const ObjClosure = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Closure) {
             return null;
@@ -432,6 +493,10 @@ pub const ObjFunction = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -483,6 +548,10 @@ pub const ObjObjectInstance = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -546,6 +615,10 @@ pub const ObjObject = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -634,6 +707,10 @@ pub const ObjList = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .List) {
             return null;
@@ -676,7 +753,12 @@ pub const ObjList = struct {
         var value: Value = vm.peek(0);
 
         list.items.append(value) catch |err| {
-            vm.runtimeError(err, "Could not append to list", null) catch {
+            const messageValue: Value = (copyString(vm, "Could not append to list") catch {
+                std.debug.warn("Could not append to list", .{});
+                std.os.exit(1);
+            }).toValue();
+
+            vm.runtimeError(err, messageValue, null) catch {
                 std.debug.warn("Could not append to list", .{});
                 std.os.exit(1);
             };
@@ -699,7 +781,7 @@ pub const ObjList = struct {
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
         if (list_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
-                try vm.runtimeError(VM.Error.OutOfBound, "Out of bound access to list", null);
+                try vm.runtimeError(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to list")).toValue(), null);
             }
 
             return if (index + 1 >= @intToFloat(f64, self.items.items.len))
@@ -903,6 +985,10 @@ pub const ObjMap = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Map) {
             return null;
@@ -1023,6 +1109,10 @@ pub const ObjEnumInstance = struct {
         return &self.obj;
     }
 
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .EnumInstance) {
             return null;
@@ -1060,6 +1150,10 @@ pub const ObjBoundMethod = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -1144,7 +1238,7 @@ pub const ObjTypeDef = struct {
     }
 
     /// Beware: allocates a string, caller owns it
-    pub fn   toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         switch (self.def_type) {
@@ -1239,6 +1333,38 @@ pub const ObjTypeDef = struct {
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
+    pub fn toRuntime(self: *Self) Self {
+        return switch (self.def_type) {
+            .Object => object: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .ObjectInstance = self
+                };
+
+                break :object Self{
+                    .optional = self.optional,
+                    .def_type = .ObjectInstance,
+                    .resolved_type = resolved_type
+                };
+            },
+            .Enum => enum_instance: {
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    .EnumInstance = self
+                };
+
+                break :enum_instance Self{
+                    .optional = self.optional,
+                    .def_type = .EnumInstance,
+                    .resolved_type = resolved_type
+                };
+            },
+            else => self.*
+        };
     }
 
     pub fn cast(obj: *Obj) ?*Self {

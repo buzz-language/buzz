@@ -1,27 +1,20 @@
 import "zig-out/lib/libstd.dylib";
 
-| fun willThrow() {
-|     throw "me around!";
-| }
+enum(str) MyErrors {
+    failed = "Something failed",
+    bad = "Something bad",
+    ohno = "Oh no!",
+}
 
-| test "try-catch" {
-|     try {
-|         willThrow();
-|         assert(false, message: "unreachable");
-|     } catch {
-|         assert(true, message: "error caught");
-|     }
-| }
+fun willFail() > num {
+    throw MyErrors.failed;
+    return 1;
+}
 
-test "catch runtime error" {
-    [num] list = [1, 2, 3];
-
+test "Error value in catch clause" {
     try {
-        print("{list[100]}"); | out of bound access
-    } catch {
-        print("caugh it!");
-        assert(true, message: "caught it!");
+        willFail();
+    } catch (MyErrors error) {
+        assert(error == MyErrors.failed, message: "caught the right error");
     }
-
-    | print(list[200]); | out of bound access
 }

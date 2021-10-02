@@ -6,7 +6,7 @@ test "Optional force unwrapping with `!`" {
     try {
         print(hello!);
         assert(false, message: "can't be here");
-    } catch {
+    } catch (str error) {
         assert(true, message: "can't force unwrap a null");
     }
 
@@ -16,7 +16,7 @@ test "Optional force unwrapping with `!`" {
         print(hello!);
 
         assert(true, message: "force unwrap of actual value is ok");
-    } catch {
+    } catch (str error) {
         assert(false, message: "should not fail");
     }
 }

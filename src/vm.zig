@@ -338,15 +338,9 @@ pub const VM = struct {
                     return;
                 },
 
-                .OP_IMPORT => {
-                    try self.import(self.peek(0));
-                },
+                .OP_IMPORT => try self.import(self.peek(0)),
 
-                .OP_THROW => {
-                    var message: *ObjString = ObjString.cast(self.peek(0).Obj).?;
-
-                    try self.runtimeError(Error.Custom, message.string, null);
-                },
+                .OP_THROW => try self.runtimeError(Error.Custom, self.pop(), null),
 
                 .OP_CATCH => {
                     var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
@@ -553,7 +547,7 @@ pub const VM = struct {
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.runtimeError(Error.UnwrappedNull ,"Force unwrapped optional is null", null);
+                        try self.runtimeError(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue(), null);
                     }
                 },
 
@@ -674,7 +668,7 @@ pub const VM = struct {
         }
     }
 
-    pub fn runtimeError(self: *Self, code: Error, message: []const u8, call_stack: ?std.ArrayList(CallFrame)) Error!void {
+    pub fn runtimeError(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
         var frame: *CallFrame = self.current_frame.?;
@@ -689,7 +683,7 @@ pub const VM = struct {
             _ = self.pop();
             
             // Raise the runtime error
-            std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ message });
+            std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
 
             for (stack.items) |stack_frame| {
                 std.debug.warn("\tat {s}", .{ stack_frame.closure.function.name.string });
@@ -712,13 +706,21 @@ pub const VM = struct {
 
         // Call catch closure or continue unwinding frames to find one
         if (frame.closure.catch_closure) |catch_closure| {
-            stack.deinit();
-            // TODO: Push ObjError as first argument
-            try self.call(catch_closure, 0);
+            // Check catch_closure can catch that type of error
+            const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
+            var type_def: *ObjTypeDef = parameters.get(parameters.keys()[0]).?;
+            if (_value.valueTypeEql(payload, type_def)) {
+                stack.deinit();
 
-            self.current_frame.? = &self.frames.items[self.frame_count - 1];
+                self.push(payload);
+                try self.call(catch_closure, 1);
+
+                self.current_frame.? = &self.frames.items[self.frame_count - 1];
+            } else {
+                return try self.runtimeError(code, payload, stack);
+            }
         } else {
-            return try self.runtimeError(code, message, stack);
+            return try self.runtimeError(code, payload, stack);
         }
     }
 
@@ -997,7 +999,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1012,7 +1014,7 @@ pub const VM = struct {
                 // Push value
                 self.push(list_item);
             } else {
-                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -1039,7 +1041,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1055,7 +1057,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.runtimeError(Error.OutOfBound, "Out of bound list access.", null);
+                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;

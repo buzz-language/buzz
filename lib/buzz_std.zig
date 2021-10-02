@@ -5,7 +5,7 @@ export fn assert(vm: *api.VM) bool {
     var condition: bool = vm.bz_peek(1).bz_valueToBool();
 
     if (!condition) {
-        vm.bz_throw(vm.bz_peek(0).bz_valueToString().?);
+        vm.bz_throw(vm.bz_peek(0));
     }
 
     return false;
@@ -21,10 +21,11 @@ export fn assertTypeDef() *api.ObjTypeDef {
 
 export fn print(vm: *api.VM) bool {
     _ = std.io.getStdOut().write(std.mem.span(vm.bz_peek(0).bz_valueToString().?)) catch {
-        vm.bz_throw("Could not print.");
+        // TODO: throw something?
         return false;
     };
     _ = std.io.getStdOut().write("\n") catch {
+        // TODO: throw something?
         return false;
     };
 

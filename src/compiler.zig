@@ -64,7 +64,8 @@ pub const FunctionType = enum {
     Script,
     ScriptEntryPoint, // main script
     EntryPoint, // main function
-    TryCatch,
+    Try,
+    Catch,
     Test,
     Anonymous,
 };
@@ -1309,21 +1310,10 @@ pub const Compiler = struct {
         } else if (try self.match(.Try)) {
             try self.tryCatchStatement();
         } else if (try self.match(.Throw)) {
-            if (!self.check(.Semicolon)) {
-                // TODO: When we have Error objects hierarchy, parse an instance of Error
-                var parsed_type: *ObjTypeDef = try self.expression(false);
-
-                if (parsed_type.def_type != .String) {
-                    try self.reportError("Expected string after `throw`.");
-                }
-            } else {
-                try self.emitCodeArg(
-                    .OP_CONSTANT,
-                    try self.makeConstant(Value{ .Obj = (try copyStringRaw(self.strings, self.allocator, "uncaught error", false)).toObj() })
-                );
-            }
-
-            try self.consume(.Semicolon, "Expected `;` after `throw.`");
+            // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
+            _ = try self.expression(false);
+            
+            try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
 
             try self.emitOpCode(.OP_THROW);
         } else {
@@ -1623,8 +1613,7 @@ pub const Compiler = struct {
         // We replace it with a self.getTypeDef pointer at the end
         self.current.?.function.type_def = &function_typedef;
 
-        // Parsing parameters
-        if (function_type != .TryCatch and function_type != .Test) {
+        if (function_type != .Try and function_type != .Test) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
             var arity: usize = 0;
@@ -1635,7 +1624,38 @@ pub const Compiler = struct {
                         try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
                     }
 
+                    if (function_type == .Catch and arity > 1) {
+                        try self.reportErrorAtCurrent("`catch` clause can't have more than one parameter.");
+                    }
+
                     var param_type: *ObjTypeDef = try self.parseTypeDef();
+                    // Convert to instance if revelant
+                    param_type = switch (param_type.def_type) {
+                        .Object => object: {
+                            var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                                .ObjectInstance = param_type
+                            };
+
+                            break :object try self.getTypeDef(.{
+                                .optional = try self.match(.Question),
+                                .def_type = .ObjectInstance,
+                                .resolved_type = resolved_type
+                            });
+                        },
+                        .Enum => enum_instance: {
+                            var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                                .EnumInstance = param_type
+                            };
+
+                            break :enum_instance try self.getTypeDef(.{
+                                .optional = try self.match(.Question),
+                                .def_type = .EnumInstance,
+                                .resolved_type = resolved_type
+                            });
+                        },
+                        else => param_type
+                    };
+                    
                     var slot: usize = try self.parseVariable(
                         param_type,
                         true, // function arguments are constant
@@ -1654,6 +1674,10 @@ pub const Compiler = struct {
 
                     if (!try self.match(.Comma)) break;
                 }
+
+                if (function_type == .Catch and arity < 1) {
+                    try self.reportErrorAtCurrent("`catch` clause doesn't have any parameter.");
+                }
             }
 
             try self.consume(.RightParen, "Expected `)` after function parameters.");
@@ -1664,7 +1688,7 @@ pub const Compiler = struct {
         }
         
         // Parse return type
-        if (function_type != .TryCatch and function_type != .Test and try self.match(.Greater)) {
+        if (function_type != .Try and function_type != .Catch and function_type != .Test and try self.match(.Greater)) {
             function_typedef.resolved_type.?.Function.return_type = try self.parseTypeDef();
         } else {
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef(
@@ -1911,12 +1935,12 @@ pub const Compiler = struct {
 
     fn tryCatchStatement(self: *Self) !void {
         // Try block
-        _ = try self.function(null, .TryCatch, null);
+        _ = try self.function(null, .Try, null);
 
         try self.consume(.Catch, "Expected `catch` statement after `try` block");
 
         // Catch block
-        _ = try self.function(null, .TryCatch, null);
+        _ = try self.function(null, .Catch, null);
 
         try self.emitOpCode(.OP_CATCH);
 
@@ -3369,7 +3393,7 @@ pub const Compiler = struct {
         if (!left_operand_type.eql(right_operand_type)
             and left_operand_type.def_type != .Placeholder
             and right_operand_type.def_type != .Placeholder) {
-            try self.reportTypeCheck(left_operand_type, right_operand_type, "Type mismatch.");
+            try self.reportTypeCheck(left_operand_type, right_operand_type, "Type mismatch");
         }
 
         switch (operator_type) {
@@ -3378,7 +3402,7 @@ pub const Compiler = struct {
                     or (left_operand_type.def_type == .Placeholder
                         and left_operand_type.resolved_type.?.Placeholder.resolved_type != null
                         and !left_operand_type.resolved_type.?.Placeholder.resolved_type.?.optional)) {
-                    try self.reportError("Not an optinal");
+                    try self.reportError("Not an optional");
                 }
 
                 try self.emitOpCode(.OP_NULL_OR);
