@@ -708,8 +708,7 @@ pub const VM = struct {
         if (frame.closure.catch_closure) |catch_closure| {
             // Check catch_closure can catch that type of error
             const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
-            var type_def: *ObjTypeDef = parameters.get(parameters.keys()[0]).?;
-            if (_value.valueTypeEql(payload, type_def)) {
+            if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
                 stack.deinit();
 
                 self.push(payload);

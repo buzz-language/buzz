@@ -1613,7 +1613,7 @@ pub const Compiler = struct {
         // We replace it with a self.getTypeDef pointer at the end
         self.current.?.function.type_def = &function_typedef;
 
-        if (function_type != .Try and function_type != .Test) {
+        if (function_type != .Try and function_type != .Test and (function_type != .Catch or self.check(.LeftParen))) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
             var arity: usize = 0;
@@ -1673,10 +1673,6 @@ pub const Compiler = struct {
                     try self.defineGlobalVariable(@intCast(u24, slot));
 
                     if (!try self.match(.Comma)) break;
-                }
-
-                if (function_type == .Catch and arity < 1) {
-                    try self.reportErrorAtCurrent("`catch` clause doesn't have any parameter.");
                 }
             }
 
