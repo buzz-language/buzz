@@ -417,19 +417,20 @@ pub const ObjClosure = struct {
     },
 
     function: *ObjFunction,
-    catch_closure: ?*ObjClosure = null,
+    catch_closures: std.ArrayList(*ObjClosure),
     upvalues: std.ArrayList(*ObjUpValue),
 
     pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {
         return Self {
             .function = function,
+            .catch_closures = std.ArrayList(*ObjClosure).init(allocator),
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
     }
     
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.function.toObj());
-        if (self.catch_closure) |catch_closure| {
+        for (self.catch_closures.items) |catch_closure| {
             try markObj(vm, catch_closure.toObj());
         }
         for (self.upvalues.items) |upvalue| {
@@ -438,6 +439,7 @@ pub const ObjClosure = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.catch_closures.deinit();
         self.upvalues.deinit();
     }
 

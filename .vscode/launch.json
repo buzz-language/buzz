@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/zig-out/bin/buzz",
             "args": [
                 "test",
-                "tests/020-error-sets.buzz"
+                "tests/008-try-catch.buzz"
             ],
             "cwd": "${workspaceFolder}"
         },

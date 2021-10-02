@@ -346,7 +346,7 @@ pub const VM = struct {
                     var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
                     var catch_closure: *ObjClosure = ObjClosure.cast(self.peek(0).Obj).?;
 
-                    try_closure.catch_closure = catch_closure;
+                    try try_closure.catch_closures.append(catch_closure);
 
                     _ = self.pop(); // Pop catch closure
                 },
@@ -705,17 +705,24 @@ pub const VM = struct {
         self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
         // Call catch closure or continue unwinding frames to find one
-        if (frame.closure.catch_closure) |catch_closure| {
-            // Check catch_closure can catch that type of error
-            const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
-            if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
-                stack.deinit();
+        if (frame.closure.catch_closures.items.len > 0) {
+            var popped: bool = false;
+            for (frame.closure.catch_closures.items) |catch_closure| {
+                const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
+                if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
+                    stack.deinit();
 
-                self.push(payload);
-                try self.call(catch_closure, 1);
+                    self.push(payload);
+                    try self.call(catch_closure, 1);
 
-                self.current_frame.? = &self.frames.items[self.frame_count - 1];
-            } else {
+                    self.current_frame.? = &self.frames.items[self.frame_count - 1];
+
+                    popped = true;
+                    break;
+                }
+            }
+
+            if (!popped) {
                 return try self.runtimeError(code, payload, stack);
             }
         } else {

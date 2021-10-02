@@ -1704,7 +1704,7 @@ pub const Compiler = struct {
 
             try self.emitOpCode(.OP_RETURN); // Lambda functions returns its single expression
         } else {
-            try self.consume(.LeftBrace, "Expected `{{` before function body.");
+            try self.consume(.LeftBrace, "Expected `{` before function body.");
             _ = try self.block();
 
             var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.getTypeDef(
@@ -1937,8 +1937,13 @@ pub const Compiler = struct {
 
         // Catch block
         _ = try self.function(null, .Catch, null);
-
         try self.emitOpCode(.OP_CATCH);
+
+        // Anymore catch clauses ?
+        while ((try self.match(.Catch)) and !self.check(.Eof)) {
+            _ = try self.function(null, .Catch, null);
+            try self.emitOpCode(.OP_CATCH);
+        }
 
         // Call try clause immediately
         try self.emitCodeArg(.OP_CALL, 0);
