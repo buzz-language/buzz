@@ -19,6 +19,7 @@ A small/lightweight typed scripting language written in Zig
 - TBD: coroutines?
 
 # TODO
+- [X] `is` operator
 - [X] Arithmetic operations
 - [X] Arrow and anonymous functions
 - [X] const qualifier
@@ -48,8 +49,7 @@ A small/lightweight typed scripting language written in Zig
 - [ ] FFI or Lua-like API
 - [ ] First-class types
 - [ ] Generics
-- [ ] Increment/Decrement (++/--)
-- [ ] is and as
+- [ ] `as`operator
 - [ ] Spread operator
 - [ ] std lib
 - [ ] switch statement

@@ -1188,7 +1188,7 @@ pub const ObjTypeDef = struct {
             .Function => {
                 var function_def = self.resolved_type.?.Function;
 
-                try type_str.appendSlice("Function");
+                try type_str.appendSlice("Function(");
                 try type_str.appendSlice(function_def.name.string);
                 try type_str.appendSlice("(");
 
