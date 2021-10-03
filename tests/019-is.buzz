@@ -1,7 +1,7 @@
 import "zig-out/lib/libstd.dylib";
 
 object MyObj {
-    num id = 1;
+    num id = 1,
 
     fun bound() > bool {
         return true;

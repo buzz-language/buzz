@@ -20,7 +20,7 @@ enum NaturalEnum {
 }
 
 object My {
-    num age = 10;
+    num age = 10
 }
 
 enum(My) CustomEnum {

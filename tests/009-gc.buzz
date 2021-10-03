@@ -1,5 +1,5 @@
 object Kill {
-    num yo = -1;
+    num yo = -1
 }
 
 test "GC, collecting unreferenced objects" {

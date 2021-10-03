@@ -70,8 +70,8 @@ test "break statement" {
 str ahead = "wat";
 
 object Ahead {
-    str name = "joe";
-    num age = 0;
+    str name = "joe",
+    num age = 0
 }
 
 Ahead objAhead = Ahead{};

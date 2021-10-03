@@ -28,7 +28,7 @@ test "Optional graceful unwrapping with `?`" {
 }
 
 object Me {
-    [num]? list = [1, 2, 3];
+    [num]? list = [1, 2, 3]
 }
 
 test "Optional chaining" {

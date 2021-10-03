@@ -1902,7 +1902,9 @@ pub const Compiler = struct {
                 with_default = true;
             }
             
-            try self.consume(.Semicolon, "Expected `;` after property definition.");
+            if (!self.check(.RightBrace) or self.check(.Comma)) {
+                try self.consume(.Comma, "Expected `,` after property definition.");
+            }
 
             return Property{
                 .name = name.?.lexeme,
@@ -2491,7 +2493,7 @@ pub const Compiler = struct {
                     try self.reportErrorFmt("Property `{s}` does not exists", .{ property_name });
                 }
 
-                if (!self.check(.RightBrace)) {
+                if (!self.check(.RightBrace) or self.check(.Comma)) {
                     try self.consume(.Comma, "Expected `,` after field initialization.");
                 }
             }

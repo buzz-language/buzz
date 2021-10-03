@@ -1,10 +1,10 @@
 import "zig-out/lib/libstd.dylib";
 
 object Hey {
-    [num] ages = <num>[1, 2, 3];
+    [num] ages = <num>[1, 2, 3],
     {num, str} names = <num, str>{
         1: "hello"
-    };
+    },
 }
 
 test "List and Map as Object properties" {

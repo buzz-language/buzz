@@ -1,11 +1,11 @@
 import "zig-out/lib/libstd.dylib";
 
 object A {
-    B b;
+    B b
 }
 
 object B {
-    A a;
+    A a
 }
 
 test "Cyclic placeholders" {

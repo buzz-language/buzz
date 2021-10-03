@@ -1,8 +1,8 @@
 import "zig-out/lib/libstd.dylib";
 
 object First {
-    str name = "Joe";
-    num age = 10;
+    str name = "Joe",
+    num age = 10,
 
     fun sayHello() {
         print("hello");
