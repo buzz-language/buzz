@@ -436,6 +436,8 @@ pub const VM = struct {
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
+                .OP_INSTANCE => try self.instanciateObject(ObjObject.cast(self.pop().Obj).?),
+
                 .OP_METHOD => {
                     try self.defineMethod(self.readString(arg));
                 },
@@ -849,11 +851,6 @@ pub const VM = struct {
                     return try self.callNative(bound.native.?, arg_count);
                 }
             },
-            .Object => {
-                var object: *ObjObject = ObjObject.cast(obj).?;
-                
-                return try self.instanciateObject(object, arg_count);
-            },
             .Closure => {
                 return try self.call(ObjClosure.cast(obj).?, arg_count);
             },
@@ -864,26 +861,15 @@ pub const VM = struct {
         }
     }
 
-    fn instanciateObject(self: *Self, object: *ObjObject, arg_count: u8) !void {
+    fn instanciateObject(self: *Self, object: *ObjObject) !void {
         var instance: *ObjObjectInstance = try allocateObject(self, ObjObjectInstance, ObjObjectInstance.init(self.allocator, object));
-
-        // Put new instance as first local of the constructor
-        // We do it right now so it doesn't get collected
-        (self.stack_top - arg_count - 1)[0] = Value { .Obj = instance.toObj() };
-
         // Set instance fields with default values
         var it = object.fields.iterator();
         while (it.next()) |kv| {
             try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
         }
 
-        // TODO: init should always exists. Default one provided by compiler asks for all fields.
-        var initializer: ?*ObjClosure = object.methods.get("init");
-        if (initializer) |uinit| {
-            return try self.call(uinit, arg_count);
-        } else if (arg_count != 0) {
-            unreachable;
-        }
+        self.push(instance.toValue());
     }
 
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !void {

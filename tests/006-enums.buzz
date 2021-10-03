@@ -21,16 +21,12 @@ enum NaturalEnum {
 
 object My {
     num age = 10;
-
-    fun init(num age) {
-        this.age = age;
-    }
 }
 
 enum(My) CustomEnum {
-    zero = My(0),
-    one = My(1),
-    two = My(2),
+    zero = My{ age = 0 },
+    one = My{ age = 1 },
+    two = My{ age = 2 },
 }
 
 test "Enums" {

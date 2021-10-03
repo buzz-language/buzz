@@ -256,7 +256,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBracket
         .{ .prefix = grouping, .infix = call,      .precedence = .Call }, // LeftParen
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightParen
-        .{ .prefix = map,      .infix = null,      .precedence = .None }, // LeftBrace
+        .{ .prefix = map,      .infix = objectInit,.precedence = .Primary }, // LeftBrace
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // RightBrace
         .{ .prefix = null,     .infix = dot,       .precedence = .Call }, // Dot
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Comma
@@ -524,6 +524,16 @@ pub const Compiler = struct {
         self.parser.had_error = true;
 
         try self.report(token, message);
+    }
+
+    pub fn reportErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+        var message = std.ArrayList(u8).init(self.allocator);
+        defer message.deinit();
+
+        var writer = message.writer();
+        try writer.print(fmt, args);
+
+        try self.reportError(message.items);
     }
 
     pub fn reportError(self: *Self, message: []const u8) !void {
@@ -1755,6 +1765,7 @@ pub const Compiler = struct {
         name: []const u8,
         type_def: *ObjTypeDef,
         constant: bool,
+        with_default: bool,
     };
 
     fn property(self: *Self) !?Property {
@@ -1855,6 +1866,7 @@ pub const Compiler = struct {
 
         if (name != null and name_constant != null and type_def != null) {
             // Parse default value
+            var with_default: bool = false;
             if (try self.match(.Equal)) {
                 var expr_type: *ObjTypeDef = try self.expression(false);
 
@@ -1887,6 +1899,7 @@ pub const Compiler = struct {
 
                 // Create property default value
                 try self.emitCodeArg(.OP_PROPERTY, name_constant.?);
+                with_default = true;
             }
             
             try self.consume(.Semicolon, "Expected `;` after property definition.");
@@ -1895,6 +1908,7 @@ pub const Compiler = struct {
                 .name = name.?.lexeme,
                 .type_def = type_def.?,
                 .constant = constant,
+                .with_default = true,
             };
         }
 
@@ -2437,6 +2451,68 @@ pub const Compiler = struct {
 
         try self.emitOpCode(.OP_POP);
     }
+    
+    fn objectInit(self: *Self, _: bool, object_type: *ObjTypeDef) anyerror!*ObjTypeDef {
+        if (object_type.def_type != .Object) {
+            try self.reportError("Is not an object.");
+        }
+
+        try self.emitOpCode(.OP_INSTANCE);
+
+        const obj_def: ObjObject.ObjectDef = object_type.resolved_type.?.Object;
+
+        if (obj_def.fields.count() > 0) {
+            // To keep track of what's been initialized or not by this statement
+            var init_properties = std.StringHashMap(void).init(self.allocator);
+            defer init_properties.deinit();
+
+            while (!self.check(.RightBrace) and !self.check(.Eof)) {
+                try self.consume(.Identifier, "Expected property name");
+
+                const property_name: []const u8 = self.parser.previous_token.?.lexeme;
+                const property_name_constant: u24 = try self.identifierConstant(property_name);
+
+                try self.consume(.Equal, "Expected `=` after property nane.");
+
+                if (obj_def.fields.get(property_name)) |prop| {
+                    try self.emitCodeArg(.OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
+
+                    const prop_type: *ObjTypeDef = try self.expression(false);
+
+                    if (!prop.eql(prop_type)) {
+                        try self.reportTypeCheck(prop, prop_type, "Wrong property type");
+                    }
+
+                    try init_properties.put(property_name, {});
+
+                    try self.emitCodeArg(.OP_SET_PROPERTY, property_name_constant);
+                    try self.emitOpCode(.OP_POP); // Pop property value
+                } else {
+                    try self.reportErrorFmt("Property `{s}` does not exists", .{ property_name });
+                }
+
+                if (!self.check(.RightBrace)) {
+                    try self.consume(.Comma, "Expected `,` after field initialization.");
+                }
+            }
+
+            // Did we initialized all properties without a default value?
+            if (init_properties.count() < obj_def.fields.count()) {
+                var it = obj_def.fields.iterator();
+                while (it.next()) |kv| {
+                    // If ommitted in initialization and doesn't have default value
+                    if (init_properties.get(kv.key_ptr.*) == null
+                        and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
+                        try self.reportErrorFmt("Property `{s}` was not initialized and has no default value", .{ kv.key_ptr.* });
+                    }
+                }
+            }
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after object initialization.");
+
+        return self.getTypeDef(object_type.toInstance());
+    }
 
     fn objectDeclaration(self: *Self, is_class: bool) !void {
         if (self.current.?.scope_depth > 0) {
@@ -2540,6 +2616,10 @@ pub const Compiler = struct {
                     prop.name,
                     prop.type_def,
                 );
+
+                if (prop.with_default) {
+                    try object_type.resolved_type.?.Object.fields_defaults.put(prop.name, {});
+                }
             } else {
                 try self.reportError("Expected either method or property.");
                 return;

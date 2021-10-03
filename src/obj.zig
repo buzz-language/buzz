@@ -637,6 +637,7 @@ pub const ObjObject = struct {
         name: *ObjString,
         // TODO: Do i need to have two maps ?
         fields: StringHashMap(*ObjTypeDef),
+        fields_defaults: StringHashMap(void),
         methods: StringHashMap(*ObjTypeDef),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
@@ -653,6 +654,7 @@ pub const ObjObject = struct {
             return ObjectDefSelf {
                 .name = name,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
+                .fields_defaults = StringHashMap(void).init(allocator),
                 .methods = StringHashMap(*ObjTypeDef).init(allocator),
                 .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
             };
@@ -660,6 +662,7 @@ pub const ObjObject = struct {
 
         pub fn deinit(self: *ObjectDefSelf) void {
             self.fields.deinit();
+            self.fields_defaults.deinit();
             self.methods.deinit();
             self.placeholders.deinit();
         }
@@ -1341,7 +1344,7 @@ pub const ObjTypeDef = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn toRuntime(self: *Self) Self {
+    pub fn toInstance(self: *Self) Self {
         return switch (self.def_type) {
             .Object => object: {
                 var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{

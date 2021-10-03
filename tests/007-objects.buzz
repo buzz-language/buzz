@@ -4,11 +4,6 @@ object First {
     str name = "Joe";
     num age = 10;
 
-    fun init(str name) {
-        print(this.name);
-        this.name = name;
-    }
-
     fun sayHello() {
         print("hello");
         print(this.name);
@@ -16,7 +11,9 @@ object First {
 }
 
 test "Objects" {
-    First first = First("John");
+    First first = First {
+        name = "John",
+    };
 
     assert(first.name == "John", message: "object instance, field access");
 

@@ -32,7 +32,7 @@ object Me {
 }
 
 test "Optional chaining" {
-    Me? me = Me();
+    Me? me = Me{};
 
     assert(me?.list?.len() == 3, message: "chaining optionals work");
 }

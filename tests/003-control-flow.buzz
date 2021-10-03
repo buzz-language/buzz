@@ -74,4 +74,4 @@ object Ahead {
     num age = 0;
 }
 
-Ahead objAhead = Ahead();
+Ahead objAhead = Ahead{};

@@ -1,15 +1,11 @@
 object Kill {
     num yo = -1;
-
-    fun init(num yo) {
-        this.yo = yo;
-    }
 }
 
 test "GC, collecting unreferenced objects" {
     num i = 0;
     while (i < 100) {
-        Kill(i); | Should be collected since not referenced anywhere
+        Kill{ yo = i }; | Should be collected since not referenced anywhere
 
         i = i + 1;
     }
