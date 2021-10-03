@@ -442,34 +442,39 @@ pub const VM = struct {
                     try self.defineMethod(self.readString(arg));
                 },
 
-                .OP_PROPERTY => {
-                    try self.definePropertyDefaultValue(self.readString(arg));
-                },
+                // Like OP_SET_PROPERTY but pops the value and leaves the instance on the stack
+                .OP_PROPERTY => try self.setObjectFieldDefaultValue(self.readString(arg)),
                 
                 .OP_GET_PROPERTY => {
                     var obj: *Obj = self.peek(0).Obj;
 
                     switch (obj.obj_type) {
-                        .ObjectInstance => instance: {
-                            var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                            var name: *ObjString = self.readString(arg);
+                        .Object => {
+                            const object: *ObjObject = ObjObject.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
+
+                            _ = self.pop(); // Pop instance
+                            self.push(object.static_fields.get(name.string).?);
+                        },
+                        .ObjectInstance => {
+                            const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
 
                             if (instance.fields.get(name.string)) |field| {
                                 _ = self.pop(); // Pop instance
                                 self.push(field);
-                                break :instance;
-                            }
-                            
-                            if (instance.object.methods.get(name.string)) |method| {
+                            } else if (instance.object.methods.get(name.string)) |method| {
                                 try self.bindMethod(method, null);
+                            } else {
+                                unreachable;
                             }
                         },
                         .Enum => {
                             unreachable;
                         },
                         .List => {
-                            var list = ObjList.cast(obj).?;
-                            var name: *ObjString = self.readString(arg);
+                            const list = ObjList.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
 
                             if (try list.member(self, name.string)) |member| {
                                 try self.bindMethod(null, member);
@@ -482,16 +487,35 @@ pub const VM = struct {
                 },
 
                 .OP_SET_PROPERTY => {
-                    var instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
-                    var name: *ObjString = self.readString(arg);
+                    var obj: *Obj = self.peek(1).Obj;
 
-                    // Set new value
-                    try instance.fields.put(name.string, self.peek(0));
+                    switch (obj.obj_type) {
+                        .ObjectInstance => {
+                            const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
 
-                    // Get the new value from stack, pop the instance and push value again
-                    var value: Value = self.pop();
-                    _ = self.pop();
-                    self.push(value);
+                            // Set new value
+                            try instance.fields.put(name.string, self.peek(0));
+
+                            // Get the new value from stack, pop the instance and push value again
+                            const value: Value = self.pop();
+                            _ = self.pop();
+                            self.push(value);
+                        },
+                        .Object => {
+                            const object: *ObjObject = ObjObject.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
+
+                            // Set new value
+                            try object.static_fields.put(name.string, self.peek(0));
+
+                            // Get the new value from stack, pop the object and push value again
+                            const value: Value = self.pop();
+                            _ = self.pop();
+                            self.push(value);
+                        },
+                        else => unreachable
+                    }
                 },
 
                 // TODO: remove
@@ -974,7 +998,7 @@ pub const VM = struct {
         _ = self.pop();
     }
 
-    fn definePropertyDefaultValue(self: *Self, name: *ObjString) !void {
+    fn setObjectFieldDefaultValue(self: *Self, name: *ObjString) !void {
         var property: Value = self.peek(0);
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 

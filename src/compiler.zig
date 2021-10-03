@@ -59,7 +59,6 @@ const CompileError = error {
 
 pub const FunctionType = enum {
     Function,
-    Initializer,
     Method,
     Script,
     ScriptEntryPoint, // main script
@@ -150,7 +149,7 @@ pub const ChunkCompiler = struct {
         local.is_captured = false;
 
         switch (function_type) {
-            .Method, .Initializer => {
+            .Method => {
                 // `this`
                 var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                     .ObjectInstance = this.?
@@ -190,8 +189,7 @@ pub const ChunkCompiler = struct {
         }
 
         const name: []const u8 = switch (function_type) {
-            .Method,
-            .Initializer => "this",
+            .Method => "this",
             .EntryPoint => "$args",
             .ScriptEntryPoint => "args",
             else => "_"
@@ -324,6 +322,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Import
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Export
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Const
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Static
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -404,7 +403,7 @@ pub const Compiler = struct {
 
         // Enter AST
         while (!(try self.match(.Eof))) {
-            if (!(self.declarationOrReturnStatement() catch return null)) {
+            if (!(self.declarationOrImportExport() catch return null)) {
                 return null;
             }
         }
@@ -639,23 +638,6 @@ pub const Compiler = struct {
             var parameters: std.StringArrayHashMap(*ObjTypeDef) = undefined;
             if (resolved_type.def_type == .Function) {
                 parameters = resolved_type.resolved_type.?.Function.parameters;
-            } else if (resolved_type.def_type == .Object) {
-                // Search for `init` method
-                var found_init: bool = false;
-                var it = resolved_type.resolved_type.?.Object.methods.iterator();
-                while (it.next()) |kv| {
-                    if (mem.eql(u8, kv.key_ptr.*, "init")) {
-                        assert(kv.value_ptr.*.def_type == .Function);
-                        parameters = kv.value_ptr.*.resolved_type.?.Function.parameters;
-                        found_init = true;
-                        break;
-                    }
-                }
-
-                // Otherwise argument list should be empty
-                if (!found_init) {
-                    parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
-                }
             } else {
                 unreachable;
             }
@@ -1048,10 +1030,7 @@ pub const Compiler = struct {
     fn emitReturn(self: *Self) !void {
         var return_type: *ObjTypeDef = undefined;
 
-        if (self.current.?.function_type == .Initializer) {
-            return_type = self.current.?.function.type_def.resolved_type.?.Function.return_type;
-            try self.emitCodeArg(.OP_GET_LOCAL, 0);
-        } else if (self.current.?.function_type != .Script
+        if (self.current.?.function_type != .Script
             and self.current.?.function_type != .EntryPoint
             and self.current.?.function_type != .ScriptEntryPoint) {
             return_type = try self.getTypeDef(
@@ -1077,7 +1056,7 @@ pub const Compiler = struct {
     // TODO: minimize code redundancy between declaration and declarationOrStatement
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
-    fn declarationOrReturnStatement(self: *Self) !bool {
+    fn declarationOrImportExport(self: *Self) !bool {
         const constant: bool = try self.match(.Const);
 
         if (!constant and try self.match(.Object)) {
@@ -1159,8 +1138,6 @@ pub const Compiler = struct {
             }
 
             try self.varDeclaration(var_type.?, false, constant);
-        } else if (!constant and try self.match(.Return)) {
-            try self.returnStatement();
         } else if (!constant and try self.match(.Import)) {
             try self.importStatement();
         } else if (!constant and try self.match(.Export)) {
@@ -1341,10 +1318,6 @@ pub const Compiler = struct {
         if (try self.match(.Semicolon)) {
             try self.emitReturn();
         } else {
-            if (self.current.?.function_type == .Initializer) {
-                try self.reportError("Can't return a value from an initializer.");
-            }
-
             var return_type: *ObjTypeDef= try self.expression(false);
             if (!self.current.?.function.type_def.resolved_type.?.Function.return_type.eql(return_type)) {
                 try self.reportTypeCheck(self.current.?.function.type_def.resolved_type.?.Function.return_type, return_type, "Return value");
@@ -1580,7 +1553,7 @@ pub const Compiler = struct {
 
         var function_def: ObjFunction.FunctionDef = .{
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
-            .return_type = return_type,
+            .return_type = try self.getTypeDef(return_type.toInstance()),
             .parameters = parameters,
         };
 
@@ -1623,6 +1596,7 @@ pub const Compiler = struct {
         // We replace it with a self.getTypeDef pointer at the end
         self.current.?.function.type_def = &function_typedef;
 
+        // Parse argument list
         if (function_type != .Try and function_type != .Test and (function_type != .Catch or self.check(.LeftParen))) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
@@ -1695,7 +1669,7 @@ pub const Compiler = struct {
         
         // Parse return type
         if (function_type != .Try and function_type != .Catch and function_type != .Test and try self.match(.Greater)) {
-            function_typedef.resolved_type.?.Function.return_type = try self.parseTypeDef();
+            function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
         } else {
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef(
                 .{
@@ -1743,20 +1717,18 @@ pub const Compiler = struct {
         return new_function.type_def;
     }
 
-    fn method(self: *Self, object: *ObjTypeDef) !*ObjTypeDef {
+    fn method(self: *Self, object: *ObjTypeDef, static: bool) !*ObjTypeDef {
         try self.consume(.Identifier, "Expected method name.");
         var constant: u24 = try self.identifierConstant(self.parser.previous_token.?.lexeme);
 
         var fun_type: FunctionType = .Method;
-
-        if (self.parser.previous_token.?.lexeme.len == 4
-            and mem.eql(u8, self.parser.previous_token.?.lexeme, "init")) {
-            fun_type = .Initializer;
-        }
-
         var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object);
 
-        try self.emitCodeArg(.OP_METHOD, constant);
+        if (static) {
+            try self.emitCodeArg(.OP_SET_PROPERTY, constant);
+        } else {
+            try self.emitCodeArg(.OP_METHOD, constant);
+        }
 
         return fun_typedef;
     }
@@ -1768,7 +1740,7 @@ pub const Compiler = struct {
         with_default: bool,
     };
 
-    fn property(self: *Self) !?Property {
+    fn property(self: *Self, static: bool) !?Property {
         var name: ?Token = null;
         var type_def: ?*ObjTypeDef = null;
         var name_constant: ?u24 = null;
@@ -1868,6 +1840,11 @@ pub const Compiler = struct {
             // Parse default value
             var with_default: bool = false;
             if (try self.match(.Equal)) {
+                if (static) {
+                    // TODO: to avoid this, new opcode that doesn't pop instance and push value
+                    try self.emitOpCode(.OP_COPY);
+                }
+
                 var expr_type: *ObjTypeDef = try self.expression(false);
 
                 // If only receiver is placeholder, make the assumption that its type if what the expression's return
@@ -1898,8 +1875,13 @@ pub const Compiler = struct {
                 }
 
                 // Create property default value
-                try self.emitCodeArg(.OP_PROPERTY, name_constant.?);
-                with_default = true;
+                if (static) {
+                    try self.emitCodeArg(.OP_SET_PROPERTY, name_constant.?);
+                    try self.emitOpCode(.OP_POP);
+                } else {
+                    try self.emitCodeArg(.OP_PROPERTY, name_constant.?);
+                    with_default = true;
+                }
             }
             
             if (!self.check(.RightBrace) or self.check(.Comma)) {
@@ -2575,12 +2557,16 @@ pub const Compiler = struct {
         try self.consume(.LeftBrace, "Expected `{` before object body.");
         self.beginScope();
 
+        var fields = std.StringHashMap(void).init(self.allocator);
+        defer fields.deinit();
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            const static: bool = try self.match(.Static);
+
             if (try self.match(.Fun)) {
-                var method_def: *ObjTypeDef = try self.method(object_type);
+                var method_def: *ObjTypeDef = try self.method(object_type, static);
                 var method_name: []const u8 = method_def.resolved_type.?.Function.name.string;
                 
-                if (object_type.resolved_type.?.Object.methods.get(method_name) != null) {
+                if (fields.get(method_name) != null) {
                     try self.reportError("A method with that name already exists.");
                 }
 
@@ -2592,12 +2578,21 @@ pub const Compiler = struct {
                     _ = object_type.resolved_type.?.Object.placeholders.remove(method_name);
                 }
 
-                try object_type.resolved_type.?.Object.methods.put(
-                    method_name,
-                    method_def,
-                );
-            } else if (try self.property()) |prop| {
-                if (object_type.resolved_type.?.Object.fields.get(prop.name) != null) {
+                if (static) {
+                    try object_type.resolved_type.?.Object.static_fields.put(
+                        method_name,
+                        method_def
+                    );
+                } else {
+                    try object_type.resolved_type.?.Object.methods.put(
+                        method_name,
+                        method_def,
+                    );
+                }
+
+                try fields.put(method_name, {});
+            } else if (try self.property(static)) |prop| {
+                if (fields.get(prop.name) != null) {
                     try self.reportError("A property with that name already exists.");
                 }
 
@@ -2614,14 +2609,23 @@ pub const Compiler = struct {
                     unreachable;
                 }
 
-                try object_type.resolved_type.?.Object.fields.put(
-                    prop.name,
-                    prop.type_def,
-                );
+                if (static) {
+                    try object_type.resolved_type.?.Object.static_fields.put(
+                        prop.name,
+                        prop.type_def,
+                    );
+                } else {
+                    try object_type.resolved_type.?.Object.fields.put(
+                        prop.name,
+                        prop.type_def,
+                    );
 
-                if (prop.with_default) {
-                    try object_type.resolved_type.?.Object.fields_defaults.put(prop.name, {});
+                    if (prop.with_default) {
+                        try object_type.resolved_type.?.Object.fields_defaults.put(prop.name, {});
+                    }
                 }
+
+                try fields.put(prop.name, {});
             } else {
                 try self.reportError("Expected either method or property.");
                 return;
@@ -3051,14 +3055,6 @@ pub const Compiler = struct {
         if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
             if (resolved_type.def_type == .Function) {
                 return try self.argumentList(resolved_type.resolved_type.?.Function.parameters);
-            } else if (resolved_type.def_type == .Object) {
-                if (resolved_type.resolved_type.?.Object.methods.get("init")) |init_method| {
-                    return try self.argumentList(init_method.resolved_type.?.Function.parameters);
-                }
-
-                // No user-defined init method, no arguments
-                // TODO: flesh this out when we define how default constructors work
-                return try self.argumentList(null);
             }
         } else if (placeholder_type.resolved_type.?.Placeholder.resolved_parameters) |parameters| {
             return try self.argumentList(parameters);
@@ -3905,26 +3901,6 @@ pub const Compiler = struct {
             try self.emitCodeArg(.OP_CALL, arg_count);
 
             return callee_type.resolved_type.?.Function.return_type;
-        } else if (callee_type.def_type == .Object) {
-            if (callee_type.resolved_type.?.Object.methods.get("init")) |initializer| {
-                arg_count = try self.argumentList(initializer.resolved_type.?.Function.parameters);
-            } else {
-                // try self.reportError("No initializer: this is a bug in buzz compiler which should have provided one.");
-                try self.consume(.RightParen, "Expected `)` to close argument list.");
-
-                arg_count = 0;
-            }
-
-            try self.emitCodeArg(.OP_CALL, arg_count);
-
-            var instance_type: ObjTypeDef.TypeUnion = .{
-                .ObjectInstance = callee_type
-            };
-
-            return try self.getTypeDef(ObjTypeDef {
-                .def_type = .ObjectInstance,
-                .resolved_type = instance_type,
-            });
         } else if (callee_type.def_type == .Native) {
             arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters);
 
@@ -4018,6 +3994,7 @@ pub const Compiler = struct {
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
         if (callee_type.def_type != .ObjectInstance
+            and callee_type.def_type != .Object
             and callee_type.def_type != .Enum
             and callee_type.def_type != .EnumInstance
             and callee_type.def_type != .List
@@ -4031,6 +4008,76 @@ pub const Compiler = struct {
 
         // Check that name is a property
         switch (callee_type.def_type) {
+            .Object => {
+                var obj_def: ObjObject.ObjectDef = callee_type.resolved_type.?.Object;
+
+                var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name);
+
+                // Not found, create a placeholder
+                if (property_type == null) {
+                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+                    };
+
+                    var placeholder: *ObjTypeDef = try self.getTypeDef(.{
+                        .optional = false,
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    });
+
+                    try callee_type.resolved_type.?.Object.placeholders.put(member_name, placeholder);
+
+                    property_type = placeholder;
+                }
+
+                // Do we assign to it?
+                if (can_assign and try self.match(.Equal)) {
+                    if (property_type.?.def_type == .Placeholder) {
+                        property_type.?.resolved_type.?.Placeholder.assignable = true;
+                        if (!property_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                            try self.reportErrorAt(property_type.?.resolved_type.?.Placeholder.where, "Can't be assigned to.");
+                            return property_type.?;
+                        }
+                    }
+
+                    var parsed_type: *ObjTypeDef = try self.expression(false);
+
+                    if (!parsed_type.eql(property_type.?)) {
+                        try self.reportTypeCheck(property_type.?, parsed_type, "Static field value");
+                    }
+
+                    try self.emitCodeArg(.OP_SET_PROPERTY, name);
+
+                    return parsed_type;             
+                }
+
+                // Do we call it?
+                if (try self.match(.LeftParen)) {
+                    if (property_type.?.def_type == .Placeholder) {
+                        property_type.?.resolved_type.?.Placeholder.callable = true;
+                        if (!property_type.?.resolved_type.?.Placeholder.isCoherent()) {
+                            try self.reportErrorAt(property_type.?.resolved_type.?.Placeholder.where, "Can't be called.");
+                            return property_type.?;
+                        }
+                    }
+
+                    if (property_type.?.def_type != .Function and property_type.?.def_type != .Placeholder) {
+                        try self.reportError("Can't be called.");
+                    }
+
+                    var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
+
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
+                    try self.emitCodeArg(.OP_CALL, arg_count);
+
+                    return property_type.?.resolved_type.?.Function.return_type;
+                }
+
+                // Else just get it
+                try self.emitCodeArg(.OP_GET_PROPERTY, name);
+
+                return property_type.?;
+            },
             .ObjectInstance => {
                 var obj_def: ObjObject.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
@@ -4049,7 +4096,7 @@ pub const Compiler = struct {
                     };
 
                     var placeholder: *ObjTypeDef = try self.getTypeDef(.{
-                        .optional = try self.match(.Question),
+                        .optional = false,
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
                     });
@@ -4085,7 +4132,6 @@ pub const Compiler = struct {
                     return parsed_type;             
                 }
 
-
                 // If it's a method or placeholder we can call it
                 if (try self.match(.LeftParen)) {
                     if (property_type.?.def_type == .Placeholder) {
@@ -4096,7 +4142,7 @@ pub const Compiler = struct {
                         }
                     }
 
-                    if (!is_method and property_type.?.def_type != .Placeholder) {
+                    if (!is_method and property_type.?.def_type != .Function and property_type.?.def_type != .Placeholder) {
                         try self.reportError("Can't be called.");
                     }
 

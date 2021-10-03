@@ -22,3 +22,23 @@ test "Objects" {
 
     first.sayHello();
 }
+
+object Second {
+    static num nextId = -1,
+
+    num id,
+
+    static fun init() > Second {
+        Second.nextId = Second.nextId + 1;
+
+        return Second {
+            id = Second.nextId
+        };
+    }
+}
+
+test "Object with static fields" {
+    Second second = Second.init();
+
+    assert(second.id == Second.nextId, message: "could use static fields");
+}

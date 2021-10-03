@@ -581,6 +581,8 @@ pub const ObjObject = struct {
     methods: StringHashMap(*ObjClosure),
     /// Object fields default values
     fields: StringHashMap(Value),
+    /// Object static fields
+    static_fields: StringHashMap(Value),
     /// Optional super class
     super: ?*ObjObject = null,
     /// If false, can't be inherited from
@@ -591,6 +593,7 @@ pub const ObjObject = struct {
             .name = name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(Value).init(allocator),
+            .static_fields = StringHashMap(Value).init(allocator),
             .type_def = type_def,
         };
     }
@@ -605,6 +608,10 @@ pub const ObjObject = struct {
         while (it2.next()) |kv| {
             try markValue(vm, kv.value_ptr.*);
         }
+        var it3 = self.static_fields.iterator();
+        while (it3.next()) |kv| {
+            try markValue(vm, kv.value_ptr.*);
+        }
         if (self.super) |super| {
             try markObj(vm, super.toObj());
         }
@@ -613,6 +620,7 @@ pub const ObjObject = struct {
     pub fn deinit(self: *Self) void {
         self.methods.deinit();
         self.fields.deinit();
+        self.static_fields.deinit();
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -638,6 +646,7 @@ pub const ObjObject = struct {
         // TODO: Do i need to have two maps ?
         fields: StringHashMap(*ObjTypeDef),
         fields_defaults: StringHashMap(void),
+        static_fields: StringHashMap(*ObjTypeDef),
         methods: StringHashMap(*ObjTypeDef),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
@@ -654,6 +663,7 @@ pub const ObjObject = struct {
             return ObjectDefSelf {
                 .name = name,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
+                .static_fields = StringHashMap(*ObjTypeDef).init(allocator),
                 .fields_defaults = StringHashMap(void).init(allocator),
                 .methods = StringHashMap(*ObjTypeDef).init(allocator),
                 .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
@@ -662,6 +672,7 @@ pub const ObjObject = struct {
 
         pub fn deinit(self: *ObjectDefSelf) void {
             self.fields.deinit();
+            self.static_fields.deinit();
             self.fields_defaults.deinit();
             self.methods.deinit();
             self.placeholders.deinit();
@@ -1688,10 +1699,12 @@ pub const PlaceholderDef = struct {
 
         return self.field_accessible.?
             and (self.resolved_def_type == null
+                or self.resolved_def_type.? == .Object
                 or self.resolved_def_type.? == .Enum
                 or self.resolved_def_type.? == .EnumInstance
                 or self.resolved_def_type.? == .ObjectInstance)
             and (self.resolved_type == null
+                or self.resolved_type.?.def_type == .Object
                 or self.resolved_type.?.def_type == .Enum
                 or self.resolved_type.?.def_type == .EnumInstance
                 or self.resolved_type.?.def_type == .ObjectInstance);
