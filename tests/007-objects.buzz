@@ -24,7 +24,7 @@ test "Objects" {
 }
 
 object Second {
-    static num nextId = -1,
+    static num nextId = -1;
 
     num id,
 

@@ -53,16 +53,16 @@ fn runFile(allocator: *Allocator, file_name: []const u8, args: ?[][:0]u8, testin
         }
         imports.deinit();
     }
-    
+
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
         std.debug.warn("File not found", .{});
         return;
     };
     defer file.close();
-    
+
     const source = try allocator.alloc(u8, (try file.stat()).size);
     defer allocator.free(source);
-    
+
     _ = try file.readAll(source);
 
     if (try compiler.compile(source, file_name, testing)) |function| {
@@ -73,9 +73,9 @@ fn runFile(allocator: *Allocator, file_name: []const u8, args: ?[][:0]u8, testin
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     var allocator: *Allocator = if (builtin.mode == .Debug)
-            &gpa.allocator
-        else
-            std.heap.c_allocator;
+        &gpa.allocator
+    else
+        std.heap.c_allocator;
 
     var args: [][:0]u8 = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -97,7 +97,6 @@ pub fn main() !void {
         }
     }
 }
-
 
 test "Testing buzz" {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -123,7 +122,7 @@ test "Testing buzz" {
             };
 
             if (!had_error) {
-                std.debug.warn("\u{001b}[32m[{s}... ✔️]\u{001b}[0m\n", .{file.name});
+                std.debug.warn("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
             }
         }
     }

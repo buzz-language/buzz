@@ -1884,8 +1884,14 @@ pub const Compiler = struct {
                 }
             }
             
-            if (!self.check(.RightBrace) or self.check(.Comma)) {
-                try self.consume(.Comma, "Expected `,` after property definition.");
+            if (static) {
+                if (!self.check(.RightBrace) or self.check(.Semicolon)) {
+                    try self.consume(.Semicolon, "Expected `;` after static property definition.");
+                }
+            } else {
+                if (!self.check(.RightBrace) or self.check(.Comma)) {
+                    try self.consume(.Comma, "Expected `,` after property definition.");
+                }
             }
 
             return Property{
