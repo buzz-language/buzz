@@ -95,6 +95,7 @@ pub const UpValue = struct {
 
 pub const ObjectCompiler = struct {
     name: Token,
+    // TODO: is `enclosing` ever used?
     enclosing: ?*ObjectCompiler,
 };
 
@@ -2510,9 +2511,11 @@ pub const Compiler = struct {
             return;
         }
 
+        // Get object name
         try self.consume(.Identifier, "Expected object name.");
         var object_name: Token = self.parser.previous_token.?.clone();
 
+        // Check a global doesn't already exist
         for (self.globals.items) |global| {
             if (mem.eql(u8, global.name.string, object_name.lexeme)) {
                 try self.reportError("Global with that name already exists.");
@@ -2520,6 +2523,7 @@ pub const Compiler = struct {
             }
         }
 
+        // Create type
         var object_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         object_type.* = .{
             .def_type = .Object,
@@ -2545,10 +2549,12 @@ pub const Compiler = struct {
             true // Object is always constant
         );
 
+        // Put  object on the stack and define global with it
         try self.emitCodeArg(.OP_OBJECT, name_constant);
         try self.emit(@intCast(u32, object_type_constant));
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
+        // Mark initialized so we can refer to it inside its own declaration
         self.markInitialized();
 
         var object_compiler: ObjectCompiler = .{
@@ -2560,6 +2566,7 @@ pub const Compiler = struct {
 
         _ = try self.namedVariable(object_name, false);
 
+        // Body
         try self.consume(.LeftBrace, "Expected `{` before object body.");
         self.beginScope();
 
@@ -2577,11 +2584,20 @@ pub const Compiler = struct {
                 }
 
                 // Does a placeholder exists for this name ?
-                if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, method_def, true);
+                if (static) {
+                    if (object_type.resolved_type.?.Object.static_placeholders.get(method_name)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, method_def, true);
 
-                    // Now we know the placeholder was a method
-                    _ = object_type.resolved_type.?.Object.placeholders.remove(method_name);
+                        // Now we know the placeholder was a method
+                        _ = object_type.resolved_type.?.Object.static_placeholders.remove(method_name);
+                    }
+                } else {
+                    if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, method_def, true);
+
+                        // Now we know the placeholder was a method
+                        _ = object_type.resolved_type.?.Object.placeholders.remove(method_name);
+                    }
                 }
 
                 if (static) {
@@ -2603,11 +2619,20 @@ pub const Compiler = struct {
                 }
 
                 // Does a placeholder exists for this name ?
-                if (object_type.resolved_type.?.Object.placeholders.get(prop.name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, prop.type_def, prop.constant);
+                if (static) {
+                    if (object_type.resolved_type.?.Object.static_placeholders.get(prop.name)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, prop.type_def, prop.constant);
 
-                    // Now we know the placeholder was a field
-                    _ = object_type.resolved_type.?.Object.placeholders.remove(prop.name);
+                        // Now we know the placeholder was a field
+                        _ = object_type.resolved_type.?.Object.static_placeholders.remove(prop.name);
+                    }
+                } else {
+                    if (object_type.resolved_type.?.Object.placeholders.get(prop.name)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, prop.type_def, prop.constant);
+
+                        // Now we know the placeholder was a field
+                        _ = object_type.resolved_type.?.Object.placeholders.remove(prop.name);
+                    }
                 }
 
                 if (prop.constant) {
@@ -2645,7 +2670,7 @@ pub const Compiler = struct {
 
         try self.emitOpCode(.OP_POP);
 
-        self.current_object =  if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
+        self.current_object = if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !void {
@@ -4020,7 +4045,9 @@ pub const Compiler = struct {
                 var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name);
 
                 // Not found, create a placeholder
-                if (property_type == null) {
+                // TODO: test with something else than a name
+                if (property_type == null
+                    and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
                     };
@@ -4031,7 +4058,7 @@ pub const Compiler = struct {
                         .resolved_type = placeholder_resolved_type,
                     });
 
-                    try callee_type.resolved_type.?.Object.placeholders.put(member_name, placeholder);
+                    try callee_type.resolved_type.?.Object.static_placeholders.put(member_name, placeholder);
 
                     property_type = placeholder;
                 }
@@ -4095,8 +4122,8 @@ pub const Compiler = struct {
                     orelse obj_def.placeholders.get(member_name);
 
                 // Else create placeholder
-                // TODO: don't create placeholder if we're not in the process of parsing the object def
-                if (property_type == null) {
+                if (property_type == null
+                    and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
                     };
@@ -4110,6 +4137,8 @@ pub const Compiler = struct {
                     try callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object.placeholders.put(member_name, placeholder);
 
                     property_type = placeholder;
+                } else {
+                    try self.reportErrorFmt("Property or method `{s}` does not exists.", .{ member_name });
                 }
                 
                 // If its a field or placeholder, we can assign to it

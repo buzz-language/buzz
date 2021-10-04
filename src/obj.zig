@@ -585,8 +585,6 @@ pub const ObjObject = struct {
     static_fields: StringHashMap(Value),
     /// Optional super class
     super: ?*ObjObject = null,
-    /// If false, can't be inherited from
-    inheritable: bool = false,
 
     pub fn init(allocator: *Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
         return Self {
@@ -654,7 +652,9 @@ pub const ObjObject = struct {
         //   - we use OP_GET_PROPERTY for both
         //   - OP_SET_PROPERTY for a method will ultimately fail
         //   - OP_INVOKE on a field will ultimately fail
+        // TODO: but we can have field which are functions and then we don't know what's what
         placeholders: StringHashMap(*ObjTypeDef),
+        static_placeholders: StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
         inheritable: bool = false,
         
@@ -667,6 +667,7 @@ pub const ObjObject = struct {
                 .fields_defaults = StringHashMap(void).init(allocator),
                 .methods = StringHashMap(*ObjTypeDef).init(allocator),
                 .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
+                .static_placeholders = StringHashMap(*ObjTypeDef).init(allocator),
             };
         }
 
@@ -676,6 +677,7 @@ pub const ObjObject = struct {
             self.fields_defaults.deinit();
             self.methods.deinit();
             self.placeholders.deinit();
+            self.static_placeholders.deinit();
         }
     };
 };
