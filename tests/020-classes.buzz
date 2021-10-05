@@ -1,8 +1,8 @@
 import "zig-out/lib/libstd.dylib";
 
 class Form {
-    num x;
-    num y;
+    num x,
+    num y,
 
     fun toString() > str {
         return "({this.x}, {this.y})";
@@ -10,10 +10,11 @@ class Form {
 }
 
 class Circle < Form {
-    num radius;
+    num radius,
 
     fun toString() > str {
-        return "center: {super.toString()}, radius: {this.radius}";
+        | return "center: {super.toString()}, radius: {this.radius}";
+        return "center: ({this.x}, {this.y}), radius: {this.radius}";
     }
 }
 
@@ -24,7 +25,7 @@ test "Inheritance & polymorphism" {
         radius = 10,
     };
 
-    assert(circle is Circle, message: "of course");
+    | assert(circle is Circle, message: "of course");
     assert(circle is Form, message: "inheritance baby");
     assert(circle.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
 }
@@ -40,3 +41,4 @@ test "Downcast" {
 
     assert(form.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
 }
+

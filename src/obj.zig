@@ -146,7 +146,7 @@ pub const Obj = struct {
             .Enum, => type_def.def_type == .Type,
 
             .ObjectInstance => type_def.def_type == .Object
-                and ObjObjectInstance.cast(self).?.object.type_def == type_def,
+                and ObjObjectInstance.cast(self).?.is(null, type_def),
             .EnumInstance => type_def.def_type == .Enum
                 and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def,
             .Function => function: {
@@ -193,7 +193,7 @@ pub const Obj = struct {
             .ObjectInstance => oi: {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
                 break :oi type_def.def_type == .ObjectInstance
-                    and instance.object.type_def.eql(type_def.resolved_type.?.ObjectInstance);
+                    and instance.is(null, type_def.resolved_type.?.ObjectInstance);
             },
             .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
             .Object => ObjObject.cast(self).?.type_def.eql(type_def),
@@ -562,6 +562,17 @@ pub const ObjObjectInstance = struct {
         }
 
         return @fieldParentPtr(Self, "obj", obj);
+    }
+
+    fn is(self: *Self, instance_type: ?*ObjTypeDef, type_def: *ObjTypeDef) bool {
+        const object_def: *ObjTypeDef = instance_type orelse self.object.type_def;
+
+        if (type_def.def_type != .Object) {
+            return false;
+        }
+
+        return object_def == type_def
+            or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
     }
 };
 
@@ -1393,6 +1404,14 @@ pub const ObjTypeDef = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
+    pub fn instanceEqlTypeUnion(a: *ObjTypeDef, b: *ObjTypeDef) bool {
+        assert(a.def_type == .Object);
+        assert(b.def_type == .Object);
+
+        return a == b
+            or (b.resolved_type.?.Object.super != null and instanceEqlTypeUnion(a, b.resolved_type.?.Object.super.?));
+    }
+
     // Compare two type definitions
     pub fn eqlTypeUnion(a: TypeUnion, b: TypeUnion) bool {
         if (@as(Type, a) != @as(Type, b)) {
@@ -1402,7 +1421,10 @@ pub const ObjTypeDef = struct {
         return switch (a) {
             .Bool, .Number, .String, .Type, .Void => return true,
 
-            .ObjectInstance => return a.ObjectInstance.eql(b.ObjectInstance),
+            .ObjectInstance => {
+                return a.ObjectInstance.eql(b.ObjectInstance)
+                    or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
+            },
             .EnumInstance => return a.EnumInstance.eql(b.EnumInstance),
 
             .Object,

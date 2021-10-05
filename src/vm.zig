@@ -386,13 +386,9 @@ pub const VM = struct {
                     _ = self.pop();
                 },
 
-                .OP_GET_SUBSCRIPT => {
-                    try self.subscript();
-                },
+                .OP_GET_SUBSCRIPT => try self.subscript(),
                 
-                .OP_SET_SUBSCRIPT => {
-                    try self.setSubscript();
-                },
+                .OP_SET_SUBSCRIPT => try self.setSubscript(),
 
                 .OP_ENUM => {
                     var enum_: *ObjEnum = try allocateObject(self, ObjEnum, ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?));
@@ -436,11 +432,11 @@ pub const VM = struct {
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
+                .OP_INHERIT => ObjObject.cast(self.peek(0).Obj).?.super = ObjObject.cast(self.globals.items[arg].Obj).?,
+
                 .OP_INSTANCE => try self.instanciateObject(ObjObject.cast(self.pop().Obj).?),
 
-                .OP_METHOD => {
-                    try self.defineMethod(self.readString(arg));
-                },
+                .OP_METHOD => try self.defineMethod(self.readString(arg)),
 
                 // Like OP_SET_PROPERTY but pops the value and leaves the instance on the stack
                 .OP_PROPERTY => try self.setObjectFieldDefaultValue(self.readString(arg)),
@@ -465,6 +461,8 @@ pub const VM = struct {
                                 self.push(field);
                             } else if (instance.object.methods.get(name.string)) |method| {
                                 try self.bindMethod(method, null);
+                            } else if (instance.object.super) |super| {
+                                try self.getSuperField(name.string, super);
                             } else {
                                 unreachable;
                             }
@@ -526,9 +524,7 @@ pub const VM = struct {
                     std.debug.print("{s}\n", .{ value_str });
                 },
 
-                .OP_NOT => {
-                    self.push(Value{ .Boolean = !self.pop().Boolean });
-                },
+                .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
 
                 .OP_GREATER => {
                     const left: f64 = self.pop().Number;
@@ -555,9 +551,7 @@ pub const VM = struct {
 
                 .OP_IS => self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) }),
 
-                .OP_JUMP => {
-                    self.current_frame.?.ip += arg;
-                },
+                .OP_JUMP => self.current_frame.?.ip += arg,
 
                 .OP_JUMP_IF_FALSE => {
                     if (!self.peek(0).Boolean) {
@@ -565,9 +559,7 @@ pub const VM = struct {
                     }
                 },
 
-                .OP_LOOP => {
-                    self.current_frame.?.ip -= arg;
-                },
+                .OP_LOOP => self.current_frame.?.ip -= arg,
 
                 .OP_FOREACH => try self.foreach(),
 
@@ -893,7 +885,35 @@ pub const VM = struct {
             try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
         }
 
+        if (object.super) |super| {
+            try self.superDefaults(instance, super);
+        }
+
         self.push(instance.toValue());
+    }
+
+    // TODO: superDefaults and getSuperField could be replaced by specialized opcodes to avoid having to walk up the chain of inheritance
+
+    fn superDefaults(self: *Self, instance: *ObjObjectInstance, super: *ObjObject) Allocator.Error!void {
+        var it = super.fields.iterator();
+        while (it.next()) |kv| {
+            try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
+        }
+
+        if (super.super) |super_super| {
+            try self.superDefaults(instance, super_super);
+        }
+    }
+
+    fn getSuperField(self: *Self, name: []const u8, super: *ObjObject) Allocator.Error!void {
+        if (super.static_fields.get(name)) |static| {
+            _ = self.pop(); // Pop instance
+            self.push(static);
+        } if (super.methods.get(name)) |method| {
+            try self.bindMethod(method, null);
+        } else  if (super.super) |super_super| {
+            try self.getSuperField(name, super_super);
+        }
     }
 
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !void {

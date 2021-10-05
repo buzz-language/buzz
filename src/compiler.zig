@@ -2487,7 +2487,7 @@ pub const Compiler = struct {
 
                 try self.consume(.Equal, "Expected `=` after property nane.");
 
-                if (obj_def.fields.get(property_name)) |prop| {
+                if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
                     try self.emitCodeArg(.OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
                     const prop_type: *ObjTypeDef = try self.expression(false);
@@ -2574,6 +2574,15 @@ pub const Compiler = struct {
         // Mark initialized so we can refer to it inside its own declaration
         self.markInitialized();
 
+        var object_compiler: ObjectCompiler = .{
+            .name = object_name,
+            .enclosing = if (self.current_object != null) self.current_object.?.enclosing else null,
+        };
+        
+        self.current_object = object_compiler;
+
+        _ = try self.namedVariable(object_name, false);
+
         // Inherited class?
         if (is_class) {
             object_type.resolved_type.?.Object.inheritable = true;
@@ -2597,18 +2606,11 @@ pub const Compiler = struct {
                     }
                 }
 
+                object_type.resolved_type.?.Object.super = parent;
+
                 try self.emitCodeArg(.OP_INHERIT, @intCast(u24, parent_slot));
             }
         }
-
-        var object_compiler: ObjectCompiler = .{
-            .name = object_name,
-            .enclosing = if (self.current_object != null) self.current_object.?.enclosing else null,
-        };
-        
-        self.current_object = object_compiler;
-
-        _ = try self.namedVariable(object_name, false);
 
         // Body
         try self.consume(.LeftBrace, "Expected `{` before object body.");
@@ -2712,6 +2714,7 @@ pub const Compiler = struct {
         try self.endScope();
         try self.consume(.RightBrace, "Expected `}` after object body.");
 
+        // Pop object
         try self.emitOpCode(.OP_POP);
 
         self.current_object = if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
@@ -4073,6 +4076,28 @@ pub const Compiler = struct {
         return self.getTypeDef(unwrapped);
     }
 
+    fn getSuperMethod(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
+        const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
+        if (obj_def.methods.get(name)) |obj_method| {
+            return obj_method;
+        } else if (obj_def.super) |super| {
+            return self.getSuperMethod(super, name);
+        }
+
+        return null;
+    }
+
+    fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
+        const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
+        if (obj_def.fields.get(name)) |obj_field| {
+            return obj_field;
+        } else if (obj_def.super) |super| {
+            return self.getSuperField(super, name);
+        }
+
+        return null;
+    }
+
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
         if (callee_type.def_type != .ObjectInstance
@@ -4163,14 +4188,16 @@ pub const Compiler = struct {
                 return property_type.?;
             },
             .ObjectInstance => {
-                var obj_def: ObjObject.ObjectDef = callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                var object: *ObjTypeDef = callee_type.resolved_type.?.ObjectInstance;
+                var obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
 
-                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name);
+                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name) orelse self.getSuperMethod(object, member_name);
                 var is_method: bool = property_type != null;
                 
                 property_type = property_type
                     orelse obj_def.fields.get(member_name)
-                    orelse obj_def.placeholders.get(member_name);
+                    orelse obj_def.placeholders.get(member_name)
+                    orelse self.getSuperField(object, member_name);
 
                 // Else create placeholder
                 if (property_type == null
@@ -4188,7 +4215,7 @@ pub const Compiler = struct {
                     try callee_type.resolved_type.?.ObjectInstance.resolved_type.?.Object.placeholders.put(member_name, placeholder);
 
                     property_type = placeholder;
-                } else {
+                } else if (property_type == null) {
                     try self.reportErrorFmt("Property or method `{s}` does not exists.", .{ member_name });
                 }
                 
