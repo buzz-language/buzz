@@ -705,8 +705,20 @@ pub const Compiler = struct {
                     }
                 },
                 .Subscript => {
-                    // Is child type matching the list type or map value type?
-                    unreachable;
+                    if (resolved_type.def_type == .List) {
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.List.item_type, false);
+                    } else if (resolved_type.def_type == .Map) {
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.value_type, false);
+                    } else {
+                        unreachable;
+                    }
+                },
+                .Key => {
+                    if (resolved_type.def_type == .Map) {
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.key_type, false);
+                    } else {
+                        unreachable;
+                    }
                 },
                 .FieldAccess => {
                     switch (resolved_type.def_type) {
@@ -1251,9 +1263,11 @@ pub const Compiler = struct {
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type
                     });
-                }
 
-                try self.varDeclaration(var_type.?, false, constant);
+                    _ = try self.declarePlaceholder(user_type_name, var_type);
+                } else {
+                    try self.varDeclaration(var_type.?, false, constant);
+                }
 
                 return null;
             } else {
@@ -1398,33 +1412,7 @@ pub const Compiler = struct {
         } else if (try self.match(.Function)) {
             return try self.functionType();
         } else if ((try self.match(.Identifier))) {
-            var user_type_name: Token = self.parser.previous_token.?.clone();
-            var var_type: ?*ObjTypeDef = null;
-
-            // Search for a global with that name
-            for (self.globals.items) |global| {
-                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
-                    var_type = global.type_def;
-                    break;
-                }
-            }
-
-            // If none found, create a placeholder
-            if (var_type == null) {
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
-                };
-
-                placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme, false);
-
-                var_type = try self.getTypeDef(.{
-                    .optional = try self.match(.Question),
-                    .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type
-                });
-            }
-
-            return var_type.?;
+            return self.globals.items[try self.parseUserType()].type_def;
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 
@@ -1433,6 +1421,40 @@ pub const Compiler = struct {
                 .def_type = .Void
             });
         }
+    }
+
+    fn parseUserType(self: *Self) !usize {
+        var user_type_name: Token = self.parser.previous_token.?.clone();
+        var var_type: ?*ObjTypeDef = null;
+        var global_slot: ?usize = null;
+
+        // Search for a global with that name
+        for (self.globals.items) |global, index| {
+            if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
+                var_type = global.type_def;
+                global_slot = index;
+                break;
+            }
+        }
+
+        // If none found, create a placeholder
+        if (var_type == null) {
+            var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
+            };
+
+            placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, user_type_name.lexeme, false);
+
+            var_type = try self.getTypeDef(.{
+                .optional = try self.match(.Question),
+                .def_type = .Placeholder,
+                .resolved_type = placeholder_resolved_type
+            });
+
+            global_slot = try self.declarePlaceholder(user_type_name, var_type.?);
+        }
+
+        return global_slot.?;
     }
 
     inline fn getRule(token: TokenType) ParseRule {
@@ -2535,11 +2557,6 @@ pub const Compiler = struct {
             }
         };
 
-        if (is_class) {
-            object_type.resolved_type.?.Object.inheritable = true;
-            // TODO: parse super class here
-        }
-
         const name_constant: u24 = try self.makeConstant(Value { .Obj = object_type.resolved_type.?.Object.name.toObj() });
         const object_type_constant: u24 = try self.makeConstant(Value{ .Obj = object_type.toObj() });
 
@@ -2556,6 +2573,33 @@ pub const Compiler = struct {
 
         // Mark initialized so we can refer to it inside its own declaration
         self.markInitialized();
+
+        // Inherited class?
+        if (is_class) {
+            object_type.resolved_type.?.Object.inheritable = true;
+
+            if (try self.match(.Less)) {
+                try self.consume(.Identifier, "Expected identifier after `<`.");
+
+                var parent_slot: usize = try self.parseUserType();
+                var parent: *ObjTypeDef = self.globals.items[parent_slot].type_def;
+
+                if (parent.def_type != .Object and (parent.def_type != .Placeholder
+                    or !parent.resolved_type.?.Placeholder.couldBeObject())) {
+                    try self.reportErrorFmt("`{s}` is not a class.", .{ self.parser.previous_token.?.lexeme });
+                }
+
+                if (parent.def_type == .Placeholder) {
+                    parent.resolved_type.?.Placeholder.resolved_def_type = .Object;
+
+                    if (!parent.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportErrorFmt("`{s}` can't be a class.", .{ self.parser.previous_token.?.lexeme });
+                    }
+                }
+
+                try self.emitCodeArg(.OP_INHERIT, @intCast(u24, parent_slot));
+            }
+        }
 
         var object_compiler: ObjectCompiler = .{
             .name = object_name,
@@ -3037,21 +3081,22 @@ pub const Compiler = struct {
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, slot);
     }
 
-    fn declarePlaceholder(self: *Self, name: Token) !usize {
-        if (self.current.?.scope_depth == 0) {
-            try self.reportError("Unknown expression type.");
-            return 0;
+    fn declarePlaceholder(self: *Self, name: Token, placeholder: ?*ObjTypeDef) !usize {
+        var placeholder_type: *ObjTypeDef = undefined;
+
+        if (placeholder) |uplaceholder| {
+            placeholder_type = uplaceholder;
+        } else {
+            var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
+            };
+            placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false);
+
+            placeholder_type = try self.getTypeDef(.{
+                .def_type = .Placeholder,
+                .resolved_type = placeholder_resolved_type
+            });
         }
-
-        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-            .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
-        };
-        placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false);
-
-        const placeholder_type = try self.getTypeDef(.{
-            .def_type = .Placeholder,
-            .resolved_type = placeholder_resolved_type
-        });
 
         const global: usize = try self.addGlobal(name, placeholder_type, false);
         // markInitialized but we don't care what depth we are in
@@ -3395,7 +3440,7 @@ pub const Compiler = struct {
                 get_op = .OP_GET_GLOBAL;
                 set_op = .OP_SET_GLOBAL;
 
-                arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name));
+                arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name, null));
 
                 const global = self.globals.items[arg.?];
 
@@ -3830,6 +3875,8 @@ pub const Compiler = struct {
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 });
+
+                try PlaceholderDef.link(callee_type, item_type.?, .Subscript);
             }
 
             var index_type: *ObjTypeDef = try self.expression(false);
@@ -3870,6 +3917,8 @@ pub const Compiler = struct {
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
                 });
+
+                try PlaceholderDef.link(callee_type, item_type.?, .Subscript);
             }
 
             var key_type: *ObjTypeDef = try self.expression(false);
@@ -3896,12 +3945,14 @@ pub const Compiler = struct {
                     }
                 }
 
-                var placeholder = ObjTypeDef{
+                var placeholder = try self.getTypeDef(ObjTypeDef{
                     .def_type = .Placeholder,
                     .resolved_type = placeholder_resolved_type
-                };
+                });
 
-                if (!ObjTypeDef.eql(&placeholder, key_type)) {
+                try PlaceholderDef.link(callee_type, placeholder, .Key);
+
+                if (!ObjTypeDef.eql(placeholder, key_type)) {
                     try self.reportError("Wrong map key type.");
                 }
             }

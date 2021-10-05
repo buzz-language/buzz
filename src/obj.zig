@@ -1567,6 +1567,7 @@ pub const PlaceholderDef = struct {
     const PlaceholderRelation = enum {
         Call,
         Subscript,
+        Key,
         FieldAccess,
         Assignment,
     };
@@ -1687,11 +1688,9 @@ pub const PlaceholderDef = struct {
 
         return self.callable.?
             and (self.resolved_def_type == null
-                or self.resolved_def_type.? == .Function
-                or self.resolved_def_type.? == .Object)
+                or self.resolved_def_type.? == .Function)
             and (self.resolved_type == null
-                or self.resolved_type.?.def_type == .Function
-                or self.resolved_type.?.def_type == .Object);
+                or self.resolved_type.?.def_type == .Function);
     }
 
     pub fn isFieldAccessible(self: *Self) bool {
@@ -1747,6 +1746,12 @@ pub const PlaceholderDef = struct {
         return self.isSubscriptable()
             and (self.resolved_def_type == null or self.resolved_def_type.? == .Map)
             and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
+    }
+
+    pub fn couldBeObject(self: *Self) bool {
+        return self.isFieldAccessible()
+            and (self.resolved_def_type == null or self.resolved_def_type.? == .Object)
+            and (self.resolved_type == null or self.resolved_type.?.def_type == .Object);
     }
 
     pub fn isCoherent(self: *Self) bool {

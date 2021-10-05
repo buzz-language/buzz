@@ -1,3 +1,4 @@
+// zig fmt: off
 const std = @import("std");
 const print = std.debug.print;
 const _chunk = @import("./chunk.zig");
@@ -164,6 +165,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_PROPERTY,
         .OP_GET_PROPERTY,
         .OP_SET_PROPERTY,
+        .OP_INHERIT,
         .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
 
         .OP_GET_SUPER => simpleInstruction(instruction, offset),
@@ -202,8 +204,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_CLOSE_UPVALUE => simpleInstruction(instruction, offset),
 
         .OP_RETURN => simpleInstruction(instruction, offset),
-
-        .OP_INHERIT => simpleInstruction(instruction, offset),
 
         // TODO: remove
         .OP_PRINT => simpleInstruction(instruction, offset),
