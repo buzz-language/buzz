@@ -1,0 +1,12 @@
+import "zig-out/lib/libstd.dylib";
+
+fun upvals() > Function() {
+    num upvalue = 12;
+    str up = "up";
+
+    return fun () -> print("{upvalue} {up}");
+}
+
+test "Upvalues" {
+    upvals()();
+}

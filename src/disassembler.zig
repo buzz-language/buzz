@@ -156,7 +156,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_ENUM_CASE,
         .OP_MAP,
         .OP_EXPORT,
-        .OP_COPY => byteInstruction(instruction, chunk, offset),
+        .OP_COPY,
+        .OP_CLOSE_UPVALUE,
+        .OP_RETURN, => byteInstruction(instruction, chunk, offset),
         
         .OP_OBJECT,
         .OP_ENUM,
@@ -167,7 +169,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_PROPERTY,
         .OP_SET_PROPERTY,
         .OP_INHERIT,
-        .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
+        .OP_CONSTANT, => try constantInstruction(instruction, chunk, offset),
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE => jumpInstruction(instruction, chunk, true, offset),
@@ -199,10 +201,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
             break :closure off_offset;
         },
-
-        .OP_CLOSE_UPVALUE => simpleInstruction(instruction, offset),
-
-        .OP_RETURN => simpleInstruction(instruction, offset),
 
         // TODO: remove
         .OP_PRINT => simpleInstruction(instruction, offset),

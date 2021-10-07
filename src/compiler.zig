@@ -2619,14 +2619,16 @@ pub const Compiler = struct {
         
         self.current_object = object_compiler;
 
-        _ = try self.namedVariable(object_name, false);
-
         // Inherited class?
         if (is_class) {
             object_type.resolved_type.?.Object.inheritable = true;
 
             if (try self.match(.Less)) {
                 try self.consume(.Identifier, "Expected identifier after `<`.");
+
+                if (std.mem.eql(u8, object_name.lexeme, self.parser.previous_token.?.lexeme)) {
+                    try self.reportError("A class can't inherit itself.");
+                }
 
                 var parent_slot: usize = try self.parseUserType();
                 var parent: *ObjTypeDef = self.globals.items[parent_slot].type_def;
@@ -2646,13 +2648,34 @@ pub const Compiler = struct {
 
                 object_type.resolved_type.?.Object.super = parent;
 
+                try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, parent_slot));
+
+                self.beginScope();
+                _ = try self.addLocal(
+                    Token{
+                        .token_type = .Identifier,
+                        .lexeme = "super",
+                        .line = 0,
+                        .column = 0,
+                    },
+                    try self.getTypeDef(parent.toInstance()),
+                    true,
+                );
+                self.markInitialized();
+
+                _ = try self.namedVariable(object_name, false);
                 try self.emitCodeArg(.OP_INHERIT, @intCast(u24, parent_slot));
+            } else {
+                self.beginScope();
             }
+        } else {
+            self.beginScope();
         }
+
+        _ = try self.namedVariable(object_name, false);
 
         // Body
         try self.consume(.LeftBrace, "Expected `{` before object body.");
-        self.beginScope();
 
         var fields = std.StringHashMap(void).init(self.allocator);
         defer fields.deinit();
@@ -2747,13 +2770,14 @@ pub const Compiler = struct {
             }
         }
 
-        // TODO: ERROR IN PLACEHOLDERS LEFT
+        // TODO: ERROR IF PLACEHOLDERS LEFT
 
-        try self.endScope();
         try self.consume(.RightBrace, "Expected `}` after object body.");
 
         // Pop object
         try self.emitOpCode(.OP_POP);
+
+        try self.endScope();
 
         self.current_object = null;
     }

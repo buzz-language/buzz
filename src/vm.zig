@@ -155,7 +155,8 @@ pub const VM = struct {
             )
         );
 
-        self.push(Value{ .Obj = list.toObj() });
+        // Args is the first local like `this` which replace the closure itself in the stack
+        (self.stack_top - 1)[0] = list.toValue();
 
         if (args) |uargs| {
             for (uargs) |arg| {
@@ -224,7 +225,7 @@ pub const VM = struct {
         // Command line arguments are the first local
         try self.pushArgs(args);
 
-        _ = try self.call(closure, 1);
+        _ = try self.call(closure, 0);
 
         return try self.run();
     }
@@ -324,17 +325,21 @@ pub const VM = struct {
                         var index: u8 = self.readByte();
 
                         if (is_local) {
-                            try closure.upvalues.append(try self.captureUpvalue(&(self.current_frame.?.slots + index)[0]));
+                            try closure.upvalues.append(try self.captureUpvalue(&(self.current_frame.?.slots[index])));
                         } else {
                             try closure.upvalues.append(self.current_frame.?.closure.upvalues.items[index]);
                         }
                     }
                 },
+                .OP_CLOSE_UPVALUE => {
+                    self.closeUpValues(@ptrCast(*Value, self.stack_top - 1));
+                    _ = self.pop();
+                },
                 .OP_CALL => {
                     const arg_count: u8 = @intCast(u8, arg);
                     try self.callValue(self.peek(arg_count), arg_count);
 
-                    self.current_frame.? = &self.frames.items[self.frame_count - 1];
+                    self.current_frame = &self.frames.items[self.frame_count - 1];
                 },
 
                 .OP_INVOKE => {
@@ -455,7 +460,9 @@ pub const VM = struct {
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
-                .OP_INHERIT => ObjObject.cast(self.peek(0).Obj).?.super = ObjObject.cast(self.globals.items[arg].Obj).?,
+                .OP_INHERIT => {
+                    ObjObject.cast(self.pop().Obj).?.super = ObjObject.cast(self.globals.items[arg].Obj).?;
+                },
 
                 .OP_GET_SUPER => {
                     const name: *ObjString = self.readString(arg);
@@ -909,14 +916,16 @@ pub const VM = struct {
 
     fn instanciateObject(self: *Self, object: *ObjObject) !void {
         var instance: *ObjObjectInstance = try allocateObject(self, ObjObjectInstance, ObjObjectInstance.init(self.allocator, object));
+
+        // Set instance fields with super classes default values
+        if (object.super) |super| {
+            try self.superDefaults(instance, super);
+        }
+
         // Set instance fields with default values
         var it = object.fields.iterator();
         while (it.next()) |kv| {
             try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
-        }
-
-        if (object.super) |super| {
-            try self.superDefaults(instance, super);
         }
 
         self.push(instance.toValue());
@@ -925,13 +934,13 @@ pub const VM = struct {
     // TODO: superDefaults and getSuperField could be replaced by specialized opcodes to avoid having to walk up the chain of inheritance
 
     fn superDefaults(self: *Self, instance: *ObjObjectInstance, super: *ObjObject) Allocator.Error!void {
+        if (super.super) |super_super| {
+            try self.superDefaults(instance, super_super);
+        }
+
         var it = super.fields.iterator();
         while (it.next()) |kv| {
             try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
-        }
-
-        if (super.super) |super_super| {
-            try self.superDefaults(instance, super_super);
         }
     }
 

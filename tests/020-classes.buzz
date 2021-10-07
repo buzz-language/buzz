@@ -13,8 +13,7 @@ class Circle < Form {
     num radius,
 
     fun toString() > str {
-        | return "center: {super.toString()}, radius: {this.radius}";
-        return "center: ({this.x}, {this.y}), radius: {this.radius}";
+        return "center: {super.toString()}, radius: {this.radius}";
     }
 }
 
@@ -25,20 +24,21 @@ test "Inheritance & polymorphism" {
         radius = 10,
     };
 
-    assert(circle is Circle, message: "of course");
-    assert(circle is Form, message: "inheritance baby");
+    | assert(circle is Circle, message: "of course");
+    | assert(circle is Form, message: "inheritance baby");
+    print(circle.toString());
     assert(circle.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
 }
 
-test "Downcast" {
-    Circle circle = Circle {
-        x = 0,
-        y = 0,
-        radius = 10,
-    };
+| test "Downcast" {
+|     Circle circle = Circle {
+|         x = 0,
+|         y = 0,
+|         radius = 10,
+|     };
 
-    Form form = circle;
+|     Form form = circle;
 
-    assert(form.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
-}
+|     assert(form.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
+| }
 
