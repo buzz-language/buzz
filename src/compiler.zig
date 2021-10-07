@@ -95,8 +95,7 @@ pub const UpValue = struct {
 
 pub const ObjectCompiler = struct {
     name: Token,
-    // TODO: is `enclosing` ever used?
-    enclosing: ?*ObjectCompiler,
+    type_def: *ObjTypeDef,
 };
 
 pub const ChunkCompiler = struct {
@@ -2576,7 +2575,7 @@ pub const Compiler = struct {
 
         var object_compiler: ObjectCompiler = .{
             .name = object_name,
-            .enclosing = if (self.current_object != null) self.current_object.?.enclosing else null,
+            .type_def = object_type,
         };
         
         self.current_object = object_compiler;
@@ -2717,7 +2716,7 @@ pub const Compiler = struct {
         // Pop object
         try self.emitOpCode(.OP_POP);
 
-        self.current_object = if (self.current_object != null and self.current_object.?.enclosing != null) self.current_object.?.enclosing.?.* else null;
+        self.current_object = null;
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !void {
