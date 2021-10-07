@@ -104,7 +104,6 @@ pub const ChunkCompiler = struct {
     enclosing: ?*ChunkCompiler = null,
     function: *ObjFunction,
     function_type: FunctionType,
-    returned_type: ?*ObjTypeDef = null,
 
     locals: [255]Local,
     local_count: u8 = 0,
@@ -925,8 +924,8 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NULL);
                 try self.emitOpCode(.OP_RETURN);
             }
-        // Emit `return void;` if no returnStatement was parsed
-        } else if (self.current.?.returned_type == null) {
+        } else {
+            // TODO: detect if some branches of the function body miss a return statement
             try self.emitReturn();
         }
 
@@ -1040,27 +1039,7 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) !void {
-        var return_type: *ObjTypeDef = undefined;
-
-        if (self.current.?.function_type != .Script
-            and self.current.?.function_type != .EntryPoint
-            and self.current.?.function_type != .ScriptEntryPoint) {
-            return_type = try self.getTypeDef(
-                .{
-                    .def_type = .Void
-                }
-            );
-            try self.emitOpCode(.OP_NULL);
-        }
-
-        if (self.current.?.returned_type) |already_returned| {
-            if (!already_returned.eql(return_type)) {
-                try self.reportError("Returning multiple incompatible types.");
-            }
-        }
-
-        self.current.?.returned_type = return_type;
-
+        try self.emitOpCode(.OP_NULL);
         try self.emitOpCode(.OP_RETURN);
     }
 
@@ -1336,8 +1315,6 @@ pub const Compiler = struct {
             if (!self.current.?.function.type_def.resolved_type.?.Function.return_type.eql(return_type)) {
                 try self.reportTypeCheck(self.current.?.function.type_def.resolved_type.?.Function.return_type, return_type, "Return value");
             }
-
-            self.current.?.returned_type = return_type;
 
             try self.consume(.Semicolon, "Expected `;` after return value.");
             try self.emitOpCode(.OP_RETURN);
@@ -1712,16 +1689,6 @@ pub const Compiler = struct {
         } else {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             _ = try self.block();
-
-            var returned_type: *ObjTypeDef = self.current.?.returned_type orelse try self.getTypeDef(
-                .{
-                    .def_type = .Void
-                }
-            );
-
-            if (!function_typedef.resolved_type.?.Function.return_type.eql(returned_type)) {
-                try self.reportTypeCheck(function_typedef.resolved_type.?.Function.return_type, returned_type, "Bad return type");
-            }
         }
 
         self.current.?.function.type_def = try self.getTypeDef(function_typedef);
