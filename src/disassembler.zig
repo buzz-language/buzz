@@ -141,7 +141,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_IMPORT,
         .OP_TO_STRING,
         .OP_INSTANCE,
-        .OP_FOREACH, => simpleInstruction(instruction, offset),
+        .OP_FOREACH,
+        .OP_GET_SUPER, => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
@@ -168,16 +169,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_INHERIT,
         .OP_CONSTANT => try constantInstruction(instruction, chunk, offset),
 
-        .OP_GET_SUPER => simpleInstruction(instruction, offset),
-        
         .OP_JUMP,
         .OP_JUMP_IF_FALSE => jumpInstruction(instruction, chunk, true, offset),
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
+        .OP_SUPER_INVOKE,
         .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
         .OP_CALL => byteInstruction(instruction, chunk, offset),
-        .OP_SUPER_INVOKE => simpleInstruction(instruction, offset),
 
         .OP_CLOSURE => closure: {
             var constant: u24 = arg;

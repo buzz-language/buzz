@@ -322,6 +322,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Export
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Const
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Static
+        .{ .prefix = super,    .infix = null,      .precedence = .None }, // Super
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -1563,6 +1564,77 @@ pub const Compiler = struct {
         function_typedef.resolved_type = function_resolved_type;
 
         return try self.getTypeDef(function_typedef);
+    }
+
+    fn super(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        if (self.current_object) |object| {
+            if (object.type_def.resolved_type.?.Object.super) |obj_super| {
+                if (obj_super.def_type == .Placeholder) {
+                    // TODO: new link?
+                    unreachable;
+                }
+
+                try self.consume(.Dot, "Expected `.` after `super`.");
+                try self.consume(.Identifier, "Expected superclass method name.");
+                const name_constant: u24 = try self.identifierConstant(self.parser.previous_token.?.lexeme);
+                var super_method: ?*ObjTypeDef = obj_super.resolved_type.?.Object.methods.get(self.parser.previous_token.?.lexeme);
+
+                if (super_method == null) {
+                    try self.reportErrorFmt("Method `{s}` doesn't exists.", .{ self.parser.previous_token.?.lexeme });
+                }
+
+                _ = try self.namedVariable(
+                    Token{
+                        .token_type = .Identifier,
+                        .lexeme = "this",
+                        .line = 0,
+                        .column = 0,
+                    },
+                    false
+                );
+
+                if (try self.match(.LeftParen)) {
+                    const arg_count: u8 = try self.argumentList(super_method.?.resolved_type.?.Function.parameters);
+                    _ = try self.namedVariable(
+                        Token{
+                            .token_type = .Identifier,
+                            .lexeme = "super",
+                            .line = 0,
+                            .column = 0,
+                        },
+                        false
+                    );
+
+                    try self.emitCodeArg(.OP_SUPER_INVOKE, name_constant);
+                    try self.emit(@intCast(u32, arg_count));
+
+                    return super_method.?.resolved_type.?.Function.return_type;
+                } else {
+                    _ = try self.namedVariable(
+                        Token{
+                            .token_type = .Identifier,
+                            .lexeme = "super",
+                            .line = 0,
+                            .column = 0,
+                        },
+                        false
+                    );
+
+                    try self.emitCodeArg(.OP_GET_SUPER, name_constant);
+
+                    return super_method.?;
+                }
+            } else {
+                try self.reportError("Can't use `super` in a class with no superclass.");
+                return object.type_def;
+            }
+        } else {
+            try self.reportError("Can't use `super` outside of a class.");
+            return try self.getTypeDef(.{
+                .def_type = .Void,
+                .optional = false,
+            });
+        }
     }
 
     fn fun(self: *Self, _: bool) anyerror!*ObjTypeDef {
@@ -4046,8 +4118,8 @@ pub const Compiler = struct {
         const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
         if (obj_def.methods.get(name)) |obj_method| {
             return obj_method;
-        } else if (obj_def.super) |super| {
-            return self.getSuperMethod(super, name);
+        } else if (obj_def.super) |obj_super| {
+            return self.getSuperMethod(obj_super, name);
         }
 
         return null;
@@ -4057,8 +4129,8 @@ pub const Compiler = struct {
         const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
         if (obj_def.fields.get(name)) |obj_field| {
             return obj_field;
-        } else if (obj_def.super) |super| {
-            return self.getSuperField(super, name);
+        } else if (obj_def.super) |obj_super| {
+            return self.getSuperField(obj_super, name);
         }
 
         return null;

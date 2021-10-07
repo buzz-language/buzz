@@ -19,30 +19,30 @@ A small/lightweight typed scripting language written in Zig
 - TBD: coroutines?
 
 # TODO
+- [X] `const` qualifier
+- [X] `do` `until` statement
+- [X] `for` statement
+- [X] `foreach` statement
+- [X] `if` statement
+- [X] `import`/`export`
 - [X] `is` operator
+- [X] `while` statement
 - [X] Arithmetic operations
 - [X] Arrow and anonymous functions
-- [X] const qualifier
-- [X] do until statement
 - [X] Enum
-- [X] for statement
-- [X] foreach statement
 - [X] Garbage collection
-- [X] if statement
-- [X] import/export
 - [X] List
 - [X] Logical operations
 - [X] Map
 - [X] Native functions
 - [X] Objects (class you can't inherit from)
 - [X] Optionals
+- [X] Simple inheritance
 - [X] String escape sequences
 - [X] Strings interpolation
 - [X] Test system
-- [X] while statement
 - [ ] Assignment shortcuts (+=, -=, etc.)
 - [ ] Bitwise operations
-- [ ] Classes or Interface (TBD)
 - [ ] Compiled chunk serialization
 - [ ] Constructor strategy
 - [ ] Error stack trace

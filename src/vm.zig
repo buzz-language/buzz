@@ -331,16 +331,23 @@ pub const VM = struct {
                     }
                 },
                 .OP_CALL => {
-                    var arg_count: u8 = @intCast(u8, arg);
+                    const arg_count: u8 = @intCast(u8, arg);
                     try self.callValue(self.peek(arg_count), arg_count);
 
                     self.current_frame.? = &self.frames.items[self.frame_count - 1];
                 },
 
                 .OP_INVOKE => {
-                    var method: *ObjString = self.readString(arg);
-                    var arg_count: u8 = self.readByte();
+                    const method: *ObjString = self.readString(arg);
+                    const arg_count: u8 = self.readByte();
                     try self.invoke(method, arg_count);
+                },
+
+                .OP_SUPER_INVOKE => {
+                    const method: *ObjString = self.readString(arg);
+                    const arg_count: u8 = self.readByte();
+                    const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
+                    try self.invokeFromObject(super_class, method, arg_count);
                 },
 
                 .OP_RETURN => {
@@ -449,6 +456,13 @@ pub const VM = struct {
                 },
 
                 .OP_INHERIT => ObjObject.cast(self.peek(0).Obj).?.super = ObjObject.cast(self.globals.items[arg].Obj).?,
+
+                .OP_GET_SUPER => {
+                    const name: *ObjString = self.readString(arg);
+                    const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
+
+                    try self.bindMethod(super_class.methods.get(name.string).?, null);
+                },
 
                 .OP_INSTANCE => try self.instanciateObject(ObjObject.cast(self.pop().Obj).?),
 
