@@ -123,19 +123,35 @@ pub const VM = struct {
     }
 
     pub fn pushArgs(self: *Self, args: ?[][:0]u8) !void {
+        // TODO: 3 steps to do this is horrible -> helper functions please
+        var list_def: ObjList.ListDef = ObjList.ListDef.init(
+            self.allocator,
+            try allocateObject(
+                self,
+                ObjTypeDef,
+                ObjTypeDef{
+                    .def_type = .String
+                }
+            )
+        );
+
+        var list_def_union: ObjTypeDef.TypeUnion = .{
+            .List = list_def,
+        };
+
+        var list_def_type: *ObjTypeDef = try allocateObject(self, ObjTypeDef, ObjTypeDef{
+            .def_type = .List,
+            .optional = false,
+            .resolved_type = list_def_union,
+        });
+
         var list: *ObjList = try allocateObject(
             self,
             ObjList,
             ObjList.init(
                 self.allocator,
                 // TODO: get instance that already exists
-                try allocateObject(
-                    self,
-                    ObjTypeDef,
-                    ObjTypeDef{
-                        .def_type = .String
-                    }
-                )
+                list_def_type
             )
         );
 
