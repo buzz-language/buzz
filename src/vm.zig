@@ -75,7 +75,6 @@ pub const VM = struct {
 
     frames: std.ArrayList(CallFrame),
     frame_count: u64 = 0,
-    current_frame: ?*CallFrame = null,
 
     // TODO: put ta limit somewhere
     stack: []Value,
@@ -205,6 +204,14 @@ pub const VM = struct {
         (self.stack_top - from - 1)[0] = temp;
     }
 
+    pub inline fn currentFrame(self: *Self) ?*CallFrame {
+        if (self.frame_count == 0) {
+            return null;
+        }
+
+        return &self.frames.items[self.frame_count - 1];
+    }
+
     pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {        
         self.push(.{
             .Obj = function.toObj()
@@ -231,9 +238,10 @@ pub const VM = struct {
     }
 
     fn readInstruction(self: *Self) u32 {
-        var instruction: u32 = self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip];
+        const current_frame: *CallFrame = self.currentFrame().?;
+        var instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
 
-        self.current_frame.?.ip += 1;
+        current_frame.ip += 1;
 
         return instruction;
     }
@@ -251,25 +259,25 @@ pub const VM = struct {
     }
 
     inline fn readShort(self: *Self) u16 {
-        self.current_frame.?.ip += 2;
+        self.currentFrame().?.ip += 2;
 
-        const byte1: u16 = @intCast(u16, self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip - 2]);
-        const byte2: u16 = @intCast(u16, self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip - 1]);
+        const byte1: u16 = @intCast(u16, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip - 2]);
+        const byte2: u16 = @intCast(u16, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip - 1]);
 
         return @intCast(u16, (byte1 << 8) | byte2);
     }
 
     inline fn readOpCode(self: *Self) OpCode {
         // TODO: measure if [*]OpCode[0] is faster
-        var opcode: OpCode = @intToEnum(OpCode, self.current_frame.?.closure.function.chunk.code.items[self.current_frame.?.ip]);
+        var opcode: OpCode = @intToEnum(OpCode, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip]);
 
-        self.current_frame.?.ip += 1;
+        self.currentFrame().?.ip += 1;
 
         return opcode;
     }
 
     inline fn readConstant(self: *Self, arg: u24) Value {
-        return self.current_frame.?.closure.function.chunk.constants.items[arg];
+        return self.currentFrame().?.closure.function.chunk.constants.items[arg];
     }
 
     inline fn readString(self: *Self, arg: u24) *ObjString {
@@ -277,9 +285,8 @@ pub const VM = struct {
     }
 
     fn run(self: *Self) Error!void {
-        self.current_frame = &self.frames.items[self.frame_count - 1];
-
         while (true) {
+            const current_frame: *CallFrame = self.currentFrame().?;
             var full_instruction: u32 = self.readInstruction();
             var instruction: OpCode = getCode(full_instruction);
             var arg: u24 = getArg(full_instruction);
@@ -299,10 +306,10 @@ pub const VM = struct {
                 },
                 .OP_GET_GLOBAL => self.push(self.globals.items[arg + (self.global_offset orelse 0)]),
                 .OP_SET_GLOBAL => self.globals.items[arg + (self.global_offset orelse 0)] = self.peek(0),
-                .OP_GET_LOCAL => self.push(self.current_frame.?.slots[arg]),
-                .OP_SET_LOCAL => self.current_frame.?.slots[arg] = self.peek(0),
-                .OP_GET_UPVALUE => self.push(self.current_frame.?.closure.upvalues.items[arg].location.*),
-                .OP_SET_UPVALUE => self.current_frame.?.closure.upvalues.items[arg].location.* = self.peek(0),
+                .OP_GET_LOCAL => self.push(current_frame.slots[arg]),
+                .OP_SET_LOCAL => current_frame.slots[arg] = self.peek(0),
+                .OP_GET_UPVALUE => self.push(current_frame.closure.upvalues.items[arg].location.*),
+                .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => self.push(
                         Value{
@@ -325,9 +332,9 @@ pub const VM = struct {
                         var index: u8 = self.readByte();
 
                         if (is_local) {
-                            try closure.upvalues.append(try self.captureUpvalue(&(self.current_frame.?.slots[index])));
+                            try closure.upvalues.append(try self.captureUpvalue(&(current_frame.slots[index])));
                         } else {
-                            try closure.upvalues.append(self.current_frame.?.closure.upvalues.items[index]);
+                            try closure.upvalues.append(current_frame.closure.upvalues.items[index]);
                         }
                     }
                 },
@@ -338,8 +345,6 @@ pub const VM = struct {
                 .OP_CALL => {
                     const arg_count: u8 = @intCast(u8, arg);
                     try self.callValue(self.peek(arg_count), arg_count);
-
-                    self.current_frame = &self.frames.items[self.frame_count - 1];
                 },
 
                 .OP_INVOKE => {
@@ -588,15 +593,15 @@ pub const VM = struct {
 
                 .OP_IS => self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) }),
 
-                .OP_JUMP => self.current_frame.?.ip += arg,
+                .OP_JUMP => current_frame.ip += arg,
 
                 .OP_JUMP_IF_FALSE => {
                     if (!self.peek(0).Boolean) {
-                        self.current_frame.?.ip += arg;
+                        current_frame.ip += arg;
                     }
                 },
 
-                .OP_LOOP => self.current_frame.?.ip -= arg,
+                .OP_LOOP => current_frame.ip -= arg,
 
                 .OP_FOREACH => try self.foreach(),
 
@@ -627,7 +632,7 @@ pub const VM = struct {
             }
 
             if (Config.debug_stack) {
-                std.debug.warn("frame: {s}, code: {}\n", .{self.current_frame.?.closure.function.name.string, instruction});
+                std.debug.warn("frame: {s}, code: {}\n", .{current_frame.closure.function.name.string, instruction});
                 try dumpStack(self);
             }
         }
@@ -685,7 +690,9 @@ pub const VM = struct {
     fn returnFrame(self: *Self) !bool {
         var result = self.pop();
 
-        self.closeUpValues(&self.current_frame.?.slots[0]);
+        const frame: *CallFrame = self.currentFrame().?;
+
+        self.closeUpValues(&frame.slots[0]);
 
         self.frame_count -= 1;
         _ = self.frames.pop();
@@ -694,11 +701,9 @@ pub const VM = struct {
             return true;
         }
 
-        self.stack_top = self.current_frame.?.slots;
+        self.stack_top = frame.slots;
 
         self.push(result);
-
-        self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
         return false;
     }
@@ -726,11 +731,11 @@ pub const VM = struct {
     pub fn runtimeError(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
-        var frame: *CallFrame = self.current_frame.?;
+        var frame: *CallFrame = self.currentFrame().?;
         try stack.append(frame.*);
 
         // Pop frame
-        self.closeUpValues(&self.current_frame.?.slots[0]);
+        self.closeUpValues(&frame.slots[0]);
         self.frame_count -= 1;
         _ = self.frames.pop();
         if (self.frame_count == 0) {
@@ -752,12 +757,10 @@ pub const VM = struct {
             return code;
         }
 
-        self.stack_top = self.current_frame.?.slots;
+        self.stack_top = frame.slots;
 
         // We don't care about a return value but call assumes it when setting frame.slots
         self.push(Value { .Null = null });
-
-        self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
         // Call catch closure or continue unwinding frames to find one
         if (frame.closure.catch_closures.items.len > 0) {
@@ -769,8 +772,6 @@ pub const VM = struct {
 
                     self.push(payload);
                     try self.call(catch_closure, 1);
-
-                    self.current_frame.? = &self.frames.items[self.frame_count - 1];
 
                     popped = true;
                     break;
@@ -847,8 +848,8 @@ pub const VM = struct {
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.stack_top - arg_count - 1,
-            .call_site = if (self.current_frame) |current_frame|
-                current_frame.closure.function.chunk.lines.items[self.current_frame.?.ip - 1]
+            .call_site = if (self.currentFrame()) |current_frame|
+                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
                 else null
         };
 
@@ -978,8 +979,6 @@ pub const VM = struct {
                 }
 
                 try self.invokeFromObject(instance.object, name, arg_count);
-
-                self.current_frame.? = &self.frames.items[self.frame_count - 1];
             },
             .List => {
                 var list: *ObjList = ObjList.cast(obj).?;

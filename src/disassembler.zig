@@ -30,7 +30,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 
     print("{}\t{s}({} args)", .{ code, value_str, arg_count });
 
-    return offset + 1;
+    return offset + 2;
 }
 
 fn simpleInstruction(code: OpCode, offset: usize) usize {
@@ -84,7 +84,7 @@ pub fn dumpStack(vm: *VM) !void {
         var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, value[0]);
         defer std.heap.c_allocator.free(value_str);
 
-        if (vm.current_frame.?.slots == value) {
+        if (vm.currentFrame().?.slots == value) {
             print("{*} {s} frame\n ", .{ value, value_str });
         } else {
             print("{*} {s}\n ", .{ value, value_str });
