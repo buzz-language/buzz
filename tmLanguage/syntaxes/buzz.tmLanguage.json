@@ -61,7 +61,7 @@
 				},
 				{
 					"name": "variable.language.this.buzz",
-					"match": "\\bthis\\b"
+					"match": "\\b(this|super)\\b"
 				},
 				{
 					"name": "storage.type.built-in.primitive.buzz",

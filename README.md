@@ -29,6 +29,7 @@ A small/lightweight typed scripting language written in Zig
 - [X] `while` statement
 - [X] Arithmetic operations
 - [X] Arrow and anonymous functions
+- [X] Classes
 - [X] Enum
 - [X] Garbage collection
 - [X] List
@@ -44,7 +45,6 @@ A small/lightweight typed scripting language written in Zig
 - [ ] Assignment shortcuts (+=, -=, etc.)
 - [ ] Bitwise operations
 - [ ] Compiled chunk serialization
-- [ ] Constructor strategy
 - [ ] Error stack trace
 - [ ] FFI or Lua-like API
 - [ ] First-class types
