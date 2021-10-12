@@ -1959,7 +1959,7 @@ pub const Compiler = struct {
                 .name = name.?.lexeme,
                 .type_def = type_def.?,
                 .constant = constant,
-                .with_default = true,
+                .with_default = with_default,
             };
         }
 
@@ -2512,57 +2512,61 @@ pub const Compiler = struct {
 
         const obj_def: ObjObject.ObjectDef = object_type.resolved_type.?.Object;
 
-        if (obj_def.fields.count() > 0) {
-            // To keep track of what's been initialized or not by this statement
-            var init_properties = std.StringHashMap(void).init(self.allocator);
-            defer init_properties.deinit();
+        // To keep track of what's been initialized or not by this statement
+        var init_properties = std.StringHashMap(void).init(self.allocator);
+        defer init_properties.deinit();
 
-            while (!self.check(.RightBrace) and !self.check(.Eof)) {
-                try self.consume(.Identifier, "Expected property name");
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            try self.consume(.Identifier, "Expected property name");
 
-                const property_name: []const u8 = self.parser.previous_token.?.lexeme;
-                const property_name_constant: u24 = try self.identifierConstant(property_name);
+            const property_name: []const u8 = self.parser.previous_token.?.lexeme;
+            const property_name_constant: u24 = try self.identifierConstant(property_name);
 
-                try self.consume(.Equal, "Expected `=` after property nane.");
+            try self.consume(.Equal, "Expected `=` after property nane.");
 
-                if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
-                    try self.emitCodeArg(.OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
+            if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
+                try self.emitCodeArg(.OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
-                    const prop_type: *ObjTypeDef = try self.expression(false);
+                const prop_type: *ObjTypeDef = try self.expression(false);
 
-                    if (!prop.eql(prop_type)) {
-                        try self.reportTypeCheck(prop, prop_type, "Wrong property type");
-                    }
-
-                    try init_properties.put(property_name, {});
-
-                    try self.emitCodeArg(.OP_SET_PROPERTY, property_name_constant);
-                    try self.emitOpCode(.OP_POP); // Pop property value
-                } else {
-                    try self.reportErrorFmt("Property `{s}` does not exists", .{ property_name });
+                if (!prop.eql(prop_type)) {
+                    try self.reportTypeCheck(prop, prop_type, "Wrong property type");
                 }
 
-                if (!self.check(.RightBrace) or self.check(.Comma)) {
-                    try self.consume(.Comma, "Expected `,` after field initialization.");
-                }
+                try init_properties.put(property_name, {});
+
+                try self.emitCodeArg(.OP_SET_PROPERTY, property_name_constant);
+                try self.emitOpCode(.OP_POP); // Pop property value
+            } else {
+                try self.reportErrorFmt("Property `{s}` does not exists", .{ property_name });
             }
 
-            // Did we initialized all properties without a default value?
-            if (init_properties.count() < obj_def.fields.count()) {
-                var it = obj_def.fields.iterator();
-                while (it.next()) |kv| {
-                    // If ommitted in initialization and doesn't have default value
-                    if (init_properties.get(kv.key_ptr.*) == null
-                        and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
-                        try self.reportErrorFmt("Property `{s}` was not initialized and has no default value", .{ kv.key_ptr.* });
-                    }
-                }
+            if (!self.check(.RightBrace) or self.check(.Comma)) {
+                try self.consume(.Comma, "Expected `,` after field initialization.");
             }
         }
+
+        // Did we initialized all properties without a default value?
+        try self.checkOmittedProperty(obj_def, init_properties);
 
         try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
         return self.getTypeDef(object_type.toInstance());
+    }
+
+    fn checkOmittedProperty(self: *Self, obj_def: ObjObject.ObjectDef, init_properties: std.StringHashMap(void)) anyerror!void {
+        var it = obj_def.fields.iterator();
+        while (it.next()) |kv| {
+            // If ommitted in initialization and doesn't have default value
+            if (init_properties.get(kv.key_ptr.*) == null
+                and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
+                try self.reportErrorFmt("Property `{s}` was not initialized and has no default value", .{ kv.key_ptr.* });
+            }
+        }
+
+        if (obj_def.super) |super_def| {
+            try self.checkOmittedProperty(super_def.resolved_type.?.Object, init_properties);
+        }
     }
 
     fn objectDeclaration(self: *Self, is_class: bool) !void {
