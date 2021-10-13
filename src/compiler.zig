@@ -328,6 +328,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Const
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Static
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // Super
+        .{ .prefix = super,    .infix = null,      .precedence = .None }, // From
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -2026,7 +2027,7 @@ pub const Compiler = struct {
         try self.emitCodeArg(.OP_CALL, 0);
     }
 
-    fn importScript(self: *Self, file_name: []const u8) anyerror!void {
+    fn importScript(self: *Self, file_name: []const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
@@ -2069,8 +2070,14 @@ pub const Compiler = struct {
             try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(Value { .Obj = imported.function.toObj() }));
             try self.emitOpCode(.OP_IMPORT);
 
+            const selective_import = imported_symbols.count() > 0;
             for (imported.globals.items) |*global| {
                 if (!global.hidden) {
+                    if (imported_symbols.get(global.name.string) != null) {
+                        _ = imported_symbols.remove(global.name.string);
+                    } else if (selective_import) {
+                        global.hidden = true; // TODO: should i copy this?
+                    }
                     // Search for name collision
                     // TODO: could be slow if many globals
                     for (self.globals.items) |sglobal| {
@@ -2081,6 +2088,8 @@ pub const Compiler = struct {
                     }
                 }
 
+                // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
+                //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
                 try self.globals.append(global.*);
             }
         } else {
@@ -2092,7 +2101,7 @@ pub const Compiler = struct {
     pub const LibTypeDef = fn () *ObjTypeDef;
 
     // TODO: support other platform lib formats
-    fn importLib(self: *Self, file_name: []const u8) anyerror!void {
+    fn importLib(self: *Self, file_name: []const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
         var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
 
         if (lib) |*dlib| {
@@ -2101,8 +2110,24 @@ pub const Compiler = struct {
             if (dopenLib) |openLib| {
                 var exported: [*:0]const u8 = openLib();
 
+                const selective_import = imported_symbols.count() > 0;
                 var it = std.mem.split(u8, std.mem.span(exported), ",");
                 while (it.next()) |symbol| {
+                    if (selective_import and imported_symbols.get(symbol) == null) {
+                        continue;
+                    }
+
+                    _ = imported_symbols.remove(symbol);
+
+                    // Search for name collision
+                    // TODO: could be slow if many globals
+                    for (self.globals.items) |sglobal| {
+                        if (std.mem.eql(u8, sglobal.name.string, symbol)) {
+                            try self.reportError("Shadowed global");
+                            break;
+                        }
+                    }
+
                     // Convert symbol names to zig slices
                     var ssymbol = toNullTerminated(self.allocator, symbol);
                     var symbol_def_name = try self.allocator.alloc(u8, symbol.len + 8);
@@ -2176,7 +2201,22 @@ pub const Compiler = struct {
     }
 
     fn importStatement(self: *Self) anyerror!void {
-        try self.consume(.String, "Expected path after `import`.");
+        var imported_symbols = std.StringHashMap(void).init(self.allocator);
+        defer imported_symbols.deinit();
+
+        while ((try self.match(.Identifier)) and !self.check(.Eof)) {
+            try imported_symbols.put(self.parser.previous_token.?.lexeme, .{});
+
+            if (!self.check(.From) or self.check(.Comma)) { // Allow trailing comma
+                try self.consume(.Comma, "Expected `,` after identifier.");
+            }
+        }
+
+        if (imported_symbols.count() > 0) {
+            try self.consume(.From, "Expected `from` after import identifier list.");
+        }
+
+        try self.consume(.String, "Expected import path.");
 
         var file_name: []const u8 = self.parser.previous_token.?.lexeme[1..(self.parser.previous_token.?.lexeme.len - 1)];
 
@@ -2184,11 +2224,18 @@ pub const Compiler = struct {
 
         // TODO: search for a name instead of parsing file extension
         if (mem.eql(u8, file_name[file_name.len - 5..file_name.len], ".buzz")) {
-            try self.importScript(file_name);
+            try self.importScript(file_name, &imported_symbols);
         } else if (mem.eql(u8, file_name[file_name.len - 6..file_name.len], ".dylib")) {
-            try self.importLib(file_name);
+            try self.importLib(file_name, &imported_symbols);
         } else {
             try self.reportError("Unknown library extension.");
+        }
+
+        if (imported_symbols.count() > 0) {
+            var it  = imported_symbols.iterator();
+            while (it.next()) |kv| {
+                try self.reportErrorFmt("Unknown import `{s}`.", .{ kv.key_ptr.* });
+            }
         }
     }
 
@@ -4771,7 +4818,7 @@ pub const Compiler = struct {
         var i: usize = self.globals.items.len - 1;
         while (i >= 0) : (i -= 1) {
             var global: *Global = &self.globals.items[i];
-            if (mem.eql(u8, name.lexeme, global.name.string)) {
+            if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                 if (!global.initialized) {
                     try self.reportError("Can't read global variable in its own initializer.");
                 }
@@ -4875,7 +4922,7 @@ pub const Compiler = struct {
         } else {
             // Check a global with the same name doesn't exists
             for (self.globals.items) |global, index| {
-                if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden and !global.hidden) {
+                if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
                     if (global.type_def.def_type == .Placeholder
                         and global.type_def.resolved_type.?.Placeholder.name != null

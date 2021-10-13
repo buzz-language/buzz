@@ -102,6 +102,7 @@ pub const TokenType = enum {
     Const, // const
     Static, // static
     Super, // super
+    From, // from
     Eof, // EOF
     Error, // Error
 };
@@ -135,6 +136,7 @@ pub const Keywords = [_]TokenType{
     .Const,
     .Static,
     .Super,
+    .From,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -285,6 +287,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "export")) {
         return .Export;
+    }
+
+    if (mem.eql(u8, literal, "from")) {
+        return .From;
     }
 
     return null;
