@@ -361,7 +361,7 @@ pub const VM = struct {
                 },
 
                 .OP_RETURN => {
-                    if (try self.returnFrame()) {
+                    if (self.returnFrame()) {
                         return;
                     }
                 },
@@ -687,7 +687,7 @@ pub const VM = struct {
     }
 
     // result_count > 0 when the return is `export`
-    fn returnFrame(self: *Self) !bool {
+    fn returnFrame(self: *Self) bool {
         var result = self.pop();
 
         const frame: *CallFrame = self.currentFrame().?;

@@ -60,9 +60,9 @@ const CompileError = error {
 pub const FunctionType = enum {
     Function,
     Method,
-    Script,
+    Script,           // Imported script
     ScriptEntryPoint, // main script
-    EntryPoint, // main function
+    EntryPoint,       // main function
     Try,
     Catch,
     Test,
@@ -109,6 +109,11 @@ pub const ChunkCompiler = struct {
     local_count: u8 = 0,
     upvalues: [255]UpValue,
     scope_depth: u32 = 0,
+    // Set at true in a `else` statement of scope_depth 2
+    return_counts: bool = false,
+    // If false, `return` was omitted or within a conditionned block (if, loop, etc.)
+    // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
+    return_emitted: bool = false,
 
     pub fn init(compiler: *Compiler, function_type: FunctionType, file_name: ?[]const u8, this: ?*ObjTypeDef) !void {
         const function_name: []const u8 = switch (function_type) {
@@ -925,9 +930,12 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_NULL);
                 try self.emitOpCode(.OP_RETURN);
             }
-        } else {
+        } else if (self.current.?.function.type_def.resolved_type.?.Function.return_type.def_type == .Void
+            and !self.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
             try self.emitReturn();
+        } else if (!self.current.?.return_emitted) {
+            try self.reportError("Missing `return` statement.");
         }
 
         var current_function: *ObjFunction = self.current.?.function;
@@ -1307,6 +1315,9 @@ pub const Compiler = struct {
     fn returnStatement(self: *Self) !void {
         if (self.current.?.scope_depth == 0) {
             try self.reportError("Can't use `return` at top-level.");
+        } else if (self.current.?.scope_depth == 1 or self.current.?.return_counts) {
+            // scope_depth at 1 == "root" level of the function
+            self.current.?.return_emitted = true;
         }
 
         if (try self.match(.Semicolon)) {
@@ -1758,6 +1769,7 @@ pub const Compiler = struct {
             }
 
             try self.emitOpCode(.OP_RETURN); // Lambda functions returns its single expression
+            self.current.?.return_emitted = true;
         } else {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             _ = try self.block();
@@ -3128,9 +3140,11 @@ pub const Compiler = struct {
             } else {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
                 self.beginScope();
+                self.current.?.return_counts = true;
                 var else_breaks: std.ArrayList(usize) = try self.block();
                 try breaks.appendSlice(else_breaks.items);
                 else_breaks.deinit();
+                self.current.?.return_counts = false;
                 try self.endScope();
             }
         }
