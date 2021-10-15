@@ -78,7 +78,8 @@ pub const Local = struct {
 };
 
 pub const Global = struct {
-    name: *ObjString, // TODO: do i need to mark those?
+    prefix: ?[]const u8 = null,
+    name: *ObjString, // TODO: do i need to mark those? does it need to be an objstring?
     type_def: *ObjTypeDef,
     initialized: bool = false,
     exported: bool = false,
@@ -2027,7 +2028,7 @@ pub const Compiler = struct {
         try self.emitCodeArg(.OP_CALL, 0);
     }
 
-    fn importScript(self: *Self, file_name: []const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
+    fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
@@ -2058,6 +2059,8 @@ pub const Compiler = struct {
                      } else {
                         global.*.hidden = true;
                     }
+
+                    global.*.prefix = prefix;
 
                     try import.?.globals.append(global.*);
                 }
@@ -2101,7 +2104,7 @@ pub const Compiler = struct {
     pub const LibTypeDef = fn () *ObjTypeDef;
 
     // TODO: support other platform lib formats
-    fn importLib(self: *Self, file_name: []const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
+    fn importLib(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
         var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
 
         if (lib) |*dlib| {
@@ -2175,6 +2178,8 @@ pub const Compiler = struct {
                         true
                     );
 
+                    self.globals.items[slot].prefix = prefix;
+
                     self.markInitialized();
 
                     // Create a ObjNative constant with it
@@ -2212,21 +2217,26 @@ pub const Compiler = struct {
             }
         }
 
+        var prefix: ?[]const u8 = null;
         if (imported_symbols.count() > 0) {
             try self.consume(.From, "Expected `from` after import identifier list.");
         }
 
         try self.consume(.String, "Expected import path.");
-
         var file_name: []const u8 = self.parser.previous_token.?.lexeme[1..(self.parser.previous_token.?.lexeme.len - 1)];
+
+        if (imported_symbols.count() == 0 and try self.match(.As)) {
+            try self.consume(.Identifier, "Expected identifier after `as`.");
+            prefix = self.parser.previous_token.?.lexeme;
+        }
 
         try self.consume(.Semicolon, "Expected `;` after import.");
 
         // TODO: search for a name instead of parsing file extension
         if (mem.eql(u8, file_name[file_name.len - 5..file_name.len], ".buzz")) {
-            try self.importScript(file_name, &imported_symbols);
+            try self.importScript(file_name, prefix, &imported_symbols);
         } else if (mem.eql(u8, file_name[file_name.len - 6..file_name.len], ".dylib")) {
-            try self.importLib(file_name, &imported_symbols);
+            try self.importLib(file_name, prefix, &imported_symbols);
         } else {
             try self.reportError("Unknown library extension.");
         }
@@ -3570,7 +3580,7 @@ pub const Compiler = struct {
                 get_op = .OP_GET_GLOBAL;
                 set_op = .OP_SET_GLOBAL;
 
-                arg = (try self.resolveGlobal(name)) orelse (try self.declarePlaceholder(name, null));
+                arg = (try self.resolveGlobal(null, name)) orelse (try self.declarePlaceholder(name, null));
 
                 const global = self.globals.items[arg.?];
 
@@ -4810,7 +4820,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn resolveGlobal(self: *Self, name: Token) !?usize {
+    fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: Token) anyerror!?usize {
         if (self.globals.items.len == 0) {
             return null;
         }
@@ -4818,12 +4828,20 @@ pub const Compiler = struct {
         var i: usize = self.globals.items.len - 1;
         while (i >= 0) : (i -= 1) {
             var global: *Global = &self.globals.items[i];
-            if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
+            if (((prefix == null and global.prefix == null)
+                or (prefix != null and global.prefix != null and mem.eql(u8, prefix.?, global.prefix.?)))
+                and mem.eql(u8, name.lexeme, global.name.string)
+                and !global.hidden) {
                 if (!global.initialized) {
                     try self.reportError("Can't read global variable in its own initializer.");
                 }
 
                 return i;
+            // Is it an import prefix?
+            } else if (global.prefix != null and mem.eql(u8, name.lexeme, global.prefix.?)) {
+                try self.consume(.Dot, "Expected `.` after import prefix.");
+                try self.consume(.Identifier, "Expected identifier after import prefix.");
+                return try self.resolveGlobal(global.prefix.?, self.parser.previous_token.?);
             }
 
             if (i == 0) break;

@@ -103,6 +103,7 @@ pub const TokenType = enum {
     Static, // static
     Super, // super
     From, // from
+    As, // as
     Eof, // EOF
     Error, // Error
 };
@@ -137,6 +138,7 @@ pub const Keywords = [_]TokenType{
     .Static,
     .Super,
     .From,
+    .As,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -159,6 +161,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "and")) {
         return .And;
+    }
+
+    if (mem.eql(u8, literal, "as")) {
+        return .As;
     }
 
     if (mem.eql(u8, literal, "return")) {

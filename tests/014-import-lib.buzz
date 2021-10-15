@@ -1,6 +1,6 @@
-import assert from "zig-out/lib/libstd.dylib";
+import "zig-out/lib/libstd.dylib" as std;
 
 test "Using a function coming from a library" {
-    assert(true, message: "yeah!");
+    std.assert(true, message: "yeah!");
     | print("wat");
 }
