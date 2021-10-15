@@ -330,6 +330,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Static
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // Super
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // From
+        .{ .prefix = super,    .infix = null,      .precedence = .None }, // As
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -407,10 +408,14 @@ pub const Compiler = struct {
         self.parser.panic_mode = false;
 
         try self.advance();
+        
+        // Import statement must be at top of script (mainly to avoid having to add another case to placeholders)
+        while (!(try self.match(.Eof)) and try self.match(.Import)) {
+            try self.importStatement();
+        }
 
-        // Enter AST
         while (!(try self.match(.Eof))) {
-            if (!(self.declarationOrImportExport() catch return null)) {
+            if (!(self.declarations() catch return null)) {
                 return null;
             }
         }
@@ -1058,7 +1063,7 @@ pub const Compiler = struct {
     // TODO: minimize code redundancy between declaration and declarationOrStatement
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
-    fn declarationOrImportExport(self: *Self) !bool {
+    fn declarations(self: *Self) !bool {
         const constant: bool = try self.match(.Const);
 
         if (!constant and try self.match(.Object)) {
@@ -1140,8 +1145,6 @@ pub const Compiler = struct {
             }
 
             try self.varDeclaration(var_type.?, false, constant);
-        } else if (!constant and try self.match(.Import)) {
-            try self.importStatement();
         } else if (!constant and try self.match(.Export)) {
             try self.exportStatement();
         } else {
