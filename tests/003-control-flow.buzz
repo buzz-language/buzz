@@ -47,9 +47,9 @@ test "while statement with placeholder" {
 
 test "do-until statement" {
     num i = 10;
-    while (i > 0) {
+    do {
         i = i - 1;
-    }
+    } until (i == 0)
 
     assert(i == 0, message: "do until");
 }
