@@ -13,6 +13,15 @@ pub const Token = struct {
     column: usize,
     offset: usize = 0,
 
+    pub fn identifier(name: []const u8) Self {
+        return .{
+            .token_type = .Identifier,
+            .lexeme = name,
+            .line = 0,
+            .column = 0,
+        };
+    }
+
     pub fn clone(self: Self) Self {
         return .{
             .token_type = self.token_type,

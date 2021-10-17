@@ -898,7 +898,7 @@ pub const Compiler = struct {
             if (!self.testing and self.current.?.function_type == .ScriptEntryPoint) {
                 var found_main: bool = false;
                 for (self.globals.items) |global, index| {
-                    if (mem.eql(u8, global.name.string, "main") and !global.hidden) {
+                    if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
                         found_main = true;
 
                         // TODO: Somehow push cli args on the stack
@@ -911,7 +911,7 @@ pub const Compiler = struct {
             } else if (self.testing) {
                 // Create an entry point wich runs all `test`
                 for (self.globals.items) |global, index| {
-                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden) {
+                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
                         try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                         try self.emitCodeArg(.OP_CALL, 0);
                     }
@@ -1132,11 +1132,8 @@ pub const Compiler = struct {
             var var_type: ?*ObjTypeDef = null;
 
             // Search for a global with that name
-            for (self.globals.items) |global| {
-                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
-                    var_type = global.type_def;
-                    break;
-                }
+            if (try self.resolveGlobal(null, user_type_name)) |slot| {
+                var_type = self.globals.items[slot].type_def;
             }
 
             // No placeholder at top-level
@@ -1422,12 +1419,9 @@ pub const Compiler = struct {
         var global_slot: ?usize = null;
 
         // Search for a global with that name
-        for (self.globals.items) |global, index| {
-            if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
-                var_type = global.type_def;
-                global_slot = index;
-                break;
-            }
+        if (try self.resolveGlobal(null, user_type_name)) |slot| {
+            var_type = self.globals.items[slot].type_def;
+            global_slot = slot;
         }
 
         // If none found, create a placeholder
@@ -1884,17 +1878,13 @@ pub const Compiler = struct {
             
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
-            name_constant = try self.identifierConstant(name.?.lexeme);
 
             var var_type: ?*ObjTypeDef = null;
-
-            // Search for a global with that name
-            for (self.globals.items) |global| {
-                if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
-                    var_type = global.type_def;
-                    break;
-                }
+            if (try self.resolveGlobal(null, name.?)) |slot| {
+                var_type = self.globals.items[slot].type_def;
             }
+
+            name_constant = try self.identifierConstant(name.?.lexeme);
 
             // If none found, create a placeholder
             if (var_type == null) {
@@ -2084,13 +2074,10 @@ pub const Compiler = struct {
                     } else if (selective_import) {
                         global.hidden = true; // TODO: should i copy this?
                     }
+
                     // Search for name collision
-                    // TODO: could be slow if many globals
-                    for (self.globals.items) |sglobal| {
-                        if (std.mem.eql(u8, sglobal.name.string, global.name.string)) {
-                            try self.reportError("Shadowed global");
-                            break;
-                        }
+                    if ((try self.resolveGlobal(prefix, Token.identifier(global.name.string))) != null) {
+                        try self.reportError("Shadowed global");
                     }
                 }
 
@@ -2126,12 +2113,8 @@ pub const Compiler = struct {
                     _ = imported_symbols.remove(symbol);
 
                     // Search for name collision
-                    // TODO: could be slow if many globals
-                    for (self.globals.items) |sglobal| {
-                        if (std.mem.eql(u8, sglobal.name.string, symbol)) {
-                            try self.reportError("Shadowed global");
-                            break;
-                        }
+                    if ((try self.resolveGlobal(prefix, Token.identifier(symbol))) != null) {
+                        try self.reportError("Shadowed global");
                     }
 
                     // Convert symbol names to zig slices
