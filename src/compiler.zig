@@ -310,6 +310,7 @@ pub const Compiler = struct {
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // ForEach
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Switch
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Break
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Continue
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Default
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // In
         .{ .prefix = null,     .infix = is,        .precedence = .Is }, // Is
@@ -1012,6 +1013,25 @@ pub const Compiler = struct {
         return self.current.?.function.chunk.code.items.len - 1;
     }
 
+    fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
+        const original: u32 = self.current.?.function.chunk.code.items[offset];
+        const instruction: u8 = @intCast(u8, original >> 24);
+        const code: OpCode = @intToEnum(OpCode, instruction);
+
+        if (code == .OP_LOOP) {
+            assert(loop_start != null);
+            const loop_offset: usize = offset - loop_start.? + 1;
+            if (loop_offset > 16777215) {
+                try self.reportError("Loop body to large.");
+            }
+
+            self.current.?.function.chunk.code.items[offset] =
+                (@intCast(u32, instruction) << 24) | @intCast(u32, loop_offset);
+        } else {
+            try self.patchJump(offset);
+        }
+    }
+
     fn patchJump(self: *Self, offset: usize) !void {
         const jump: usize = self.current.?.function.chunk.code.items.len - offset - 1;
 
@@ -1227,6 +1247,7 @@ pub const Compiler = struct {
             try self.varDeclaration(try self.functionType(), false, constant);
             return null;
         } else if (try self.match(.Identifier)) {
+            // FIXME: doesn't work with a prefixed global!
             if (self.check(.Identifier) or (self.check(.Question) and self.checkAhead(.Identifier))) {
                 var user_type_name: Token = self.parser.previous_token.?.clone();
                 var var_type: ?*ObjTypeDef = null;
@@ -1298,6 +1319,12 @@ pub const Compiler = struct {
             try breaks.append(try self.breakStatement());
 
             return breaks;
+        } else if (try self.match(.Continue)) {
+            assert(!hanging);
+            var continues: std.ArrayList(usize) = std.ArrayList(usize).init(self.allocator);
+            try continues.append(try self.continueStatement());
+
+            return continues;
         } else if (try self.match(.Try)) {
             try self.tryCatchStatement();
         } else if (try self.match(.Throw)) {
@@ -2853,6 +2880,12 @@ pub const Compiler = struct {
         return try self.emitJump(.OP_JUMP);
     }
 
+    fn continueStatement(self: *Self) !usize {
+        try self.consume(.Semicolon, "Expected `;` after `continue`.");
+
+        return try self.emitJump(.OP_LOOP);
+    }
+
     fn forEachStatement(self: *Self) !void {
         try self.consume(.LeftParen, "Expected `(` after `foreach`.");
 
@@ -3006,7 +3039,7 @@ pub const Compiler = struct {
 
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJump(jump);
+            try self.patchJumpOrLoop(jump, loop_start);
         }
     }
 
@@ -3077,7 +3110,7 @@ pub const Compiler = struct {
 
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJump(jump);
+            try self.patchJumpOrLoop(jump, loop_start);
         }
     }
 
@@ -3111,7 +3144,7 @@ pub const Compiler = struct {
 
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJump(jump);
+            try self.patchJumpOrLoop(jump, loop_start);
         }
     }
 
@@ -3146,7 +3179,7 @@ pub const Compiler = struct {
 
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJump(jump);
+            try self.patchJumpOrLoop(jump, loop_start);
         }
 
         try self.emitOpCode(.OP_POP);

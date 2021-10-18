@@ -67,6 +67,21 @@ test "break statement" {
     assert(i == 3, message: "break");
 }
 
+test "continue statement" {
+    num i = 0;
+    while (i < 10) {
+        i = i + 1;
+
+        if (i == 3) {
+            continue;
+        }
+
+        i = i + 1;
+    }
+
+    assert(i == 11, message: "break");
+}
+
 str ahead = "wat";
 
 object Ahead {

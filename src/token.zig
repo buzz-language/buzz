@@ -92,6 +92,7 @@ pub const TokenType = enum {
     ForEach, // foreach
     Switch, // switch
     Break, // break
+    Continue, // continue
     Default, // default
     In, // in
     Is, // is
@@ -148,6 +149,7 @@ pub const Keywords = [_]TokenType{
     .Super,
     .From,
     .As,
+    .Continue,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -206,6 +208,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "break")) {
         return .Break;
+    }
+
+    if (mem.eql(u8, literal, "continue")) {
+        return .Continue;
     }
 
     if (mem.eql(u8, literal, "default")) {
