@@ -1,4 +1,4 @@
-import "zig-out/lib/libstd.dylib";
+import "lib/std.buzz";
 
 test "Binary operators" {
     assert(12 == 12, message: "equality (number)");

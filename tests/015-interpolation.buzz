@@ -1,4 +1,4 @@
-import "zig-out/lib/libstd.dylib";
+import "lib/std.buzz";
 
 test "Escape sequences" {
     print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");

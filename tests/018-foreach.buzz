@@ -1,4 +1,4 @@
-import "zig-out/lib/libstd.dylib";
+import "lib/std.buzz";
 
 test "foreach on list" {
     [num] list = [1, 2, 3];

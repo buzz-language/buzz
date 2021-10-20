@@ -1,6 +1,8 @@
-import "zig-out/lib/libstd.dylib" as std;
+import "lib/std.buzz" as std;
+
+|zig-out/lib/libstd.dylib
 
 test "Using a function coming from a library" {
     std.assert(true, message: "yeah!");
-    | print("wat");
+    std.print("wat");
 }

@@ -1,0 +1,5 @@
+extern fun assert(bool condition, str message);
+extern fun print(str value);
+
+export assert;
+export print;

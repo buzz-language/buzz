@@ -1,4 +1,4 @@
-import "zig-out/lib/libstd.dylib";
+import "lib/std.buzz";
 
 fun main([str] args) {
     foreach (num index, str arg in args) {

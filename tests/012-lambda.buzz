@@ -1,4 +1,4 @@
-import "zig-out/lib/libstd.dylib";
+import "lib/std.buzz";
 
 test "Lambda/Anonymous functions" {
     Function(num) > num mul = fun (num n) > num -> n * 2;

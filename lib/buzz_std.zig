@@ -11,14 +11,6 @@ export fn assert(vm: *api.VM) bool {
     return false;
 }
 
-export fn assertTypeDef() *api.ObjTypeDef {
-    var type_def: *api.ObjTypeDef = api.ObjTypeDef.bz_newFunctionType("assert", null).?;
-    _ = type_def.bz_addFunctionArgument("condition", api.ObjTypeDef.bz_boolType().?);
-    _ = type_def.bz_addFunctionArgument("message", api.ObjTypeDef.bz_stringType().?);
-
-    return type_def;
-}
-
 export fn print(vm: *api.VM) bool {
     _ = std.io.getStdOut().write(std.mem.span(vm.bz_peek(0).bz_valueToString().?)) catch {
         // TODO: throw something?
@@ -30,15 +22,4 @@ export fn print(vm: *api.VM) bool {
     };
 
     return false;
-}
-
-export fn printTypeDef() *api.ObjTypeDef {
-    var type_def: *api.ObjTypeDef = api.ObjTypeDef.bz_newFunctionType("assert", null).?;
-    _ = type_def.bz_addFunctionArgument("value", api.ObjTypeDef.bz_stringType().?);
-
-    return type_def;
-}
-
-export fn openLib() [*:0]const u8 {
-    return "assert,print";
 }

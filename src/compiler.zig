@@ -67,6 +67,7 @@ pub const FunctionType = enum {
     Catch,
     Test,
     Anonymous,
+    Extern,
 };
 
 pub const Local = struct {
@@ -146,6 +147,10 @@ pub const ChunkCompiler = struct {
 
         compiler.current = try compiler.allocator.create(ChunkCompiler);
         compiler.current.?.* = self;
+
+        if (function_type == .Extern) {
+            return;
+        }
 
         // First local is reserved for an eventual `this` or cli arguments
         var local: *Local = &compiler.current.?.locals[self.local_count];
@@ -332,6 +337,7 @@ pub const Compiler = struct {
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // Super
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // From
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // As
+        .{ .prefix = super,    .infix = null,      .precedence = .None }, // Extern
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
     };
@@ -350,6 +356,7 @@ pub const Compiler = struct {
     scanner: ?Scanner = null,
     parser: ParserState = .{},
     current: ?*ChunkCompiler = null,
+    script_name: []const u8 = undefined,
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
     // Interned typedef, find a better way of hashing a key (won't accept float so we use toString)
@@ -393,7 +400,8 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
-    pub fn compile(self: *Self, source: []const u8, file_name: ?[]const u8, testing: bool) !?*ObjFunction {
+    pub fn compile(self: *Self, source: []const u8, file_name: []const u8, testing: bool) !?*ObjFunction {
+        self.script_name = file_name;
         self.testing = testing;
 
         if (self.scanner != null) {
@@ -892,58 +900,60 @@ pub const Compiler = struct {
     }
 
     fn endCompiler(self: *Self) !*ObjFunction {
-        // If .Script, search for exported globals and return them in a map
-        if (self.current.?.function_type == .Script or self.current.?.function_type == .ScriptEntryPoint) {
-            // If top level, search `main` or `test` function(s) and call them
-            // Then put any exported globals on the stack
-            if (!self.testing and self.current.?.function_type == .ScriptEntryPoint) {
-                var found_main: bool = false;
-                for (self.globals.items) |global, index| {
-                    if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
-                        found_main = true;
+        if (self.current.?.function_type != .Extern) {
+            // If .Script, search for exported globals and return them in a map
+            if (self.current.?.function_type == .Script or self.current.?.function_type == .ScriptEntryPoint) {
+                // If top level, search `main` or `test` function(s) and call them
+                // Then put any exported globals on the stack
+                if (!self.testing and self.current.?.function_type == .ScriptEntryPoint) {
+                    var found_main: bool = false;
+                    for (self.globals.items) |global, index| {
+                        if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
+                            found_main = true;
 
-                        // TODO: Somehow push cli args on the stack
+                            // TODO: Somehow push cli args on the stack
+                            try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                            try self.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
+                            try self.emitCodeArg(.OP_CALL, 1);
+                            break;
+                        }
+                    }
+                } else if (self.testing) {
+                    // Create an entry point wich runs all `test`
+                    for (self.globals.items) |global, index| {
+                        if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
+                            try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                            try self.emitCodeArg(.OP_CALL, 0);
+                        }
+                    }
+                }
+
+                // If we're being imported, put all globals on the stack
+                if (self.imported) {
+                    var exported_count: usize = 0;
+                    for (self.globals.items) |_, index| {
+                        exported_count += 1;
+
+                        if (exported_count > 16777215) {
+                            try self.reportError("Can't export more than 16777215 values.");
+                            break;
+                        }
+
                         try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                        try self.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
-                        try self.emitCodeArg(.OP_CALL, 1);
-                        break;
                     }
+
+                    try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
+                } else {
+                    try self.emitOpCode(.OP_NULL);
+                    try self.emitOpCode(.OP_RETURN);
                 }
-            } else if (self.testing) {
-                // Create an entry point wich runs all `test`
-                for (self.globals.items) |global, index| {
-                    if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
-                        try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                        try self.emitCodeArg(.OP_CALL, 0);
-                    }
-                }
+            } else if (self.current.?.function.type_def.resolved_type.?.Function.return_type.def_type == .Void
+                and !self.current.?.return_emitted) {
+                // TODO: detect if some branches of the function body miss a return statement
+                try self.emitReturn();
+            } else if (!self.current.?.return_emitted) {
+                try self.reportError("Missing `return` statement.");
             }
-
-            // If we're being imported, put all globals on the stack
-            if (self.imported) {
-                var exported_count: usize = 0;
-                for (self.globals.items) |_, index| {
-                    exported_count += 1;
-
-                    if (exported_count > 16777215) {
-                        try self.reportError("Can't export more than 16777215 values.");
-                        break;
-                    }
-
-                    try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                }
-
-                try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
-            } else {
-                try self.emitOpCode(.OP_NULL);
-                try self.emitOpCode(.OP_RETURN);
-            }
-        } else if (self.current.?.function.type_def.resolved_type.?.Function.return_type.def_type == .Void
-            and !self.current.?.return_emitted) {
-            // TODO: detect if some branches of the function body miss a return statement
-            try self.emitReturn();
-        } else if (!self.current.?.return_emitted) {
-            try self.reportError("Missing `return` statement.");
         }
 
         var current_function: *ObjFunction = self.current.?.function;
@@ -1084,90 +1094,94 @@ pub const Compiler = struct {
     // TODO: varDeclaration here can be an issue if they produce placeholders because opcode can be out of order
     //       We can only allow constant expressions: `str hello = "hello";` but not `num hello = aglobal + 12;`
     fn declarations(self: *Self) !bool {
-        const constant: bool = try self.match(.Const);
-
-        if (!constant and try self.match(.Object)) {
-            try self.objectDeclaration(false);
-        } else if (!constant and try self.match(.Class)) {
-            try self.objectDeclaration(true);
-        } else if (!constant and try self.match(.Enum)) {
-            try self.enumDeclaration();
-        } else if (!constant and try self.match(.Fun)) {
+        if (try self.match(.Extern)) {
             try self.funDeclaration();
-        } else if (try self.match(.Str)) {
-            try self.varDeclaration(
-                try self.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .String
-                    }
-                ),
-                false,
-                constant
-            );
-        } else if (try self.match(.Num)) {
-            try self.varDeclaration(
-                try self.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Number
-                    }
-                ),
-                false,
-                constant
-            );
-        } else if (try self.match(.Bool)) {
-            try self.varDeclaration(
-                try self.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Bool
-                    }
-                ),
-                false,
-                constant
-            );
-        } else if (try self.match(.Type)) {
-            try self.varDeclaration(
-                try self.getTypeDef(
-                    .{
-                        .optional = try self.match(.Question),
-                        .def_type = .Type
-                    }
-                ),
-                false,
-                constant
-            );
-        } else if (try self.match(.LeftBracket)) {
-            try self.listDeclaration(constant);
-        } else if (try self.match(.LeftBrace)) {
-            try self.mapDeclaration(constant);
-        } else if (!constant and try self.match(.Test)) {
-            try self.testStatement();
-        } else if (try self.match(.Function)) {
-            try self.varDeclaration(try self.functionType(), false, constant);
-        // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
-        } else if (try self.match(.Identifier)) {
-            var user_type_name: Token = self.parser.previous_token.?.clone();
-            var var_type: ?*ObjTypeDef = null;
-
-            // Search for a global with that name
-            if (try self.resolveGlobal(null, user_type_name)) |slot| {
-                var_type = self.globals.items[slot].type_def;
-            }
-
-            // No placeholder at top-level
-            if (var_type == null) {
-                try self.reportError("Unknown identifier");
-            }
-
-            try self.varDeclaration(var_type.?, false, constant);
-        } else if (!constant and try self.match(.Export)) {
-            try self.exportStatement();
         } else {
-            try self.reportError("No declaration or statement.");
+            const constant: bool = try self.match(.Const);
 
-            return false;
+            if (!constant and try self.match(.Object)) {
+                try self.objectDeclaration(false);
+            } else if (!constant and try self.match(.Class)) {
+                try self.objectDeclaration(true);
+            } else if (!constant and try self.match(.Enum)) {
+                try self.enumDeclaration();
+            } else if (!constant and try self.match(.Fun)) {
+                try self.funDeclaration();
+            } else if (try self.match(.Str)) {
+                try self.varDeclaration(
+                    try self.getTypeDef(
+                        .{
+                            .optional = try self.match(.Question),
+                            .def_type = .String
+                        }
+                    ),
+                    false,
+                    constant
+                );
+            } else if (try self.match(.Num)) {
+                try self.varDeclaration(
+                    try self.getTypeDef(
+                        .{
+                            .optional = try self.match(.Question),
+                            .def_type = .Number
+                        }
+                    ),
+                    false,
+                    constant
+                );
+            } else if (try self.match(.Bool)) {
+                try self.varDeclaration(
+                    try self.getTypeDef(
+                        .{
+                            .optional = try self.match(.Question),
+                            .def_type = .Bool
+                        }
+                    ),
+                    false,
+                    constant
+                );
+            } else if (try self.match(.Type)) {
+                try self.varDeclaration(
+                    try self.getTypeDef(
+                        .{
+                            .optional = try self.match(.Question),
+                            .def_type = .Type
+                        }
+                    ),
+                    false,
+                    constant
+                );
+            } else if (try self.match(.LeftBracket)) {
+                try self.listDeclaration(constant);
+            } else if (try self.match(.LeftBrace)) {
+                try self.mapDeclaration(constant);
+            } else if (!constant and try self.match(.Test)) {
+                try self.testStatement();
+            } else if (try self.match(.Function)) {
+                try self.varDeclaration(try self.functionType(), false, constant);
+            // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
+            } else if (try self.match(.Identifier)) {
+                var user_type_name: Token = self.parser.previous_token.?.clone();
+                var var_type: ?*ObjTypeDef = null;
+
+                // Search for a global with that name
+                if (try self.resolveGlobal(null, user_type_name)) |slot| {
+                    var_type = self.globals.items[slot].type_def;
+                }
+
+                // No placeholder at top-level
+                if (var_type == null) {
+                    try self.reportError("Unknown identifier");
+                }
+
+                try self.varDeclaration(var_type.?, false, constant);
+            } else if (!constant and try self.match(.Export)) {
+                try self.exportStatement();
+            } else {
+                try self.reportError("No declaration or statement.");
+
+                return false;
+            }
         }
 
         if (self.parser.panic_mode) {
@@ -1179,7 +1193,7 @@ pub const Compiler = struct {
 
     fn declarationOrStatement(self: *Self) !?std.ArrayList(usize) {
         var hanging: bool = false;
-        var constant: bool = try self.match(.Const);
+        const constant: bool = try self.match(.Const);
         // Things we can match with the first token
         if (!constant and try self.match(.Fun)) {
             try self.funDeclaration();
@@ -1690,7 +1704,20 @@ pub const Compiler = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = if (name) |uname| try copyStringRaw(self.strings, self.allocator, uname.lexeme, false) else try copyStringRaw(self.strings, self.allocator, "anonymous", false),
+            .name = if (name) |uname|
+                try copyStringRaw(
+                    self.strings,
+                    self.allocator,
+                    uname.lexeme,
+                    false,
+                )
+                else
+                try copyStringRaw(
+                    self.strings,
+                    self.allocator,
+                    "anonymous",
+                    false,
+                ),
             .return_type = undefined,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
         };
@@ -1796,7 +1823,7 @@ pub const Compiler = struct {
 
             try self.emitOpCode(.OP_RETURN); // Lambda functions returns its single expression
             self.current.?.return_emitted = true;
-        } else {
+        } else if (function_type != .Extern) {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             _ = try self.block();
         }
@@ -1805,12 +1832,37 @@ pub const Compiler = struct {
 
         var new_function: *ObjFunction = try self.endCompiler();
 
-        try self.emitCodeArg(.OP_CLOSURE, try self.makeConstant(Value { .Obj = new_function.toObj() }));
+        // `extern` functions don't have upvalues
+        if (function_type == .Extern) {
+            // Search for a .dylib with the same name as the current script
+            const basename: []const u8 = std.fs.path.basename(self.script_name);
+            const ext: []const u8 = std.fs.path.extension(self.script_name);
+            var lib_name: std.ArrayList(u8) = std.ArrayList(u8).init(self.allocator);
+            const writer = lib_name.writer();
+            defer lib_name.deinit();
 
-        var i: usize = 0;
-        while (i < new_function.upvalue_count) : (i += 1) {
-            try self.emit(if (compiler.upvalues[i].is_local) 1 else 0);
-            try self.emit(compiler.upvalues[i].index);
+            try writer.print(
+                "{s}lib{s}.dylib",
+                .{
+                    self.script_name[0..(self.script_name.len - basename.len)],
+                    basename[0..(basename.len - ext.len)],
+                },
+            );
+            
+            if (try self.importLibSymbol(
+                    lib_name.items,
+                    function_def.name.string,
+                )) |native| {
+                try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(native.toValue()));
+            }
+        } else {
+            try self.emitCodeArg(.OP_CLOSURE, try self.makeConstant(new_function.toValue()));
+
+            var i: usize = 0;
+            while (i < new_function.upvalue_count) : (i += 1) {
+                try self.emit(if (compiler.upvalues[i].is_local) 1 else 0);
+                try self.emit(compiler.upvalues[i].index);
+            }
         }
 
         return new_function.type_def;
@@ -2059,8 +2111,9 @@ pub const Compiler = struct {
             };
             defer file.close();
             
+            // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
             const source = try self.allocator.alloc(u8, (try file.stat()).size);
-            defer self.allocator.free(source);
+            // defer self.allocator.free(source);
             
             _ = try file.readAll(source);
 
@@ -2121,101 +2174,34 @@ pub const Compiler = struct {
     pub const LibTypeDef = fn () *ObjTypeDef;
 
     // TODO: support other platform lib formats
-    fn importLib(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
+    fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
         var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
 
         if (lib) |*dlib| {
-            // search the openLib function
-            var dopenLib = dlib.lookup(LoadLib, "openLib");
-            if (dopenLib) |openLib| {
-                var exported: [*:0]const u8 = openLib();
+            // Convert symbol names to zig slices
+            var ssymbol = try (toNullTerminated(self.allocator, symbol) orelse Allocator.Error.OutOfMemory);
+            defer self.allocator.free(ssymbol);
 
-                const selective_import = imported_symbols.count() > 0;
-                var it = std.mem.split(u8, std.mem.span(exported), ",");
-                while (it.next()) |symbol| {
-                    if (selective_import and imported_symbols.get(symbol) == null) {
-                        continue;
-                    }
+            // Lookup symbol NativeFn
+            var symbol_method = dlib.lookup(NativeFn, ssymbol);
 
-                    _ = imported_symbols.remove(symbol);
-
-                    // Search for name collision
-                    if ((try self.resolveGlobal(prefix, Token.identifier(symbol))) != null) {
-                        try self.reportError("Shadowed global");
-                    }
-
-                    // Convert symbol names to zig slices
-                    var ssymbol = toNullTerminated(self.allocator, symbol);
-                    var symbol_def_name = try self.allocator.alloc(u8, symbol.len + 8);
-                    defer self.allocator.free(symbol_def_name);
-                    symbol_def_name = try std.fmt.bufPrint(symbol_def_name, "{s}TypeDef", .{ symbol });
-                    var symbol_def_name_c = toNullTerminated(self.allocator, symbol_def_name);
-                    
-                    if (symbol_def_name_c == null) {
-                        return std.mem.Allocator.Error.OutOfMemory;
-                    }
-
-                    defer self.allocator.free(symbol_def_name_c.?);
-
-                    // Lookup symbol NativeFn
-                    var symbol_method = dlib.lookup(NativeFn, ssymbol.?);
-
-                    if (symbol_method == null) {
-                        try self.reportError("Could not find lib method symbol");
-                        return;
-                    }
-                    
-                    // lookup `<symbol>TypeDef` in the loaded library
-                    var symbol_typedef = dlib.lookup(LibTypeDef, symbol_def_name_c.?);
-                    
-                    if (symbol_typedef == null) {
-                        try self.reportError("Could not find lib method typedef");
-                        return;
-                    }
-
-                    // Create global
-                    var global_typedef: ?*ObjTypeDef = (symbol_typedef.?)();
-
-                    if (global_typedef == null) {
-                        try self.reportError("Could not find out method typedef");
-                    } 
-
-                    var slot: usize = try self.addGlobal(
-                        Token{
-                            .token_type = .Identifier,
-                            .lexeme = symbol,
-                            .line = self.parser.current_token.?.line,
-                            .column = self.parser.current_token.?.column,
-                        },
-                        global_typedef.?,
-                        true
-                    );
-
-                    self.globals.items[slot].prefix = prefix;
-
-                    self.markInitialized();
-
-                    // Create a ObjNative constant with it
-                    var native = try self.allocator.create(ObjNative);
-                    native.* = .{
-                        .native = symbol_method.?
-                    };
-                    
-                    try self.emitCodeArg(
-                        .OP_CONSTANT,
-                        try self.makeConstant(Value{ .Obj = native.toObj() })
-                    );
-                    try self.emitCodeArg(
-                        .OP_DEFINE_GLOBAL,
-                        @intCast(u24, slot)
-                    );
-                }
-            } else {
-                try self.reportError("Could not find `openLib` in library.");
+            if (symbol_method == null) {
+                try self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
+                return null;
             }
-        } else {
-            try self.reportError(std.mem.span(dlerror()));
+
+            // Create a ObjNative with it
+            var native = try self.allocator.create(ObjNative);
+            native.* = .{
+                .native = symbol_method.?
+            };
+
+            return native;
         }
+
+        try self.reportError(std.mem.span(dlerror()));
+
+        return null;
     }
 
     fn importStatement(self: *Self) anyerror!void {
@@ -2245,14 +2231,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after import.");
 
-        // TODO: search for a name instead of parsing file extension
-        if (mem.eql(u8, file_name[file_name.len - 5..file_name.len], ".buzz")) {
-            try self.importScript(file_name, prefix, &imported_symbols);
-        } else if (mem.eql(u8, file_name[file_name.len - 6..file_name.len], ".dylib")) {
-            try self.importLib(file_name, prefix, &imported_symbols);
-        } else {
-            try self.reportError("Unknown library extension.");
-        }
+        try self.importScript(file_name, prefix, &imported_symbols);
 
         if (imported_symbols.count() > 0) {
             var it  = imported_symbols.iterator();
@@ -2279,6 +2258,14 @@ pub const Compiler = struct {
     }
 
     fn funDeclaration(self: *Self) !void {
+        var function_type: FunctionType = .Function;
+
+        if (self.parser.previous_token.?.token_type == .Extern) {
+            try self.consume(.Fun, "Expected `fun` after `extern`.");
+
+            function_type = .Extern;
+        }
+
         // Placeholder until `function()` provides all the necessary bits
         var function_def_placeholder: ObjTypeDef = .{
             .def_type = .Function,
@@ -2291,10 +2278,16 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        const is_main: bool = std.mem.eql(u8, name_token.lexeme, "main")
-            and self.current.?.function_type == .ScriptEntryPoint;
+        if (std.mem.eql(u8, name_token.lexeme, "main")
+            and self.current.?.function_type == .ScriptEntryPoint) {
+            if (function_type == .Extern) {
+                try self.reportError("`main` can't be `extern`.");
+            }
 
-        var function_def: *ObjTypeDef = try self.function(name_token, if (is_main) FunctionType.EntryPoint else FunctionType.Function, null);
+            function_type = .EntryPoint;
+        }
+
+        var function_def: *ObjTypeDef = try self.function(name_token, function_type, null);
         // Now that we have the full function type, get the local and update its type_def
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
@@ -2310,6 +2303,10 @@ pub const Compiler = struct {
         // TODO: if (is_main) check function signature is `fun ([str]) > num`
 
         try self.defineGlobalVariable(@intCast(u24, slot));
+
+        if (function_type == .Extern) {
+            try self.consume(.Semicolon, "Expected `;` after `extern` function declaration.");
+        }
     }
 
     // TODO: factorize with varDeclaration + another param
