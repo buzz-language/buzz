@@ -2170,9 +2170,6 @@ pub const Compiler = struct {
         }
     }
 
-    pub const LoadLib = fn () [*:0]const u8;
-    pub const LibTypeDef = fn () *ObjTypeDef;
-
     // TODO: support other platform lib formats
     fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
         var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;

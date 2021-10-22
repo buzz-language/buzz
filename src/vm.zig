@@ -726,6 +726,8 @@ pub const VM = struct {
                 try self.globals.append(vm.peek(i));
             }
         }
+
+        _ = self.pop();
     }
 
     pub fn runtimeError(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {

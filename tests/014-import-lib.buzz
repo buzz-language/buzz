@@ -1,7 +1,5 @@
 import "lib/std.buzz" as std;
 
-|zig-out/lib/libstd.dylib
-
 test "Using a function coming from a library" {
     std.assert(true, message: "yeah!");
     std.print("wat");
