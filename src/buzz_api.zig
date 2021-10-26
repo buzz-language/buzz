@@ -67,7 +67,7 @@ export fn bz_string(string: [*:0]const u8) ?*ObjString {
 
 /// Throw an error with the given [payload]
 export fn bz_throw(self: *VM, payload: *Value) void {
-    self.throw(VM.Error.Custom, payload.*, null) catch {
+    self.throw(VM.Error.Custom, payload.*) catch {
         // TODO: maybe we have a `panic` function that could be called both here and in main
         std.os.exit(1);
     };

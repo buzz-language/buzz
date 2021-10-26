@@ -41,16 +41,6 @@ const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
 
-fn invertedList(comptime T: type, list: std.ArrayList(T)) !std.ArrayList(T) {
-    var inverted = try std.ArrayList(T).initCapacity(list.allocator, list.items.len);
-
-    for (list.items) |item| {
-        try inverted.insert(0, item);
-    }
-
-    return inverted;
-}
-
 pub const CallFrame = struct {
     closure: *ObjClosure,
     // Index into closure's chunk
@@ -373,7 +363,7 @@ pub const VM = struct {
 
                 .OP_IMPORT => try self.import(self.peek(0)),
 
-                .OP_THROW => try self.throw(Error.Custom, self.pop(), null),
+                .OP_THROW => try self.throw(Error.Custom, self.pop()),
 
                 .OP_CATCH => {
                     var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
@@ -607,7 +597,7 @@ pub const VM = struct {
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue(), null);
+                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue());
                     }
                 },
 
@@ -730,8 +720,8 @@ pub const VM = struct {
         _ = self.pop();
     }
     
-    pub fn throw(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {
-        var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
+    pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
+        var stack = std.ArrayList(CallFrame).init(self.allocator);
 
         while (self.frame_count > 0) {
             var frame: *CallFrame = self.currentFrame().?;
@@ -1069,7 +1059,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1084,7 +1074,7 @@ pub const VM = struct {
                 // Push value
                 self.push(list_item);
             } else {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -1111,7 +1101,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1127,7 +1117,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
