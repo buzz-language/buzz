@@ -28,6 +28,10 @@ fun willFailMore() > num {
     return list[100];
 }
 
+fun willIndirectlyFail() > num {
+    return willFail();
+}
+
 test "Error value in catch clause" {
     try {
         willFail();
@@ -51,5 +55,11 @@ test "Error value in catch clause" {
         assert(false, message: "unreachable");
     } catch {
         assert(true, message: "finally caught");
+    }
+
+    try {
+        willIndirectlyFail();
+    } catch (MyErrors error) {
+        assert(error == MyErrors.failed, message: "caught indirect error");
     }
 }

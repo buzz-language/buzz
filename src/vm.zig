@@ -373,7 +373,7 @@ pub const VM = struct {
 
                 .OP_IMPORT => try self.import(self.peek(0)),
 
-                .OP_THROW => try self.runtimeError(Error.Custom, self.pop(), null),
+                .OP_THROW => try self.throw(Error.Custom, self.pop(), null),
 
                 .OP_CATCH => {
                     var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
@@ -607,7 +607,7 @@ pub const VM = struct {
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.runtimeError(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue(), null);
+                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue(), null);
                     }
                 },
 
@@ -729,62 +729,56 @@ pub const VM = struct {
 
         _ = self.pop();
     }
-
-    pub fn runtimeError(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {
+    
+    pub fn throw(self: *Self, code: Error, payload: Value, call_stack: ?std.ArrayList(CallFrame)) Error!void {
         var stack = call_stack orelse std.ArrayList(CallFrame).init(self.allocator);
 
-        var frame: *CallFrame = self.currentFrame().?;
-        try stack.append(frame.*);
+        while (self.frame_count > 0) {
+            var frame: *CallFrame = self.currentFrame().?;
+            try stack.append(frame.*);
 
-        // Pop frame
-        self.closeUpValues(&frame.slots[0]);
-        self.frame_count -= 1;
-        _ = self.frames.pop();
-        if (self.frame_count == 0) {
-            // No more frames, the error is uncaught.
-            _ = self.pop();
-            
-            // Raise the runtime error
-            std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
+            // Pop frame
+            self.closeUpValues(&frame.slots[0]);
+            self.frame_count -= 1;
+            _ = self.frames.pop();
+            if (self.frame_count == 0) {
+                // No more frames, the error is uncaught.
+                _ = self.pop();
+                
+                // Raise the runtime error
+                std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
 
-            for (stack.items) |stack_frame| {
-                std.debug.warn("\tat {s}", .{ stack_frame.closure.function.name.string });
-                if (stack_frame.call_site) |call_site| {
-                    std.debug.warn(":{}\n", .{ call_site });
-                } else {
-                    std.debug.warn("\n", .{});
+                for (stack.items) |stack_frame| {
+                    std.debug.warn("\tat {s}", .{ stack_frame.closure.function.name.string });
+                    if (stack_frame.call_site) |call_site| {
+                        std.debug.warn(":{}\n", .{ call_site });
+                    } else {
+                        std.debug.warn("\n", .{});
+                    }
+                }
+
+                return code;
+            }
+
+            self.stack_top = frame.slots;
+
+            // We don't care about a return value but call assumes it when setting frame.slots
+            self.push(Value { .Null = null });
+
+            // Call catch closure or continue unwinding frames to find one
+            if (frame.closure.catch_closures.items.len > 0) {
+                for (frame.closure.catch_closures.items) |catch_closure| {
+                    const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
+                    if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
+                        stack.deinit();
+
+                        self.push(payload);
+                        try self.call(catch_closure, 1);
+
+                        return;
+                    }
                 }
             }
-
-            return code;
-        }
-
-        self.stack_top = frame.slots;
-
-        // We don't care about a return value but call assumes it when setting frame.slots
-        self.push(Value { .Null = null });
-
-        // Call catch closure or continue unwinding frames to find one
-        if (frame.closure.catch_closures.items.len > 0) {
-            var popped: bool = false;
-            for (frame.closure.catch_closures.items) |catch_closure| {
-                const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
-                if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
-                    stack.deinit();
-
-                    self.push(payload);
-                    try self.call(catch_closure, 1);
-
-                    popped = true;
-                    break;
-                }
-            }
-
-            if (!popped) {
-                return try self.runtimeError(code, payload, stack);
-            }
-        } else {
-            return try self.runtimeError(code, payload, stack);
         }
     }
 
@@ -1075,7 +1069,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1090,7 +1084,7 @@ pub const VM = struct {
                 // Push value
                 self.push(list_item);
             } else {
-                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
@@ -1117,7 +1111,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index.Number < 0) {
-                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
@@ -1133,7 +1127,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.runtimeError(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue(), null);
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;

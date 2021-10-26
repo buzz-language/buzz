@@ -787,7 +787,7 @@ pub const ObjList = struct {
                 std.os.exit(1);
             }).toValue();
 
-            vm.runtimeError(err, messageValue, null) catch {
+            vm.throw(err, messageValue, null) catch {
                 std.debug.warn("Could not append to list", .{});
                 std.os.exit(1);
             };
@@ -810,7 +810,7 @@ pub const ObjList = struct {
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
         if (list_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
-                try vm.runtimeError(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to list")).toValue(), null);
+                try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to list")).toValue(), null);
             }
 
             return if (index + 1 >= @intToFloat(f64, self.items.items.len))
