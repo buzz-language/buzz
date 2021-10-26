@@ -340,6 +340,7 @@ pub const Compiler = struct {
         .{ .prefix = super,    .infix = null,      .precedence = .None }, // Extern
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Eof
         .{ .prefix = null,     .infix = null,      .precedence = .None }, // Error
+        .{ .prefix = null,     .infix = null,      .precedence = .None }, // Void
     };
 
     pub const ScriptImport = struct {
@@ -1387,6 +1388,11 @@ pub const Compiler = struct {
                 .optional = try self.match(.Question),
                 .def_type = .Type
             });
+        } else if (try self.match(.Void)) {
+            return try self.getTypeDef(.{
+                .optional = false,
+                .def_type = .Void
+            });
         } else if (try self.match(.Num)) {
             return try self.getTypeDef(.{
                 .optional = try self.match(.Question),
@@ -1803,7 +1809,9 @@ pub const Compiler = struct {
         }
         
         // Parse return type
-        if (function_type != .Try and function_type != .Catch and function_type != .Test and try self.match(.Greater)) {
+        if (function_type != .Try and function_type != .Catch and function_type != .Test) {
+            try self.consume(.Greater, "Expected `>` after function argument list.");
+
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
         } else {
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef(

@@ -117,6 +117,7 @@ pub const TokenType = enum {
     Extern, // extern
     Eof, // EOF
     Error, // Error
+    Void, // void
 };
 
 pub const Keywords = [_]TokenType{
@@ -152,10 +153,15 @@ pub const Keywords = [_]TokenType{
     .As,
     .Continue,
     .Extern,
+    .Void,
 };
 
 // TODO: must be a way to write that more elegantly
 pub fn isKeyword(literal: []const u8) ?TokenType {
+    if (mem.eql(u8, literal, "void")) {
+        return .Void;
+    }
+
     if (mem.eql(u8, literal, "true")) {
         return .True;
     }

@@ -74,7 +74,7 @@ sayHiTo("Joe", age: 35, lastName: "Doe"); | -> "Hi Joe Doe!"
 
 Functions are first-class citizens:
 ```buzz
-Function() fn = fun () -> print("hello world"); | Arrow function
+Function() fn = fun () > void -> print("hello world"); | Arrow function
 
 fn(); | -> "hello world"
 ```
@@ -149,7 +149,7 @@ object Person {
     num age = 35,
 
     | Method
-    fun sayHello() {
+    fun sayHello() > void {
         print("Hello {this.name}");
     }
 
@@ -197,7 +197,7 @@ enum(str) MyErrors {
     ohno = "Oh no!",
 }
 
-fun willFail() {
+fun willFail() > void {
     throw MyErrors.failed;
 }
 

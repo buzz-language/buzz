@@ -7,7 +7,7 @@ test "`const` variable" {
 }
 
 | function arguments are `const`
-fun illegal(str yo) {
+fun illegal(str yo) > void {
     yo = "no way";
 }
 

@@ -4,7 +4,7 @@ fun upvals() > Function() {
     num upvalue = 12;
     str up = "up";
 
-    return fun () -> print("{upvalue} {up}");
+    return fun () > void -> print("{upvalue} {up}");
 }
 
 test "Upvalues" {

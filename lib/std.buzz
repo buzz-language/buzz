@@ -1,5 +1,5 @@
-extern fun assert(bool condition, str message);
-extern fun print(str value);
+extern fun assert(bool condition, str message) > void;
+extern fun print(str value) > void;
 
 export assert;
 export print;

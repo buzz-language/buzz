@@ -4,7 +4,7 @@ object First {
     str name = "Joe",
     num age = 10,
 
-    fun sayHello() {
+    fun sayHello() > void {
         print("hello");
         print(this.name);
     }

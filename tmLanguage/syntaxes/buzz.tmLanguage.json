@@ -29,7 +29,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.buzz",
-					"match": "\\b(static|const|extern|import|export|from|test|as|in|while|if|else|fun|try|catch|throw|constructor|return|switch|default|break|for|foreach|do|until|continue)\\b"
+					"match": "\\b(void|static|const|extern|import|export|from|test|as|in|while|if|else|fun|try|catch|throw|constructor|return|switch|default|break|for|foreach|do|until|continue)\\b"
 				},
 				{
 					"name": "keyword.operator.assignment.buzz",

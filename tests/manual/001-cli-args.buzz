@@ -1,6 +1,6 @@
 import "lib/std.buzz";
 
-fun main([str] args) {
+fun main([str] args) > void {
     foreach (num index, str arg in args) {
         print("{index}: {arg}");
     }
