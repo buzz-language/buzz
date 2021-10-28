@@ -223,9 +223,23 @@ pub const ParserState = struct {
 
     current_token: ?Token = null,
     previous_token: ?Token = null,
-    next_token: ?Token = null,
+
+    // Most of the time 1 token in advance is enough, but in some special cases we want to be able to look
+    // some arbitrary number of token ahead
+    ahead: std.ArrayList(Token),
+
     had_error: bool = false,
     panic_mode: bool = false,
+
+    pub fn init(allocator: *Allocator) Self {
+        return .{
+            .ahead = std.ArrayList(Token).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.ahead.deinit();
+    }
 };
 
 pub const Compiler = struct {
@@ -355,7 +369,7 @@ pub const Compiler = struct {
 
     allocator: *Allocator,
     scanner: ?Scanner = null,
-    parser: ParserState = .{},
+    parser: ParserState,
     current: ?*ChunkCompiler = null,
     script_name: []const u8 = undefined,
     current_object: ?ObjectCompiler = null,
@@ -379,6 +393,7 @@ pub const Compiler = struct {
     pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
         return .{
             .allocator = allocator,
+            .parser = ParserState.init(allocator),
             .imports = imports,
             .globals = std.ArrayList(Global).init(allocator),
             .strings = strings,
@@ -388,6 +403,7 @@ pub const Compiler = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.parser.deinit();
         self.globals.deinit();
 
         // TODO: key are strings on the heap so free them, does this work?
@@ -845,31 +861,18 @@ pub const Compiler = struct {
 
     pub fn advance(self: *Self) !void {
         self.parser.previous_token = self.parser.current_token;
-        self.parser.current_token = self.parser.next_token;
-
-        if (self.parser.current_token == null) {
-            while (true) {
-                self.parser.current_token = try self.scanner.?.scanToken();
-                if (self.parser.current_token.?.token_type != .Error) {
-                    break;
-                }
-
-                try self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
-            }
-        }
-
-        if (self.parser.current_token.?.token_type == .Eof) {
-            self.parser.next_token = null;
-            return;
-        }
 
         while (true) {
-            self.parser.next_token = try self.scanner.?.scanToken();
-            if (self.parser.next_token.?.token_type != .Error) {
+            
+            self.parser.current_token = if (self.parser.ahead.items.len > 0)
+                self.parser.ahead.swapRemove(0)
+            else
+                try self.scanner.?.scanToken();
+            if (self.parser.current_token.?.token_type != .Error) {
                 break;
             }
 
-            try self.reportErrorAtCurrent(self.parser.next_token.?.literal_string orelse "Unknown error.");
+            try self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
         }
     }
 
@@ -886,8 +889,20 @@ pub const Compiler = struct {
         return self.parser.current_token.?.token_type == token_type;
     }
 
-    fn checkAhead(self: *Self, token_type: TokenType) bool {
-        return if (self.parser.next_token) |next| next.token_type == token_type else false;
+    fn checkAhead(self: *Self, token_type: TokenType, n: u32) !bool {
+        while (n + 1 > self.parser.ahead.items.len) {
+            while (true) {
+                const token = try self.scanner.?.scanToken();
+                try self.parser.ahead.append(token);
+                if (token.token_type != .Error) {
+                    break;
+                }
+
+                try self.reportErrorAtCurrent(token.literal_string orelse "Unknown error.");
+            }
+        }
+
+        return self.parser.ahead.items[n].token_type == token_type;
     }
 
     fn match(self: *Self, token_type: TokenType) !bool {
@@ -1262,17 +1277,22 @@ pub const Compiler = struct {
             try self.varDeclaration(try self.functionType(), false, constant);
             return null;
         } else if (try self.match(.Identifier)) {
-            // FIXME: doesn't work with a prefixed global!
-            if (self.check(.Identifier) or (self.check(.Question) and self.checkAhead(.Identifier))) {
+            // A declaration with a class/object/enum type is one of those:
+            // - Type variable
+            // - Type? variable
+            // - prefix.Type variable
+            // - prefix.Type? variable
+            // As of now this is the only place where we need to check more than one token ahead
+            if (self.check(.Identifier)
+                or (self.check(.Dot) and try self.checkAhead(.Identifier, 0) and try self.checkAhead(.Identifier, 1))
+                or (self.check(.Dot) and try self.checkAhead(.Identifier, 0) and try self.checkAhead(.Question, 1) and try self.checkAhead(.Identifier, 2))
+                or (self.check(.Question) and try self.checkAhead(.Identifier, 0))) {
                 var user_type_name: Token = self.parser.previous_token.?.clone();
                 var var_type: ?*ObjTypeDef = null;
 
                 // Search for a global with that name
-                for (self.globals.items) |global| {
-                    if (mem.eql(u8, global.name.string, user_type_name.lexeme)) {
-                        var_type = global.type_def;
-                        break;
-                    }
+                if (try self.resolveGlobal(null, user_type_name)) |slot| {
+                    var_type = self.globals.items[slot].type_def;
                 }
 
                 // If none found, create a placeholder
@@ -4841,6 +4861,7 @@ pub const Compiler = struct {
         return null;
     }
 
+    // Will consume tokens if find a prefixed identifier
     fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: Token) anyerror!?usize {
         if (self.globals.items.len == 0) {
             return null;

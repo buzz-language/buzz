@@ -1,9 +1,10 @@
-import assert, hey from "tests/utils/testing.buzz";
+import "tests/utils/testing.buzz" as testing;
 
 num mine = 42;
 
 test "Using a function coming from an import" {
-    | print(ignore);
-    assert(hey("world") == mine, message: "unexported symbol is reachable");
-    assert(true, message: "yeah!");
+    testing.PrefixMe me = testing.PrefixMe{};
+    testing.assert(me.name == "Joe", message: "prefixed global works as type");
+    testing.assert(testing.hey("world") == mine, message: "unexported symbol is reachable");
+    testing.assert(true, message: "yeah!");
 }

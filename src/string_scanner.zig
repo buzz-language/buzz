@@ -1,5 +1,7 @@
 const std = @import("std");
-const Compiler = @import("./compiler.zig").Compiler;
+const _compiler = @import("./compiler.zig");
+const Compiler = _compiler.Compiler;
+const ParserState = _compiler.ParserState;
 const Scanner = @import("./scanner.zig").Scanner;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
@@ -114,7 +116,7 @@ pub const StringScanner = struct {
         var scanner = self.compiler.scanner;
         self.compiler.scanner = expr_scanner;
         var parser = self.compiler.parser;
-        self.compiler.parser = .{};
+        self.compiler.parser = ParserState.init(self.compiler.allocator);
 
         try self.compiler.advance();
 
@@ -126,15 +128,19 @@ pub const StringScanner = struct {
         }
 
         const current: Token = self.compiler.parser.current_token.?; // }
-        const next: Token = self.compiler.parser.next_token.?;
-        self.offset += self.compiler.scanner.?.current.offset
-            - next.lexeme.len
-            - next.offset
-            + current.offset;
+        var delta: usize = self.compiler.scanner.?.current.offset;
+
+        if (self.compiler.parser.ahead.items.len > 0) {
+            const next = self.compiler.parser.ahead.items[self.compiler.parser.ahead.items.len - 1];
+            delta = delta - next.lexeme.len - next.offset + current.offset;
+        }
+        
+        self.offset += delta - 1;
         self.previous_interp = self.offset;
 
         // Put back compiler's scanner
         self.compiler.scanner = scanner;
+        self.compiler.parser.deinit();
         self.compiler.parser = parser;
 
         // Consume closing `}`

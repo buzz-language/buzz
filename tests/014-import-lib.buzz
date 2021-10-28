@@ -1,6 +1,6 @@
-import "lib/std.buzz" as std;
+import print, assert from "lib/std.buzz";
 
 test "Using a function coming from a library" {
-    std.assert(true, message: "yeah!");
-    std.print("wat");
+    assert(true, message: "yeah!");
+    print("wat");
 }

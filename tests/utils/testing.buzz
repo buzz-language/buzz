@@ -9,6 +9,11 @@ fun hey(str message) > num {
 
 str ignore = "ignore me!";
 
+object PrefixMe {
+    str name = "Joe",
+}
+
 export assert;
 export hey;
 export ignore;
+export PrefixMe;
