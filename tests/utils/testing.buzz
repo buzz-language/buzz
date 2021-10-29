@@ -1,9 +1,9 @@
-import "lib/std.buzz";
+import "lib/std.buzz" as std;
 
 num unexported = 42;
 
 fun hey(str message) > num {
-    print(message);
+    std.print(message);
     return unexported;
 }
 
@@ -13,7 +13,7 @@ object PrefixMe {
     str name = "Joe",
 }
 
-export assert;
+export std.assert as assert;
 export hey;
 export ignore;
 export PrefixMe;

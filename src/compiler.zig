@@ -84,9 +84,10 @@ pub const Global = struct {
     type_def: *ObjTypeDef,
     initialized: bool = false,
     exported: bool = false,
+    export_alias: ?[]const u8 = null,
     hidden: bool = false,
     constant: bool,
-    // When resolving a placholder, the start of the resolution in the global
+    // When resolving a placeholder, the start of the resolution is the global
     // If `constant` is true, we can search for any `.Assignment` link and fail then.
 };
 
@@ -2157,6 +2158,11 @@ pub const Compiler = struct {
                 for (compiler.globals.items) |*global| {
                     if (global.exported) {
                         global.*.exported = false;
+
+                        if (global.export_alias) |export_alias| {
+                            global.*.name.string = export_alias;
+                            global.*.export_alias = null;
+                        }
                      } else {
                         global.*.hidden = true;
                     }
@@ -2270,13 +2276,19 @@ pub const Compiler = struct {
         try self.consume(.Identifier, "Expected identifier after `export`.");
 
         // Search for a global with that name
-        for (self.globals.items) |global, index| {
-            if (mem.eql(u8, global.name.string, self.parser.previous_token.?.lexeme)) {
-                self.globals.items[index].exported = true;
+        if (try self.resolveGlobal(null, self.parser.previous_token.?)) |slot| {
+            const global: *Global = &self.globals.items[slot];
 
-                try self.consume(.Semicolon, "Expected `;` after export.");
-                return;
+            global.exported = true;
+            if (global.prefix != null or self.check(.As)) {
+                try self.consume(.As, "Expected `as` after prefixed global.");
+                try self.consume(.Identifier, "Expected identifier after `as`.");
+
+                global.export_alias = self.parser.previous_token.?.lexeme;
             }
+
+            try self.consume(.Semicolon, "Expected `;` after export.");
+            return;
         }
 
         try self.reportError("Unknown global.");
