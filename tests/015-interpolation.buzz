@@ -17,4 +17,6 @@ test "String interpolation" {
     assert("not starting with a {name} {age} yeah!"
         == "not starting with a joe 12 yeah!",
         message: "interpolation order");
+
+    assert("\60\61\62" == "<=>", message: "raw char");
 }

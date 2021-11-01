@@ -164,14 +164,13 @@ pub const StringScanner = struct {
     }
 
     fn rawChar(self: *Self) !void {
-        const start: usize = self.offset;
-        while (self.advance()) |char| {
-            if (char < '0' and char > '9') {
-                break;
-            }
+        const start: usize = self.offset - 1;
+        while (self.offset + 1 < self.source.len and self.source[self.offset + 1] >= '0' and self.source[self.offset + 1] <= '9') {
+            _ = self.advance();
         }
 
-        const num_str: []const u8 = self.source[start..self.offset];
+        const num_str: []const u8 = self.source[start..self.offset+1];
+        _ = self.advance();
         const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
 
         if (number) |unumber| {
