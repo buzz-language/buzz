@@ -197,16 +197,22 @@ enum(str) MyErrors {
     ohno = "Oh no!",
 }
 
-fun willFail() > void {
+fun willFail() > num {
     throw MyErrors.failed;
+
+    return 0;
 }
 
-try {
-    willFail();
-} catch (MyErrors error) {
-    | ...
-} catch {
-    | Catches any error
+| Use default value in case of any error
+num result = willFail() catch 0;
+
+| Handle different type of errors
+num result = willFail() catch {
+    (MyErrors e) -> 0,
+    default {
+        | Something unexpected
+        exit(1);
+    }
 }
 ```
 

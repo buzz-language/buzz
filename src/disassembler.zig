@@ -24,11 +24,13 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
 
 fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
-    const arg_count: u8 = @intCast(u8, chunk.code.items[offset + 1]);
+    const arg_count: u8 = @intCast(u8, chunk.code.items[offset + 1] >> 24);
+    const catch_count: u24 = @intCast(u8, 0x00ffffff & chunk.code.items[offset + 1]);
+    
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
 
-    print("{}\t{s}({} args)", .{ code, value_str, arg_count });
+    print("{}\t{s}({} args, {} catches)", .{ code, value_str, arg_count, catch_count });
 
     return offset + 2;
 }
@@ -51,6 +53,16 @@ fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 
     print("{}\t{} {}", .{ code, a, b });
     return offset + 2;
+}
+
+fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+    const full_instruction: u32 = chunk.code.items[offset];
+
+    const a: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
+    const b: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+
+    print("{}\t{} {}", .{ code, a, b });
+    return offset + 1;
 }
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
@@ -137,7 +149,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_SUBSCRIPT,
         .OP_SET_SUBSCRIPT,
         .OP_THROW,
-        .OP_CATCH,
         .OP_IMPORT,
         .OP_TO_STRING,
         .OP_INSTANCE,
@@ -178,7 +189,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_SUPER_INVOKE,
         .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
-        .OP_CALL => byteInstruction(instruction, chunk, offset),
+        .OP_CALL => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {
             var constant: u24 = arg;

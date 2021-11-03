@@ -29,37 +29,30 @@ fun willFailMore() > num {
 }
 
 fun willIndirectlyFail() > num {
+    | let error forward to caller
     return willFail();
 }
 
 test "Error value in catch clause" {
-    try {
-        willFail();
-    } catch (MyErrors error) {
-        assert(error == MyErrors.failed, message: "caught the right error");
-    }
+    | assert((willFail() catch null) == null, message: "error or null");
+    assert((willFail() catch 0) == 0, message: "error or default value");
 
-    try {
-        willFailToo();
-    } catch (MyErrors error) {
-        assert(false, message: "unreachable");
-    } catch (OtherErrors error) {
-        assert(error == OtherErrors.failed, message: "caugh the right kind of error");
-    }
+    assert((willFail() catch {
+        (MyErrors error) -> 0,
+    }) == 0, message: "caught the right error");
 
-    try {
-        willFailMore();
-    } catch (MyErrors error) {
-        assert(false, message: "unreachable");
-    } catch (OtherErrors error) {
-        assert(false, message: "unreachable");
-    } catch {
-        assert(true, message: "finally caught");
-    }
+    assert((willFailToo() catch {
+        (MyErrors error) -> 1,
+        (OtherErrors error) -> 0,
+    }) == 0, message: "caught the right error");
 
-    try {
-        willIndirectlyFail();
-    } catch (MyErrors error) {
-        assert(error == MyErrors.failed, message: "caught indirect error");
-    }
+    assert((willFailMore() catch {
+        (MyErrors error) -> 1,
+        (OtherErrors error) -> 2,
+        default -> 0,
+    }) == 0, message: "default catch");
+
+    assert((willIndirectlyFail() catch {
+        (MyErrors error) -> 0,
+    }) == 0, message: "caught indirect error");
 }

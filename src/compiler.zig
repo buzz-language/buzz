@@ -50,24 +50,12 @@ const Scanner = _scanner.Scanner;
 const VM = _vm.VM;
 const toNullTerminated = _utils.toNullTerminated;
 const NativeFn = _obj.NativeFn;
+const FunctionType = _obj.ObjFunction.FunctionType;
 
 extern fn dlerror() [*:0]u8;
 
 const CompileError = error {
     Unrecoverable
-};
-
-pub const FunctionType = enum {
-    Function,
-    Method,
-    Script,           // Imported script
-    ScriptEntryPoint, // main script
-    EntryPoint,       // main function
-    Try,
-    Catch,
-    Test,
-    Anonymous,
-    Extern,
 };
 
 pub const Local = struct {
@@ -931,7 +919,7 @@ pub const Compiler = struct {
                             // TODO: Somehow push cli args on the stack
                             try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                             try self.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
-                            try self.emitCodeArg(.OP_CALL, 1);
+                            try self.emitCodeArgs(.OP_CALL, 1, 0);
                             break;
                         }
                     }
@@ -940,7 +928,7 @@ pub const Compiler = struct {
                     for (self.globals.items) |global, index| {
                         if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
                             try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                            try self.emitCodeArg(.OP_CALL, 0);
+                            try self.emitCodeArgs(.OP_CALL, 0, 0);
                         }
                     }
                 }
@@ -1014,10 +1002,27 @@ pub const Compiler = struct {
         try self.current.?.function.chunk.write(code, self.parser.previous_token.?.line);
     }
 
+    fn emitTwo(self: *Self, a: u8, b: u24) !void {
+        try self.emit(
+            (@intCast(u32, a) << 24)
+            | @intCast(u32, b)
+        );
+    }
+
+    // OP_ | arg
     fn emitCodeArg(self: *Self, code: OpCode, arg: u24) !void {
         try self.emit(
             (@intCast(u32, @enumToInt(code)) << 24)
             | @intCast(u32, arg)
+        );
+    }
+
+    // OP_ | a | b
+    fn emitCodeArgs(self: *Self, code: OpCode, a: u8, b: u16) !void {
+        try self.emit(
+            (@intCast(u32, @enumToInt(code)) << 24)
+            | (@intCast(u32, a) << 16)
+            | (@intCast(u32, b))
         );
     }
 
@@ -1361,8 +1366,6 @@ pub const Compiler = struct {
             try continues.append(try self.continueStatement());
 
             return continues;
-        } else if (try self.match(.Try)) {
-            try self.tryCatchStatement();
         } else if (try self.match(.Throw)) {
             // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
             _ = try self.expression(false);
@@ -1633,6 +1636,7 @@ pub const Compiler = struct {
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = try self.getTypeDef(return_type.toInstance()),
             .parameters = parameters,
+            .function_type = .Anonymous,
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -1684,7 +1688,10 @@ pub const Compiler = struct {
                     );
 
                     try self.emitCodeArg(.OP_SUPER_INVOKE, name_constant);
-                    try self.emit(@intCast(u32, arg_count));
+                    try self.emitTwo(
+                        arg_count,
+                        try self.catch_(super_method.?.resolved_type.?.Function.return_type)
+                    );
 
                     return super_method.?.resolved_type.?.Function.return_type;
                 } else {
@@ -1715,11 +1722,58 @@ pub const Compiler = struct {
         }
     }
 
-    fn fun(self: *Self, _: bool) anyerror!*ObjTypeDef {
-        return try self.function(null, .Anonymous, null);
+    fn catch_(self: *Self, return_type: *ObjTypeDef) !u8 {
+        if (try self.match(.Catch)) {
+            // Catch closures
+            if (try self.match(.LeftBrace)) {
+                var catch_count: u8 = 0;
+                while (!self.check(.RightBrace) and !self.check(.Eof)) {
+                    const function_typedef: *ObjTypeDef = try self.function(null, .Catch, null, return_type);
+
+                    if (!return_type.eql(function_typedef.resolved_type.?.Function.return_type)) {
+                        try self.reportTypeCheck(return_type, function_typedef.resolved_type.?.Function.return_type, "Bad catch return type.");
+                    }
+
+                    catch_count += 1;
+
+                    if (catch_count > 255) {
+                        try self.reportError("Maximum catch closures is 255.");
+
+                        return 255;
+                    }
+                    
+                    if (self.check(.Comma) or !self.check(.RightBrace)) {
+                        try self.consume(.Comma, "Expected `,` between catch closures.");
+                    }
+                }
+
+                try self.consume(.RightBrace, "Expected `}` after catch closures.");
+
+                return catch_count;
+            } else {
+                const default_type: *ObjTypeDef = try self.expression(false);
+
+                // If `null` it changes the expression to an optional
+                // if (default_type.def_type == .Void) {
+                //     return_type.optional = true;
+                // }
+
+                if (!return_type.eql(default_type)) {
+                    try self.reportTypeCheck(return_type, default_type, "Bad catch expression type.");
+                }
+
+                return 1;
+            }
+        }
+
+        return 0;
     }
 
-    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ObjTypeDef {
+    fn fun(self: *Self, _: bool) anyerror!*ObjTypeDef {
+        return try self.function(null, .Anonymous, null, null);
+    }
+
+    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef, inferred_return_type: ?*ObjTypeDef) !*ObjTypeDef {
         try ChunkCompiler.init(self, function_type, null, this);
         var compiler: *ChunkCompiler = self.current.?;
         self.beginScope();
@@ -1747,6 +1801,7 @@ pub const Compiler = struct {
                 ),
             .return_type = undefined,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
+            .function_type = function_type,
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -1759,7 +1814,11 @@ pub const Compiler = struct {
         self.current.?.function.type_def = &function_typedef;
 
         // Parse argument list
-        if (function_type != .Try and function_type != .Test and (function_type != .Catch or self.check(.LeftParen))) {
+        if (function_type == .Test) {
+            try self.consume(.String, "Expected `str` after `test`.");
+            _ = try self.string(false);
+            try self.emitOpCode(.OP_PRINT);
+        } else if (function_type != .Catch or !(try self.match(.Default))) {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
             var arity: usize = 0;
@@ -1823,17 +1882,16 @@ pub const Compiler = struct {
             }
 
             try self.consume(.RightParen, "Expected `)` after function parameters.");
-        } else if (function_type == .Test) {
-            try self.consume(.String, "Expected `str` after `test`.");
-            _ = try self.string(false);
-            try self.emitOpCode(.OP_PRINT);
         }
-        
+
         // Parse return type
-        if (function_type != .Try and function_type != .Catch and function_type != .Test) {
+        if (function_type != .Test and (function_type != .Catch or self.check(.Greater))) {
+            // TODO: infer return type for catch closures
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+        } else if (function_type == .Catch) {
+            function_typedef.resolved_type.?.Function.return_type = inferred_return_type.?;
         } else {
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef(
                 .{
@@ -1843,7 +1901,7 @@ pub const Compiler = struct {
         }
 
         // Parse body
-        if (function_type == .Anonymous and try self.match(.Arrow)) {
+        if ((function_type == .Anonymous or function_type == .Catch) and try self.match(.Arrow)) {
             var expr_type: *ObjTypeDef = try self.expression(false);
 
             if (!function_typedef.resolved_type.?.Function.return_type.eql(expr_type)) {
@@ -1902,7 +1960,7 @@ pub const Compiler = struct {
         var constant: u24 = try self.identifierConstant(self.parser.previous_token.?.lexeme);
 
         var fun_type: FunctionType = .Method;
-        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object);
+        var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object, null);
 
         if (static) {
             try self.emitCodeArg(.OP_SET_PROPERTY, constant);
@@ -2104,29 +2162,9 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        _ = try self.function(name_token, FunctionType.Test, null);
+        _ = try self.function(name_token, FunctionType.Test, null, null);
 
         try self.defineGlobalVariable(@intCast(u24, slot));
-    }
-
-    fn tryCatchStatement(self: *Self) !void {
-        // Try block
-        _ = try self.function(null, .Try, null);
-
-        try self.consume(.Catch, "Expected `catch` statement after `try` block");
-
-        // Catch block
-        _ = try self.function(null, .Catch, null);
-        try self.emitOpCode(.OP_CATCH);
-
-        // Anymore catch clauses ?
-        while ((try self.match(.Catch)) and !self.check(.Eof)) {
-            _ = try self.function(null, .Catch, null);
-            try self.emitOpCode(.OP_CATCH);
-        }
-
-        // Call try clause immediately
-        try self.emitCodeArg(.OP_CALL, 0);
     }
 
     fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!void {
@@ -2324,7 +2362,7 @@ pub const Compiler = struct {
             function_type = .EntryPoint;
         }
 
-        var function_def: *ObjTypeDef = try self.function(name_token, function_type, null);
+        var function_def: *ObjTypeDef = try self.function(name_token, function_type, null, null);
         // Now that we have the full function type, get the local and update its type_def
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;
@@ -4173,13 +4211,21 @@ pub const Compiler = struct {
         if (callee_type.def_type == .Function) {
             arg_count = try self.argumentList(callee_type.resolved_type.?.Function.parameters);
 
-            try self.emitCodeArg(.OP_CALL, arg_count);
+            try self.emitCodeArgs(
+                .OP_CALL,
+                arg_count,
+                try self.catch_(callee_type.resolved_type.?.Function.return_type),
+            );
 
             return callee_type.resolved_type.?.Function.return_type;
         } else if (callee_type.def_type == .Native) {
             arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters);
 
-            try self.emitCodeArg(.OP_CALL, arg_count);
+            try self.emitCodeArgs(
+                .OP_CALL,
+                arg_count,
+                try self.catch_(callee_type.resolved_type.?.Native.return_type),
+            );
 
             return callee_type.resolved_type.?.Native.return_type;
         } else if (callee_type.def_type == .Placeholder) {
@@ -4197,8 +4243,6 @@ pub const Compiler = struct {
 
             // Call it
             arg_count = try self.placeholderArgumentList(callee_type);
-
-            try self.emitCodeArg(.OP_CALL, arg_count);
             
             // We know nothing of the return value
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
@@ -4211,6 +4255,13 @@ pub const Compiler = struct {
             });
 
             try PlaceholderDef.link(callee_type, placeholder, .Call);
+
+            // TODO: does this work?
+            try self.emitCodeArgs(
+                .OP_CALL,
+                arg_count,
+                try self.catch_(placeholder),
+            );
 
             return placeholder;
         }
@@ -4367,7 +4418,11 @@ pub const Compiler = struct {
                     var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
 
                     try self.emitCodeArg(.OP_GET_PROPERTY, name);
-                    try self.emitCodeArg(.OP_CALL, arg_count);
+                    try self.emitCodeArgs(
+                        .OP_CALL,
+                        arg_count,
+                        try self.catch_(property_type.?.resolved_type.?.Function.return_type)
+                    );
 
                     return property_type.?.resolved_type.?.Function.return_type;
                 }
@@ -4452,7 +4507,10 @@ pub const Compiler = struct {
                     var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
 
                     try self.emitCodeArg(.OP_INVOKE, name);
-                    try self.emit(arg_count);
+                    try self.emitTwo(
+                        arg_count,
+                        try self.catch_(property_type.?.resolved_type.?.Function.return_type)
+                    );
 
                     return property_type.?.resolved_type.?.Function.return_type;
                 }
@@ -4503,7 +4561,10 @@ pub const Compiler = struct {
                         try self.emitOpCode(.OP_COPY); // List is first argument
                         var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
                         try self.emitCodeArg(.OP_INVOKE, name);
-                        try self.emit(arg_count + 1);
+                        try self.emitTwo(
+                            arg_count + 1,
+                            try self.catch_(member.resolved_type.?.Native.return_type)
+                        );
 
                         return member.resolved_type.?.Native.return_type;
                     }
@@ -4562,8 +4623,23 @@ pub const Compiler = struct {
 
                     var arg_count: u8 = try self.placeholderArgumentList(placeholder);
 
+                    // We know nothing of the return value
+                    var return_placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?)
+                    };
+
+                    var return_placeholder = try self.getTypeDef(.{
+                        .def_type = .Placeholder,
+                        .resolved_type = return_placeholder_resolved_type
+                    });
+
+                    try PlaceholderDef.link(placeholder, return_placeholder, .Call);
+
                     try self.emitCodeArg(.OP_INVOKE, name);
-                    try self.emit(arg_count);
+                    try self.emitTwo(
+                        arg_count,
+                        try self.catch_(return_placeholder)
+                    );
                 } else {
                     try self.emitCodeArg(.OP_GET_PROPERTY, name);
                 }

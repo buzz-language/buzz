@@ -417,29 +417,23 @@ pub const ObjClosure = struct {
     },
 
     function: *ObjFunction,
-    catch_closures: std.ArrayList(*ObjClosure),
     upvalues: std.ArrayList(*ObjUpValue),
 
     pub fn init(allocator: Allocator, function: *ObjFunction) !Self {
         return Self {
             .function = function,
-            .catch_closures = std.ArrayList(*ObjClosure).init(allocator),
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
     }
     
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.function.toObj());
-        for (self.catch_closures.items) |catch_closure| {
-            try markObj(vm, catch_closure.toObj());
-        }
         for (self.upvalues.items) |upvalue| {
             try markObj(vm, upvalue.toObj());
         }
     }
 
     pub fn deinit(self: *Self) void {
-        self.catch_closures.deinit();
         self.upvalues.deinit();
     }
 
@@ -463,6 +457,18 @@ pub const ObjClosure = struct {
 /// Function
 pub const ObjFunction = struct {
     const Self = @This();
+
+    pub const FunctionType = enum {
+        Function,
+        Method,
+        Script,           // Imported script
+        ScriptEntryPoint, // main script
+        EntryPoint,       // main function
+        Catch,
+        Test,
+        Anonymous,
+        Extern,
+    };
 
     obj: Obj = .{
         .obj_type = .Function
@@ -513,6 +519,7 @@ pub const ObjFunction = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
+        function_type: FunctionType = .Function,
     };
 };
 

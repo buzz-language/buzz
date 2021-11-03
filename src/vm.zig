@@ -42,10 +42,19 @@ const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
 
 pub const CallFrame = struct {
+    const Self = @This();
+
     closure: *ObjClosure,
     // Index into closure's chunk
     ip: usize,
+    // Frame
     slots: [*]Value,
+
+    // Default value in case of error
+    error_value: ?Value = null,
+
+    // Error handlers
+    error_handlers: std.ArrayList(*ObjClosure),
 
     // Line in source code where the call occured
     call_site: ?usize,
@@ -222,7 +231,7 @@ pub const VM = struct {
         // Command line arguments are the first local
         try self.pushArgs(args);
 
-        _ = try self.call(closure, 0);
+        _ = try self.call(closure, 0, null);
 
         return try self.run();
     }
@@ -246,15 +255,6 @@ pub const VM = struct {
 
     inline fn readByte(self: *Self) u8 {
         return @intCast(u8, self.readInstruction());
-    }
-
-    inline fn readShort(self: *Self) u16 {
-        self.currentFrame().?.ip += 2;
-
-        const byte1: u16 = @intCast(u16, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip - 2]);
-        const byte2: u16 = @intCast(u16, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip - 1]);
-
-        return @intCast(u16, (byte1 << 8) | byte2);
     }
 
     inline fn readOpCode(self: *Self) OpCode {
@@ -333,21 +333,51 @@ pub const VM = struct {
                     _ = self.pop();
                 },
                 .OP_CALL => {
-                    const arg_count: u8 = @intCast(u8, arg);
-                    try self.callValue(self.peek(arg_count), arg_count);
+                    const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
+                    const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+
+                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    defer catch_values.deinit();
+                    var i: u16 = 0;
+                    while (i < catch_count) : (i += 1) {
+                        try catch_values.append(self.pop());
+                    }
+
+                    try self.callValue(self.peek(arg_count), arg_count, catch_values);
                 },
 
                 .OP_INVOKE => {
                     const method: *ObjString = self.readString(arg);
-                    const arg_count: u8 = self.readByte();
-                    try self.invoke(method, arg_count);
+                    const arg_instruction: u32 = self.readInstruction();
+                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+
+                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    defer catch_values.deinit();
+                    var i: u16 = 0;
+                    while (i < catch_count) : (i += 1) {
+                        try catch_values.append(self.pop());
+                    }
+
+                    try self.invoke(method, arg_count, catch_values);
                 },
 
                 .OP_SUPER_INVOKE => {
                     const method: *ObjString = self.readString(arg);
-                    const arg_count: u8 = self.readByte();
+                    
+                    const arg_instruction: u32 = self.readInstruction();
+                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+
+                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    defer catch_values.deinit();
+                    var i: u16 = 0;
+                    while (i < catch_count) : (i += 1) {
+                        try catch_values.append(self.pop());
+                    }
+
                     const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
-                    try self.invokeFromObject(super_class, method, arg_count);
+                    try self.invokeFromObject(super_class, method, arg_count, catch_values);
                 },
 
                 .OP_RETURN => {
@@ -364,15 +394,6 @@ pub const VM = struct {
                 .OP_IMPORT => try self.import(self.peek(0)),
 
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
-
-                .OP_CATCH => {
-                    var try_closure: *ObjClosure = ObjClosure.cast(self.peek(1).Obj).?;
-                    var catch_closure: *ObjClosure = ObjClosure.cast(self.peek(0).Obj).?;
-
-                    try try_closure.catch_closures.append(catch_closure);
-
-                    _ = self.pop(); // Pop catch closure
-                },
 
                 .OP_LIST => {
                     var list: *ObjList = try allocateObject(
@@ -752,18 +773,26 @@ pub const VM = struct {
 
             self.stack_top = frame.slots;
 
-            // We don't care about a return value but call assumes it when setting frame.slots
-            self.push(Value { .Null = null });
+            if (frame.error_value) |error_value| {
+                // Push error_value as failed function return value
+                self.push(error_value);
 
-            // Call catch closure or continue unwinding frames to find one
-            if (frame.closure.catch_closures.items.len > 0) {
-                for (frame.closure.catch_closures.items) |catch_closure| {
-                    const parameters: std.StringArrayHashMap(*ObjTypeDef) = catch_closure.function.type_def.resolved_type.?.Function.parameters;
+                return;
+            } else {
+                // Call catch closure or continue unwinding frames to find one
+                for (frame.error_handlers.items) |handler| {
+                    const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
                     if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
                         stack.deinit();
 
+                        // In a normal frame, the slots 0 is either the function or a `this` value
+                        self.push(Value { .Null = null });
+
+                        // Push error payload
                         self.push(payload);
-                        try self.call(catch_closure, 1);
+
+                        // Call handler, it's return value is the result of the frame we just closed
+                        try self.call(handler, 1, null);
 
                         return;
                     }
@@ -824,7 +853,7 @@ pub const VM = struct {
         }
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8) !void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         // We don't type check or check arity because it was done at comptime
         
         // TODO: do we check for stack overflow
@@ -836,8 +865,23 @@ pub const VM = struct {
             .slots = self.stack_top - arg_count - 1,
             .call_site = if (self.currentFrame()) |current_frame|
                 current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
-                else null
+                else null,
+            .error_handlers = std.ArrayList(*ObjClosure).init(self.allocator),
         };
+
+        if (catch_values != null) {
+            for (catch_values.?.items) |catch_value| {
+                if (catch_value == .Obj
+                    and ObjClosure.cast(catch_value.Obj) != null
+                    and ObjClosure.cast(catch_value.Obj).?.function.type_def.resolved_type.?.Function.function_type == .Catch) {
+                    try frame.error_handlers.append(ObjClosure.cast(catch_value.Obj).?);
+                } else {
+                    assert(catch_values.?.items.len == 1);
+
+                    frame.error_value = catch_value;
+                }
+            }
+        }
 
         if (self.frames.items.len <= self.frame_count) {
             try self.frames.append(frame);
@@ -856,7 +900,8 @@ pub const VM = struct {
         }
     }
 
-    fn callNative(self: *Self, native: *ObjNative, arg_count: u8) !void {
+    fn callNative(self: *Self, native: *ObjNative, arg_count: u8, _: ?std.ArrayList(Value)) !void {
+        // TODO: how to use catch_values with a native call?
         var result: Value = Value { .Null = null };
         if (native.native(self)) {
             result = self.pop();
@@ -877,7 +922,7 @@ pub const VM = struct {
         self.push(Value{ .Obj = bound.toObj() });
     }
 
-    fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
+    fn callValue(self: *Self, callee: Value, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {
@@ -885,17 +930,17 @@ pub const VM = struct {
                 (self.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
-                    return try self.call(closure, arg_count);
+                    return try self.call(closure, arg_count, catch_values);
                 } else {
                     assert(bound.native != null);
-                    return try self.callNative(bound.native.?, arg_count);
+                    return try self.callNative(bound.native.?, arg_count, catch_values);
                 }
             },
             .Closure => {
-                return try self.call(ObjClosure.cast(obj).?, arg_count);
+                return try self.call(ObjClosure.cast(obj).?, arg_count, catch_values);
             },
             .Native => {
-                return try self.callNative(ObjNative.cast(obj).?, arg_count);
+                return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_values);
             },
             else => unreachable
         }
@@ -942,15 +987,15 @@ pub const VM = struct {
         }
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8) !void {
+    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         if (object.methods.get(name.string)) |method| {
-            return self.call(method, arg_count);
+            return self.call(method, arg_count, catch_values);
         } else {
             unreachable;
         }
     }
 
-    fn invoke(self: *Self, name: *ObjString, arg_count: u8) !void {
+    fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.Obj;
@@ -961,10 +1006,10 @@ pub const VM = struct {
                 if (instance.fields.get(name.string)) |field| {
                     (self.stack_top - arg_count - 1)[0] = field;
 
-                    return try self.callValue(field, arg_count);
+                    return try self.callValue(field, arg_count, catch_values);
                 }
 
-                try self.invokeFromObject(instance.object, name, arg_count);
+                try self.invokeFromObject(instance.object, name, arg_count, catch_values);
             },
             .List => {
                 var list: *ObjList = ObjList.cast(obj).?;
@@ -973,7 +1018,7 @@ pub const VM = struct {
                     var member_value: Value = Value { .Obj = member.toObj() };
                     (self.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count);
+                    return try self.callValue(member_value, arg_count, catch_values);
                 }
                 
                 unreachable;
