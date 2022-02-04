@@ -1,0 +1,28 @@
+import "lib/std.buzz";
+
+enum(str) MyErrors {
+    failed = "Something failed",
+    bad = "Something bad",
+    ohno = "Oh no!",
+}
+
+enum(str) OtherErrors {
+    failed = "Something failed",
+    bad = "Something bad",
+    ohno = "Oh no!",
+}
+
+fun willFail() > num {
+    throw MyErrors.failed;
+    return 1;
+}
+
+test "Try catch" {
+    try {
+        willFail();
+    } catch (OtherErrors error) {
+        assert(false, message: "caught the wrong error");
+    } catch (MyErrors error) {
+        assert(true, message: "caught the right error");
+    }
+}

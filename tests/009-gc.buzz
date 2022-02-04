@@ -2,6 +2,7 @@ object Kill {
     num yo = -1
 }
 
+| TODO: implement std.gc helpers to check actual data
 test "GC, collecting unreferenced objects" {
     num i = 0;
     while (i < 100) {

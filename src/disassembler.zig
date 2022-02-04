@@ -153,7 +153,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_TO_STRING,
         .OP_INSTANCE,
         .OP_FOREACH,
-        .OP_GET_SUPER, => simpleInstruction(instruction, offset),
+        .OP_GET_SUPER,
+        .OP_TRY_END => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
@@ -169,7 +170,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_EXPORT,
         .OP_COPY,
         .OP_CLOSE_UPVALUE,
-        .OP_RETURN, => byteInstruction(instruction, chunk, offset),
+        .OP_RETURN,
+        .OP_TRY, => byteInstruction(instruction, chunk, offset),
         
         .OP_OBJECT,
         .OP_ENUM,

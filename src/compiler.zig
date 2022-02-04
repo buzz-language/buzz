@@ -406,6 +406,10 @@ pub const Compiler = struct {
 
     // TODO: walk the chain of compiler and destroy them in deinit
 
+    inline fn currentCode(self: *Self) usize {
+        return self.current.?.function.chunk.code.items.len;
+    }
+
     pub fn compile(self: *Self, source: []const u8, file_name: []const u8, testing: bool) !?*ObjFunction {
         self.script_name = file_name;
         self.testing = testing;
@@ -1031,7 +1035,7 @@ pub const Compiler = struct {
     }
 
     fn emitLoop(self: *Self, loop_start: usize) !void {
-        const offset: usize = self.current.?.function.chunk.code.items.len - loop_start + 1;
+        const offset: usize = self.currentCode() - loop_start + 1;
         if (offset > 16777215) {
             try self.reportError("Loop body to large.");
         }
@@ -1042,7 +1046,7 @@ pub const Compiler = struct {
     fn emitJump(self: *Self, instruction: OpCode) !usize {
         try self.emitCodeArg(instruction, 0xffffff);
 
-        return self.current.?.function.chunk.code.items.len - 1;
+        return self.currentCode() - 1;
     }
 
     fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
@@ -1065,7 +1069,7 @@ pub const Compiler = struct {
     }
 
     fn patchJump(self: *Self, offset: usize) !void {
-        const jump: usize = self.current.?.function.chunk.code.items.len - offset - 1;
+        const jump: usize = self.currentCode() - offset - 1;
 
         if (jump > 16777215) {
             try self.reportError("Jump to large.");
@@ -1081,7 +1085,7 @@ pub const Compiler = struct {
     fn emitList(self: *Self) !usize {
         try self.emitCodeArg(.OP_LIST, 0xffffff);
 
-        return self.current.?.function.chunk.code.items.len - 1;
+        return self.currentCode() - 1;
     }
 
     fn patchList(self: *Self, offset: usize, constant: u24) !void {
@@ -1095,7 +1099,7 @@ pub const Compiler = struct {
     fn emitMap(self: *Self) !usize {
         try self.emitCodeArg(.OP_MAP, 0xffffff);
 
-        return self.current.?.function.chunk.code.items.len - 1;
+        return self.currentCode() - 1;
     }
 
     fn patchMap(self: *Self, offset: usize, map_type_constant: u24) !void {
@@ -1373,6 +1377,9 @@ pub const Compiler = struct {
             try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
 
             try self.emitOpCode(.OP_THROW);
+        } else if (try self.match(.Try)) {
+            assert (!hanging);
+            try self.tryCatch();
         } else {
             try self.expressionStatement(hanging);
         }
@@ -1690,7 +1697,7 @@ pub const Compiler = struct {
                     try self.emitCodeArg(.OP_SUPER_INVOKE, name_constant);
                     try self.emitTwo(
                         arg_count,
-                        try self.catch_(super_method.?.resolved_type.?.Function.return_type)
+                        try self.inlineCatch(super_method.?.resolved_type.?.Function.return_type)
                     );
 
                     return super_method.?.resolved_type.?.Function.return_type;
@@ -1722,7 +1729,96 @@ pub const Compiler = struct {
         }
     }
 
-    fn catch_(self: *Self, return_type: *ObjTypeDef) !u8 {
+    fn tryCatch(self: *Self) !void {
+        // OP_TRY @catch_1  // we only need address of first catch block
+        // { try block }
+        // @catch_1: push type to match
+        //          NEQL JMP @catch_1_exit
+        //          Push error as local
+        //          { catch block }
+        //          JMP @exit
+        // @catch_1_exit
+        // ...
+        // @exit: OP_CLEAR_TRY // clears first catch address
+
+        try self.consume(.LeftBrace, "Expected `{` after `try`");
+
+        const patch_first_catch: usize = try self.emitJump(.OP_TRY);
+
+        // Try block
+        _ = try self.block();
+
+        // Give to OP_TRY @ of first try block
+        try self.patchJump(patch_first_catch);
+
+        // Parse try blocks
+        var patch_exits = std.ArrayList(usize).init(self.allocator);
+        var catch_count: usize = 0;
+        while (try self.match(.Catch)) {
+            try self.consume(.LeftParen, "Expected `(`");
+
+            if (catch_count > 0) {
+                // Not first catch clause: pop the last error comparison result
+                try self.emitOpCode(.OP_POP);
+            }
+
+            try self.emitOpCode(.OP_COPY);  // We still want the error on the stack after the comparison
+
+            // Push type to match
+            const error_type: *ObjTypeDef = try self.parseTypeDef();
+            try self.emitConstant(
+                .{
+                    .Obj = error_type.toObj()
+                }
+            );
+
+            // Exit at end of this catch block if error type doesn't match
+            // Assumes the stack is : | error | expected_type |
+            try self.emitOpCode(.OP_IS); // Pops both its arguments from the stack
+            const catch_exit: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+            try self.emitOpCode(.OP_POP);   // Pop comparison result
+
+            // Declare error argument
+            try self.consume(.Identifier, "Expected variable name.");
+            _ = try self.declareVariable(error_type, self.parser.previous_token.?, true);
+            self.markInitialized();
+
+            try self.consume(.RightParen, "Expected `)`");
+            try self.consume(.LeftBrace, "Expected `{{`");
+
+            // Catch block
+            _ = try self.block();
+
+            // Pop error payload
+            try self.emitOpCode(.OP_POP);
+
+            // Skip following catch blocks since we succeeded runnning this one
+            // Unless there's no more so no jump required
+            if (self.check(.Catch)) {
+                try patch_exits.append(
+                    try self.emitJump(.OP_JUMP)
+                );
+            }
+
+            // Patch jump op that skips this catch block
+            try self.patchJump(catch_exit);
+
+            catch_count += 1;
+        }
+
+        if (catch_count < 1) {
+            try self.reportErrorAtCurrent("Expected at least one catch clause");
+        }
+
+        // Patch each catch block exit
+        for (patch_exits.items) |code| {
+            try self.patchJump(code);
+        }
+
+        try self.emitOpCode(.OP_TRY_END);
+    }
+
+    fn inlineCatch(self: *Self, return_type: *ObjTypeDef) !u8 {
         if (try self.match(.Catch)) {
             // Catch closures
             if (try self.match(.LeftBrace)) {
@@ -3084,7 +3180,7 @@ pub const Compiler = struct {
 
         var key_slot: u24 = @intCast(u24, (try self.resolveLocal(self.current.?, key_name)).?);
 
-        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+        const loop_start: usize = self.currentCode();
 
         // Calls `next` and update key and value locals
         try self.emitOpCode(.OP_FOREACH);
@@ -3130,7 +3226,7 @@ pub const Compiler = struct {
 
         try self.consume(.Semicolon, "Expected `;` after for loop variables.");
 
-        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+        const loop_start: usize = self.currentCode();
 
         var expr_type: *ObjTypeDef = try self.expression(false);
 
@@ -3153,7 +3249,7 @@ pub const Compiler = struct {
         // Jump over expressions which will be executed at end of loop
         var body_jump: usize = try self.emitJump(.OP_JUMP);
 
-        const expr_loop: usize = self.current.?.function.chunk.code.items.len;
+        const expr_loop: usize = self.currentCode();
         while (!self.check(.RightParen) and !self.check(.Eof)) {
             _ = try self.expression(false);
 
@@ -3187,7 +3283,7 @@ pub const Compiler = struct {
     }
 
     fn whileStatement(self: *Self) !void {
-        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+        const loop_start: usize = self.currentCode();
 
         try self.consume(.LeftParen, "Expected `(` after `while`.");
 
@@ -3221,7 +3317,7 @@ pub const Compiler = struct {
     }
 
     fn doUntilStatement(self: *Self) !void {
-        const loop_start: usize = self.current.?.function.chunk.code.items.len;
+        const loop_start: usize = self.currentCode();
         
         try self.consume(.LeftBrace, "Expected `{` after `do`.");
         self.beginScope();
@@ -4214,7 +4310,7 @@ pub const Compiler = struct {
             try self.emitCodeArgs(
                 .OP_CALL,
                 arg_count,
-                try self.catch_(callee_type.resolved_type.?.Function.return_type),
+                try self.inlineCatch(callee_type.resolved_type.?.Function.return_type),
             );
 
             return callee_type.resolved_type.?.Function.return_type;
@@ -4224,7 +4320,7 @@ pub const Compiler = struct {
             try self.emitCodeArgs(
                 .OP_CALL,
                 arg_count,
-                try self.catch_(callee_type.resolved_type.?.Native.return_type),
+                try self.inlineCatch(callee_type.resolved_type.?.Native.return_type),
             );
 
             return callee_type.resolved_type.?.Native.return_type;
@@ -4260,7 +4356,7 @@ pub const Compiler = struct {
             try self.emitCodeArgs(
                 .OP_CALL,
                 arg_count,
-                try self.catch_(placeholder),
+                try self.inlineCatch(placeholder),
             );
 
             return placeholder;
@@ -4421,7 +4517,7 @@ pub const Compiler = struct {
                     try self.emitCodeArgs(
                         .OP_CALL,
                         arg_count,
-                        try self.catch_(property_type.?.resolved_type.?.Function.return_type)
+                        try self.inlineCatch(property_type.?.resolved_type.?.Function.return_type)
                     );
 
                     return property_type.?.resolved_type.?.Function.return_type;
@@ -4509,7 +4605,7 @@ pub const Compiler = struct {
                     try self.emitCodeArg(.OP_INVOKE, name);
                     try self.emitTwo(
                         arg_count,
-                        try self.catch_(property_type.?.resolved_type.?.Function.return_type)
+                        try self.inlineCatch(property_type.?.resolved_type.?.Function.return_type)
                     );
 
                     return property_type.?.resolved_type.?.Function.return_type;
@@ -4563,7 +4659,7 @@ pub const Compiler = struct {
                         try self.emitCodeArg(.OP_INVOKE, name);
                         try self.emitTwo(
                             arg_count + 1,
-                            try self.catch_(member.resolved_type.?.Native.return_type)
+                            try self.inlineCatch(member.resolved_type.?.Native.return_type)
                         );
 
                         return member.resolved_type.?.Native.return_type;
@@ -4638,7 +4734,7 @@ pub const Compiler = struct {
                     try self.emitCodeArg(.OP_INVOKE, name);
                     try self.emitTwo(
                         arg_count,
-                        try self.catch_(return_placeholder)
+                        try self.inlineCatch(return_placeholder)
                     );
                 } else {
                     try self.emitCodeArg(.OP_GET_PROPERTY, name);

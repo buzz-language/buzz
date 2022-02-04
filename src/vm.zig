@@ -56,6 +56,13 @@ pub const CallFrame = struct {
     // Error handlers
     error_handlers: std.ArrayList(*ObjClosure),
 
+    // The ip at which the current try block started
+    try_start_ip: ?usize = null,
+
+    // Catch jump set when entering a try block, and reset when exiting it or where actually jumping to that ip
+    // Relative to try_start_ip
+    error_catch_jmp: ?usize = null,
+
     // Line in source code where the call occured
     call_site: ?usize,
 };
@@ -280,6 +287,9 @@ pub const VM = struct {
             var full_instruction: u32 = self.readInstruction();
             var instruction: OpCode = getCode(full_instruction);
             var arg: u24 = getArg(full_instruction);
+            if (Config.debug_current_instruction) {
+                std.debug.print("{}: {}\n", .{current_frame.ip, instruction});
+            }
             switch(instruction) {
                 .OP_NULL => self.push(Value { .Null = null }),
                 .OP_TRUE => self.push(Value { .Boolean = true }),
@@ -394,6 +404,20 @@ pub const VM = struct {
                 .OP_IMPORT => try self.import(self.peek(0)),
 
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
+
+                .OP_TRY => {
+                    const frame: ?*CallFrame = self.currentFrame();
+
+                    frame.?.try_start_ip = frame.?.ip;
+                    frame.?.error_catch_jmp = arg;
+                },
+
+                .OP_TRY_END => {
+                    const frame: ?*CallFrame = self.currentFrame();
+
+                    frame.?.try_start_ip = null;
+                    frame.?.error_catch_jmp = null;
+                },
 
                 .OP_LIST => {
                     var list: *ObjList = try allocateObject(
@@ -740,8 +764,31 @@ pub const VM = struct {
 
         _ = self.pop();
     }
+
+    // Jump to first try clause if we're in a try block
+    fn jumpToCatch(self: *Self, payload: Value) bool {
+        const current_frame: *CallFrame = self.currentFrame().?;
+        if (current_frame.error_catch_jmp) |error_catch_jmp| {
+            assert(current_frame.try_start_ip != null);
+
+            // Push error payload
+            self.push(payload);
+
+            // Jump to it
+            current_frame.ip = current_frame.try_start_ip.? + error_catch_jmp;
+
+            return true;
+        }
+
+        return false;
+    }
     
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
+        // Are we in a try block ?
+        if (self.jumpToCatch(payload)) {
+            return;
+        }
+
         var stack = std.ArrayList(CallFrame).init(self.allocator);
 
         while (self.frame_count > 0) {
@@ -779,22 +826,28 @@ pub const VM = struct {
 
                 return;
             } else {
-                // Call catch closure or continue unwinding frames to find one
-                for (frame.error_handlers.items) |handler| {
-                    const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
-                    if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
-                        stack.deinit();
+                if (self.jumpToCatch(payload)) {
+                    return;
+                } else {
+                    // Are we in a try function?
+                    // TODO: we can accept inline catch to be functions but not the try block
+                    // Call catch closure or continue unwinding frames to find one
+                    for (frame.error_handlers.items) |handler| {
+                        const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
+                        if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
+                            stack.deinit();
 
-                        // In a normal frame, the slots 0 is either the function or a `this` value
-                        self.push(Value { .Null = null });
+                            // In a normal frame, the slots 0 is either the function or a `this` value
+                            self.push(Value { .Null = null });
 
-                        // Push error payload
-                        self.push(payload);
+                            // Push error payload
+                            self.push(payload);
 
-                        // Call handler, it's return value is the result of the frame we just closed
-                        try self.call(handler, 1, null);
+                            // Call handler, it's return value is the result of the frame we just closed
+                            try self.call(handler, 1, null);
 
-                        return;
+                            return;
+                        }
                     }
                 }
             }

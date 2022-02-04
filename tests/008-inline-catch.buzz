@@ -33,7 +33,7 @@ fun willIndirectlyFail() > num {
     return willFail();
 }
 
-test "Error value in catch clause" {
+test "Inline catch clauses" {
     | assert((willFail() catch null) == null, message: "error or null");
     assert((willFail() catch 0) == 0, message: "error or default value");
 

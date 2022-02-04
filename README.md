@@ -3,6 +3,7 @@
 </p>
 
 # 👨‍🚀 buzz
+
 A small/lightweight typed scripting language written in Zig
 
 <p align="center">
@@ -12,6 +13,7 @@ A small/lightweight typed scripting language written in Zig
 **Note: This is very much in development. Seriously, don't even try to build it.**
 
 # Goals
+
 - Small in size and complexity (just a bit more than Lua though)
 - Strict typing
 - Unambiguous
@@ -31,7 +33,7 @@ str aString = "hello world";
 num aNumber = 23;
 
 | A constant
-const num pi = 3.14; 
+const num pi = 3.14;
 
 | Data structures
 [num] aListOfNumbers = [1, 2, 3];
@@ -41,6 +43,7 @@ const num pi = 3.14;
     "three": 3,
 };
 ```
+
 ### Optionals
 
 ```buzz
@@ -68,11 +71,13 @@ fun sayHiTo(str name, str? lastName, num age) > str {
 ```
 
 When called, only the first argument name of a function can be omitted, order is not required:
+
 ```buzz
 sayHiTo("Joe", age: 35, lastName: "Doe"); | -> "Hi Joe Doe!"
 ```
 
 Functions are first-class citizens:
+
 ```buzz
 Function() fn = fun () > void -> print("hello world"); | Arrow function
 
@@ -95,6 +100,7 @@ print(Country.usa.value); | -> "United States of America"
 ```
 
 ## Control flow
+
 ```buzz
 | The usual
 if (someCondition) {
@@ -124,6 +130,7 @@ for (num i = 0; i < 10; i = i + 1) {
 ### `foreach`
 
 `foreach` can iterate over most data structures:
+
 ```buzz
 foreach (SomeEnum case in SomeEnum) {
     | ...
@@ -141,6 +148,7 @@ foreach (str key, num value in aMap) {
 ## Objects and Classes
 
 An `object` is like a class except it can't be inherited from and can't inherit from anything:
+
 ```buzz
 object Person {
     static population = 0;
@@ -166,6 +174,7 @@ object Person {
 ```
 
 `class` act like you would expect. They don't have the central place they have in other languages (tbh I may end up removing them):
+
 ```buzz
 class Form {
     num x,
@@ -197,6 +206,12 @@ enum(str) MyErrors {
     ohno = "Oh no!",
 }
 
+enum(str) OtherErrors {
+    failed = "Something failed",
+    bad = "Something bad",
+    ohno = "Oh no!",
+}
+
 fun willFail() > num {
     throw MyErrors.failed;
 
@@ -209,37 +224,48 @@ num result = willFail() catch 0;
 | Handle different type of errors
 num result = willFail() catch {
     (MyErrors e) -> 0,
+    (OtherErrors e) -> 1,
     default {
         | Something unexpected
         exit(1);
     }
 }
+
+| Try catch
+try {
+    willFail();
+} catch (OtherErrors error) {
+    assert(false, message: "caught the wrong error");
+} catch (MyErrors error) {
+    assert(true, message: "caught the right error");
+}
 ```
 
 # TODO
-- [X] `const` qualifier
-- [X] `do` `until` statement
-- [X] `for` statement
-- [X] `foreach` statement
-- [X] `if` statement
-- [X] `import`/`export`
-- [X] `is` operator
-- [X] `while` statement
-- [X] Arithmetic operations
-- [X] Arrow and anonymous functions
-- [X] Classes
-- [X] Enum
-- [X] Garbage collection
-- [X] List
-- [X] Logical operations
-- [X] Map
-- [X] Native functions
-- [X] Objects (class you can't inherit from)
-- [X] Optionals
-- [X] Simple inheritance
-- [X] String escape sequences
-- [X] Strings interpolation
-- [X] Test system
+
+- [x] `const` qualifier
+- [x] `do` `until` statement
+- [x] `for` statement
+- [x] `foreach` statement
+- [x] `if` statement
+- [x] `import`/`export`
+- [x] `is` operator
+- [x] `while` statement
+- [x] Arithmetic operations
+- [x] Arrow and anonymous functions
+- [x] Classes
+- [x] Enum
+- [x] Garbage collection
+- [x] List
+- [x] Logical operations
+- [x] Map
+- [x] Native functions
+- [x] Objects (class you can't inherit from)
+- [x] Optionals
+- [x] Simple inheritance
+- [x] String escape sequences
+- [x] Strings interpolation
+- [x] Test system
 - [ ] API (in progress)
 - [ ] Assignment shortcuts (+=, -=, etc.)
 - [ ] Bitwise operations
@@ -256,4 +282,5 @@ num result = willFail() catch {
 - [ ] UTF-8 strings
 
 # Resources
+
 - http://www.craftinginterpreters.com/contents.html
