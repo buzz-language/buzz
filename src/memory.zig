@@ -49,7 +49,7 @@ pub fn free(vm: *VM, comptime T: type, pointer: *T) void {
     vm.allocator.destroy(pointer);
 
     if (Config.debug_gc) {
-        std.debug.warn("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + @sizeOf(T), @sizeOf(T), vm.bytes_allocated });
+        std.debug.print("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + @sizeOf(T), @sizeOf(T), vm.bytes_allocated });
     }
 }
 
@@ -59,20 +59,20 @@ pub fn freeMany(vm: *VM, comptime T: type, pointer: []const T) void {
     vm.allocator.free(pointer);
 
     if (Config.debug_gc) {
-        std.debug.warn("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + n, n, vm.bytes_allocated });
+        std.debug.print("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + n, n, vm.bytes_allocated });
     }
 }
 
 pub fn markObj(vm: *VM, obj: *Obj) !void {
     if (obj.is_marked) {
         if (Config.debug_gc) {
-            std.debug.warn("{*} already marked\n", .{ obj });
+            std.debug.print("{*} already marked\n", .{ obj });
         }
         return;
     }
 
     if (Config.debug_gc) {
-        std.debug.warn("marking {*}: {s}\n", .{ obj, try valueToString(vm.allocator, Value{ .Obj = obj }) });
+        std.debug.print("marking {*}: {s}\n", .{ obj, try valueToString(vm.allocator, Value{ .Obj = obj }) });
     }
 
     obj.is_marked = true;
@@ -101,7 +101,7 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
 
 fn freeObj(vm: *VM, obj: *Obj) void {
     if (Config.debug_gc) {
-        std.debug.warn("freeing {*}: {}\n", .{ obj, obj.obj_type });
+        std.debug.print("freeing {*}: {}\n", .{ obj, obj.obj_type });
     }
 
     switch (obj.obj_type) {
@@ -222,10 +222,10 @@ fn sweep(vm: *VM) void {
     }
 
     if (Config.debug_gc) {
-        std.debug.warn("Swept {} bytes, now {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated, vm.bytes_allocated });
+        std.debug.print("Swept {} bytes, now {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated, vm.bytes_allocated });
         obj = vm.objects;
         while (obj) |uobj| {
-            std.debug.warn("\t{*}: {s}\n", .{ uobj, uobj });
+            std.debug.print("\t{*}: {s}\n", .{ uobj, uobj });
             obj = uobj.next;
         }
     }
@@ -233,7 +233,7 @@ fn sweep(vm: *VM) void {
 
 pub fn collectGarbage(vm: *VM) !void {
     if (Config.debug_gc) {
-        std.debug.warn("-- gc starts\n", .{});
+        std.debug.print("-- gc starts\n", .{});
 
         try dumpStack(vm);
     }
@@ -252,6 +252,6 @@ pub fn collectGarbage(vm: *VM) !void {
     vm.next_gc = vm.bytes_allocated * 2;
 
     if (Config.debug_gc) {
-        std.debug.warn("-- gc end\n", .{});
+        std.debug.print("-- gc end\n", .{});
     }
 }

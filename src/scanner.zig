@@ -30,7 +30,7 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn getLines(self: *Self, allocator: *Allocator, index: usize, n: usize) !std.ArrayList([]const u8) {
+    pub fn getLines(self: *Self, allocator: Allocator, index: usize, n: usize) !std.ArrayList([]const u8) {
         var lines = std.ArrayList([]const u8).init(allocator);
 
         var it = std.mem.split(u8, self.source, "\n");

@@ -232,7 +232,7 @@ pub const ParserState = struct {
     had_error: bool = false,
     panic_mode: bool = false,
 
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(allocator: Allocator) Self {
         return .{
             .ahead = std.ArrayList(Token).init(allocator),
         };
@@ -368,7 +368,7 @@ pub const Compiler = struct {
         precedence: Precedence,
     };
 
-    allocator: *Allocator,
+    allocator: Allocator,
     scanner: ?Scanner = null,
     parser: ParserState,
     current: ?*ChunkCompiler = null,
@@ -391,7 +391,7 @@ pub const Compiler = struct {
     testing: bool = false,
     test_count: u64 = 0,
 
-    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
+    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
         return .{
             .allocator = allocator,
             .parser = ParserState.init(allocator),
@@ -541,7 +541,7 @@ pub const Compiler = struct {
 
             l += 1;
         }
-        std.debug.warn(
+        std.debug.print(
             "{s}{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n",
             .{
                 report_line.items,
@@ -609,7 +609,7 @@ pub const Compiler = struct {
 
         if (resolved_type.def_type == .Placeholder) {
             if (Config.debug) {
-                std.debug.warn("Attempted to resolve placeholder with placeholder.", .{});
+                std.debug.print("Attempted to resolve placeholder with placeholder.", .{});
             }
             return;
         }
@@ -2230,7 +2230,7 @@ pub const Compiler = struct {
             return native;
         }
 
-        try self.reportError(std.mem.span(dlerror()));
+        try self.reportError(std.mem.sliceTo(dlerror(), 0));
 
         return null;
     }
@@ -3296,7 +3296,7 @@ pub const Compiler = struct {
         self.globals.items[global].initialized = true;
 
         if (Config.debug) {
-            std.debug.warn(
+            std.debug.print(
                 "\u{001b}[33m[{}:{}] Warning: defining global placeholder for `{s}` at {}\u{001b}[0m\n",
                 .{
                     self.parser.previous_token.?.line + 1,

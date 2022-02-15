@@ -61,7 +61,7 @@ pub const VM = struct {
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
-    allocator: *Allocator,
+    allocator: Allocator,
 
     frames: std.ArrayList(CallFrame),
     frame_count: u64 = 0,
@@ -82,7 +82,7 @@ pub const VM = struct {
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
-    pub fn init(allocator: *Allocator, strings: *std.StringHashMap(*ObjString), global_offset: ?usize) !Self {
+    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), global_offset: ?usize) !Self {
         var self: Self = .{
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
@@ -151,7 +151,7 @@ pub const VM = struct {
             for (uargs) |arg| {
                 try list.items.append(
                     Value{
-                        .Obj = (try _obj.copyString(self, std.mem.spanZ(arg))).toObj()
+                        .Obj = (try _obj.copyString(self, std.mem.sliceTo(arg, 0))).toObj()
                     }
                 );
             }
@@ -615,14 +615,14 @@ pub const VM = struct {
                 },
 
                 else => {
-                    std.debug.warn("{} not yet implemented\n", .{ instruction });
+                    std.debug.print("{} not yet implemented\n", .{ instruction });
 
                     std.os.exit(1);
                 }
             }
 
             if (Config.debug_stack) {
-                std.debug.warn("frame: {s}, code: {}\n", .{current_frame.closure.function.name.string, instruction});
+                std.debug.print("frame: {s}, code: {}\n", .{current_frame.closure.function.name.string, instruction});
                 try dumpStack(self);
             }
         }
@@ -736,14 +736,14 @@ pub const VM = struct {
                 _ = self.pop();
                 
                 // Raise the runtime error
-                std.debug.warn("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
 
                 for (stack.items) |stack_frame| {
-                    std.debug.warn("\tat {s}", .{ stack_frame.closure.function.name.string });
+                    std.debug.print("\tat {s}", .{ stack_frame.closure.function.name.string });
                     if (stack_frame.call_site) |call_site| {
-                        std.debug.warn(":{}\n", .{ call_site });
+                        std.debug.print(":{}\n", .{ call_site });
                     } else {
-                        std.debug.warn("\n", .{});
+                        std.debug.print("\n", .{});
                     }
                 }
 

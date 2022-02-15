@@ -107,7 +107,7 @@ pub const Chunk = struct {
 
     // TODO: correlate opcodes and line number in source code
 
-    pub fn init(allocator: *Allocator) Self {
+    pub fn init(allocator: Allocator) Self {
         return Self {
             .code = std.ArrayList(u32).init(allocator),
             .constants = std.ArrayList(Value).init(allocator),

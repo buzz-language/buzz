@@ -73,8 +73,8 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
     };
 
     if (Config.debug_gc) {
-        std.debug.warn("allocated {*} {*}\n", .{ obj, object });
-        std.debug.warn("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
+        std.debug.print("allocated {*} {*}\n", .{ obj, object });
+        std.debug.print("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
     }
 
     // Add new object at start of vm.objects linked list
@@ -109,7 +109,7 @@ pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
     return try allocateString(vm, copy);
 }
 
-pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: *Allocator, chars: []const u8, owned: bool) !*ObjString {
+pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: Allocator, chars: []const u8, owned: bool) !*ObjString {
     if (strings.get(chars)) |interned| {
         return interned;
     }
@@ -420,7 +420,7 @@ pub const ObjClosure = struct {
     catch_closures: std.ArrayList(*ObjClosure),
     upvalues: std.ArrayList(*ObjUpValue),
 
-    pub fn init(allocator: *Allocator, function: *ObjFunction) !Self {
+    pub fn init(allocator: Allocator, function: *ObjFunction) !Self {
         return Self {
             .function = function,
             .catch_closures = std.ArrayList(*ObjClosure).init(allocator),
@@ -474,7 +474,7 @@ pub const ObjFunction = struct {
     chunk: Chunk,
     upvalue_count: u8 = 0,
 
-    pub fn init(allocator: *Allocator, name: *ObjString) !Self {
+    pub fn init(allocator: Allocator, name: *ObjString) !Self {
         return Self {
             .name = name,
             .chunk = Chunk.init(allocator),
@@ -529,7 +529,7 @@ pub const ObjObjectInstance = struct {
     /// Fields value
     fields: StringHashMap(Value),
 
-    pub fn init(allocator: *Allocator, object: *ObjObject) Self {
+    pub fn init(allocator: Allocator, object: *ObjObject) Self {
         return Self {
             .object = object,
             .fields = StringHashMap(Value).init(allocator),
@@ -597,7 +597,7 @@ pub const ObjObject = struct {
     /// Optional super class
     super: ?*ObjObject = null,
 
-    pub fn init(allocator: *Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
+    pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
         return Self {
             .name = name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
@@ -670,7 +670,7 @@ pub const ObjObject = struct {
         inheritable: bool = false,
         
 
-        pub fn init(allocator: *Allocator, name: *ObjString) ObjectDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString) ObjectDefSelf {
             return ObjectDefSelf {
                 .name = name,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
@@ -708,7 +708,7 @@ pub const ObjList = struct {
 
     methods: std.StringHashMap(*ObjNative),
 
-    pub fn init(allocator: *Allocator, type_def: *ObjTypeDef) Self {
+    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return Self {
             .items = std.ArrayList(Value).init(allocator),
             .type_def = type_def,
@@ -783,12 +783,12 @@ pub const ObjList = struct {
 
         list.items.append(value) catch |err| {
             const messageValue: Value = (copyString(vm, "Could not append to list") catch {
-                std.debug.warn("Could not append to list", .{});
+                std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             }).toValue();
 
             vm.throw(err, messageValue) catch {
-                std.debug.warn("Could not append to list", .{});
+                std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             };
             return false;
@@ -833,7 +833,7 @@ pub const ObjList = struct {
             else list_index.Number
         ) catch |err| {
             // TODO: should we distinguish NativeFn and ExternFn ?
-            std.debug.warn("{}\n", .{err});
+            std.debug.print("{}\n", .{err});
             std.os.exit(1);
         };
 
@@ -851,7 +851,7 @@ pub const ObjList = struct {
         item_type: *ObjTypeDef,
         methods: std.StringHashMap(*ObjTypeDef),
 
-        pub fn init(allocator: *Allocator, item_type: *ObjTypeDef) SelfListDef {
+        pub fn init(allocator: Allocator, item_type: *ObjTypeDef) SelfListDef {
             return .{
                 .item_type = item_type,
                 .methods = std.StringHashMap(*ObjTypeDef).init(allocator)
@@ -974,7 +974,7 @@ pub const ObjMap = struct {
     // In order to use a regular HashMap, we would have to hack are away around it to implement next
     map: std.AutoArrayHashMap(HashableValue, Value),
 
-    pub fn init(allocator: *Allocator, type_def: *ObjTypeDef) Self {
+    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return .{
             .type_def = type_def,
             .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
@@ -1046,7 +1046,7 @@ pub const ObjEnum = struct {
     name: *ObjString,
     cases: std.ArrayList(Value),
 
-    pub fn init(allocator: *Allocator, def: *ObjTypeDef) Self {
+    pub fn init(allocator: Allocator, def: *ObjTypeDef) Self {
         return Self {
             .type_def = def,
             .name = def.resolved_type.?.Enum.name,
@@ -1106,7 +1106,7 @@ pub const ObjEnum = struct {
         enum_type: *ObjTypeDef,
         cases: std.ArrayList([]const u8),
 
-        pub fn init(allocator: *Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
             return EnumDefSelf {
                 .name = name,
                 .cases = std.ArrayList([]const u8).init(allocator),
@@ -1253,7 +1253,7 @@ pub const ObjTypeDef = struct {
     resolved_type: ?TypeUnion = null,
 
     pub fn deinit(_: *Self) void {
-        std.debug.warn("ObjTypeDef.deinit not implemented\n", .{});
+        std.debug.print("ObjTypeDef.deinit not implemented\n", .{});
     }
 
     pub fn mark(self: *Self, vm: *VM) !void {
@@ -1267,7 +1267,7 @@ pub const ObjTypeDef = struct {
     }
 
     /// Beware: allocates a string, caller owns it
-    pub fn toString(self: Self, allocator: *Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn toString(self: Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
 
         switch (self.def_type) {
@@ -1504,7 +1504,7 @@ pub const ObjTypeDef = struct {
 };
 
 // TODO: use ArrayList writer instead of std.fmt.bufPrint
-pub fn objToString(allocator: *Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
+pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
     return switch (obj.obj_type) {
         .String => try std.fmt.bufPrint(buf, "{s}", .{ ObjString.cast(obj).?.string }),
         .Type => {
@@ -1615,7 +1615,7 @@ pub const PlaceholderDef = struct {
     // Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
 
-    pub fn init(allocator: *Allocator, where: Token) Self {
+    pub fn init(allocator: Allocator, where: Token) Self {
         return Self {
             .where = where.clone(),
             .children = std.ArrayList(*ObjTypeDef).init(allocator)
