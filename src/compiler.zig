@@ -2059,7 +2059,7 @@ pub const Compiler = struct {
         var fun_typedef: *ObjTypeDef = try self.function(self.parser.previous_token.?.clone(), fun_type, object, null);
 
         if (static) {
-            try self.emitCodeArg(.OP_SET_PROPERTY, constant);
+            try self.emitCodeArg(.OP_PROPERTY, constant);
         } else {
             try self.emitCodeArg(.OP_METHOD, constant);
         }
@@ -2339,6 +2339,7 @@ pub const Compiler = struct {
     }
 
     // TODO: support other platform lib formats
+    // TODO: when to close the lib?
     fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
         var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
 
@@ -4511,9 +4512,10 @@ pub const Compiler = struct {
                         try self.reportError("Can't be called.");
                     }
 
-                    var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
-
                     try self.emitCodeArg(.OP_GET_PROPERTY, name);
+
+                    const arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
+
                     try self.emitCodeArgs(
                         .OP_CALL,
                         arg_count,

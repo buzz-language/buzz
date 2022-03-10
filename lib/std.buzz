@@ -1,3 +1,4 @@
+| Common lib
 extern fun assert(bool condition, str message) > void;
 extern fun print(str value) > void;
 

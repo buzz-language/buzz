@@ -1,0 +1,86 @@
+| IO & FS
+enum FileMode {
+    read,
+    write,
+    update,
+}
+
+extern fun FileOpen(str filename, num mode) > num;
+extern fun FileClose(num fd) > void;
+extern fun FileRead(num fd) > num?;
+extern fun FileReadN(num fd, num n) > str?;
+extern fun FileReadLine(num fd) > str?;
+extern fun FileReadAll(num fd) > str?;
+extern fun FileReadUntil(num fd, Function(str) > bool predicate) > str?;
+extern fun FileWrite(num fd, str bytes) > void;
+extern fun getStdIn() > num;
+extern fun getStdOut() > num;
+extern fun getStdErr() > num;
+
+object File {
+    | TODO: List of opened file descriptor to be automatically closed when process ends
+    | static str openedFiles;
+
+    num fd,
+
+    | TODO: BufferingMode bufferingMode,
+
+    | Open file
+    static fun open(str filename, FileMode mode) > File {
+        | openedFiles.append(fd);
+
+        return File {
+            fd = FileOpen(filename, mode: mode.value),
+        };
+    }
+
+    | Close file
+    fun close() > void {
+        FileClose(this.fd);
+    }
+
+    | Reads next byte
+    fun read() > num? {
+        return FileRead(this.fd);
+    }
+
+    | Reads n bytes
+    fun readN(num n) > str? {
+        return FileReadN(this.fd, n: n);
+    }
+
+    | Reads line
+    fun readLine() > str? {
+        return FileReadLine(this.fd);
+    }
+
+    | Reads all
+    fun readAll() > str? {
+        return FileReadAll(this.fd);
+    }
+
+    | Reads until [predicate] is true
+    fun readUntil(Function(str) > bool predicate) > str? {
+        return FileReadUntil(this.fd, predicate: predicate);
+    }
+
+    | Write bytes
+    fun write(str bytes) > void {
+        FileWrite(this.fd, bytes: bytes);
+    }
+}
+
+| File opened in read mode
+const File stdin = File { fd = getStdIn() };
+| File opened in write mode
+const File stdout = File { fd = getStdOut() };
+| File opened in write mode (do we sometimes read stderr?)
+const File stderr = File { fd = getStdErr() };
+
+| TODO: "mystring".toByteArray() and [123,123,...,0].toString()
+
+export FileMode;
+export File;
+export stdin;
+export stdout;
+export stderr;

@@ -1144,7 +1144,12 @@ pub const VM = struct {
         var property: Value = self.peek(0);
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
-        try object.fields.put(name.string, property);
+        if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
+            try object.fields.put(name.string, property);
+        } else {
+            assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
+            try object.static_fields.put(name.string, property);
+        }
 
         _ = self.pop();
     }

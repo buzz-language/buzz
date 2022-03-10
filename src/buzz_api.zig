@@ -35,6 +35,21 @@ export fn bz_pushBool(self: *VM, value: bool) void {
     self.push(Value{ .Boolean = value });
 }
 
+/// Push a float value on the stack
+export fn bz_pushNum(self: *VM, value: f64) void {
+    self.push(Value { .Number = value });
+}
+
+/// Push null on the stack
+export fn bz_pushNull(self: *VM) void {
+    self.push(Value { .Null = false });
+}
+
+/// Push string on the stack
+export fn bz_pushString(self: *VM, value: *ObjString) void {
+    self.push(value.toValue());
+}
+
 /// Converts a value to a boolean
 export fn bz_valueToBool(value: *Value) bool {
     // TODO: should i type check ?
@@ -44,6 +59,11 @@ export fn bz_valueToBool(value: *Value) bool {
 /// Converts a value to a string
 export fn bz_valueToString(value: *Value) ?[*:0]const u8 {
     return utils.toCString(std.heap.c_allocator, ObjString.cast(value.Obj).?.string);
+}
+
+/// Converts a value to a number
+export fn bz_valueToNumber(value: *Value) f64 {
+    return value.Number;
 }
 
 // Obj manipulations

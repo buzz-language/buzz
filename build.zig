@@ -24,9 +24,17 @@ pub fn build(b: *Builder) void {
     std_lib.setBuildMode(build_mode);
     std_lib.linkLibrary(lib);
 
+    var io_lib = b.addSharedLibrary("io", "lib/buzz_io.zig", .{ .unversioned = {} });
+    io_lib.setTarget(target);
+    io_lib.install();
+    io_lib.setMainPkgPath(".");
+    io_lib.setBuildMode(build_mode);
+    io_lib.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
     b.default_step.dependOn(&std_lib.step);
+    b.default_step.dependOn(&io_lib.step);
 
     const play = b.step("run", "Run buzz");
     const run = exe.run();
