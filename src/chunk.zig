@@ -9,6 +9,7 @@ const Value = _value.Value;
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
     OP_NULL,
+    OP_VOID,
     OP_TRUE,
     OP_FALSE,
     OP_POP,

@@ -42,7 +42,12 @@ export fn bz_pushNum(self: *VM, value: f64) void {
 
 /// Push null on the stack
 export fn bz_pushNull(self: *VM) void {
-    self.push(Value { .Null = false });
+    self.push(Value { .Null = null });
+}
+
+/// Push void on the stack
+export fn bz_pushVoid(self: *VM) void {
+    self.push(Value { .Void = null });
 }
 
 /// Push string on the stack

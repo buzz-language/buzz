@@ -953,7 +953,7 @@ pub const Compiler = struct {
 
                     try self.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
                 } else {
-                    try self.emitOpCode(.OP_NULL);
+                    try self.emitOpCode(.OP_VOID);
                     try self.emitOpCode(.OP_RETURN);
                 }
             } else if (self.current.?.function.type_def.resolved_type.?.Function.return_type.def_type == .Void
@@ -1111,7 +1111,7 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) !void {
-        try self.emitOpCode(.OP_NULL);
+        try self.emitOpCode(.OP_VOID);
         try self.emitOpCode(.OP_RETURN);
     }
 

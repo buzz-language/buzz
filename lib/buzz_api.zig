@@ -13,6 +13,7 @@ pub const VM = opaque {
     pub extern fn bz_pushNum(self: *VM, value: f64) void;
     pub extern fn bz_pushString(self: *VM, value: *ObjString) void;
     pub extern fn bz_pushNull(self: *VM) void;
+    pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(self: *VM, payload: *Value) void;
     pub extern fn bz_throwString(self: *VM, payload: [*:0]const u8) void;
 

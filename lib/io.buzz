@@ -10,7 +10,7 @@ extern fun FileClose(num fd) > void;
 extern fun FileRead(num fd) > num?;
 extern fun FileReadN(num fd, num n) > str?;
 extern fun FileReadLine(num fd) > str?;
-extern fun FileReadAll(num fd) > str?;
+extern fun FileReadAll(num fd) > str;
 extern fun FileReadUntil(num fd, Function(str) > bool predicate) > str?;
 extern fun FileWrite(num fd, str bytes) > void;
 extern fun getStdIn() > num;
@@ -55,7 +55,7 @@ object File {
     }
 
     | Reads all
-    fun readAll() > str? {
+    fun readAll() > str {
         return FileReadAll(this.fd);
     }
 

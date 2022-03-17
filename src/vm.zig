@@ -294,6 +294,7 @@ pub const VM = struct {
             }
             switch(instruction) {
                 .OP_NULL => self.push(Value { .Null = null }),
+                .OP_VOID => self.push(Value { .Void = null }),
                 .OP_TRUE => self.push(Value { .Boolean = true }),
                 .OP_FALSE => self.push(Value { .Boolean = false }),
                 .OP_POP => _ = self.pop(),

@@ -124,6 +124,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     const arg: u24 = @intCast(u24, 0x00ffffff & full_instruction);
     return switch (instruction) {
         .OP_NULL,
+        .OP_VOID,
         .OP_TRUE,
         .OP_FALSE,
         .OP_POP,

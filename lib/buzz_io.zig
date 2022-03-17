@@ -65,15 +65,15 @@ export fn FileReadAll(vm: *api.VM) bool {
     const file: std.fs.File = std.fs.File { .handle = handle };
 
     const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, 10240, null, @alignOf(u8), 0) catch {
-        vm.bz_pushNull();
+        vm.bz_throwString("Could not read file");
 
-        return true;
+        return false;
     };
 
     vm.bz_pushString(api.ObjString.bz_string(content) orelse {
-        vm.bz_pushNull();
+        vm.bz_throwString("Could get file content");
 
-        return true;
+        return false;
     });
 
     return true;

@@ -10,6 +10,7 @@ pub const ValueType = enum {
     Boolean,
     Number,
     Null,
+    Void,
     Obj
 };
 
@@ -17,6 +18,7 @@ pub const Value = union(ValueType) {
     Boolean: bool,
     Number: f64,
     Null: ?bool,
+    Void: ?bool,
     Obj: *Obj,
 };
 
@@ -25,6 +27,7 @@ pub const HashableValue = union(ValueType) {
     Boolean: bool,
     Number: i64,
     Null: ?bool,
+    Void: ?bool,
     Obj: *Obj
 };
 
@@ -42,6 +45,7 @@ pub fn valueToHashable(value: Value) HashableValue {
             }            
         },
         .Null => return HashableValue { .Null = value.Null },
+        .Void => return HashableValue { .Void = value.Void },
         .Obj => return HashableValue { .Obj = value.Obj },
     }
 }
@@ -53,6 +57,7 @@ pub fn hashableToValue(hashable: HashableValue) Value {
             return Value { .Number = @intToFloat(f64, hashable.Number) };
         },
         .Null => return Value { .Null = hashable.Null },
+        .Void => return Value { .Void = hashable.Void },
         .Obj => return Value { .Obj = hashable.Obj },
     }
 }
@@ -64,6 +69,7 @@ pub fn valueToString(allocator: Allocator, value: Value) (Allocator.Error || std
         .Boolean => try std.fmt.bufPrint(buf, "{}", .{ value.Boolean }),
         .Number => try std.fmt.bufPrint(buf, "{d}", .{ value.Number }),
         .Null => try std.fmt.bufPrint(buf, "null", .{}),
+        .Void => try std.fmt.bufPrint(buf, "void", .{}),
 
         .Obj => try objToString(allocator, buf, value.Obj),
     };
@@ -78,6 +84,7 @@ pub fn valueEql(a: Value, b: Value) bool {
         .Boolean => a.Boolean == b.Boolean,
         .Number => a.Number == b.Number,
         .Null => true,
+        .Void => true,
         .Obj => a.Obj.eql(b.Obj),
     };
 }
@@ -90,6 +97,7 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
         .Number => type_def.def_type == .Number,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
+        .Void => type_def.def_type == .Void,
         .Obj => value.Obj.is(type_def),
     };
 }
@@ -100,6 +108,7 @@ pub fn valueTypeEql(self: Value, type_def: *ObjTypeDef) bool {
         .Number => type_def.def_type == .Number,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
+        .Void => type_def.def_type == .Void,
         .Obj => self.Obj.typeEql(type_def)
     };
 }
