@@ -1,0 +1,6 @@
+extern fun allocated() > num;
+
+extern fun collect() > void;
+
+export allocated;
+export collect;

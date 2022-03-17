@@ -3,6 +3,7 @@ const VM = @import("./vm.zig").VM;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const utils = @import("./utils.zig");
+const memory = @import("./memory.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
@@ -182,4 +183,14 @@ export fn bz_addFunctionArgument(function_type: *ObjTypeDef, name: [*:0]const u8
     };
 
     return true;
+}
+
+export fn bz_allocated(self: *VM) usize {
+    return self.bytes_allocated;
+}
+
+export fn bz_collect(self: *VM) void {
+    memory.collectGarbage(self) catch {
+        bz_throwString(self, "Could not collect");
+    };
 }

@@ -31,10 +31,18 @@ pub fn build(b: *Builder) void {
     io_lib.setBuildMode(build_mode);
     io_lib.linkLibrary(lib);
 
+    var gc_lib = b.addSharedLibrary("gc", "lib/buzz_gc.zig", .{ .unversioned = {} });
+    gc_lib.setTarget(target);
+    gc_lib.install();
+    gc_lib.setMainPkgPath(".");
+    gc_lib.setBuildMode(build_mode);
+    gc_lib.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
     b.default_step.dependOn(&std_lib.step);
     b.default_step.dependOn(&io_lib.step);
+    b.default_step.dependOn(&gc_lib.step);
 
     const play = b.step("run", "Run buzz");
     const run = exe.run();

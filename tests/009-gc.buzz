@@ -1,13 +1,21 @@
+import "lib/std.buzz";
+import "lib/gc.buzz" as gc;
+
 object Kill {
     num yo = -1
 }
 
-| TODO: implement std.gc helpers to check actual data
 test "GC, collecting unreferenced objects" {
+    const num before = gc.allocated();
+
     num i = 0;
     while (i < 100) {
         Kill{ yo = i }; | Should be collected since not referenced anywhere
 
         i = i + 1;
     }
+
+    gc.collect();
+
+    assert(gc.allocated() <= before, message: "Garbage was collected");
 }
