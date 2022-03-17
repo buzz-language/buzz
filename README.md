@@ -241,6 +241,72 @@ try {
 }
 ```
 
+## Import/Export
+
+```buzz
+| hello.buzz
+
+| Import std lib
+import "lib/std.buzz";
+
+fun sayHello() > void {
+    print("Hello world!");
+}
+
+| Make it visible when imported
+export sayHello;
+```
+
+```buzz
+| main.buzz
+import "hello.buzz";
+
+func main() > void {
+    sayHello();
+}
+```
+
+## Call C/Zig code
+
+First define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib` (only dylib right now):
+
+```buzz
+| mylib.buzz
+extern fun assert(bool condition, str message) > void
+```
+
+Then implement it in Zig or C using the [buzz_api](https://github.com/giann/buzz/blob/main/lib/buzz_api.zig):
+
+```zig
+// buzz_mylib.zig
+const std = @import("std");
+const api = @import("buzz_api.zig");
+
+// We have to respect C ABI
+export fn assert(vm: *api.VM) bool {
+    var condition: bool = vm.bz_peek(1).bz_valueToBool();
+
+    if (!condition) {
+        vm.bz_throw(vm.bz_peek(0));
+    }
+
+    return false;
+}
+```
+
+Build a dynamic library for it (TODO: instructions for this) and you can use it in your buzz code:
+
+```buzz
+| main.buzz
+import "mylib.buzz"
+
+fun main() > void {
+    assert(1 + 1 == 2, message: "Congrats on doing math!");
+}
+```
+
+_Native_ functions have all the same signature `fn myfunction(vm: *VM) bool`. If values must be returned, push them on the stack and return `true`.
+
 # TODO
 
 - [x] `const` qualifier
