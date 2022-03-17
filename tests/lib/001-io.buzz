@@ -1,11 +1,21 @@
 import "lib/std.buzz";
 import "lib/io.buzz";
 
-test "Basic file interaction" {
-    File file = File.open("/Users/giann/git/buzz/README.md", mode: FileMode.read);
+test "Write & read a file" {
+    File file = File.open("/Users/giann/tmp-code/hello.txt", mode: FileMode.write);
 
-    | assert(file.readAll() == "ok", message: "Could open and read file");
-    print(file.readAll());
+    file.write("Hello World");
 
     file.close();
+    
+    | Now read it
+    File fileB = File.open("/Users/giann/tmp-code/hello.txt", mode: FileMode.read);
+
+    assert(file.readAll() == "Hello World", message: "Could write and read a file");
+
+    fileB.close();
+}
+
+test "Write on stdout" {
+    stdout.write("Hello World !\n");
 }

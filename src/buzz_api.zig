@@ -6,6 +6,7 @@ const utils = @import("./utils.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
+const copyString = _obj.copyString;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
@@ -74,18 +75,8 @@ export fn bz_valueToNumber(value: *Value) f64 {
 // Obj manipulations
 
 /// Converts a c string to a *ObjString
-export fn bz_string(string: [*:0]const u8) ?*ObjString {
-    var obj_string: ?*ObjString = std.heap.c_allocator.create(ObjString) catch null;
-
-    if (obj_string == null) {
-        return null;
-    }
-
-    obj_string.?.* = ObjString {
-        .string = utils.toSlice(string)
-    };
-
-    return obj_string.?;
+export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
+    return copyString(vm, utils.toSlice(string)) catch null;
 }
 
 // Other stuff
@@ -99,7 +90,7 @@ export fn bz_throw(self: *VM, payload: *Value) void {
 }
 
 export fn bz_throwString(self: *VM, payload: [*:0]const u8) void {
-    self.throw(VM.Error.Custom, bz_string(payload).?.toValue()) catch {
+    self.throw(VM.Error.Custom, bz_string(self, payload).?.toValue()) catch {
         // TODO: maybe we have a `panic` function that could be called both here and in main
         std.os.exit(1);
     };
@@ -157,7 +148,8 @@ export fn bz_voidType() ?*ObjTypeDef {
 }
 
 /// Creates a function type with no argument. Argument should be added with [bz_addFunctionArgument]
-export fn bz_newFunctionType(name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*ObjTypeDef {
+export fn bz_newFunctionType(vm: *VM, name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*ObjTypeDef {
+    // TODO: this obj is not in the GC
     var function_type: ?*ObjTypeDef = std.heap.c_allocator.create(ObjTypeDef) catch null;
 
     if (function_type == null) {
@@ -166,7 +158,7 @@ export fn bz_newFunctionType(name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*O
 
     var function_def = ObjFunction.FunctionDef {
         // If oom, empty string should not fail
-        .name = (bz_string(name) orelse bz_string(@ptrCast([*:0]const u8, ""))).?,
+        .name = (bz_string(vm, name) orelse bz_string(vm, @ptrCast([*:0]const u8, ""))).?,
         .return_type = return_type orelse bz_voidType().?,
         .parameters = std.StringArrayHashMap(*ObjTypeDef).init(std.heap.c_allocator)
     };
