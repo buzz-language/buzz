@@ -41,7 +41,7 @@ fn repl(allocator: Allocator, args: ?[][:0]u8) !void {
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
-    var vm = try VM.init(allocator, &strings, null);
+    var vm = try VM.init(allocator, &strings);
     var compiler = Compiler.init(allocator, &strings, &imports, false);
     defer {
         vm.deinit();

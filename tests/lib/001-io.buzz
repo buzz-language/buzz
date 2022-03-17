@@ -1,0 +1,11 @@
+import "lib/std.buzz";
+import "lib/io.buzz";
+
+test "Basic file interaction" {
+    File file = File.open("/Users/giann/git/buzz/README.md", mode: FileMode.read);
+
+    | assert(file.readAll() == "ok", message: "Could open and read file");
+    print(file.readAll());
+
+    file.close();
+}

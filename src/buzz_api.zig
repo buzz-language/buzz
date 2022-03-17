@@ -93,6 +93,13 @@ export fn bz_throw(self: *VM, payload: *Value) void {
     };
 }
 
+export fn bz_throwString(self: *VM, payload: [*:0]const u8) void {
+    self.throw(VM.Error.Custom, bz_string(payload).?.toValue()) catch {
+        // TODO: maybe we have a `panic` function that could be called both here and in main
+        std.os.exit(1);
+    };
+}
+
 // Type helpers
 
 // TODO: should always return the same instance

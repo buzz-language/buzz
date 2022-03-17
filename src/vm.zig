@@ -86,8 +86,6 @@ pub const VM = struct {
     stack: []Value,
     stack_top: [*]Value,
     globals: std.ArrayList(Value),
-    /// When script is being imported, add this offset to globals so OP_[GET|SET|DEFINE]_GLOBAL is still valid 
-    global_offset: ?usize = null,
     // Interned strings
     strings: *std.StringHashMap(*ObjString),
     open_upvalues: ?*ObjUpValue,
@@ -98,13 +96,12 @@ pub const VM = struct {
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
 
-    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), global_offset: ?usize) !Self {
+    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString)) !Self {
         var self: Self = .{
             .allocator = allocator,
             .stack = try allocator.alloc(Value, 1000000),
             .stack_top = undefined,
             .globals = std.ArrayList(Value).init(allocator),
-            .global_offset = global_offset,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = strings,
             .open_upvalues = null,
@@ -124,7 +121,8 @@ pub const VM = struct {
         // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
 
         self.gray_stack.deinit();
-        self.globals.deinit();
+        // TODO: we can't free this because exported closure refer to it
+        // self.globals.deinit();
     }
 
     pub fn pushArgs(self: *Self, args: ?[][:0]u8) !void {
@@ -218,6 +216,10 @@ pub const VM = struct {
         return &self.frames.items[self.frame_count - 1];
     }
 
+    pub inline fn currentGlobals(self: *Self) *std.ArrayList(Value) {
+        return self.currentFrame().?.closure.globals;
+    }
+
     pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {        
         self.push(.{
             .Obj = function.toObj()
@@ -226,7 +228,7 @@ pub const VM = struct {
         var closure: *ObjClosure = try allocateObject(
             self,
             ObjClosure,
-            try ObjClosure.init(self.allocator, function)
+            try ObjClosure.init(self.allocator, self, function)
         );
 
         _ = self.pop();
@@ -298,14 +300,13 @@ pub const VM = struct {
                 .OP_COPY => self.copy(arg),
                 .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
                 .OP_DEFINE_GLOBAL => {
-                    const slot: u24 = arg + @intCast(u24, self.global_offset orelse 0);
-                    try self.globals.ensureTotalCapacity(slot + 1);
+                    try self.globals.ensureTotalCapacity(arg + 1);
                     self.globals.expandToCapacity();
-                    self.globals.items[slot] = self.peek(0);
+                    self.globals.items[arg] = self.peek(0);
                     _ = self.pop();
                 },
-                .OP_GET_GLOBAL => self.push(self.globals.items[arg + (self.global_offset orelse 0)]),
-                .OP_SET_GLOBAL => self.globals.items[arg + (self.global_offset orelse 0)] = self.peek(0),
+                .OP_GET_GLOBAL => self.push(self.currentGlobals().items[arg]),
+                .OP_SET_GLOBAL => self.currentGlobals().items[arg] = self.peek(0),
                 .OP_GET_LOCAL => self.push(current_frame.slots[arg]),
                 .OP_SET_LOCAL => current_frame.slots[arg] = self.peek(0),
                 .OP_GET_UPVALUE => self.push(current_frame.closure.upvalues.items[arg].location.*),
@@ -322,7 +323,7 @@ pub const VM = struct {
                 .OP_NEGATE => self.push(Value{ .Number = -self.pop().Number }),
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
-                    var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, function));
+                    var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, self, function));
 
                     self.push(Value{ .Obj = closure.toObj() });
 
@@ -501,7 +502,7 @@ pub const VM = struct {
                 },
 
                 .OP_INHERIT => {
-                    ObjObject.cast(self.pop().Obj).?.super = ObjObject.cast(self.globals.items[arg].Obj).?;
+                    ObjObject.cast(self.pop().Obj).?.super = ObjObject.cast(self.currentGlobals().items[arg].Obj).?;
                 },
 
                 .OP_GET_SUPER => {
@@ -746,8 +747,10 @@ pub const VM = struct {
     fn import(self: *Self, value: Value) Error!void {
         var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
 
-        var vm = try VM.init(self.allocator, self.strings, self.globals.items.len);
-        defer vm.deinit();
+        var vm = try self.allocator.create(VM);
+        vm.* = try VM.init(self.allocator, self.strings);
+        // TODO: we can't free this because exported closure refer to it
+        // defer vm.deinit();
 
         try vm.interpret(function, null);
 

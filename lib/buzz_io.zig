@@ -20,8 +20,8 @@ export fn getStdErr(vm: *api.VM) bool {
 }
 
 export fn FileOpen(vm: *api.VM) bool {
-    const filename: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_pop()) orelse "";
-    const mode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_pop()));
+    const mode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const filename: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(1)) orelse "";
 
     const file: std.fs.File = std.fs.openFileAbsolute(
         std.mem.sliceTo(filename, 0),
@@ -34,9 +34,9 @@ export fn FileOpen(vm: *api.VM) bool {
             }
         }
     ) catch {
-        vm.bz_pushNull();
+        vm.bz_throwString("Could not open file");
 
-        return true;
+        return false;
     };
 
     vm.bz_pushNum(@intToFloat(f64, file.handle));
@@ -47,7 +47,7 @@ export fn FileOpen(vm: *api.VM) bool {
 export fn FileClose(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_pop())
+        api.Value.bz_valueToNumber(vm.bz_peek(0))
     );
 
     const file: std.fs.File = std.fs.File { .handle = handle };
@@ -59,22 +59,18 @@ export fn FileClose(vm: *api.VM) bool {
 export fn FileReadAll(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_pop())
+        api.Value.bz_valueToNumber(vm.bz_peek(0))
     );
 
     const file: std.fs.File = std.fs.File { .handle = handle };
 
-    const content: []u8 = file.readToEndAlloc(api.VM.allocator, 10240) catch {
+    const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, 10240, null, @alignOf(u8), 0) catch {
         vm.bz_pushNull();
 
         return true;
     };
 
-    vm.bz_pushString(api.ObjString.bz_string(api.VM.allocator.dupeZ(u8, content) catch {
-        vm.bz_pushNull();
-
-        return true;
-    }) orelse {
+    vm.bz_pushString(api.ObjString.bz_string(content) orelse {
         vm.bz_pushNull();
 
         return true;

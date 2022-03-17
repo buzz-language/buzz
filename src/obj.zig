@@ -418,9 +418,12 @@ pub const ObjClosure = struct {
 
     function: *ObjFunction,
     upvalues: std.ArrayList(*ObjUpValue),
+    // Pointer to the global with which the function was declared
+    globals: *std.ArrayList(Value),
 
-    pub fn init(allocator: Allocator, function: *ObjFunction) !Self {
+    pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self {
+            .globals = &vm.globals,
             .function = function,
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
