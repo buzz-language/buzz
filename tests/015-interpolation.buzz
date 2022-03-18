@@ -20,3 +20,7 @@ test "String interpolation" {
 
     assert("\60\61\62" == "<=>", message: "raw char");
 }
+
+test "Printing empty string" {
+    print("");
+}

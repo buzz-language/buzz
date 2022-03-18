@@ -69,15 +69,13 @@ export fn FileReadAll(vm: *api.VM) bool {
     };
 
     vm.bz_pushString(api.ObjString.bz_string(vm, content) orelse {
-        vm.bz_throwString("Could get file content");
+        vm.bz_throwString("Could not get file content");
 
         return false;
     });
 
     return true;
 }
-
-const BUFFER_SIZE: usize = 8 * 64;
 
 export fn FileReadLine(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
@@ -86,33 +84,39 @@ export fn FileReadLine(vm: *api.VM) bool {
     );
 
     const file: std.fs.File = std.fs.File { .handle = handle };
+    const reader = file.reader();
 
-    var buffer = std.ArrayList(u8).initCapacity(api.VM.allocator, BUFFER_SIZE) catch {
-        vm.bz_throwString("Could not read file");
+    var buffer = std.ArrayList(u8).init(api.VM.allocator);
 
-        return false;
-    };
+    var i: usize = 0;
+    while (i < 16 * 8 * 64) : (i += 1) {
+        const read: ?u8 = reader.readByte() catch null;
 
-    buffer.expandToCapacity();
+        if (read == null) {
+            break;
+        }
 
-    const read: usize = file.read(buffer.items) catch {
-        vm.bz_throwString("Could not read file");
+        buffer.append(read.?) catch {
+            vm.bz_throwString("Could not read file");
 
-        return false;
-    };
+            return false;
+        };
 
-    buffer.shrinkAndFree(read);
+        if (read.? == '\n') {
+            break;
+        }
+    }
 
     // EOF?
-    if (read == 0) {
+    if (buffer.items.len == 0) {
         vm.bz_pushNull();
     } else {
         vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
-            vm.bz_throwString("Could get file content");
+            vm.bz_throwString("Could not get file content");
 
             return false;
         }) orelse {
-            vm.bz_throwString("Could get file content");
+            vm.bz_throwString("Could not get file content");
 
             return false;
         });
