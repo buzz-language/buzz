@@ -46,7 +46,12 @@ pub const StringScanner = struct {
     }
 
     pub fn parse(self: *Self) !void {
-        if (self.source.len == 0) return;
+        if (self.source.len == 0) {
+            // Push the empty string which is always the constant 0
+            try self.compiler.emitCodeArg(.OP_CONSTANT, 0);
+
+            return;
+        }
 
         while (self.offset < self.source.len) {
             const char: ?u8 = self.advance();

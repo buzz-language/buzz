@@ -124,6 +124,20 @@ pub const ChunkCompiler = struct {
             ),
         );
 
+        // First chunk constant is the empty string
+        _ = try function.chunk.addConstant(
+            null,
+            Value {
+                .Obj = (try copyStringRaw(
+                    compiler.strings,
+                    compiler.allocator,
+                    "",
+                    true // The substring we built is now owned by compiler
+                )).toObj()
+            }
+        );
+
+
         var self: Self = .{
             .locals = [_]Local{undefined} ** 255,
             .upvalues = [_]UpValue{undefined} ** 255,
@@ -1032,7 +1046,7 @@ pub const Compiler = struct {
     }
 
     // OP_ | arg
-    fn emitCodeArg(self: *Self, code: OpCode, arg: u24) !void {
+    pub fn emitCodeArg(self: *Self, code: OpCode, arg: u24) !void {
         try self.emit(
             (@intCast(u32, @enumToInt(code)) << 24)
             | @intCast(u32, arg)
