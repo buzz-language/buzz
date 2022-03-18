@@ -1,6 +1,8 @@
 | Common lib
 extern fun assert(bool condition, str message) > void;
 extern fun print(str value) > void;
+extern fun parseNumber(str string) > num?;
 
 export assert;
 export print;
+export parseNumber;
