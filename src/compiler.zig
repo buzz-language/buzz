@@ -448,6 +448,24 @@ pub const Compiler = struct {
 
         var new_function: *ObjFunction = try self.endCompiler();
 
+        const function_def = ObjFunction.FunctionDef {
+            .name = try copyStringRaw(self.strings, self.allocator, "$script", false),
+            .return_type = try self.getTypeDef(.{
+                .def_type = .Void
+            }),
+            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
+            .function_type = .ScriptEntryPoint
+        };
+
+        const type_def = ObjTypeDef.TypeUnion {
+            .Function = function_def
+        };
+
+        new_function.type_def = try self.getTypeDef(.{
+            .def_type = .Function,
+            .resolved_type = type_def
+        });
+
         return if (self.parser.had_error) null else new_function;
     }
 
