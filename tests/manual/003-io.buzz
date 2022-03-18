@@ -1,0 +1,9 @@
+import "lib/std.buzz";
+import "lib/io.buzz";
+
+test "Read stdin" {
+    for (str? line = ""; line != null; line = stdin.readLine()) {
+        print("= {line}");
+        stdout.write("> ");
+    }
+}

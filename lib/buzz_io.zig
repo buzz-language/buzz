@@ -1,5 +1,6 @@
 const std = @import("std");
-const api = @import("buzz_api.zig");
+const api = @import("./buzz_api.zig");
+const utils = @import("../src/utils.zig");
 
 export fn getStdIn(vm: *api.VM) bool {
     vm.bz_pushNum(@intToFloat(f64, std.io.getStdIn().handle));
@@ -72,6 +73,50 @@ export fn FileReadAll(vm: *api.VM) bool {
 
         return false;
     });
+
+    return true;
+}
+
+const BUFFER_SIZE: usize = 8 * 64;
+
+export fn FileReadLine(vm: *api.VM) bool {
+    const handle: std.fs.File.Handle = @floatToInt(
+        std.fs.File.Handle,
+        api.Value.bz_valueToNumber(vm.bz_peek(0))
+    );
+
+    const file: std.fs.File = std.fs.File { .handle = handle };
+
+    var buffer = std.ArrayList(u8).initCapacity(api.VM.allocator, BUFFER_SIZE) catch {
+        vm.bz_throwString("Could not read file");
+
+        return false;
+    };
+
+    buffer.expandToCapacity();
+
+    const read: usize = file.read(buffer.items) catch {
+        vm.bz_throwString("Could not read file");
+
+        return false;
+    };
+
+    buffer.shrinkAndFree(read);
+
+    // EOF?
+    if (read == 0) {
+        vm.bz_pushNull();
+    } else {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
+            vm.bz_throwString("Could get file content");
+
+            return false;
+        }) orelse {
+            vm.bz_throwString("Could get file content");
+
+            return false;
+        });
+    }
 
     return true;
 }

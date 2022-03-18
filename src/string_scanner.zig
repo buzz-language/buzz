@@ -123,7 +123,7 @@ pub const StringScanner = struct {
         // Parse expression
         var expr_type: *ObjTypeDef = try self.compiler.expression(false);
         // if placeholder we emit a useless OP_TO_STRING!
-        if (expr_type.def_type != .String) {
+        if (expr_type.def_type != .String or expr_type.optional) {
             try self.compiler.emitOpCode(.OP_TO_STRING);
         }
 

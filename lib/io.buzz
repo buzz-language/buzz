@@ -8,6 +8,7 @@ enum FileMode {
 extern fun FileOpen(str filename, num mode) > num;
 extern fun FileClose(num fd) > void;
 extern fun FileReadAll(num fd) > str;
+extern fun FileReadLine(num fd) > str?;
 extern fun FileWrite(num fd, str bytes) > void;
 extern fun getStdIn() > num;
 extern fun getStdOut() > num;
@@ -31,6 +32,11 @@ object File {
     | Reads all
     fun readAll() > str {
         return FileReadAll(this.fd);
+    }
+
+    | Reads next line, return null if nothing to read
+    fun readLine() > str? {
+        return FileReadLine(this.fd);
     }
 
     | Write bytes
