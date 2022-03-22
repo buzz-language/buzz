@@ -238,6 +238,8 @@ try {
     assert(false, message: "caught the wrong error");
 } catch (MyErrors error) {
     assert(true, message: "caught the right error");
+} catch {
+    | handle any other error
 }
 ```
 

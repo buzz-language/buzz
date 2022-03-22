@@ -1781,11 +1781,18 @@ pub const Compiler = struct {
         // Try block
         _ = try self.block();
 
+        var patch_exits = std.ArrayList(usize).init(self.allocator);
+
+        // If we reached end of block, no error so jump after all catch clauses
+        try patch_exits.append(
+            try self.emitJump(.OP_JUMP)
+        );
+
+
         // Give to OP_TRY @ of first try block
         try self.patchJump(patch_first_catch);
 
         // Parse try blocks
-        var patch_exits = std.ArrayList(usize).init(self.allocator);
         var catch_count: usize = 0;
         while (try self.match(.Catch)) {
             if (catch_count > 0) {
@@ -1794,6 +1801,7 @@ pub const Compiler = struct {
             }
 
             var catch_exit: ?usize = null;
+            var unconditional = false;
             if (try self.match(.LeftParen)) {
                 try self.emitOpCode(.OP_COPY);  // We still want the error on the stack after the comparison
 
@@ -1818,6 +1826,8 @@ pub const Compiler = struct {
                 self.markInitialized();
 
                 try self.consume(.RightParen, "Expected `)`");
+            } else {
+                unconditional = true;
             }
 
             try self.consume(.LeftBrace, "Expected `{{`");
@@ -1836,15 +1846,17 @@ pub const Compiler = struct {
                 );
             }
 
+            catch_count += 1;
+
             // Patch jump op that skips this catch block
             if (catch_exit) |cexit| { 
                 try self.patchJump(cexit);
-            } else {
-                // We were in an unconditional catch, we don't expect anymore catch clauses
-                break;
             }
 
-            catch_count += 1;
+            // We don't expect any more catch clauses after an unconditionnal one
+            if (unconditional) {
+                break;
+            }
         }
 
         if (catch_count < 1) {
