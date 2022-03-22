@@ -1,0 +1,24 @@
+| Returns epoch time in ms
+extern fun time() > num;
+
+| Returns environment variable under [key]
+extern fun env(str key) > str?;
+
+| Returns path to system temp directory
+extern fun tmpDir() > str;
+
+| Generate a unique temporary file name with an optional prefix
+extern fun tmpName(str? prefix) > str;
+
+| Exit program with [exitCode]
+extern fun exit(num exitCode) > void;
+
+| Execute command and return its exit code
+extern fun execute(str command) > num;
+
+export time;
+export env;
+export tmpDir;
+export tmpName;
+export exit;
+export execute;

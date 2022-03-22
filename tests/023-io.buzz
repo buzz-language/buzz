@@ -2,14 +2,14 @@ import "lib/std.buzz";
 import "lib/io.buzz";
 
 test "Write & read a file" {
-    File file = File.open("/Users/giann/tmp-code/hello.txt", mode: FileMode.write);
+    File file = File.open("./hello.txt", mode: FileMode.write);
 
     file.write("Hello World");
 
     file.close();
     
     | Now read it
-    File fileB = File.open("/Users/giann/tmp-code/hello.txt", mode: FileMode.read);
+    File fileB = File.open("./hello.txt", mode: FileMode.read);
 
     assert(file.readAll() == "Hello World", message: "Could write and read a file");
 

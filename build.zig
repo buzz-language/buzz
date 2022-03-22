@@ -38,11 +38,19 @@ pub fn build(b: *Builder) void {
     gc_lib.setBuildMode(build_mode);
     gc_lib.linkLibrary(lib);
 
+    var os_lib = b.addSharedLibrary("os", "lib/buzz_os.zig", .{ .unversioned = {} });
+    os_lib.setTarget(target);
+    os_lib.install();
+    os_lib.setMainPkgPath(".");
+    os_lib.setBuildMode(build_mode);
+    os_lib.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
     b.default_step.dependOn(&std_lib.step);
     b.default_step.dependOn(&io_lib.step);
     b.default_step.dependOn(&gc_lib.step);
+    b.default_step.dependOn(&os_lib.step);
 
     const play = b.step("run", "Run buzz");
     const run = exe.run();
