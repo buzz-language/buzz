@@ -1811,8 +1811,9 @@ pub const Compiler = struct {
             try self.emitOpCode(.OP_POP);   // Pop comparison result
 
             // Declare error argument
+            try self.emitOpCode(.OP_COPY); // Use copy as local
             try self.consume(.Identifier, "Expected variable name.");
-            _ = try self.declareVariable(error_type, self.parser.previous_token.?, true);
+            _ = try self.declareVariable(try self.getTypeDef(error_type.toInstance()), self.parser.previous_token.?, true);
             self.markInitialized();
 
             try self.consume(.RightParen, "Expected `)`");

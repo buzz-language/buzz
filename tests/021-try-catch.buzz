@@ -23,6 +23,6 @@ test "Try catch" {
     } catch (OtherErrors error) {
         assert(false, message: "caught the wrong error");
     } catch (MyErrors error) {
-        assert(true, message: "caught the right error");
+        assert(error == MyErrors.failed, message: "error is usable");
     }
 }

@@ -113,7 +113,7 @@ pub fn dumpStack(vm: *VM) !void {
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     print("\n{:0>3} ", .{ offset });
 
-    if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset -1]) {
+    if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset - 1]) {
         print("|   ", .{});
     } else {
         print("{:0>3} ", .{ chunk.lines.items[offset] });
