@@ -22,20 +22,34 @@ export fn getStdErr(vm: *api.VM) bool {
 
 export fn FileOpen(vm: *api.VM) bool {
     const mode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
-    const filename: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(1)) orelse "";
+    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse "", 0);
 
-    const file: std.fs.File = switch (mode) {
-        0 => std.fs.openFileAbsolute(std.mem.sliceTo(filename, 0), .{ .mode = .read_only }) catch {
-            vm.bz_throwString("Could not open file");
+    var file: std.fs.File = if (std.fs.path.isAbsolute(filename))
+        switch (mode) {
+            0 => std.fs.openFileAbsolute(filename, .{ .mode = .read_only }) catch {
+                vm.bz_throwString("Could not open file");
 
-            return false;
-        },
-        else => std.fs.createFileAbsolute(std.mem.sliceTo(filename, 0), .{ .read = mode != 1 }) catch {
-            vm.bz_throwString("Could not open file");
+                return false;
+            },
+            else => std.fs.createFileAbsolute(filename, .{ .read = mode != 1 }) catch {
+                vm.bz_throwString("Could not open file");
 
-            return false;
+                return false;
+            }
         }
-    };
+    else
+        switch (mode) {
+            0 => std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch {
+                vm.bz_throwString("Could not open file");
+
+                return false;
+            },
+            else => std.fs.cwd().createFile(filename, .{ .read = mode != 1 }) catch {
+                vm.bz_throwString("Could not open file");
+
+                return false;
+            }
+        };
 
     vm.bz_pushNum(@intToFloat(f64, file.handle));
 
