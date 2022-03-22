@@ -27,10 +27,10 @@ pub const StringScanner = struct {
     chunk_count: usize = 0,
 
     pub fn init(compiler: *Compiler, source: []const u8) Self {
-        return Self {
+        return Self{
             .compiler = compiler,
             .source = source,
-            .current_chunk = std.ArrayList(u8).init(compiler.allocator)
+            .current_chunk = std.ArrayList(u8).init(compiler.allocator),
         };
     }
 
@@ -76,13 +76,12 @@ pub const StringScanner = struct {
 
                     try self.inc();
                 },
-                else => try self.current_chunk.append(char.?)
+                else => try self.current_chunk.append(char.?),
             }
         }
 
         // Trailing string
-        if ((self.previous_interp == null or self.previous_interp.? < self.offset)
-            and self.current_chunk.items.len > 0) {
+        if ((self.previous_interp == null or self.previous_interp.? < self.offset) and self.current_chunk.items.len > 0) {
             try self.push(self.current_chunk.items);
             // The previous `current_chunk` memory is owned by the compiler
             self.current_chunk = std.ArrayList(u8).init(self.compiler.allocator);
@@ -94,13 +93,13 @@ pub const StringScanner = struct {
     }
 
     fn push(self: *Self, chars: []const u8) !void {
-        try self.compiler.emitConstant(Value {
+        try self.compiler.emitConstant(Value{
             .Obj = (try copyStringRaw(
                 self.compiler.strings,
                 self.compiler.allocator,
                 chars,
-                true // The substring we built is now owned by compiler
-            )).toObj()
+                true, // The substring we built is now owned by compiler
+            )).toObj(),
         });
     }
 
@@ -139,7 +138,7 @@ pub const StringScanner = struct {
             const next = self.compiler.parser.ahead.items[self.compiler.parser.ahead.items.len - 1];
             delta = delta - next.lexeme.len - next.offset + current.offset;
         }
-        
+
         self.offset += delta - 1;
         self.previous_interp = self.offset;
 
@@ -150,7 +149,7 @@ pub const StringScanner = struct {
 
         // Consume closing `}`
         _ = self.advance();
-    } 
+    }
 
     fn escape(self: *Self) !void {
         const char: ?u8 = self.advance();
@@ -174,7 +173,7 @@ pub const StringScanner = struct {
             _ = self.advance();
         }
 
-        const num_str: []const u8 = self.source[start..self.offset+1];
+        const num_str: []const u8 = self.source[start .. self.offset + 1];
         _ = self.advance();
         const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
 

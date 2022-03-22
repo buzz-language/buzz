@@ -128,7 +128,7 @@ pub const Scanner = struct {
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null),
             '\"' => return self.string(),
 
-            else => return self.makeToken(.Error, "Unexpected character.", null)
+            else => return self.makeToken(.Error, "Unexpected character.", null),
         };
     }
 
@@ -144,22 +144,21 @@ pub const Scanner = struct {
                     _ = self.advance();
                 },
                 '|' => {
-                    while(self.peek() != '\n' and !self.isEOF()) {
+                    while (self.peek() != '\n' and !self.isEOF()) {
                         _ = self.advance();
                     }
                 },
-                else => return
+                else => return,
             }
         }
     }
 
-    fn isNumber(char:  u8) bool { 
+    fn isNumber(char: u8) bool {
         return char >= '0' and char <= '9';
     }
 
-    fn isLetter(char:  u8) bool { 
-        return (char >= 'a' and char <= 'z')
-            or (char >= 'A' and char <= 'Z');
+    fn isLetter(char: u8) bool {
+        return (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z');
     }
 
     fn identifier(self: *Self) !Token {
@@ -176,7 +175,7 @@ pub const Scanner = struct {
             return self.makeToken(.Identifier, literal, null);
         }
     }
-    
+
     fn number(self: *Self) !Token {
         while (isNumber(self.peek())) {
             _ = self.advance();
@@ -218,11 +217,7 @@ pub const Scanner = struct {
             peeked = self.peek();
         }
 
-        return self.makeToken(
-            .Number,
-            null,
-            try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset])
-        );
+        return self.makeToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]));
     }
 
     fn string(self: *Self) !Token {
@@ -264,13 +259,10 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        return self.makeToken(
-            .String,
-            if (self.current.offset - self.current.start > 0)
-                self.source[(self.current.start + 1)..(self.current.offset - 1)]
-            else null,
-            null
-        );
+        return self.makeToken(.String, if (self.current.offset - self.current.start > 0)
+            self.source[(self.current.start + 1)..(self.current.offset - 1)]
+        else
+            null, null);
     }
 
     fn isEOF(self: *Self) bool {
@@ -316,7 +308,7 @@ pub const Scanner = struct {
     }
 
     fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_number: ?f64) Token {
-        return Token {
+        return Token{
             .token_type = token_type,
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,

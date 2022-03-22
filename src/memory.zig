@@ -66,7 +66,7 @@ pub fn freeMany(vm: *VM, comptime T: type, pointer: []const T) void {
 pub fn markObj(vm: *VM, obj: *Obj) !void {
     if (obj.is_marked) {
         if (Config.debug_gc) {
-            std.debug.print("{*} already marked\n", .{ obj });
+            std.debug.print("{*} already marked\n", .{obj});
         }
         return;
     }

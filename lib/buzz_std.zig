@@ -32,7 +32,7 @@ export fn parseNumber(vm: *api.VM) bool {
 
         return true;
     };
-    
+
     vm.bz_pushNum(number);
 
     return true;

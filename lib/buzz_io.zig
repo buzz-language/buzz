@@ -35,21 +35,20 @@ export fn FileOpen(vm: *api.VM) bool {
                 vm.bz_throwString("Could not open file");
 
                 return false;
-            }
-        }
-    else
-        switch (mode) {
-            0 => std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch {
-                vm.bz_throwString("Could not open file");
-
-                return false;
             },
-            else => std.fs.cwd().createFile(filename, .{ .read = mode != 1 }) catch {
-                vm.bz_throwString("Could not open file");
+        }
+    else switch (mode) {
+        0 => std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch {
+            vm.bz_throwString("Could not open file");
 
-                return false;
-            }
-        };
+            return false;
+        },
+        else => std.fs.cwd().createFile(filename, .{ .read = mode != 1 }) catch {
+            vm.bz_throwString("Could not open file");
+
+            return false;
+        },
+    };
 
     vm.bz_pushNum(@intToFloat(f64, file.handle));
 
@@ -59,10 +58,10 @@ export fn FileOpen(vm: *api.VM) bool {
 export fn FileClose(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0))
+        api.Value.bz_valueToNumber(vm.bz_peek(0)),
     );
 
-    const file: std.fs.File = std.fs.File { .handle = handle };
+    const file: std.fs.File = std.fs.File{ .handle = handle };
     file.close();
 
     return false;
@@ -71,10 +70,10 @@ export fn FileClose(vm: *api.VM) bool {
 export fn FileReadAll(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0))
+        api.Value.bz_valueToNumber(vm.bz_peek(0)),
     );
 
-    const file: std.fs.File = std.fs.File { .handle = handle };
+    const file: std.fs.File = std.fs.File{ .handle = handle };
 
     const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, 10240, null, @alignOf(u8), 0) catch {
         vm.bz_throwString("Could not read file");
@@ -94,10 +93,10 @@ export fn FileReadAll(vm: *api.VM) bool {
 export fn FileReadLine(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0))
+        api.Value.bz_valueToNumber(vm.bz_peek(0)),
     );
 
-    const file: std.fs.File = std.fs.File { .handle = handle };
+    const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
     var buffer = std.ArrayList(u8).init(api.VM.allocator);
@@ -143,10 +142,10 @@ export fn FileReadLine(vm: *api.VM) bool {
 export fn FileWrite(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(1))
+        api.Value.bz_valueToNumber(vm.bz_peek(1)),
     );
 
-    const file: std.fs.File = std.fs.File { .handle = handle };
+    const file: std.fs.File = std.fs.File{ .handle = handle };
 
     _ = file.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
         vm.bz_throwString("Could not write to file");

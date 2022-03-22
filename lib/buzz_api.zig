@@ -16,7 +16,7 @@ pub const VM = opaque {
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(self: *VM, payload: *Value) void;
     pub extern fn bz_throwString(self: *VM, payload: [*:0]const u8) void;
-    
+
     pub extern fn bz_allocated(self: *VM) usize;
 
     pub extern fn bz_collect(self: *VM) void;

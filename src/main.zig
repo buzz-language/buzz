@@ -5,8 +5,6 @@ const VM = @import("./vm.zig").VM;
 const Compiler = @import("./compiler.zig").Compiler;
 const ObjString = @import("./obj.zig").ObjString;
 
-// Using a global because of vm.stack which would overflow zig's stack
-
 fn repl(allocator: Allocator, args: ?[][:0]u8) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
@@ -110,7 +108,10 @@ test "Testing buzz" {
     var test_dir = try std.fs.cwd().openDir("tests", .{ .iterate = true });
     var it = test_dir.iterate();
 
-    while (try it.next()) |file| {
+    var success = true;
+    var count: usize = 0;
+    var fail_count: usize = 0;
+    while (try it.next()) |file| : (count += 1) {
         if (file.kind == .File) {
             var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
             defer allocator.free(file_name);
@@ -119,6 +120,8 @@ test "Testing buzz" {
             runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, true) catch {
                 std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
                 had_error = true;
+                success = false;
+                fail_count += 1;
             };
 
             if (!had_error) {
@@ -126,4 +129,8 @@ test "Testing buzz" {
             }
         }
     }
+
+    std.debug.print("\n\u{001b}[{}mRan {}, Failed: {}\u{001b}[0m\n", .{ if (success) @as(usize, 32) else @as(usize, 31), count, fail_count });
+
+    std.os.exit(if (success) 0 else 1);
 }

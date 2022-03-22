@@ -14,7 +14,7 @@ pub const OpCode = enum(u8) {
     OP_FALSE,
     OP_POP,
     OP_COPY,
-    
+
     OP_DEFINE_GLOBAL,
     OP_GET_GLOBAL,
     OP_SET_GLOBAL,
@@ -47,7 +47,7 @@ pub const OpCode = enum(u8) {
 
     OP_NOT,
     OP_NEGATE,
-    
+
     OP_SWAP,
     OP_JUMP,
     OP_JUMP_IF_FALSE,
@@ -111,7 +111,7 @@ pub const Chunk = struct {
     // TODO: correlate opcodes and line number in source code
 
     pub fn init(allocator: Allocator) Self {
-        return Self {
+        return Self{
             .code = std.ArrayList(u32).init(allocator),
             .constants = std.ArrayList(Value).init(allocator),
             .lines = std.ArrayList(usize).init(allocator),

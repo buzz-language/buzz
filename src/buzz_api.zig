@@ -39,17 +39,17 @@ export fn bz_pushBool(self: *VM, value: bool) void {
 
 /// Push a float value on the stack
 export fn bz_pushNum(self: *VM, value: f64) void {
-    self.push(Value { .Number = value });
+    self.push(Value{ .Number = value });
 }
 
 /// Push null on the stack
 export fn bz_pushNull(self: *VM) void {
-    self.push(Value { .Null = null });
+    self.push(Value{ .Null = null });
 }
 
 /// Push void on the stack
 export fn bz_pushVoid(self: *VM) void {
-    self.push(Value { .Void = null });
+    self.push(Value{ .Void = null });
 }
 
 /// Push string on the stack
@@ -108,10 +108,7 @@ export fn bz_boolType() ?*ObjTypeDef {
         return null;
     }
 
-    bool_type.?.* = ObjTypeDef {
-        .def_type = .Bool,
-        .optional = false
-    };
+    bool_type.?.* = ObjTypeDef{ .def_type = .Bool, .optional = false };
 
     return bool_type;
 }
@@ -124,10 +121,7 @@ export fn bz_stringType() ?*ObjTypeDef {
         return null;
     }
 
-    bool_type.?.* = ObjTypeDef {
-        .def_type = .String,
-        .optional = false
-    };
+    bool_type.?.* = ObjTypeDef{ .def_type = .String, .optional = false };
 
     return bool_type;
 }
@@ -140,10 +134,7 @@ export fn bz_voidType() ?*ObjTypeDef {
         return null;
     }
 
-    void_type.?.* = ObjTypeDef {
-        .def_type = .Void,
-        .optional = false
-    };
+    void_type.?.* = ObjTypeDef{ .def_type = .Void, .optional = false };
 
     return void_type;
 }
@@ -157,21 +148,16 @@ export fn bz_newFunctionType(vm: *VM, name: [*:0]const u8, return_type: ?*ObjTyp
         return null;
     }
 
-    var function_def = ObjFunction.FunctionDef {
+    var function_def = ObjFunction.FunctionDef{
         // If oom, empty string should not fail
         .name = (bz_string(vm, name) orelse bz_string(vm, @ptrCast([*:0]const u8, ""))).?,
         .return_type = return_type orelse bz_voidType().?,
-        .parameters = std.StringArrayHashMap(*ObjTypeDef).init(std.heap.c_allocator)
+        .parameters = std.StringArrayHashMap(*ObjTypeDef).init(std.heap.c_allocator),
     };
 
-    var resolved_type: ObjTypeDef.TypeUnion = .{
-        .Function = function_def
-    };
+    var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
 
-    function_type.?.* = .{
-        .def_type = .Function,
-        .resolved_type = resolved_type
-    };
+    function_type.?.* = .{ .def_type = .Function, .resolved_type = resolved_type };
 
     return function_type;
 }

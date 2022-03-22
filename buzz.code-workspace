@@ -1,46 +1,46 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {
-		"files.associations": {
-			"string.h": "c",
-			"common.h": "c",
-			"compiler.h": "c",
-			"debug.h": "c",
-			"object.h": "c",
-			"memory.h": "c",
-			"vm.h": "c",
-			"iterator": "c",
-			"memory": "c",
-			"__availability": "c",
-			"complex": "c",
-			"__bit_reference": "c",
-			"__hash_table": "c",
-			"__split_buffer": "c",
-			"array": "c",
-			"string": "c",
-			"string_view": "c",
-			"unordered_map": "c",
-			"vector": "c",
-			"algorithm": "c",
-			"__functional_base": "c",
-			"__node_handle": "c",
-			"atomic": "c",
-			"bitset": "c",
-			"chrono": "c",
-			"cstddef": "c",
-			"__memory": "c",
-			"functional": "c",
-			"limits": "c",
-			"locale": "c",
-			"optional": "c",
-			"ratio": "c",
-			"system_error": "c",
-			"tuple": "c",
-			"type_traits": "c"
-		}
-	}
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "string.h": "c",
+      "common.h": "c",
+      "compiler.h": "c",
+      "debug.h": "c",
+      "object.h": "c",
+      "memory.h": "c",
+      "vm.h": "c",
+      "iterator": "c",
+      "memory": "c",
+      "__availability": "c",
+      "complex": "c",
+      "__bit_reference": "c",
+      "__hash_table": "c",
+      "__split_buffer": "c",
+      "array": "c",
+      "string": "c",
+      "string_view": "c",
+      "unordered_map": "c",
+      "vector": "c",
+      "algorithm": "c",
+      "__functional_base": "c",
+      "__node_handle": "c",
+      "atomic": "c",
+      "bitset": "c",
+      "chrono": "c",
+      "cstddef": "c",
+      "__memory": "c",
+      "functional": "c",
+      "limits": "c",
+      "locale": "c",
+      "optional": "c",
+      "ratio": "c",
+      "system_error": "c",
+      "tuple": "c",
+      "type_traits": "c"
+    }
+  }
 }
