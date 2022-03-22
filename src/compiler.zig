@@ -1787,36 +1787,38 @@ pub const Compiler = struct {
         var patch_exits = std.ArrayList(usize).init(self.allocator);
         var catch_count: usize = 0;
         while (try self.match(.Catch)) {
-            try self.consume(.LeftParen, "Expected `(`");
-
             if (catch_count > 0) {
                 // Not first catch clause: pop the last error comparison result
                 try self.emitOpCode(.OP_POP);
             }
 
-            try self.emitOpCode(.OP_COPY);  // We still want the error on the stack after the comparison
+            var catch_exit: ?usize = null;
+            if (try self.match(.LeftParen)) {
+                try self.emitOpCode(.OP_COPY);  // We still want the error on the stack after the comparison
 
-            // Push type to match
-            const error_type: *ObjTypeDef = try self.parseTypeDef();
-            try self.emitConstant(
-                .{
-                    .Obj = error_type.toObj()
-                }
-            );
+                // Push type to match
+                const error_type: *ObjTypeDef = try self.parseTypeDef();
+                try self.emitConstant(
+                    .{
+                        .Obj = error_type.toObj()
+                    }
+                );
 
-            // Exit at end of this catch block if error type doesn't match
-            // Assumes the stack is : | error | expected_type |
-            try self.emitOpCode(.OP_IS); // Pops both its arguments from the stack
-            const catch_exit: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
-            try self.emitOpCode(.OP_POP);   // Pop comparison result
+                // Exit at end of this catch block if error type doesn't match
+                // Assumes the stack is : | error | expected_type |
+                try self.emitOpCode(.OP_IS); // Pops both its arguments from the stack
+                catch_exit = try self.emitJump(.OP_JUMP_IF_FALSE);
+                try self.emitOpCode(.OP_POP);   // Pop comparison result
 
-            // Declare error argument
-            try self.emitOpCode(.OP_COPY); // Use copy as local
-            try self.consume(.Identifier, "Expected variable name.");
-            _ = try self.declareVariable(try self.getTypeDef(error_type.toInstance()), self.parser.previous_token.?, true);
-            self.markInitialized();
+                // Declare error argument
+                try self.emitOpCode(.OP_COPY); // Use copy as local
+                try self.consume(.Identifier, "Expected variable name.");
+                _ = try self.declareVariable(try self.getTypeDef(error_type.toInstance()), self.parser.previous_token.?, true);
+                self.markInitialized();
 
-            try self.consume(.RightParen, "Expected `)`");
+                try self.consume(.RightParen, "Expected `)`");
+            }
+
             try self.consume(.LeftBrace, "Expected `{{`");
 
             // Catch block
@@ -1834,7 +1836,12 @@ pub const Compiler = struct {
             }
 
             // Patch jump op that skips this catch block
-            try self.patchJump(catch_exit);
+            if (catch_exit) |cexit| { 
+                try self.patchJump(cexit);
+            } else {
+                // We were in an unconditional catch, we don't expect anymore catch clauses
+                break;
+            }
 
             catch_count += 1;
         }

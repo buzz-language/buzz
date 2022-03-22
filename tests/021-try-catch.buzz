@@ -25,4 +25,12 @@ test "Try catch" {
     } catch (MyErrors error) {
         assert(error == MyErrors.failed, message: "error is usable");
     }
+
+    try {
+        willFail();
+    } catch (OtherErrors error) {
+        assert(false, message: "caught the wrong error");
+    } catch {
+        assert(true, message: "got caught by unconditional catch clause");
+    }
 }
