@@ -1,0 +1,29 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v3.0.0
+      - name: Setup nightly Zig
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: master
+      - name: Build
+        run: zig build
+      - name: Run tests
+        run: zig test src/main.zig --main-pkg-path src
+  lint:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3.0.0
+      - name: Setup nightly Zig
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: master
+      - run: zig fmt --check src/*.zig
