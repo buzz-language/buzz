@@ -23,7 +23,7 @@ fn repl(allocator: Allocator, args: ?[][:0]u8) !void {
         imports.deinit();
     }
 
-    std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2021 Benoit Giannangeli\n", .{});
+    std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2022 Benoit Giannangeli\n", .{});
     while (true) {
         std.debug.print("→ ", .{});
 
