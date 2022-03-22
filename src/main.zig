@@ -7,37 +7,6 @@ const Compiler = _compiler.Compiler;
 const CompileError = _compiler.CompileError;
 const ObjString = @import("./obj.zig").ObjString;
 
-fn repl(allocator: Allocator, args: ?[][:0]u8) !void {
-    var strings = std.StringHashMap(*ObjString).init(allocator);
-    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
-    var vm = try VM.init(allocator, &strings, null);
-    var compiler = Compiler.init(allocator, &strings, &imports, false);
-    defer {
-        vm.deinit();
-        compiler.deinit();
-        strings.deinit();
-        var it = imports.iterator();
-        while (it.next()) |kv| {
-            kv.value_ptr.*.globals.deinit();
-        }
-        imports.deinit();
-    }
-
-    std.debug.print("👨‍🚀 buzz 0.0.1 (C) 2022 Benoit Giannangeli\n", .{});
-    while (true) {
-        std.debug.print("→ ", .{});
-
-        var line = [_]u8{0} ** 1024;
-        _ = try std.io.getStdIn().read(line[0..]);
-
-        if (line.len > 0) {
-            if (try compiler.compile(line[0..], "<repl>", false)) |function| {
-                _ = try vm.interpret(function, args);
-            }
-        }
-    }
-}
-
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
