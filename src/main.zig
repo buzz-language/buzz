@@ -2,7 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const VM = @import("./vm.zig").VM;
-const Compiler = @import("./compiler.zig").Compiler;
+const _compiler = @import("./compiler.zig");
+const Compiler = _compiler.Compiler;
+const CompileError = _compiler.CompileError;
 const ObjString = @import("./obj.zig").ObjString;
 
 fn repl(allocator: Allocator, args: ?[][:0]u8) !void {
@@ -65,6 +67,8 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
 
     if (try compiler.compile(source, file_name, testing)) |function| {
         _ = try vm.interpret(function, args);
+    } else {
+        return CompileError.Recoverable;
     }
 }
 
@@ -130,7 +134,16 @@ test "Testing buzz" {
         }
     }
 
-    std.debug.print("\n\u{001b}[{}mRan {}, Failed: {}\u{001b}[0m\n", .{ if (success) @as(usize, 32) else @as(usize, 31), count, fail_count });
+    if (success) {
+        std.debug.print("\n\u{001b}[32m", .{});
+    } else {
+        std.debug.print("\n\u{001b}[31m", .{});
+    }
+
+    std.debug.print("Ran {}, Failed: {}\u{001b}[0m\n", .{
+        count,
+        fail_count,
+    });
 
     std.os.exit(if (success) 0 else 1);
 }

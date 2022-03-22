@@ -54,8 +54,9 @@ const FunctionType = _obj.ObjFunction.FunctionType;
 
 extern fn dlerror() [*:0]u8;
 
-const CompileError = error {
-    Unrecoverable
+pub const CompileError = error {
+    Unrecoverable,
+    Recoverable,
 };
 
 pub const Local = struct {
