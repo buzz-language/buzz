@@ -34,8 +34,13 @@ export fn tmpName(_: *api.VM) bool {
     unreachable;
 }
 
-export fn exit(_: *api.VM) bool {
-    unreachable;
+// If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
+export fn buzzExit(vm: *api.VM) bool {
+    const exitCode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+
+    std.os.exit(exitCode);
+
+    return false;
 }
 
 export fn execute(_: *api.VM) bool {

@@ -11,7 +11,7 @@ extern fun tmpDir() > str;
 extern fun tmpName(str? prefix) > str;
 
 | Exit program with [exitCode]
-extern fun exit(num exitCode) > void;
+extern fun buzzExit(num exitCode) > void;
 
 | Execute command and return its exit code
 extern fun execute(str command) > num;
@@ -20,5 +20,5 @@ export time;
 export env;
 export tmpDir;
 export tmpName;
-export exit;
+export buzzExit as exit;
 export execute;
