@@ -1,0 +1,33 @@
+import "lib/os.buzz" as os;
+
+| Returns current directory absolute path
+fun cwd() > str {
+    str? dir = os.env("PWD");
+
+    if (dir != null) {
+        return dir;
+    } else {
+        throw "Could not get current directory";
+    }
+
+    | TODO: should not be required since there's throw in the else branch
+    return "";
+}
+
+| Creates directory path
+extern fun mkDir(str path) > void;
+
+| Deletes directory or file at path
+extern fun rm(str path) > void;
+
+| Moves/renames file
+extern fun move(str source, str dest) > void;
+
+| List files under path
+extern fun lsDir(str path) > [str];
+
+export cwd;
+export mkDir;
+export rm;
+export move;
+export lsDir;

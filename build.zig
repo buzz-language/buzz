@@ -45,12 +45,20 @@ pub fn build(b: *Builder) void {
     os_lib.setBuildMode(build_mode);
     os_lib.linkLibrary(lib);
 
+    var fs_lib = b.addSharedLibrary("fs", "lib/buzz_fs.zig", .{ .unversioned = {} });
+    fs_lib.setTarget(target);
+    fs_lib.install();
+    fs_lib.setMainPkgPath(".");
+    fs_lib.setBuildMode(build_mode);
+    fs_lib.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
     b.default_step.dependOn(&std_lib.step);
     b.default_step.dependOn(&io_lib.step);
     b.default_step.dependOn(&gc_lib.step);
     b.default_step.dependOn(&os_lib.step);
+    b.default_step.dependOn(&fs_lib.step);
 
     const play = b.step("run", "Run buzz");
     const run = exe.run();
