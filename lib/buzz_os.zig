@@ -2,8 +2,10 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const utils = @import("../src/utils.zig");
 
-export fn time(_: *api.VM) bool {
-    unreachable;
+export fn time(vm: *api.VM) bool {
+    vm.bz_pushNum(@intToFloat(f64, std.time.milliTimestamp()));
+
+    return true;
 }
 
 export fn env(vm: *api.VM) bool {

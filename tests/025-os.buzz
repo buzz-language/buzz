@@ -4,3 +4,7 @@ import "lib/os.buzz" as os;
 test "os.set/env" {
     assert(os.env("HOME") != null, message: "could get env variable");
 }
+
+test "os.time" {
+    assert(os.time() > 0, message: "Got time");
+}
