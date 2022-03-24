@@ -8,3 +8,8 @@ test "os.set/env" {
 test "os.time" {
     assert(os.time() > 0, message: "Got time");
 }
+
+test "os.tmpDir" {
+    | TODO: replace by .len check
+    assert(os.tmpDir() != "", message: "Got system tmp dir");
+}

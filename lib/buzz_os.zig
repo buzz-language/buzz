@@ -1,6 +1,7 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
 const utils = @import("../src/utils.zig");
+const builtin = @import("builtin");
 
 export fn time(vm: *api.VM) bool {
     vm.bz_pushNum(@intToFloat(f64, std.time.milliTimestamp()));
@@ -28,8 +29,23 @@ export fn env(vm: *api.VM) bool {
     return false;
 }
 
-export fn tmpDir(_: *api.VM) bool {
-    unreachable;
+export fn tmpDir(vm: *api.VM) bool {
+    const tmp_dir: []const u8 = switch (builtin.os.tag) {
+        .windows => unreachable, // TODO: GetTempPath
+        else => std.os.getenv("TMPDIR") orelse std.os.getenv("TMP") orelse std.os.getenv("TEMP") orelse std.os.getenv("TEMPDIR") orelse "/tmp",
+    };
+
+    vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, tmp_dir) orelse {
+        vm.bz_throwString("Could not get environment variable");
+
+        return false;
+    }) orelse {
+        vm.bz_throwString("Could not get environment variable");
+
+        return false;
+    });
+
+    return true;
 }
 
 export fn tmpName(_: *api.VM) bool {
