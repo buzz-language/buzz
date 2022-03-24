@@ -1,5 +1,6 @@
 import "lib/std.buzz";
 import "lib/io.buzz";
+import "lib/fs.buzz";
 
 test "Write & read a file" {
     File file = File.open("./hello.txt", mode: FileMode.write);
@@ -14,6 +15,8 @@ test "Write & read a file" {
     assert(file.readAll() == "Hello World", message: "Could write and read a file");
 
     fileB.close();
+
+    rm("./hello.txt");
 }
 
 test "Write on stdout" {

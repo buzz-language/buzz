@@ -4,3 +4,11 @@ import "lib/fs.buzz" as fs;
 test "fs.cwd" {
     assert(fs.cwd() != "", message: "Could get cwd");
 }
+
+test "mkDir/rm" {
+    fs.mkDir("yo");
+    fs.mkDir("/Users/giann/git/buzz/yo2");
+
+    fs.rm("yo");
+    fs.rm("/Users/giann/git/buzz/yo2");
+}
