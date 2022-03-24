@@ -29,3 +29,11 @@ test "Read by lines" {
 
     file.close();
 }
+
+test "Read" {
+    File file = File.open("./README.md", mode: FileMode.read);
+
+    assert(file.read(18) == "<p align=\"center\">", message: "Can read n bytes");
+
+    file.close();
+}

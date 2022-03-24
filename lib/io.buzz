@@ -2,6 +2,7 @@ extern fun FileOpen(str filename, num mode) > num;
 extern fun FileClose(num fd) > void;
 extern fun FileReadAll(num fd) > str;
 extern fun FileReadLine(num fd) > str?;
+extern fun FileRead(num fd, num n) > str?;
 extern fun FileWrite(num fd, str bytes) > void;
 extern fun getStdIn() > num;
 extern fun getStdOut() > num;
@@ -34,9 +35,14 @@ object File {
         return FileReadAll(this.fd);
     }
 
-    | Reads next line, return null if nothing to read
+    | Reads next line, returns null if nothing to read
     fun readLine() > str? {
         return FileReadLine(this.fd);
+    }
+
+    | Reads n bytes, returns null if nothing to read
+    fun read(num n) > str? {
+        return FileRead(this.fd, n: n);
     }
 
     | Write bytes

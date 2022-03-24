@@ -138,6 +138,46 @@ export fn FileReadLine(vm: *api.VM) bool {
     return true;
 }
 
+export fn FileRead(vm: *api.VM) bool {
+    const n: u64 = @floatToInt(u64, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const handle: std.fs.File.Handle = @floatToInt(
+        std.fs.File.Handle,
+        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+    );
+
+    const file: std.fs.File = std.fs.File{ .handle = handle };
+    const reader = file.reader();
+
+    var buffer = std.ArrayList(u8).initCapacity(api.VM.allocator, n) catch {
+        vm.bz_throwString("Could not read file");
+
+        return false;
+    };
+    buffer.expandToCapacity();
+
+    const read = reader.read(buffer.items) catch {
+        vm.bz_throwString("Could not read file");
+
+        return false;
+    };
+
+    if (read == 0) {
+        vm.bz_pushNull();
+    } else {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
+            vm.bz_throwString("Could not get file content");
+
+            return false;
+        }) orelse {
+            vm.bz_throwString("Could not get file content");
+
+            return false;
+        });
+    }
+
+    return true;
+}
+
 // extern fun File_write(num fd, [num] bytes) > void;
 export fn FileWrite(vm: *api.VM) bool {
     const handle: std.fs.File.Handle = @floatToInt(

@@ -155,7 +155,7 @@
       ]
     },
     "builtins": {
-      "match": "\\b(assert|print|collect|allocated|File|parseNumber)\\b",
+      "match": "\\b(assert|print|collect|allocated|File|parseNumber|FileMode|stdin|stdout|stderr|time|env|tmpDir|tmpFilename|exit|execute|allocate|collect)\\b",
       "name": "support.function.buzz"
     }
   },
