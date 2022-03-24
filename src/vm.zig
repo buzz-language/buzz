@@ -1,4 +1,3 @@
-// zig fmt: off
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -70,7 +69,7 @@ pub const CallFrame = struct {
 pub const VM = struct {
     const Self = @This();
 
-    pub const Error = error {
+    pub const Error = error{
         UnwrappedNull,
         OutOfBound,
         NumberOverflow,
@@ -117,7 +116,7 @@ pub const VM = struct {
         self.allocator.free(self.stack);
 
         self.frames.deinit();
-        
+
         // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
 
         self.gray_stack.deinit();
@@ -132,10 +131,8 @@ pub const VM = struct {
             try allocateObject(
                 self,
                 ObjTypeDef,
-                ObjTypeDef{
-                    .def_type = .String
-                }
-            )
+                ObjTypeDef{ .def_type = .String },
+            ),
         );
 
         var list_def_union: ObjTypeDef.TypeUnion = .{
@@ -151,11 +148,9 @@ pub const VM = struct {
         var list: *ObjList = try allocateObject(
             self,
             ObjList,
-            ObjList.init(
-                self.allocator,
-                // TODO: get instance that already exists
-                list_def_type
-            )
+            ObjList.init(self.allocator,
+            // TODO: get instance that already exists
+            list_def_type),
         );
 
         // Args is the first local like `this` which replace the closure itself in the stack
@@ -165,8 +160,8 @@ pub const VM = struct {
             for (uargs) |arg| {
                 try list.items.append(
                     Value{
-                        .Obj = (try _obj.copyString(self, std.mem.sliceTo(arg, 0))).toObj()
-                    }
+                        .Obj = (try _obj.copyString(self, std.mem.sliceTo(arg, 0))).toObj(),
+                    },
                 );
             }
         }
@@ -220,22 +215,18 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {        
-        self.push(.{
-            .Obj = function.toObj()
-        });
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {
+        self.push(.{ .Obj = function.toObj() });
 
         var closure: *ObjClosure = try allocateObject(
             self,
             ObjClosure,
-            try ObjClosure.init(self.allocator, self, function)
+            try ObjClosure.init(self.allocator, self, function),
         );
 
         _ = self.pop();
 
-        self.push(.{
-            .Obj = closure.toObj()
-        });
+        self.push(.{ .Obj = closure.toObj() });
 
         // Command line arguments are the first local
         try self.pushArgs(args);
@@ -268,7 +259,10 @@ pub const VM = struct {
 
     inline fn readOpCode(self: *Self) OpCode {
         // TODO: measure if [*]OpCode[0] is faster
-        var opcode: OpCode = @intToEnum(OpCode, self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip]);
+        var opcode: OpCode = @intToEnum(
+            OpCode,
+            self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip],
+        );
 
         self.currentFrame().?.ip += 1;
 
@@ -290,13 +284,19 @@ pub const VM = struct {
             var instruction: OpCode = getCode(full_instruction);
             var arg: u24 = getArg(full_instruction);
             if (Config.debug_current_instruction) {
-                std.debug.print("{}: {}\n", .{current_frame.ip, instruction});
+                std.debug.print(
+                    "{}: {}\n",
+                    .{
+                        current_frame.ip,
+                        instruction,
+                    },
+                );
             }
-            switch(instruction) {
-                .OP_NULL => self.push(Value { .Null = null }),
-                .OP_VOID => self.push(Value { .Void = null }),
-                .OP_TRUE => self.push(Value { .Boolean = true }),
-                .OP_FALSE => self.push(Value { .Boolean = false }),
+            switch (instruction) {
+                .OP_NULL => self.push(Value{ .Null = null }),
+                .OP_VOID => self.push(Value{ .Void = null }),
+                .OP_TRUE => self.push(Value{ .Boolean = true }),
+                .OP_FALSE => self.push(Value{ .Boolean = false }),
                 .OP_POP => _ = self.pop(),
                 .OP_COPY => self.copy(arg),
                 .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
@@ -314,17 +314,21 @@ pub const VM = struct {
                 .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => self.push(
-                        Value{
-                            .Obj = (try _obj.copyString(
-                                self,
-                                try valueToString(self.allocator, self.pop())
-                            )).toObj()
-                        }
-                    ),
+                    Value{
+                        .Obj = (try _obj.copyString(
+                            self,
+                            try valueToString(self.allocator, self.pop()),
+                        )).toObj(),
+                    },
+                ),
                 .OP_NEGATE => self.push(Value{ .Number = -self.pop().Number }),
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
-                    var closure: *ObjClosure = try allocateObject(self, ObjClosure, try ObjClosure.init(self.allocator, self, function));
+                    var closure: *ObjClosure = try allocateObject(
+                        self,
+                        ObjClosure,
+                        try ObjClosure.init(self.allocator, self, function),
+                    );
 
                     self.push(Value{ .Obj = closure.toObj() });
 
@@ -376,7 +380,7 @@ pub const VM = struct {
 
                 .OP_SUPER_INVOKE => {
                     const method: *ObjString = self.readString(arg);
-                    
+
                     const arg_instruction: u32 = self.readInstruction();
                     const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
                     const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
@@ -425,10 +429,7 @@ pub const VM = struct {
                     var list: *ObjList = try allocateObject(
                         self,
                         ObjList,
-                        ObjList.init(
-                            self.allocator,
-                            ObjTypeDef.cast(self.readConstant(arg).Obj).?
-                        )
+                        ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
                     );
 
                     self.push(Value{ .Obj = list.toObj() });
@@ -457,11 +458,15 @@ pub const VM = struct {
                 },
 
                 .OP_GET_SUBSCRIPT => try self.subscript(),
-                
+
                 .OP_SET_SUBSCRIPT => try self.setSubscript(),
 
                 .OP_ENUM => {
-                    var enum_: *ObjEnum = try allocateObject(self, ObjEnum, ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?));
+                    var enum_: *ObjEnum = try allocateObject(
+                        self,
+                        ObjEnum,
+                        ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+                    );
 
                     self.push(Value{ .Obj = enum_.toObj() });
                 },
@@ -472,7 +477,7 @@ pub const VM = struct {
                     var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
 
                     _ = self.pop();
-                    
+
                     var enum_case: *ObjEnumInstance = try allocateObject(self, ObjEnumInstance, ObjEnumInstance{
                         .enum_ref = enum_,
                         .case = @intCast(u8, arg),
@@ -495,8 +500,8 @@ pub const VM = struct {
                         ObjObject.init(
                             self.allocator,
                             ObjString.cast(self.readConstant(arg).Obj).?,
-                            ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?
-                        )
+                            ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?,
+                        ),
                     );
 
                     self.push(Value{ .Obj = object.toObj() });
@@ -519,7 +524,7 @@ pub const VM = struct {
 
                 // Like OP_SET_PROPERTY but pops the value and leaves the instance on the stack
                 .OP_PROPERTY => try self.setObjectFieldDefaultValue(self.readString(arg)),
-                
+
                 .OP_GET_PROPERTY => {
                     var obj: *Obj = self.peek(0).Obj;
 
@@ -559,7 +564,7 @@ pub const VM = struct {
                                 unreachable;
                             }
                         },
-                        else => unreachable
+                        else => unreachable,
                     }
                 },
 
@@ -591,7 +596,7 @@ pub const VM = struct {
                             _ = self.pop();
                             self.push(value);
                         },
-                        else => unreachable
+                        else => unreachable,
                     }
                 },
 
@@ -600,7 +605,7 @@ pub const VM = struct {
                     var value_str: []const u8 = try valueToString(self.allocator, self.pop());
                     defer self.allocator.free(value_str);
 
-                    std.debug.print("{s}\n", .{ value_str });
+                    std.debug.print("{s}\n", .{value_str});
                 },
 
                 .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
@@ -612,7 +617,6 @@ pub const VM = struct {
                     self.push(Value{ .Boolean = right > left });
                 },
 
-
                 .OP_LESS => {
                     const left: f64 = self.pop().Number;
                     const right: f64 = self.pop().Number;
@@ -620,11 +624,7 @@ pub const VM = struct {
                     self.push(Value{ .Boolean = right < left });
                 },
 
-                .OP_ADD,
-                .OP_SUBTRACT,
-                .OP_MULTIPLY,
-                .OP_DIVIDE,
-                .OP_MOD => try self.binary(instruction),
+                .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_MOD => try self.binary(instruction),
 
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
@@ -662,14 +662,20 @@ pub const VM = struct {
                 },
 
                 else => {
-                    std.debug.print("{} not yet implemented\n", .{ instruction });
+                    std.debug.print("{} not yet implemented\n", .{instruction});
 
                     std.os.exit(1);
-                }
+                },
             }
 
             if (Config.debug_stack) {
-                std.debug.print("frame: {s}, code: {}\n", .{current_frame.closure.function.name.string, instruction});
+                std.debug.print(
+                    "frame: {s}, code: {}\n",
+                    .{
+                        current_frame.closure.function.name.string,
+                        instruction,
+                    },
+                );
                 try dumpStack(self);
             }
         }
@@ -689,8 +695,9 @@ pub const VM = struct {
                 // Get next index
                 key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
                     Value{ .Number = new_index }
-                    else Value{ .Null = null };
-                
+                else
+                    Value{ .Null = null };
+
                 // Set new value
                 if (key_slot.* != .Null) {
                     value_slot.* = list.items.items[@floatToInt(usize, key_slot.Number)];
@@ -703,8 +710,7 @@ pub const VM = struct {
 
                 // Get next enum case
                 var next_case: ?*ObjEnumInstance = try enum_.rawNext(self, enum_case);
-                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() }
-                    else Value{ .Null = null });
+                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = null });
             },
             .Map => {
                 var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
@@ -786,11 +792,10 @@ pub const VM = struct {
 
         return false;
     }
-    
+
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
         // Are we in a try block ?
         if (self.jumpToCatch(payload)) {
-            try dumpStack(self);
             return;
         }
 
@@ -807,14 +812,14 @@ pub const VM = struct {
             if (self.frame_count == 0) {
                 // No more frames, the error is uncaught.
                 _ = self.pop();
-                
+
                 // Raise the runtime error
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{ try valueToString(self.allocator, payload) });
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToString(self.allocator, payload)});
 
                 for (stack.items) |stack_frame| {
-                    std.debug.print("\tat {s}", .{ stack_frame.closure.function.name.string });
+                    std.debug.print("\tat {s}", .{stack_frame.closure.function.name.string});
                     if (stack_frame.call_site) |call_site| {
-                        std.debug.print(":{}\n", .{ call_site });
+                        std.debug.print(":{}\n", .{call_site});
                     } else {
                         std.debug.print("\n", .{});
                     }
@@ -843,7 +848,7 @@ pub const VM = struct {
                             stack.deinit();
 
                             // In a normal frame, the slots 0 is either the function or a `this` value
-                            self.push(Value { .Null = null });
+                            self.push(Value{ .Null = null });
 
                             // Push error payload
                             self.push(payload);
@@ -872,66 +877,45 @@ pub const VM = struct {
         switch (code) {
             .OP_ADD => add: {
                 if (right_s != null) {
-                    self.push(Value{
-                        .Obj = (try right_s.?.concat(self, left_s.?)).toObj()
-                    });
+                    self.push(Value{ .Obj = (try right_s.?.concat(self, left_s.?)).toObj() });
                     break :add;
                 }
 
-                self.push(Value{
-                    .Number = right_f.? + left_f.?
-                });
+                self.push(Value{ .Number = right_f.? + left_f.? });
             },
 
-            .OP_SUBTRACT => {
-                self.push(Value{
-                    .Number = right_f.? - left_f.?
-                });
-            },
+            .OP_SUBTRACT => self.push(Value{ .Number = right_f.? - left_f.? }),
 
-            .OP_MULTIPLY => {
-                self.push(Value{
-                    .Number = right_f.? * left_f.?
-                });
-            },
+            .OP_MULTIPLY => self.push(Value{ .Number = right_f.? * left_f.? }),
 
-            .OP_DIVIDE => {
-                self.push(Value{
-                    .Number = right_f.? / left_f.?
-                });
-            },
+            .OP_DIVIDE => self.push(Value{ .Number = right_f.? / left_f.? }),
 
-            .OP_MOD => {
-                self.push(Value{
-                    .Number = @mod(right_f.?, left_f.?)
-                });
-            },
+            .OP_MOD => self.push(Value{ .Number = @mod(right_f.?, left_f.?) }),
 
-            else => unreachable
+            else => unreachable,
         }
     }
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         // We don't type check or check arity because it was done at comptime
-        
+
         // TODO: do we check for stack overflow
 
-        var frame = CallFrame {
+        var frame = CallFrame{
             .closure = closure,
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.stack_top - arg_count - 1,
             .call_site = if (self.currentFrame()) |current_frame|
                 current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
-                else null,
+            else
+                null,
             .error_handlers = std.ArrayList(*ObjClosure).init(self.allocator),
         };
 
         if (catch_values != null) {
             for (catch_values.?.items) |catch_value| {
-                if (catch_value == .Obj
-                    and ObjClosure.cast(catch_value.Obj) != null
-                    and ObjClosure.cast(catch_value.Obj).?.function.type_def.resolved_type.?.Function.function_type == .Catch) {
+                if (catch_value == .Obj and ObjClosure.cast(catch_value.Obj) != null and ObjClosure.cast(catch_value.Obj).?.function.type_def.resolved_type.?.Function.function_type == .Catch) {
                     try frame.error_handlers.append(ObjClosure.cast(catch_value.Obj).?);
                 } else {
                     assert(catch_values.?.items.len == 1);
@@ -950,23 +934,25 @@ pub const VM = struct {
         self.frame_count += 1;
 
         if (Config.debug) {
-            try disassembleChunk(
-                &frame.closure.function.chunk,
-                frame.closure.function.name.string
-            );
+            try disassembleChunk(&frame.closure.function.chunk, frame.closure.function.name.string);
             std.debug.print("\n\n", .{});
         }
     }
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, _: ?std.ArrayList(Value)) !void {
         // TODO: how to use catch_values with a native call?
-        var result: Value = Value { .Null = null };
-        if (native.native(self)) {
-            result = self.pop();
-        }
+        var result: Value = Value{ .Null = null };
+        const native_return = native.native(self);
+        if (native_return == 1 or native_return == 0) {
+            if (native_return == 1) {
+                result = self.pop();
+            }
 
-        self.stack_top = self.stack_top - arg_count - 1;
-        self.push(result);
+            self.stack_top = self.stack_top - arg_count - 1;
+            self.push(result);
+        } else {
+            // An error occured within the native call, we don't touch the stack
+        }
     }
 
     fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
@@ -1000,7 +986,7 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_values);
             },
-            else => unreachable
+            else => unreachable,
         }
     }
 
@@ -1038,9 +1024,10 @@ pub const VM = struct {
         if (super.static_fields.get(name)) |static| {
             _ = self.pop(); // Pop instance
             self.push(static);
-        } if (super.methods.get(name)) |method| {
+        }
+        if (super.methods.get(name)) |method| {
             try self.bindMethod(method, null);
-        } else  if (super.super) |super_super| {
+        } else if (super.super) |super_super| {
             try self.getSuperField(name, super_super);
         }
     }
@@ -1073,15 +1060,15 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(obj).?;
 
                 if (try list.member(self, name.string)) |member| {
-                    var member_value: Value = Value { .Obj = member.toObj() };
+                    var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_values);
                 }
-                
+
                 unreachable;
             },
-            else => unreachable
+            else => unreachable,
         }
     }
 
@@ -1171,10 +1158,10 @@ pub const VM = struct {
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
-            
+
             if (list_index < list.items.items.len) {
                 var list_item: Value = list.items.items[list_index];
-                
+
                 // Pop list and index
                 _ = self.pop();
                 _ = self.pop();
@@ -1213,7 +1200,7 @@ pub const VM = struct {
             }
 
             const list_index: usize = @floatToInt(usize, index.Number);
-            
+
             if (list_index < list.items.items.len) {
                 list.items.items[list_index] = value;
 

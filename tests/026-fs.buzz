@@ -1,37 +1,37 @@
 import "lib/std.buzz";
 import "lib/fs.buzz" as fs;
 
-test "fs.cwd" {
-    assert(fs.cwd() != "", message: "Could get cwd");
-}
+| test "fs.cwd" {
+|     assert(fs.cwd() != "", message: "Could get cwd");
+| }
 
-test "mkDir/rm" {
-    fs.mkDir("yo");
-    fs.mkDir("{fs.cwd()}/yo2");
+| test "mkDir/rm" {
+|     fs.mkDir("yo");
+|     fs.mkDir("{fs.cwd()}/yo2");
 
-    fs.rm("yo");
-    fs.rm("{fs.cwd()}/yo2");
-}
+|     fs.rm("yo");
+|     fs.rm("{fs.cwd()}/yo2");
+| }
 
 test "ls" {
-    bool containsREADME = false;
-    foreach (num i, str el in fs.ls(fs.cwd())) {
-        if (el == "README.md") {
-            containsREADME = true;
-            break;
-        }
-    }
-
-    assert(containsREADME, message: "Could list element in current directory");
-
-    | try {
-    |     foreach (num i, str el in fs.ls("/doesnotexist")) {
-    |         print(el);
+    | bool containsREADME = false;
+    | foreach (num i, str el in fs.ls(fs.cwd())) {
+    |     if (el == "README.md") {
+    |         containsREADME = true;
+    |         break;
     |     }
-    | } catch (str err) {
-    |     print("err: {err}");
-    |     assert(err == "Could not list directory", message: "Raises error when trying to list non-existing directory");
-    | } catch {
-    |     print("wat");
     | }
+
+    | assert(containsREADME, message: "Could list element in current directory");
+
+    try {
+        foreach (num i, str el in fs.ls("/doesnotexist")) {
+            print(el);
+        }
+    } catch (str err) {
+        print("err: {err}");
+        assert(err == "Could not list directory", message: "Raises error when trying to list non-existing directory");
+    } catch {
+        print("wat");
+    }
 }

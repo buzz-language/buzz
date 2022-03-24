@@ -192,13 +192,30 @@ export fn bz_collect(self: *VM) void {
 }
 
 export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
-    var list = memory.allocate(vm, ObjList) catch {
+    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+        vm.allocator,
+        of_type,
+    );
+
+    var list_def_union: ObjTypeDef.TypeUnion = .{
+        .List = list_def,
+    };
+
+    var list_def_type: *ObjTypeDef = _obj.allocateObject(vm, ObjTypeDef, ObjTypeDef{
+        .def_type = .List,
+        .optional = false,
+        .resolved_type = list_def_union,
+    }) catch {
         return null;
     };
 
-    list.* = ObjList.init(vm.allocator, of_type);
-
-    return list;
+    return _obj.allocateObject(
+        vm,
+        ObjList,
+        ObjList.init(vm.allocator, list_def_type),
+    ) catch {
+        return null;
+    };
 }
 
 export fn bz_listAppend(self: *ObjList, value: *Value) bool {

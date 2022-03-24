@@ -1,5 +1,3 @@
-import "lib/io.buzz" as io;
-
 | Returns epoch time in ms
 extern fun time() > num;
 

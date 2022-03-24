@@ -258,8 +258,8 @@ pub const Obj = struct {
     }
 };
 
-// If returns false, no return value
-pub const NativeFn = fn (vm: *VM) bool;
+// 1 = return value on stack, 0 = no return value, -1 = error
+pub const NativeFn = fn (vm: *VM) c_int;
 
 /// Native function
 pub const ObjNative = struct {
@@ -790,7 +790,7 @@ pub const ObjList = struct {
         try self.items.append(value);
     }
 
-    fn append(vm: *VM) bool {
+    fn append(vm: *VM) c_int {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
@@ -805,20 +805,20 @@ pub const ObjList = struct {
                 std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             };
-            return false;
+            return -1;
         };
 
         vm.push(list_value);
 
-        return true;
+        return 1;
     }
 
-    fn len(vm: *VM) bool {
+    fn len(vm: *VM) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Number = @intToFloat(f64, list.items.items.len) });
 
-        return true;
+        return 1;
     }
 
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
@@ -836,7 +836,7 @@ pub const ObjList = struct {
         }
     }
 
-    fn next(vm: *VM) bool {
+    fn next(vm: *VM) c_int {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
@@ -856,7 +856,7 @@ pub const ObjList = struct {
             else Value{ .Null = null }
         );
 
-        return true;
+        return 1;
     }
 
     pub const ListDef = struct {

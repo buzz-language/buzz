@@ -1,4 +1,3 @@
-import "lib/std.buzz";
 import "lib/os.buzz" as os;
 
 | Returns current directory absolute path
@@ -8,9 +7,7 @@ fun cwd() > str {
     if (dir != null) {
         return dir;
     } else {
-        throw Error {
-            message = "Could not get current directory"
-        };
+        throw "Could not get current directory";
     }
 
     | TODO: should not be required since there's throw in the else branch

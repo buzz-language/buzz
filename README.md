@@ -285,14 +285,14 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 
 // We have to respect C ABI
-export fn assert(vm: *api.VM) bool {
+export fn assert(vm: *api.VM) c_int {
     var condition: bool = vm.bz_peek(1).bz_valueToBool();
 
     if (!condition) {
         vm.bz_throw(vm.bz_peek(0));
     }
 
-    return false;
+    return 0;
 }
 ```
 
