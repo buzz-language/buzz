@@ -1,3 +1,5 @@
+import "lib/io.buzz" as io;
+
 | Returns epoch time in ms
 extern fun time() > num;
 
@@ -7,8 +9,8 @@ extern fun env(str key) > str?;
 | Returns path to system temp directory
 extern fun tmpDir() > str;
 
-| Generate a unique temporary file name with an optional prefix
-extern fun tmpName(str? prefix) > str;
+| Returns a temporary file name in system tmp dir
+extern fun tmpFilename(str? prefix) > str;
 
 | Exit program with [exitCode]
 extern fun buzzExit(num exitCode) > void;
@@ -19,6 +21,6 @@ extern fun execute(str command) > num;
 export time;
 export env;
 export tmpDir;
-export tmpName;
+export tmpFilename;
 export buzzExit as exit;
 export execute;

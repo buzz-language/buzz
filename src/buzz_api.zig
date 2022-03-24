@@ -65,6 +65,10 @@ export fn bz_valueToBool(value: *Value) bool {
 
 /// Converts a value to a string
 export fn bz_valueToString(value: *Value) ?[*:0]const u8 {
+    if (value.* != .Obj or value.Obj.obj_type != .String) {
+        return null;
+    }
+
     return utils.toCString(std.heap.c_allocator, ObjString.cast(value.Obj).?.string);
 }
 

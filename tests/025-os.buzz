@@ -13,3 +13,7 @@ test "os.tmpDir" {
     | TODO: replace by .len check
     assert(os.tmpDir() != "", message: "Got system tmp dir");
 }
+
+test "os.tmpFilename" {
+    assert(os.tmpFilename("buzz_test") != "", message: "Got tmp file name");
+}
