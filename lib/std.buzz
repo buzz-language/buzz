@@ -1,8 +1,23 @@
-| Common lib
-extern fun assert(bool condition, str message) > void;
+object Error {
+    str message
+}
+
+| If condition is false throw error with given message
+fun assert(bool condition, str message) > void {
+    if (!condition) {
+        throw Error {
+            message = message
+        };
+    }
+}
+
+| Prints value on stdout
 extern fun print(str value) > void;
+
+| Parse number, returns false if string does not represent a number
 extern fun parseNumber(str string) > num?;
 
+export Error;
 export assert;
 export print;
 export parseNumber;
