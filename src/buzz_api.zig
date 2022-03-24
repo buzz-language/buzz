@@ -11,6 +11,7 @@ const copyString = _obj.copyString;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
+const ObjList = _obj.ObjList;
 
 // Stack manipulation
 
@@ -54,6 +55,11 @@ export fn bz_pushVoid(self: *VM) void {
 
 /// Push string on the stack
 export fn bz_pushString(self: *VM, value: *ObjString) void {
+    self.push(value.toValue());
+}
+
+/// Push list on the stack
+export fn bz_pushList(self: *VM, value: *ObjList) void {
     self.push(value.toValue());
 }
 
@@ -183,4 +189,23 @@ export fn bz_collect(self: *VM) void {
     memory.collectGarbage(self) catch {
         bz_throwString(self, "Could not collect");
     };
+}
+
+export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
+    var list = memory.allocate(vm, ObjList) catch {
+        return null;
+    };
+
+    list.* = ObjList.init(vm.allocator, of_type);
+
+    return list;
+}
+
+export fn bz_listAppend(self: *ObjList, value: *Value) bool {
+    // TODO: should we type check?
+    self.rawAppend(value.*) catch {
+        return false;
+    };
+
+    return true;
 }

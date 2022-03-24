@@ -5,9 +5,11 @@ object Error {
 | If condition is false throw error with given message
 fun assert(bool condition, str message) > void {
     if (!condition) {
-        throw Error {
-            message = message
-        };
+        | throw Error {
+        |     message = message
+        | };
+
+        throw message;
     }
 }
 

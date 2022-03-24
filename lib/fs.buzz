@@ -27,10 +27,10 @@ extern fun rm(str path) > void;
 extern fun move(str source, str dest) > void;
 
 | List files under path
-extern fun lsDir(str path) > [str];
+extern fun ls(str path) > [str];
 
 export cwd;
 export mkDir;
 export rm;
 export move;
-export lsDir;
+export ls;

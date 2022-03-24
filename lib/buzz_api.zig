@@ -12,6 +12,7 @@ pub const VM = opaque {
     pub extern fn bz_pushBool(self: *VM, value: bool) void;
     pub extern fn bz_pushNum(self: *VM, value: f64) void;
     pub extern fn bz_pushString(self: *VM, value: *ObjString) void;
+    pub extern fn bz_pushList(self: *VM, value: *ObjList) void;
     pub extern fn bz_pushNull(self: *VM) void;
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(self: *VM, payload: *Value) void;
@@ -43,4 +44,9 @@ pub const ObjTypeDef = opaque {
 
 pub const ObjString = opaque {
     pub extern fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString;
+};
+
+pub const ObjList = opaque {
+    pub extern fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList;
+    pub extern fn bz_listAppend(self: *ObjList, value: *Value) bool;
 };

@@ -786,12 +786,16 @@ pub const ObjList = struct {
         return null;
     }
 
+    pub fn rawAppend(self: *Self, value: Value) !void {
+        try self.items.append(value);
+    }
+
     fn append(vm: *VM) bool {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
 
-        list.items.append(value) catch |err| {
+        list.rawAppend(value) catch |err| {
             const messageValue: Value = (copyString(vm, "Could not append to list") catch {
                 std.debug.print("Could not append to list", .{});
                 std.os.exit(1);

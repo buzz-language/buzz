@@ -790,6 +790,7 @@ pub const VM = struct {
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
         // Are we in a try block ?
         if (self.jumpToCatch(payload)) {
+            try dumpStack(self);
             return;
         }
 
