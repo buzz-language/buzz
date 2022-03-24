@@ -7,8 +7,8 @@ test "fs.cwd" {
 
 test "mkDir/rm" {
     fs.mkDir("yo");
-    fs.mkDir("/Users/giann/git/buzz/yo2");
+    fs.mkDir("{fs.cwd()}yo2");
 
     fs.rm("yo");
-    fs.rm("/Users/giann/git/buzz/yo2");
+    fs.rm("{fs.cwd()}/yo2");
 }

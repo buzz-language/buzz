@@ -114,6 +114,28 @@ export fn buzzExit(vm: *api.VM) bool {
     return false;
 }
 
-export fn execute(_: *api.VM) bool {
-    unreachable;
+export fn execute(vm: *api.VM) bool {
+    const command: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse "", 0);
+
+    const child_process = std.ChildProcess.init(&[_][]const u8{command}, api.VM.allocator) catch {
+        vm.bz_throwString("Could not execute");
+
+        return false;
+    };
+    child_process.disable_aslr = true;
+
+    child_process.spawn() catch {
+        vm.bz_throwString("Could not execute");
+
+        return false;
+    };
+
+    vm.bz_pushNum(@intToFloat(f64, (child_process.wait() catch |err| {
+        std.debug.print("err: {}\n", .{err});
+        vm.bz_throwString("Could not execute");
+
+        return false;
+    }).Exited));
+
+    return true;
 }

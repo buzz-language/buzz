@@ -17,3 +17,7 @@ test "os.tmpDir" {
 test "os.tmpFilename" {
     assert(os.tmpFilename("buzz_test") != "", message: "Got tmp file name");
 }
+
+| test "os.execute" {
+|     assert(os.execute("/bin/ls") == 0, message: "Could execute a command");
+| }
