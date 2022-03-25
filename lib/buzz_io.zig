@@ -82,7 +82,7 @@ export fn FileReadAll(vm: *api.VM) c_int {
     };
 
     vm.bz_pushString(api.ObjString.bz_string(vm, content) orelse {
-        vm.bz_throwString("Could not get file content");
+        vm.bz_throwString("Could not read file");
 
         return -1;
     });
@@ -125,11 +125,11 @@ export fn FileReadLine(vm: *api.VM) c_int {
         vm.bz_pushNull();
     } else {
         vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
-            vm.bz_throwString("Could not get file content");
+            vm.bz_throwString("Could not read file");
 
             return -1;
         }) orelse {
-            vm.bz_throwString("Could not get file content");
+            vm.bz_throwString("Could not read file");
 
             return -1;
         });
@@ -165,11 +165,11 @@ export fn FileRead(vm: *api.VM) c_int {
         vm.bz_pushNull();
     } else {
         vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
-            vm.bz_throwString("Could not get file content");
+            vm.bz_throwString("Could not read file");
 
             return -1;
         }) orelse {
-            vm.bz_throwString("Could not get file content");
+            vm.bz_throwString("Could not read file");
 
             return -1;
         });
@@ -188,7 +188,7 @@ export fn FileWrite(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
     _ = file.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
-        vm.bz_throwString("Could not write to file");
+        vm.bz_throwString("Could not write file");
 
         return -1;
     };

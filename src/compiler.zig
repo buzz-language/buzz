@@ -107,6 +107,7 @@ pub const ChunkCompiler = struct {
         const function_name: []const u8 = switch (function_type) {
             .EntryPoint => "main",
             .ScriptEntryPoint, .Script => file_name orelse "<script>",
+            .Catch => "<catch>",
             else => compiler.parser.previous_token.?.lexeme,
         };
 
@@ -314,7 +315,6 @@ pub const Compiler = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Class
         .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Try
         .{ .prefix = null, .infix = null, .precedence = .None }, // Catch
         .{ .prefix = null, .infix = null, .precedence = .None }, // Test
         .{ .prefix = null, .infix = null, .precedence = .None }, // Import
@@ -493,7 +493,7 @@ pub const Compiler = struct {
             }
 
             switch (self.parser.current_token.?.token_type) {
-                .Class, .Object, .Enum, .Try, .Test, .Fun, .Const, .If, .While, .Do, .For, .ForEach, .Return, .Switch => return,
+                .Class, .Object, .Enum, .Test, .Fun, .Const, .If, .While, .Do, .For, .ForEach, .Return, .Switch => return,
                 else => {},
             }
         }
@@ -1288,9 +1288,6 @@ pub const Compiler = struct {
             try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
 
             try self.emitOpCode(.OP_THROW);
-        } else if (try self.match(.Try)) {
-            assert(!hanging);
-            try self.tryCatch();
         } else {
             try self.expressionStatement(hanging);
         }
@@ -1610,113 +1607,6 @@ pub const Compiler = struct {
                 .optional = false,
             });
         }
-    }
-
-    fn tryCatch(self: *Self) !void {
-        // OP_TRY @catches  // we only need address of first catch block
-        // { try block }
-        // @catches endScope
-        // @catch_1: push type to match
-        //          NEQL JMP @catch_1_exit
-        //          Push error as local
-        //          { catch block }
-        //          JMP @exit
-        // @catch_1_exit
-        // ...
-        // @exit: OP_CLEAR_TRY // clears first catch address
-
-        try self.consume(.LeftBrace, "Expected `{` after `try`");
-
-        const patch_first_catch: usize = try self.emitJump(.OP_TRY);
-
-        self.beginScope();
-
-        // Try block
-        _ = try self.block();
-
-        // Give to OP_TRY @ of first try block
-        try self.patchJump(patch_first_catch);
-
-        try self.endScope();
-
-        var patch_exits = std.ArrayList(usize).init(self.allocator);
-
-        // If we reached end of block, no error so jump after all catch clauses
-        try patch_exits.append(try self.emitJump(.OP_JUMP));
-
-        // Parse try blocks
-        var catch_count: usize = 0;
-        while (try self.match(.Catch)) {
-            if (catch_count > 0) {
-                // Not first catch clause: pop the last error comparison result
-                try self.emitOpCode(.OP_POP);
-            }
-
-            var catch_exit: ?usize = null;
-            var unconditional = false;
-            if (try self.match(.LeftParen)) {
-                try self.emitOpCode(.OP_COPY); // We still want the error on the stack after the comparison
-
-                // Push type to match
-                const error_type: *ObjTypeDef = try self.parseTypeDef();
-                try self.emitConstant(.{ .Obj = error_type.toObj() });
-
-                // Exit at end of this catch block if error type doesn't match
-                // Assumes the stack is : | error | expected_type |
-                try self.emitOpCode(.OP_IS); // Pops both its arguments from the stack
-                catch_exit = try self.emitJump(.OP_JUMP_IF_FALSE);
-                try self.emitOpCode(.OP_POP); // Pop comparison result
-
-                // Declare error argument
-                try self.emitOpCode(.OP_COPY); // Use copy as local
-                try self.consume(.Identifier, "Expected variable name.");
-                _ = try self.declareVariable(try self.getTypeDef(error_type.toInstance()), self.parser.previous_token.?, true);
-                self.markInitialized();
-
-                try self.consume(.RightParen, "Expected `)`");
-            } else {
-                unconditional = true;
-            }
-
-            try self.consume(.LeftBrace, "Expected `{{`");
-
-            // Catch block
-            self.beginScope();
-            _ = try self.block();
-            try self.endScope();
-
-            // Pop error payload
-            try self.emitOpCode(.OP_POP);
-
-            // Skip following catch blocks since we succeeded runnning this one
-            // Unless there's no more so no jump required
-            if (self.check(.Catch)) {
-                try patch_exits.append(try self.emitJump(.OP_JUMP));
-            }
-
-            catch_count += 1;
-
-            // Patch jump op that skips this catch block
-            if (catch_exit) |cexit| {
-                try self.patchJump(cexit);
-            }
-
-            // We don't expect any more catch clauses after an unconditionnal one
-            if (unconditional) {
-                break;
-            }
-        }
-
-        if (catch_count < 1) {
-            try self.reportErrorAtCurrent("Expected at least one catch clause");
-        }
-
-        // Patch each catch block exit
-        for (patch_exits.items) |code| {
-            try self.patchJump(code);
-        }
-
-        try self.emitOpCode(.OP_TRY_END);
     }
 
     fn inlineCatch(self: *Self, return_type: *ObjTypeDef) !u8 {

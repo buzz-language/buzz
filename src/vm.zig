@@ -55,13 +55,6 @@ pub const CallFrame = struct {
     // Error handlers
     error_handlers: std.ArrayList(*ObjClosure),
 
-    // The ip at which the current try block started
-    try_start_ip: ?usize = null,
-
-    // Catch jump set when entering a try block, and reset when exiting it or where actually jumping to that ip
-    // Relative to try_start_ip
-    error_catch_jmp: ?usize = null,
-
     // Line in source code where the call occured
     call_site: ?usize,
 };
@@ -410,20 +403,6 @@ pub const VM = struct {
                 .OP_IMPORT => try self.import(self.peek(0)),
 
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
-
-                .OP_TRY => {
-                    const frame: ?*CallFrame = self.currentFrame();
-
-                    frame.?.try_start_ip = frame.?.ip;
-                    frame.?.error_catch_jmp = arg;
-                },
-
-                .OP_TRY_END => {
-                    const frame: ?*CallFrame = self.currentFrame();
-
-                    frame.?.try_start_ip = null;
-                    frame.?.error_catch_jmp = null;
-                },
 
                 .OP_LIST => {
                     var list: *ObjList = try allocateObject(
@@ -775,30 +754,7 @@ pub const VM = struct {
         _ = self.pop();
     }
 
-    // Jump to first try clause if we're in a try block
-    fn jumpToCatch(self: *Self, payload: Value) bool {
-        const current_frame: *CallFrame = self.currentFrame().?;
-        if (current_frame.error_catch_jmp) |error_catch_jmp| {
-            assert(current_frame.try_start_ip != null);
-
-            // Push error payload
-            self.push(payload);
-
-            // Jump to it
-            current_frame.ip = current_frame.try_start_ip.? + error_catch_jmp;
-
-            return true;
-        }
-
-        return false;
-    }
-
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
-        // Are we in a try block ?
-        if (self.jumpToCatch(payload)) {
-            return;
-        }
-
         var stack = std.ArrayList(CallFrame).init(self.allocator);
 
         while (self.frame_count > 0) {
@@ -836,32 +792,36 @@ pub const VM = struct {
 
                 return;
             } else {
-                if (self.jumpToCatch(payload)) {
-                    return;
-                } else {
-                    // Are we in a try function?
-                    // TODO: we can accept inline catch to be functions but not the try block
-                    // Call catch closure or continue unwinding frames to find one
-                    for (frame.error_handlers.items) |handler| {
-                        const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
-                        if (parameters.count() == 0 or _value.valueTypeEql(payload, parameters.get(parameters.keys()[0]).?)) {
-                            stack.deinit();
-
-                            // In a normal frame, the slots 0 is either the function or a `this` value
-                            self.push(Value{ .Null = null });
-
-                            // Push error payload
-                            self.push(payload);
-
-                            // Call handler, it's return value is the result of the frame we just closed
-                            try self.call(handler, 1, null);
-
-                            return;
-                        }
-                    }
+                // Are we in a try function?
+                // TODO: we can accept inline catch to be functions but not the try block
+                // Call catch closure or continue unwinding frames to find one
+                if (try self.handleError(payload, frame.error_handlers)) {
+                    stack.deinit();
+                    break;
                 }
             }
         }
+    }
+
+    // Returns true if error was handled
+    fn handleError(self: *Self, error_payload: Value, handlers: std.ArrayList(*ObjClosure)) !bool {
+        for (handlers.items) |handler| {
+            const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
+            if (parameters.count() == 0 or _value.valueTypeEql(error_payload, parameters.get(parameters.keys()[0]).?)) {
+                // In a normal frame, the slots 0 is either the function or a `this` value
+                self.push(Value{ .Null = null });
+
+                // Push error payload
+                self.push(error_payload);
+
+                // Call handler, it's return value is the result of the frame we just closed
+                try self.call(handler, 1, null);
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     fn binary(self: *Self, code: OpCode) !void {
@@ -939,7 +899,7 @@ pub const VM = struct {
         }
     }
 
-    fn callNative(self: *Self, native: *ObjNative, arg_count: u8, _: ?std.ArrayList(Value)) !void {
+    fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         // TODO: how to use catch_values with a native call?
         var result: Value = Value{ .Null = null };
         const native_return = native.native(self);
@@ -951,7 +911,34 @@ pub const VM = struct {
             self.stack_top = self.stack_top - arg_count - 1;
             self.push(result);
         } else {
-            // An error occured within the native call, we don't touch the stack
+            // An error occured within the native function -> call error handlers
+            if (catch_values != null) {
+                var handlers = std.ArrayList(*ObjClosure).init(self.allocator);
+                defer handlers.deinit();
+                for (catch_values.?.items) |catch_value| {
+                    if (catch_value == .Obj and ObjClosure.cast(catch_value.Obj) != null and ObjClosure.cast(catch_value.Obj).?.function.type_def.resolved_type.?.Function.function_type == .Catch) {
+                        try handlers.append(ObjClosure.cast(catch_value.Obj).?);
+                    } else {
+                        assert(catch_values.?.items.len == 1);
+
+                        // We discard the error
+                        _ = self.pop();
+
+                        // Default value in case of error
+                        self.stack_top = self.stack_top - arg_count - 1;
+                        self.push(catch_value);
+                        return;
+                    }
+                }
+
+                // We have some error handlers to try
+                if (try self.handleError(self.peek(0), handlers)) {
+                    return;
+                }
+            }
+
+            // No error handler or default value was triggered so forward the error
+            try self.throw(Error.Custom, self.peek(0));
         }
     }
 

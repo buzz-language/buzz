@@ -92,21 +92,6 @@ export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
 
 // Other stuff
 
-/// Throw an error with the given [payload]
-export fn bz_throw(self: *VM, payload: *Value) void {
-    self.throw(VM.Error.Custom, payload.*) catch {
-        // TODO: maybe we have a `panic` function that could be called both here and in main
-        std.os.exit(1);
-    };
-}
-
-export fn bz_throwString(self: *VM, payload: [*:0]const u8) void {
-    self.throw(VM.Error.Custom, bz_string(self, payload).?.toValue()) catch {
-        // TODO: maybe we have a `panic` function that could be called both here and in main
-        std.os.exit(1);
-    };
-}
-
 // Type helpers
 
 // TODO: should always return the same instance
@@ -185,10 +170,12 @@ export fn bz_allocated(self: *VM) usize {
     return self.bytes_allocated;
 }
 
-export fn bz_collect(self: *VM) void {
+export fn bz_collect(self: *VM) bool {
     memory.collectGarbage(self) catch {
-        bz_throwString(self, "Could not collect");
+        return false;
     };
+
+    return true;
 }
 
 export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
@@ -225,4 +212,15 @@ export fn bz_listAppend(self: *ObjList, value: *Value) bool {
     };
 
     return true;
+}
+
+export fn bz_throw(vm: *VM, value: *Value) void {
+    vm.push(value.*);
+}
+
+export fn bz_throwString(vm: *VM, message: [*:0]const u8) void {
+    bz_pushString(vm, bz_string(vm, message) orelse {
+        _ = std.io.getStdErr().write(utils.toSlice(message)) catch unreachable;
+        std.os.exit(1);
+    });
 }

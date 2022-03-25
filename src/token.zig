@@ -104,7 +104,6 @@ pub const TokenType = enum {
     Class, // class
     Enum, // enum
     Throw, // throw
-    Try, // try
     Catch, // catch
     Test, // test
     Import, // import
@@ -141,7 +140,6 @@ pub const Keywords = [_]TokenType{
     .Function,
     .Print,
     .Throw,
-    .Try,
     .Catch,
     .Test,
     .Import,
@@ -292,10 +290,6 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "throw")) {
         return .Throw;
-    }
-
-    if (mem.eql(u8, literal, "try")) {
-        return .Try;
     }
 
     if (mem.eql(u8, literal, "catch")) {

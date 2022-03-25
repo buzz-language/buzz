@@ -93,11 +93,11 @@ export fn tmpFilename(vm: *api.VM) c_int {
     }
 
     vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, final.items) orelse {
-        vm.bz_throwString("Could not get tmp dir");
+        vm.bz_throwString("Could not get tmp file");
 
         return -1;
     }) orelse {
-        vm.bz_throwString("Could not get tmp dir");
+        vm.bz_throwString("Could not get tmp file");
 
         return -1;
     });

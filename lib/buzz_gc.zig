@@ -8,7 +8,11 @@ export fn allocated(vm: *api.VM) c_int {
 }
 
 export fn collect(vm: *api.VM) c_int {
-    vm.bz_collect();
+    if (!vm.bz_collect()) {
+        vm.bz_throwString("Could not collect");
+
+        return -1;
+    }
 
     return 0;
 }
