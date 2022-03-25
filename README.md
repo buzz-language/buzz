@@ -227,19 +227,8 @@ num result = willFail() catch {
     (OtherErrors e) -> 1,
     default {
         | Something unexpected
-        exit(1);
+        os.exit(1);
     }
-}
-
-| Try catch
-try {
-    willFail();
-} catch (OtherErrors error) {
-    assert(false, message: "caught the wrong error");
-} catch (MyErrors error) {
-    assert(true, message: "caught the right error");
-} catch {
-    | handle any other error
 }
 ```
 
