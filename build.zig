@@ -52,6 +52,13 @@ pub fn build(b: *Builder) void {
     fs_lib.setBuildMode(build_mode);
     fs_lib.linkLibrary(lib);
 
+    var math_lib = b.addSharedLibrary("math", "lib/buzz_math.zig", .{ .unversioned = {} });
+    math_lib.setTarget(target);
+    math_lib.install();
+    math_lib.setMainPkgPath(".");
+    math_lib.setBuildMode(build_mode);
+    math_lib.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
     b.default_step.dependOn(&std_lib.step);
@@ -59,6 +66,7 @@ pub fn build(b: *Builder) void {
     b.default_step.dependOn(&gc_lib.step);
     b.default_step.dependOn(&os_lib.step);
     b.default_step.dependOn(&fs_lib.step);
+    b.default_step.dependOn(&math_lib.step);
 
     const play = b.step("run", "Run buzz");
     const run = exe.run();

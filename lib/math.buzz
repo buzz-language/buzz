@@ -1,0 +1,58 @@
+extern fun abs(num n) > num;
+
+extern fun acos(num n) > num;
+
+extern fun asin(num n) > num;
+
+extern fun atan(num n) > num;
+
+extern fun ceil(num n) > num;
+
+extern fun cos(num n) > num;
+
+const num pi = 3.1415926535898;
+
+fun deg(num n) > num {
+    return n * 180 / pi;
+}
+
+extern fun exp(num n) > num;
+
+extern fun floor(num n) > num;
+
+extern fun log(num base, num n) > num;
+
+extern fun max(num a, num b) > num;
+
+extern fun min(num a, num b) > num;
+
+fun rad(num n) > num {
+    return n * pi / 180;
+}
+
+extern fun random() > num;
+
+extern fun sin(num n) > num;
+
+extern fun sqrt(num n) > num;
+
+extern fun tan(num n) > num;
+
+export abs;
+export acos;
+export asin;
+export atan;
+export ceil;
+export cos;
+export deg;
+export exp;
+export floor;
+export log;
+export max;
+export min;
+export pi;
+export rad;
+export random;
+export sin;
+export sqrt;
+export tan;

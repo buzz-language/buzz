@@ -114,7 +114,7 @@
       "patterns": [
         {
           "name": "constant.numeric.decimal.buzz",
-          "match": "[1-9][0-9]*(\\.[0-9]+)?"
+          "match": "[0-9][0-9]*(\\.[0-9]+)?"
         },
         {
           "name": "constant.numeric.binary.buzz",

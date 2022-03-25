@@ -1,0 +1,25 @@
+import "lib/std.buzz";
+import "lib/math.buzz" as math;
+
+test "math" {
+    assert(math.abs(-12.234) == 12.234, message: "math.abs");
+    assert(math.acos(0.1) == 1.4706289056333368, message: "math.acos");
+    assert(math.asin(0.1) == 0.1001674211615598, message: "math.asin");
+    assert(math.atan(0.1) == 0.09966865249116202, message: "math.atan");
+    assert(math.ceil(12.234) == 13, message: "math.ceil");
+    assert(math.cos(12.234) == 0.9452715049027691, message: "math.cos");
+    assert(math.exp(12.234) == 205664.19575705, message: "math.exp");
+    assert(math.floor(12.234) == 12, message: "math.floor");
+    assert(math.sin(12.234) == -0.3262848173281347, message: "math.sin");
+    assert(math.sqrt(12.234) == 3.4977135388707863, message: "math.sqrt");
+    assert(math.tan(12.234) == -0.34517576763481983, message: "math.tan");
+
+    assert(math.min(a: 12, b: 124) == 12, message: "math.min");
+    assert(math.max(a: 12, b: 124) == 124, message: "math.max");
+
+    num r = math.random();
+    assert(r >= 0 and r <= 1, message: "math.random");
+
+    assert(math.deg(2) == 114.59155902616439, message: "math.deg");
+    assert(math.rad(math.deg(2)) == 2, message: "math.rad");
+}
