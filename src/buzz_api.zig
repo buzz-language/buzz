@@ -4,6 +4,7 @@ const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const utils = @import("./utils.zig");
 const memory = @import("./memory.zig");
+const _compiler = @import("./compiler.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
@@ -12,6 +13,7 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
+const Compiler = _compiler.Compiler;
 
 // Stack manipulation
 
@@ -223,4 +225,44 @@ export fn bz_throwString(vm: *VM, message: [*:0]const u8) void {
         _ = std.io.getStdErr().write(utils.toSlice(message)) catch unreachable;
         std.os.exit(1);
     });
+}
+
+export fn bz_newVM(self: *VM) ?*VM {
+    var vm = self.allocator.create(VM) catch {
+        return null;
+    };
+    vm.* = VM.init(self.allocator, self.strings) catch {
+        return null;
+    };
+
+    return vm;
+}
+
+export fn bz_deinitVM(self: *VM) void {
+    self.deinit();
+}
+
+export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
+    var imports = std.StringHashMap(Compiler.ScriptImport).init(self.allocator);
+    var strings = std.StringHashMap(*ObjString).init(self.allocator);
+    var compiler = Compiler.init(self.allocator, self.strings, &imports, false);
+    defer {
+        imports.deinit();
+        compiler.deinit();
+        strings.deinit();
+    }
+
+    if (compiler.compile(utils.toSlice(source), utils.toSlice(file_name), false) catch null) |function| {
+        return function;
+    } else {
+        return null;
+    }
+}
+
+export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
+    self.interpret(function, null) catch {
+        return false;
+    };
+
+    return true;
 }

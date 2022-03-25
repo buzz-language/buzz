@@ -6,6 +6,10 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
 }){};
 
 pub const VM = opaque {
+    pub extern fn bz_newVM(self: *VM) *VM;
+    pub extern fn bz_deinitVM(self: *VM) void;
+    pub extern fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction;
+    pub extern fn bz_interpret(self: *VM, function: *ObjFunction) bool;
     pub extern fn bz_push(self: *VM, value: *Value) void;
     pub extern fn bz_pop(self: *VM) *Value;
     pub extern fn bz_peek(self: *VM, distance: u32) *Value;
@@ -50,3 +54,5 @@ pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList;
     pub extern fn bz_listAppend(self: *ObjList, value: *Value) bool;
 };
+
+pub const ObjFunction = opaque {};

@@ -27,3 +27,77 @@ export fn parseNumber(vm: *api.VM) c_int {
 
     return 1;
 }
+
+export fn runFile(self: *api.VM) c_int {
+    // Read file
+    const filename: [*:0]const u8 = api.Value.bz_valueToString(self.bz_peek(0)) orelse {
+        self.bz_throwString("Could not get filename");
+
+        return -1;
+    };
+    const filename_slice: []const u8 = std.mem.sliceTo(filename, 0);
+
+    var file: std.fs.File = (if (std.fs.path.isAbsolute(filename_slice))
+        std.fs.openFileAbsolute(filename_slice, .{})
+    else
+        std.fs.cwd().openFile(filename_slice, .{})) catch {
+        self.bz_throwString("Could not open file");
+
+        return -1;
+    };
+    defer file.close();
+
+    const source = api.VM.allocator.alloc(u8, (file.stat() catch {
+        self.bz_throwString("Could not read file");
+
+        return -1;
+    }).size) catch {
+        self.bz_throwString("Could not read file");
+
+        return -1;
+    };
+
+    _ = file.readAll(source) catch {
+        self.bz_throwString("Could not read file");
+
+        return -1;
+    };
+
+    var source_d: ?[]u8 = api.VM.allocator.dupeZ(u8, source) catch {
+        self.bz_throwString("Could not read file");
+
+        return -1;
+    };
+
+    if (source_d == null) {
+        self.bz_throwString("Could not read file");
+
+        return -1;
+    }
+
+    defer api.VM.allocator.free(source_d.?);
+
+    var source_0 = @ptrCast([*:0]u8, source_d.?);
+
+    defer api.VM.allocator.free(source);
+
+    // Init new VM
+    var vm = self.bz_newVM();
+    defer vm.bz_deinitVM();
+
+    // Compile
+    var function = vm.bz_compile(source_0, filename) orelse {
+        self.bz_throwString("File does not compile");
+
+        return -1;
+    };
+
+    // Run
+    if (!vm.bz_interpret(function)) {
+        self.bz_throwString("Error while running file");
+
+        return -1;
+    }
+
+    return 0;
+}

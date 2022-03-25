@@ -19,7 +19,11 @@ extern fun print(str value) > void;
 | Parse number, returns false if string does not represent a number
 extern fun parseNumber(str string) > num?;
 
+| Run a buzz file
+extern fun runFile(str filename) > void;
+
 export Error;
 export assert;
 export print;
 export parseNumber;
+export runFile;

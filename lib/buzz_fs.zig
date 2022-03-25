@@ -3,7 +3,11 @@ const api = @import("./buzz_api.zig");
 const utils = @import("../src/utils.zig");
 
 export fn mkDir(vm: *api.VM) c_int {
-    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse "", 0);
+    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
+        vm.bz_throwString("Could not get filename");
+
+        return -1;
+    }, 0);
 
     if (std.fs.path.isAbsolute(filename)) {
         std.fs.makeDirAbsolute(filename) catch {
@@ -23,7 +27,11 @@ export fn mkDir(vm: *api.VM) c_int {
 }
 
 export fn rm(vm: *api.VM) c_int {
-    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse "", 0);
+    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
+        vm.bz_throwString("Could not get filename");
+
+        return -1;
+    }, 0);
 
     if (std.fs.path.isAbsolute(filename)) {
         std.fs.deleteTreeAbsolute(filename) catch {
@@ -47,7 +55,11 @@ export fn move(_: *api.VM) c_int {
 }
 
 export fn ls(vm: *api.VM) c_int {
-    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse "", 0);
+    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
+        vm.bz_throwString("Could not get filename");
+
+        return -1;
+    }, 0);
 
     const dir: std.fs.Dir = if (std.fs.path.isAbsolute(filename))
         std.fs.openDirAbsolute(filename, .{}) catch {

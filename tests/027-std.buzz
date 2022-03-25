@@ -1,0 +1,18 @@
+import "lib/std.buzz";
+
+test "runFile" {
+    runFile("tests/utils/testing.buzz");
+
+    assert(true, message: "Could run a buzz file");
+}
+
+test "run non existent file" {
+    bool errorRaised = false;
+    runFile("tests/utils/testingsldkfj.buzz") catch {
+        default {
+            errorRaised = true;
+        }
+    };
+
+    assert(errorRaised, message: "Non existent file raised an error");
+}
