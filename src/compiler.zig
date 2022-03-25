@@ -3050,15 +3050,16 @@ pub const Compiler = struct {
 
         try self.emitLoop(expr_loop);
 
-        try self.endScope();
-
         try self.patchJump(exit_jump);
+
         try self.emitOpCode(.OP_POP);
 
         // Patch breaks
         for (breaks.items) |jump| {
             try self.patchJumpOrLoop(jump, loop_start);
         }
+
+        try self.endScope();
     }
 
     fn whileStatement(self: *Self) !void {
@@ -3082,17 +3083,17 @@ pub const Compiler = struct {
         var breaks: std.ArrayList(usize) = try self.block();
         defer breaks.deinit();
 
-        try self.endScope();
-
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
 
-        try self.emitOpCode(.OP_POP);
+        try self.emitOpCode(.OP_POP); // Pop condition (is not necessary if broke out of the loop)
 
         // Patch breaks
         for (breaks.items) |jump| {
             try self.patchJumpOrLoop(jump, loop_start);
         }
+
+        try self.endScope();
     }
 
     fn doUntilStatement(self: *Self) !void {
@@ -3103,8 +3104,6 @@ pub const Compiler = struct {
 
         var breaks: std.ArrayList(usize) = try self.block();
         defer breaks.deinit();
-
-        try self.endScope();
 
         try self.consume(.Until, "Expected `until` after `do` block.");
 
@@ -3124,12 +3123,14 @@ pub const Compiler = struct {
         try self.emitLoop(loop_start);
         try self.patchJump(exit_jump);
 
+        try self.emitOpCode(.OP_POP); // Pop condition
+
         // Patch breaks
         for (breaks.items) |jump| {
             try self.patchJumpOrLoop(jump, loop_start);
         }
 
-        try self.emitOpCode(.OP_POP);
+        try self.endScope();
     }
 
     fn ifStatement(self: *Self) anyerror!std.ArrayList(usize) {
