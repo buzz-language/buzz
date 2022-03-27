@@ -1025,6 +1025,8 @@ pub const ObjMap = struct {
         var nativeFn: ?NativeFn = null;
         if (mem.eql(u8, method, "remove")) {
             nativeFn = remove;
+        } else if (mem.eql(u8, method, "size")) {
+            nativeFn = size;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1051,6 +1053,14 @@ pub const ObjMap = struct {
             try markValue(vm, kv.value_ptr.*);
         }
         try markObj(vm, self.type_def.toObj());
+    }
+
+    fn size(vm: *VM) c_int {
+        var map: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+
+        vm.push(Value{ .Number = @intToFloat(f64, map.map.count()) });
+
+        return 1;
     }
 
     pub fn remove(vm: *VM) c_int {
@@ -1130,7 +1140,28 @@ pub const ObjMap = struct {
                 return native_def;
             }
 
-            if (mem.eql(u8, method, "remove")) {
+            if (mem.eql(u8, method, "size")) {
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "size", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                    .return_type = try compiler.getTypeDef(.{
+                        .def_type = .Number,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("size", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "remove")) {
                 var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it

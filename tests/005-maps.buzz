@@ -13,4 +13,5 @@ test "Maps" {
 
     assert(map.remove("hello") == 1, message: "removed element");
     | assert(map["hello"] == null, message: "removed element");
+    assert(map.size() == 1, message: "map size");
 }
