@@ -1,4 +1,3 @@
-// zig fmt: off
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -69,7 +68,7 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         ObjBoundMethod => ObjBoundMethod.toObj(obj),
         ObjNative => ObjNative.toObj(obj),
         ObjError => ObjError.toObj(obj),
-        else => {}
+        else => {},
     };
 
     if (Config.debug_gc) {
@@ -90,7 +89,7 @@ pub fn allocateString(vm: *VM, chars: []const u8) !*ObjString {
     } else {
         var string: *ObjString = try allocateObject(vm, ObjString, ObjString{ .string = chars });
 
-        vm.push(Value { .Obj = string.toObj() });
+        vm.push(Value{ .Obj = string.toObj() });
         try vm.strings.put(chars, string);
         _ = vm.pop();
 
@@ -121,8 +120,8 @@ pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: Allocat
     }
 
     var obj_string: *ObjString = try allocator.create(ObjString);
-    obj_string.* = ObjString {
-        .string = if (owned) chars else copy
+    obj_string.* = ObjString{
+        .string = if (owned) chars else copy,
     };
 
     try strings.put(chars, obj_string);
@@ -140,15 +139,11 @@ pub const Obj = struct {
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
-            
-            .Type,
-            .Object,
-            .Enum, => type_def.def_type == .Type,
 
-            .ObjectInstance => type_def.def_type == .Object
-                and ObjObjectInstance.cast(self).?.is(null, type_def),
-            .EnumInstance => type_def.def_type == .Enum
-                and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def,
+            .Type, .Object, .Enum => type_def.def_type == .Type,
+
+            .ObjectInstance => type_def.def_type == .Object and ObjObjectInstance.cast(self).?.is(null, type_def),
+            .EnumInstance => type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def,
             .Function => function: {
                 const function: *ObjFunction = ObjFunction.cast(self).?;
                 break :function function.type_def.eql(type_def);
@@ -187,13 +182,11 @@ pub const Obj = struct {
             },
             .EnumInstance => ei: {
                 var instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
-                break :ei type_def.def_type == .EnumInstance
-                    and instance.enum_ref.type_def.eql(type_def.resolved_type.?.EnumInstance);
+                break :ei type_def.def_type == .EnumInstance and instance.enum_ref.type_def.eql(type_def.resolved_type.?.EnumInstance);
             },
             .ObjectInstance => oi: {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
-                break :oi type_def.def_type == .ObjectInstance
-                    and instance.is(null, type_def.resolved_type.?.ObjectInstance);
+                break :oi type_def.def_type == .ObjectInstance and instance.is(null, type_def.resolved_type.?.ObjectInstance);
             },
             .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
             .Object => ObjObject.cast(self).?.type_def.eql(type_def),
@@ -201,8 +194,7 @@ pub const Obj = struct {
             .Closure => ObjClosure.cast(self).?.function.type_def.eql(type_def),
             .Bound => bound: {
                 var bound = ObjBoundMethod.cast(self).?;
-                break :bound if (bound.closure) |cls| cls.function.type_def.eql(type_def)
-                    else unreachable; // TODO
+                break :bound if (bound.closure) |cls| cls.function.type_def.eql(type_def) else unreachable; // TODO
             },
             .List => ObjList.cast(self).?.type_def.eql(type_def),
             .Map => ObjMap.cast(self).?.type_def.eql(type_def),
@@ -219,7 +211,7 @@ pub const Obj = struct {
         switch (self.obj_type) {
             .String => {
                 // return mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string);
-                
+
                 // since string are interned this should be enough
                 return self == other;
             },
@@ -239,8 +231,7 @@ pub const Obj = struct {
                 const self_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
                 const other_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(other).?;
 
-                return self_enum_instance.enum_ref == other_enum_instance.enum_ref
-                    and self_enum_instance.case == other_enum_instance.case;
+                return self_enum_instance.enum_ref == other_enum_instance.enum_ref and self_enum_instance.case == other_enum_instance.case;
             },
             .Bound,
             .Closure,
@@ -251,7 +242,8 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .Native,
-            .Error => {
+            .Error,
+            => {
                 return self == other;
             },
         }
@@ -265,17 +257,14 @@ pub const NativeFn = fn (vm: *VM) c_int;
 pub const ObjNative = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Native
-    },
+    obj: Obj = .{ .obj_type = .Native },
 
     // TODO: issue is list.member which separate its type definition from its runtime creation
     // type_def: *ObjTypeDef,
 
     native: NativeFn,
 
-    pub fn mark(_: *Self, _: *VM) void {
-    }
+    pub fn mark(_: *Self, _: *VM) void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -297,9 +286,7 @@ pub const ObjNative = struct {
 pub const ObjError = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Error
-    },
+    obj: Obj = .{ .obj_type = .Error },
 
     message: *ObjString,
     // payload: *ObjObjectInstance // TODO: Instance of `Error`
@@ -329,15 +316,12 @@ pub const ObjError = struct {
 pub const ObjString = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .String
-    },
+    obj: Obj = .{ .obj_type = .String },
 
     /// The actual string
     string: []const u8,
 
-    pub fn mark(_: *Self, _: *VM) void {
-    }
+    pub fn mark(_: *Self, _: *VM) void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -368,9 +352,7 @@ pub const ObjString = struct {
 pub const ObjUpValue = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .UpValue
-    },
+    obj: Obj = .{ .obj_type = .UpValue },
 
     /// Slot on the stack
     location: *Value,
@@ -378,11 +360,7 @@ pub const ObjUpValue = struct {
     next: ?*ObjUpValue = null,
 
     pub fn init(slot: *Value) Self {
-        return Self {
-            .closed = null,
-            .location = slot,
-            .next = null
-        };
+        return Self{ .closed = null, .location = slot, .next = null };
     }
 
     pub fn mark(self: *Self, vm: *VM) !void {
@@ -412,9 +390,7 @@ pub const ObjUpValue = struct {
 pub const ObjClosure = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Closure
-    },
+    obj: Obj = .{ .obj_type = .Closure },
 
     function: *ObjFunction,
     upvalues: std.ArrayList(*ObjUpValue),
@@ -422,13 +398,13 @@ pub const ObjClosure = struct {
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
-        return Self {
+        return Self{
             .globals = &vm.globals,
             .function = function,
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
         };
     }
-    
+
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.function.toObj());
         for (self.upvalues.items) |upvalue| {
@@ -464,18 +440,16 @@ pub const ObjFunction = struct {
     pub const FunctionType = enum {
         Function,
         Method,
-        Script,           // Imported script
+        Script, // Imported script
         ScriptEntryPoint, // main script
-        EntryPoint,       // main function
+        EntryPoint, // main function
         Catch,
         Test,
         Anonymous,
         Extern,
     };
 
-    obj: Obj = .{
-        .obj_type = .Function
-    },
+    obj: Obj = .{ .obj_type = .Function },
 
     type_def: *ObjTypeDef = undefined, // Undefined because function initialization is in several steps
 
@@ -484,7 +458,7 @@ pub const ObjFunction = struct {
     upvalue_count: u8 = 0,
 
     pub fn init(allocator: Allocator, name: *ObjString) !Self {
-        return Self {
+        return Self{
             .name = name,
             .chunk = Chunk.init(allocator),
         };
@@ -530,9 +504,7 @@ pub const ObjFunction = struct {
 pub const ObjObjectInstance = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .ObjectInstance
-    },
+    obj: Obj = .{ .obj_type = .ObjectInstance },
 
     /// Object
     object: *ObjObject,
@@ -540,7 +512,7 @@ pub const ObjObjectInstance = struct {
     fields: StringHashMap(Value),
 
     pub fn init(allocator: Allocator, object: *ObjObject) Self {
-        return Self {
+        return Self{
             .object = object,
             .fields = StringHashMap(Value).init(allocator),
         };
@@ -581,8 +553,7 @@ pub const ObjObjectInstance = struct {
             return false;
         }
 
-        return object_def == type_def
-            or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
+        return object_def == type_def or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
     }
 };
 
@@ -590,9 +561,7 @@ pub const ObjObjectInstance = struct {
 pub const ObjObject = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Object
-    },
+    obj: Obj = .{ .obj_type = .Object },
 
     type_def: *ObjTypeDef,
 
@@ -608,7 +577,7 @@ pub const ObjObject = struct {
     super: ?*ObjObject = null,
 
     pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
-        return Self {
+        return Self{
             .name = name,
             .methods = StringHashMap(*ObjClosure).init(allocator),
             .fields = StringHashMap(Value).init(allocator),
@@ -678,10 +647,9 @@ pub const ObjObject = struct {
         static_placeholders: StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
         inheritable: bool = false,
-        
 
         pub fn init(allocator: Allocator, name: *ObjString) ObjectDefSelf {
-            return ObjectDefSelf {
+            return ObjectDefSelf{
                 .name = name,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
                 .static_fields = StringHashMap(*ObjTypeDef).init(allocator),
@@ -707,9 +675,7 @@ pub const ObjObject = struct {
 pub const ObjList = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .List
-    },
+    obj: Obj = .{ .obj_type = .List },
 
     type_def: *ObjTypeDef,
 
@@ -719,7 +685,7 @@ pub const ObjList = struct {
     methods: std.StringHashMap(*ObjNative),
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
-        return Self {
+        return Self{
             .items = std.ArrayList(Value).init(allocator),
             .type_def = type_def,
             .methods = std.StringHashMap(*ObjNative).init(allocator),
@@ -771,12 +737,12 @@ pub const ObjList = struct {
             nativeFn = len;
         } else if (mem.eql(u8, method, "next")) {
             nativeFn = next;
+        } else if (mem.eql(u8, method, "remove")) {
+            nativeFn = remove;
         }
 
         if (nativeFn) |unativeFn| {
-            var native: *ObjNative = try allocateObject(vm, ObjNative, .{
-                .native = unativeFn
-            });
+            var native: *ObjNative = try allocateObject(vm, ObjNative, .{ .native = unativeFn });
 
             try self.methods.put(method, native);
 
@@ -821,6 +787,19 @@ pub const ObjList = struct {
         return 1;
     }
 
+    pub fn remove(vm: *VM) c_int {
+        var list: *ObjList = ObjList.cast(vm.peek(1).Obj).?;
+        var list_index: f64 = vm.peek(0).Number;
+
+        if (list_index < 0 or list_index >= @intToFloat(f64, list.items.items.len)) {
+            return 0;
+        }
+
+        vm.push(list.items.orderedRemove(@floatToInt(usize, list_index)));
+
+        return 1;
+    }
+
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
         if (list_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
@@ -841,20 +820,13 @@ pub const ObjList = struct {
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
 
-        var next_index: ?f64 = list.rawNext(
-            vm,
-            if (list_index == .Null) null
-            else list_index.Number
-        ) catch |err| {
+        var next_index: ?f64 = list.rawNext(vm, if (list_index == .Null) null else list_index.Number) catch |err| {
             // TODO: should we distinguish NativeFn and ExternFn ?
             std.debug.print("{}\n", .{err});
             std.os.exit(1);
         };
 
-        vm.push(
-            if (next_index) |unext_index| Value{ .Number = unext_index }
-            else Value{ .Null = null }
-        );
+        vm.push(if (next_index) |unext_index| Value{ .Number = unext_index } else Value{ .Null = null });
 
         return 1;
     }
@@ -866,19 +838,16 @@ pub const ObjList = struct {
         methods: std.StringHashMap(*ObjTypeDef),
 
         pub fn init(allocator: Allocator, item_type: *ObjTypeDef) SelfListDef {
-            return .{
-                .item_type = item_type,
-                .methods = std.StringHashMap(*ObjTypeDef).init(allocator)
-            };
+            return .{ .item_type = item_type, .methods = std.StringHashMap(*ObjTypeDef).init(allocator) };
         }
 
         pub fn deinit(self: *SelfListDef) void {
             self.methods.deinit();
         }
-        
+
         pub fn member(obj_list: *ObjTypeDef, compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
             var self = obj_list.resolved_type.?.List;
-            
+
             if (self.methods.get(method)) |native_def| {
                 return native_def;
             }
@@ -890,24 +859,56 @@ pub const ObjList = struct {
                 // It's always the list.
 
                 // `value` arg is of item_type
-                try  parameters.put("value", self.item_type);
+                try parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "append", false),
                     .parameters = parameters,
-                    .return_type = obj_list
+                    .return_type = obj_list,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Native = method_def
-                };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type
-                });
+                var native_type = try compiler.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
 
                 try self.methods.put("append", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "remove")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var at_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Number,
+                        .optional = false,
+                    },
+                );
+
+                try parameters.put("at", at_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
+                    .parameters = parameters,
+                    .return_type = try compiler.getTypeDef(.{
+                        .optional = true,
+                        .def_type = self.item_type.def_type,
+                        .resolved_type = self.item_type.resolved_type,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("remove", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
@@ -916,19 +917,21 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
                     .parameters = parameters,
-                    .return_type = try compiler.getTypeDef(ObjTypeDef{
-                        .def_type = .Number,
-                    })
+                    .return_type = try compiler.getTypeDef(
+                        ObjTypeDef{
+                            .def_type = .Number,
+                        },
+                    ),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Native = method_def
-                };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type
-                });
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
 
                 try self.methods.put("len", native_type);
 
@@ -940,29 +943,36 @@ pub const ObjList = struct {
                 // It's always the list.
 
                 // `key` arg is number
-                try  parameters.put("key", try compiler.getTypeDef(ObjTypeDef{
-                    .def_type = .Number,
-                    .optional = true
-                }));
+                try parameters.put(
+                    "key",
+                    try compiler.getTypeDef(
+                        ObjTypeDef{
+                            .def_type = .Number,
+                            .optional = true,
+                        },
+                    ),
+                );
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "next", false),
                     .parameters = parameters,
                     // When reached end of list, returns null
-                    .return_type = try compiler.getTypeDef(ObjTypeDef{
-                        .def_type = .Number,
-                        .optional = true
-                    })
+                    .return_type = try compiler.getTypeDef(
+                        ObjTypeDef{
+                            .def_type = .Number,
+                            .optional = true,
+                        },
+                    ),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Native = method_def
-                };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type
-                });
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
 
                 try self.methods.put("next", native_type);
 
@@ -978,9 +988,7 @@ pub const ObjList = struct {
 pub const ObjMap = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Map
-    },
+    obj: Obj = .{ .obj_type = .Map },
 
     type_def: *ObjTypeDef,
 
@@ -1019,7 +1027,7 @@ pub const ObjMap = struct {
             return if (keys.len > 0) keys[0] else null;
         }
     }
-    
+
     pub fn deinit(self: *Self) void {
         self.map.deinit();
     }
@@ -1050,9 +1058,7 @@ pub const ObjMap = struct {
 pub const ObjEnum = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Enum
-    },
+    obj: Obj = .{ .obj_type = .Enum },
 
     /// Used to allow type checking at runtime
     type_def: *ObjTypeDef,
@@ -1061,7 +1067,7 @@ pub const ObjEnum = struct {
     cases: std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, def: *ObjTypeDef) Self {
-        return Self {
+        return Self{
             .type_def = def,
             .name = def.resolved_type.?.Enum.name,
             .cases = std.ArrayList(Value).init(allocator),
@@ -1074,17 +1080,17 @@ pub const ObjEnum = struct {
         try markObj(vm, self.name.toObj());
         for (self.cases.items) |case| {
             try markValue(vm, case);
-        } 
+        }
     }
 
     pub fn rawNext(self: *Self, vm: *VM, enum_case: ?*ObjEnumInstance) !?*ObjEnumInstance {
         if (enum_case) |case| {
             assert(case.enum_ref == self);
-            
+
             if (case.case == self.cases.items.len - 1) {
                 return null;
             }
-            
+
             return try allocateObject(vm, ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = self,
                 .case = @intCast(u8, case.case + 1),
@@ -1121,7 +1127,7 @@ pub const ObjEnum = struct {
         cases: std.ArrayList([]const u8),
 
         pub fn init(allocator: Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
-            return EnumDefSelf {
+            return EnumDefSelf{
                 .name = name,
                 .cases = std.ArrayList([]const u8).init(allocator),
                 .enum_type = enum_type,
@@ -1137,9 +1143,7 @@ pub const ObjEnum = struct {
 pub const ObjEnumInstance = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .EnumInstance
-    },
+    obj: Obj = .{ .obj_type = .EnumInstance },
 
     enum_ref: *ObjEnum,
     case: u8,
@@ -1173,9 +1177,7 @@ pub const ObjEnumInstance = struct {
 pub const ObjBoundMethod = struct {
     const Self = @This();
 
-    obj: Obj = .{
-        .obj_type = .Bound
-    },
+    obj: Obj = .{ .obj_type = .Bound },
 
     receiver: Value,
     closure: ?*ObjClosure = null,
@@ -1256,9 +1258,7 @@ pub const ObjTypeDef = struct {
         Placeholder: PlaceholderDef,
     };
 
-    obj: Obj = .{
-        .obj_type = .Type
-    },
+    obj: Obj = .{ .obj_type = .Type },
 
     /// True means its an optional (e.g `str?`)
     optional: bool = false,
@@ -1298,7 +1298,7 @@ pub const ObjTypeDef = struct {
                 try type_str.appendSlice("{EnumDef}");
                 try type_str.appendSlice(self.resolved_type.?.Enum.name.string);
             },
-        
+
             .ObjectInstance => try type_str.appendSlice(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
             .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
@@ -1315,7 +1315,7 @@ pub const ObjTypeDef = struct {
                 defer allocator.free(key_type);
                 var value_type = try self.resolved_type.?.Map.value_type.toString(allocator);
                 defer allocator.free(value_type);
-                
+
                 try type_str.append('{');
                 try type_str.appendSlice(key_type);
                 try type_str.append(',');
@@ -1354,17 +1354,17 @@ pub const ObjTypeDef = struct {
             .Placeholder => {
                 try type_str.appendSlice("{PlaceholderDef}");
             },
-            
+
             .Native => {
                 try type_str.appendSlice("Native(");
-                
+
                 var ref: []u8 = try allocator.alloc(u8, 30);
                 defer allocator.free(ref);
-                ref = try std.fmt.bufPrint(ref, "{x}", .{ @ptrToInt(&self) });
+                ref = try std.fmt.bufPrint(ref, "{x}", .{@ptrToInt(&self)});
 
                 try type_str.appendSlice(ref);
                 try type_str.appendSlice(")");
-            }
+            },
         }
 
         if (self.optional) {
@@ -1385,28 +1385,24 @@ pub const ObjTypeDef = struct {
     pub fn toInstance(self: *Self) Self {
         return switch (self.def_type) {
             .Object => object: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                    .ObjectInstance = self
-                };
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = self };
 
                 break :object Self{
                     .optional = self.optional,
                     .def_type = .ObjectInstance,
-                    .resolved_type = resolved_type
+                    .resolved_type = resolved_type,
                 };
             },
             .Enum => enum_instance: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                    .EnumInstance = self
-                };
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = self };
 
                 break :enum_instance Self{
                     .optional = self.optional,
                     .def_type = .EnumInstance,
-                    .resolved_type = resolved_type
+                    .resolved_type = resolved_type,
                 };
             },
-            else => self.*
+            else => self.*,
         };
     }
 
@@ -1422,8 +1418,7 @@ pub const ObjTypeDef = struct {
         assert(a.def_type == .Object);
         assert(b.def_type == .Object);
 
-        return a == b
-            or (b.resolved_type.?.Object.super != null and instanceEqlTypeUnion(a, b.resolved_type.?.Object.super.?));
+        return a == b or (b.resolved_type.?.Object.super != null and instanceEqlTypeUnion(a, b.resolved_type.?.Object.super.?));
     }
 
     // Compare two type definitions
@@ -1436,17 +1431,14 @@ pub const ObjTypeDef = struct {
             .Bool, .Number, .String, .Type, .Void => return true,
 
             .ObjectInstance => {
-                return a.ObjectInstance.eql(b.ObjectInstance)
-                    or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
+                return a.ObjectInstance.eql(b.ObjectInstance) or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
             },
             .EnumInstance => return a.EnumInstance.eql(b.EnumInstance),
 
-            .Object,
-            .Enum => false, // Thore are never equal even if definition is the same
+            .Object, .Enum => false, // Thore are never equal even if definition is the same
 
             .List => return a.List.item_type.eql(b.List.item_type),
-            .Map => return a.Map.key_type.eql(b.Map.key_type)
-                and a.Map.value_type.eql(b.Map.value_type),
+            .Map => return a.Map.key_type.eql(b.Map.key_type) and a.Map.value_type.eql(b.Map.value_type),
             .Function => {
                 // Compare return types
                 if (!a.Function.return_type.eql(b.Function.return_type)) {
@@ -1468,7 +1460,8 @@ pub const ObjTypeDef = struct {
 
                 for (a_keys) |_, index| {
                     if (!a.Function.parameters.get(a_keys[index]).?
-                        .eql(b.Function.parameters.get(b_keys[index]).?)) {
+                        .eql(b.Function.parameters.get(b_keys[index]).?))
+                    {
                         return false;
                     }
                 }
@@ -1507,39 +1500,54 @@ pub const ObjTypeDef = struct {
 
     // Compare two type definitions
     pub fn eql(self: *Self, other: *Self) bool {
-        const type_eql: bool = self.def_type == other.def_type
-            and ((self.resolved_type == null and other.resolved_type == null)
-                or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
+        const type_eql: bool = self.def_type == other.def_type and ((self.resolved_type == null and other.resolved_type == null) or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
 
-        return self == other
-            or (self.optional and other.def_type == .Void) // Void is equal to any optional type
-            or (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder);
+        return self == other or (self.optional and other.def_type == .Void) // Void is equal to any optional type
+        or (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder);
     }
 };
 
 // TODO: use ArrayList writer instead of std.fmt.bufPrint
 pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
     return switch (obj.obj_type) {
-        .String => try std.fmt.bufPrint(buf, "{s}", .{ ObjString.cast(obj).?.string }),
+        .String => try std.fmt.bufPrint(buf, "{s}", .{ObjString.cast(obj).?.string}),
         .Type => {
             // TODO: no use for typedef.toString to allocate a buffer
-            var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?; 
+            var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
             var type_str: []const u8 = try type_def.toString(allocator);
             defer allocator.free(type_str);
 
-            return try std.fmt.bufPrint(buf, "type: 0x{x} `{s}`", .{ @ptrToInt(type_def), type_str });
+            return try std.fmt.bufPrint(buf, "type: 0x{x} `{s}`", .{
+                @ptrToInt(type_def),
+                type_str,
+            });
         },
         .UpValue => {
             var upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
             var upvalue_str: []const u8 = try valueToString(allocator, upvalue.closed orelse upvalue.location.*);
             defer allocator.free(upvalue_str);
 
-            return try std.fmt.bufPrint(buf, "upvalue: 0x{x} `{s}`", .{ @ptrToInt(upvalue), upvalue_str });
+            return try std.fmt.bufPrint(buf, "upvalue: 0x{x} `{s}`", .{
+                @ptrToInt(upvalue),
+                upvalue_str,
+            });
         },
-        .Closure => try std.fmt.bufPrint(buf, "closure: 0x{x} `{s}`", .{ @ptrToInt(ObjClosure.cast(obj).?), ObjClosure.cast(obj).?.function.name.string }),
-        .Function => try std.fmt.bufPrint(buf, "function: 0x{x} `{s}`", .{ @ptrToInt(ObjFunction.cast(obj).?), ObjFunction.cast(obj).?.name.string }),
-        .ObjectInstance => try std.fmt.bufPrint(buf, "object instance: 0x{x} `{s}`", .{ @ptrToInt(ObjObjectInstance.cast(obj).?), ObjObjectInstance.cast(obj).?.object.name.string }),
-        .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{ @ptrToInt(ObjObject.cast(obj).?), ObjObject.cast(obj).?.name.string }),
+        .Closure => try std.fmt.bufPrint(buf, "closure: 0x{x} `{s}`", .{
+            @ptrToInt(ObjClosure.cast(obj).?),
+            ObjClosure.cast(obj).?.function.name.string,
+        }),
+        .Function => try std.fmt.bufPrint(buf, "function: 0x{x} `{s}`", .{
+            @ptrToInt(ObjFunction.cast(obj).?),
+            ObjFunction.cast(obj).?.name.string,
+        }),
+        .ObjectInstance => try std.fmt.bufPrint(buf, "object instance: 0x{x} `{s}`", .{
+            @ptrToInt(ObjObjectInstance.cast(obj).?),
+            ObjObjectInstance.cast(obj).?.object.name.string,
+        }),
+        .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{
+            @ptrToInt(ObjObject.cast(obj).?),
+            ObjObject.cast(obj).?.name.string,
+        }),
         .List => {
             var list: *ObjList = ObjList.cast(obj).?;
             var type_str: []const u8 = try list.type_def.resolved_type.?.List.item_type.toString(allocator);
@@ -1554,21 +1562,24 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             var value_type_str: []const u8 = try map.type_def.resolved_type.?.Map.value_type.toString(allocator);
             defer allocator.free(value_type_str);
 
-            return try std.fmt.bufPrint(buf, "map: 0x{x} {{{s}, {s}}}", .{ @ptrToInt(map), key_type_str, value_type_str });
+            return try std.fmt.bufPrint(buf, "map: 0x{x} {{{s}, {s}}}", .{
+                @ptrToInt(map),
+                key_type_str,
+                value_type_str,
+            });
         },
-        .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{ @ptrToInt(ObjEnum.cast(obj).?), ObjEnum.cast(obj).?.name.string }),
+        .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{
+            @ptrToInt(ObjEnum.cast(obj).?),
+            ObjEnum.cast(obj).?.name.string,
+        }),
         .EnumInstance => enum_instance: {
             var instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
             var enum_: *ObjEnum = instance.enum_ref;
 
-            break :enum_instance try std.fmt.bufPrint(
-                buf,
-                "{s}.{s}",
-                .{
-                    enum_.name.string,
-                    enum_.type_def.resolved_type.?.Enum.cases.items[instance.case]
-                }
-            );
+            break :enum_instance try std.fmt.bufPrint(buf, "{s}.{s}", .{
+                enum_.name.string,
+                enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
+            });
         },
         .Bound => {
             var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
@@ -1576,7 +1587,7 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             defer allocator.free(receiver_str);
 
             if (bound.closure) |closure| {
-                var closure_name: []const u8 =  closure.function.name.string;
+                var closure_name: []const u8 = closure.function.name.string;
                 return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
             } else {
                 assert(bound.native != null);
@@ -1586,13 +1597,13 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
         .Native => {
             var native: *ObjNative = ObjNative.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "native: 0x{x}", .{ @ptrToInt(native) });
+            return try std.fmt.bufPrint(buf, "native: 0x{x}", .{@ptrToInt(native)});
         },
         .Error => {
             var err: *ObjError = ObjError.cast(obj).?;
 
             return try std.fmt.bufPrint(buf, "err: 0x{x} `{s}`", .{ @ptrToInt(err), err.message.string });
-        }
+        },
     };
 }
 
@@ -1611,15 +1622,15 @@ pub const PlaceholderDef = struct {
     name: ?*ObjString = null,
 
     // Assumption made by the code referencing the value
-    callable: ?bool = null,             // Function, Object or Class
-    subscriptable: ?bool = null,        // Array or Map
-    field_accessible: ?bool = null,     // Object, Class or Enum
-    assignable: ?bool = null,           // Not a Function, Object, Class or Enum
+    callable: ?bool = null, // Function, Object or Class
+    subscriptable: ?bool = null, // Array or Map
+    field_accessible: ?bool = null, // Object, Class or Enum
+    assignable: ?bool = null, // Not a Function, Object, Class or Enum
     resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
-    resolved_def_type: ?ObjTypeDef.Type = null,    // Meta type
+    resolved_def_type: ?ObjTypeDef.Type = null, // Meta type
     // TODO: do we ever infer that much that we can build an actual type?
     resolved_type: ?*ObjTypeDef = null, // Actual type
-    where: Token,                       // Where the placeholder was created
+    where: Token, // Where the placeholder was created
 
     // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     // can trace back the root of the unknown type.
@@ -1630,10 +1641,7 @@ pub const PlaceholderDef = struct {
     children: std.ArrayList(*ObjTypeDef),
 
     pub fn init(allocator: Allocator, where: Token) Self {
-        return Self {
-            .where = where.clone(),
-            .children = std.ArrayList(*ObjTypeDef).init(allocator)
-        };
+        return Self{ .where = where.clone(), .children = std.ArrayList(*ObjTypeDef).init(allocator) };
     }
 
     pub fn deinit(self: *Self) void {
@@ -1661,12 +1669,7 @@ pub const PlaceholderDef = struct {
             }
         }
 
-        return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null)
-            and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null)
-            and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null)
-            and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null)
-            and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null)
-            and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
+        return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null) and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null) and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null) and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null) and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null) and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
     }
 
     pub fn enrich(one: *Self, other: *Self) !void {
@@ -1697,8 +1700,7 @@ pub const PlaceholderDef = struct {
 
     // TODO: zig bug here
     pub fn isBasicType(self: Self, basic_type: ObjTypeDef.Type) bool {
-        return (self.resolved_def_type != null and self.resolved_def_type.? == basic_type)
-                or (self.resolved_type != null and self.resolved_type.?.def_type == basic_type);
+        return (self.resolved_def_type != null and self.resolved_def_type.? == basic_type) or (self.resolved_type != null and self.resolved_type.?.def_type == basic_type);
     }
 
     pub fn isAssignable(self: *Self) bool {
@@ -1706,15 +1708,11 @@ pub const PlaceholderDef = struct {
             return true;
         }
 
-        return self.assignable.?
-            and (self.resolved_def_type == null
-                // TODO: method actually but right now we have no way to distinguish them
-                or self.resolved_def_type.? != .Function
-                or self.resolved_def_type.? != .Object)
-            and (self.resolved_type == null
-                // TODO: method actually but right now we have no way to distinguish them
-                or self.resolved_type.?.def_type != .Function
-                or self.resolved_type.?.def_type != .Object);
+        return self.assignable.? and (self.resolved_def_type == null
+        // TODO: method actually but right now we have no way to distinguish them
+        or self.resolved_def_type.? != .Function or self.resolved_def_type.? != .Object) and (self.resolved_type == null
+        // TODO: method actually but right now we have no way to distinguish them
+        or self.resolved_type.?.def_type != .Function or self.resolved_type.?.def_type != .Object);
     }
 
     pub fn isCallable(self: *Self) bool {
@@ -1722,11 +1720,7 @@ pub const PlaceholderDef = struct {
             return true;
         }
 
-        return self.callable.?
-            and (self.resolved_def_type == null
-                or self.resolved_def_type.? == .Function)
-            and (self.resolved_type == null
-                or self.resolved_type.?.def_type == .Function);
+        return self.callable.? and (self.resolved_def_type == null or self.resolved_def_type.? == .Function) and (self.resolved_type == null or self.resolved_type.?.def_type == .Function);
     }
 
     pub fn isFieldAccessible(self: *Self) bool {
@@ -1734,17 +1728,7 @@ pub const PlaceholderDef = struct {
             return true;
         }
 
-        return self.field_accessible.?
-            and (self.resolved_def_type == null
-                or self.resolved_def_type.? == .Object
-                or self.resolved_def_type.? == .Enum
-                or self.resolved_def_type.? == .EnumInstance
-                or self.resolved_def_type.? == .ObjectInstance)
-            and (self.resolved_type == null
-                or self.resolved_type.?.def_type == .Object
-                or self.resolved_type.?.def_type == .Enum
-                or self.resolved_type.?.def_type == .EnumInstance
-                or self.resolved_type.?.def_type == .ObjectInstance);
+        return self.field_accessible.? and (self.resolved_def_type == null or self.resolved_def_type.? == .Object or self.resolved_def_type.? == .Enum or self.resolved_def_type.? == .EnumInstance or self.resolved_def_type.? == .ObjectInstance) and (self.resolved_type == null or self.resolved_type.?.def_type == .Object or self.resolved_type.?.def_type == .Enum or self.resolved_type.?.def_type == .EnumInstance or self.resolved_type.?.def_type == .ObjectInstance);
     }
 
     pub fn isSubscriptable(self: *Self) bool {
@@ -1752,48 +1736,27 @@ pub const PlaceholderDef = struct {
             return true;
         }
 
-        return self.subscriptable.?
-            and (self.resolved_def_type == null
-                or self.resolved_def_type.? == .List
-                or self.resolved_def_type.? == .Map)
-            and (self.resolved_type == null
-                or self.resolved_type.?.def_type == .List
-                or self.resolved_type.?.def_type == .Map);
+        return self.subscriptable.? and (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map) and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map);
     }
 
     pub fn isIterable(self: *Self) bool {
-        return (self.resolved_def_type == null
-            or self.resolved_def_type.? == .List
-            or self.resolved_def_type.? == .Map
-            or self.resolved_def_type.? == .Enum)
-            and (self.resolved_type == null
-                or self.resolved_type.?.def_type == .List
-                or self.resolved_type.?.def_type == .Map
-                or self.resolved_type.?.def_type == .Enum);
+        return (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map or self.resolved_def_type.? == .Enum) and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map or self.resolved_type.?.def_type == .Enum);
     }
 
     pub fn couldBeList(self: *Self) bool {
-        return self.isSubscriptable()
-            and (self.resolved_def_type == null or self.resolved_def_type.? == .List)
-            and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
+        return self.isSubscriptable() and (self.resolved_def_type == null or self.resolved_def_type.? == .List) and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
     }
 
     pub fn couldBeMap(self: *Self) bool {
-        return self.isSubscriptable()
-            and (self.resolved_def_type == null or self.resolved_def_type.? == .Map)
-            and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
+        return self.isSubscriptable() and (self.resolved_def_type == null or self.resolved_def_type.? == .Map) and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
     }
 
     pub fn couldBeObject(self: *Self) bool {
-        return self.isFieldAccessible()
-            and (self.resolved_def_type == null or self.resolved_def_type.? == .Object)
-            and (self.resolved_type == null or self.resolved_type.?.def_type == .Object);
+        return self.isFieldAccessible() and (self.resolved_def_type == null or self.resolved_def_type.? == .Object) and (self.resolved_type == null or self.resolved_type.?.def_type == .Object);
     }
 
     pub fn isCoherent(self: *Self) bool {
-        if (self.resolved_def_type != null
-            and self.resolved_type != null
-            and @as(ObjTypeDef.Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
+        if (self.resolved_def_type != null and self.resolved_type != null and @as(ObjTypeDef.Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
             return false;
         }
 
