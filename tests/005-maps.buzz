@@ -10,4 +10,7 @@ test "Maps" {
 
     assert(map["bye"] == 2, message: "map subscript");
     assert((<num, bool>{1: true, 2: false})[2] == false, message: "map expression subscript");
+
+    assert(map.remove("hello") == 1, message: "removed element");
+    | assert(map["hello"] == null, message: "removed element");
 }

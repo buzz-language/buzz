@@ -1055,6 +1055,18 @@ pub const VM = struct {
 
                 unreachable;
             },
+            .Map => {
+                var map: *ObjMap = ObjMap.cast(obj).?;
+
+                if (try map.member(self, name.string)) |member| {
+                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    (self.stack_top - arg_count - 1)[0] = member_value;
+
+                    return try self.callValue(member_value, arg_count, catch_values);
+                }
+
+                unreachable;
+            },
             else => unreachable,
         }
     }

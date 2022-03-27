@@ -742,7 +742,13 @@ pub const ObjList = struct {
         }
 
         if (nativeFn) |unativeFn| {
-            var native: *ObjNative = try allocateObject(vm, ObjNative, .{ .native = unativeFn });
+            var native: *ObjNative = try allocateObject(
+                vm,
+                ObjNative,
+                .{
+                    .native = unativeFn,
+                },
+            );
 
             try self.methods.put(method, native);
 
@@ -792,7 +798,9 @@ pub const ObjList = struct {
         var list_index: f64 = vm.peek(0).Number;
 
         if (list_index < 0 or list_index >= @intToFloat(f64, list.items.items.len)) {
-            return 0;
+            vm.push(Value{ .Null = false });
+
+            return 1;
         }
 
         vm.push(list.items.orderedRemove(@floatToInt(usize, list_index)));
@@ -838,7 +846,10 @@ pub const ObjList = struct {
         methods: std.StringHashMap(*ObjTypeDef),
 
         pub fn init(allocator: Allocator, item_type: *ObjTypeDef) SelfListDef {
-            return .{ .item_type = item_type, .methods = std.StringHashMap(*ObjTypeDef).init(allocator) };
+            return .{
+                .item_type = item_type,
+                .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
+            };
         }
 
         pub fn deinit(self: *SelfListDef) void {
@@ -996,11 +1007,41 @@ pub const ObjMap = struct {
     // In order to use a regular HashMap, we would have to hack are away around it to implement next
     map: std.AutoArrayHashMap(HashableValue, Value),
 
+    methods: std.StringHashMap(*ObjNative),
+
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return .{
             .type_def = type_def,
             .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
+            .methods = std.StringHashMap(*ObjNative).init(allocator),
         };
+    }
+
+    pub fn member(self: *Self, vm: *VM, method: []const u8) !?*ObjNative {
+        if (self.methods.get(method)) |native| {
+            return native;
+        }
+
+        var nativeFn: ?NativeFn = null;
+        if (mem.eql(u8, method, "remove")) {
+            nativeFn = remove;
+        }
+
+        if (nativeFn) |unativeFn| {
+            var native: *ObjNative = try allocateObject(
+                vm,
+                ObjNative,
+                .{
+                    .native = unativeFn,
+                },
+            );
+
+            try self.methods.put(method, native);
+
+            return native;
+        }
+
+        return null;
     }
 
     pub fn mark(self: *Self, vm: *VM) !void {
@@ -1010,6 +1051,19 @@ pub const ObjMap = struct {
             try markValue(vm, kv.value_ptr.*);
         }
         try markObj(vm, self.type_def.toObj());
+    }
+
+    pub fn remove(vm: *VM) c_int {
+        var map: *ObjMap = ObjMap.cast(vm.peek(1).Obj).?;
+        var map_key: HashableValue = valueToHashable(vm.peek(0));
+
+        if (map.map.fetchOrderedRemove(map_key)) |removed| {
+            vm.push(removed.value);
+        } else {
+            vm.push(Value{ .Null = false });
+        }
+
+        return 1;
     }
 
     pub fn rawNext(self: *Self, key: ?HashableValue) ?HashableValue {
@@ -1030,6 +1084,7 @@ pub const ObjMap = struct {
 
     pub fn deinit(self: *Self) void {
         self.map.deinit();
+        self.methods.deinit();
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -1049,8 +1104,66 @@ pub const ObjMap = struct {
     }
 
     pub const MapDef = struct {
+        const SelfMapDef = @This();
+
         key_type: *ObjTypeDef,
         value_type: *ObjTypeDef,
+
+        methods: std.StringHashMap(*ObjTypeDef),
+
+        pub fn init(allocator: Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef) SelfMapDef {
+            return .{
+                .key_type = key_type,
+                .value_type = value_type,
+                .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *SelfMapDef) void {
+            self.methods.deinit();
+        }
+
+        pub fn member(obj_list: *ObjTypeDef, compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
+            var self = obj_list.resolved_type.?.Map;
+
+            if (self.methods.get(method)) |native_def| {
+                return native_def;
+            }
+
+            if (mem.eql(u8, method, "remove")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                try parameters.put("at", self.key_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
+                    .parameters = parameters,
+                    .return_type = try compiler.getTypeDef(.{
+                        .optional = true,
+                        .def_type = self.value_type.def_type,
+                        .resolved_type = self.value_type.resolved_type,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("remove", native_type);
+
+                return native_type;
+            }
+
+            return null;
+        }
     };
 };
 

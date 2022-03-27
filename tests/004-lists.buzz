@@ -28,4 +28,6 @@ test "Lists" {
     assert(strList.len() == 2, message: "removed element form list");
     assert(strList[0] == "hello" and strList[1] == "dojo", message: "item were properly shifted");
     assert(removed == "yolo", message: "removed element has the correct value");
+
+    assert(strList.remove(12) == null, message: "returns null when removing non existent index");
 }

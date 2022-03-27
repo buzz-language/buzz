@@ -1357,10 +1357,7 @@ pub const Compiler = struct {
 
             try self.consume(.RightBrace, "Expected `}}` to end map type.");
 
-            const map_def: ObjMap.MapDef = .{
-                .key_type = key_type,
-                .value_type = value_type,
-            };
+            const map_def = ObjMap.MapDef.init(self.allocator, key_type, value_type);
 
             const resolved_type: ObjTypeDef.TypeUnion = .{ .Map = map_def };
 
@@ -2408,10 +2405,7 @@ pub const Compiler = struct {
 
         try self.consume(.RightBrace, "Expected `}` after value type.");
 
-        var map_def = ObjMap.MapDef{
-            .key_type = key_type,
-            .value_type = value_type,
-        };
+        var map_def = ObjMap.MapDef.init(self.allocator, key_type, value_type);
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .Map = map_def,
         };
@@ -4133,7 +4127,7 @@ pub const Compiler = struct {
 
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
-        if (callee_type.def_type != .ObjectInstance and callee_type.def_type != .Object and callee_type.def_type != .Enum and callee_type.def_type != .EnumInstance and callee_type.def_type != .List and callee_type.def_type != .Placeholder) {
+        if (callee_type.def_type != .ObjectInstance and callee_type.def_type != .Object and callee_type.def_type != .Enum and callee_type.def_type != .EnumInstance and callee_type.def_type != .List and callee_type.def_type != .Map and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
         }
 
@@ -4349,6 +4343,26 @@ pub const Compiler = struct {
                 }
 
                 try self.reportError("List property doesn't exist.");
+                return callee_type;
+            },
+            .Map => {
+                if (try ObjMap.MapDef.member(callee_type, self, member_name)) |member| {
+                    if (try self.match(.LeftParen)) {
+                        try self.emitOpCode(.OP_COPY); // Map is first argument
+                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
+                        try self.emitCodeArg(.OP_INVOKE, name);
+                        try self.emitTwo(arg_count + 1, try self.inlineCatch(member.resolved_type.?.Native.return_type));
+
+                        return member.resolved_type.?.Native.return_type;
+                    }
+
+                    // Else just get it
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
+
+                    return member;
+                }
+
+                try self.reportError("Map property doesn't exist.");
                 return callee_type;
             },
             .Placeholder => {
@@ -4577,7 +4591,7 @@ pub const Compiler = struct {
             }
         }
 
-        var map_def = ObjMap.MapDef{ .key_type = key_type.?, .value_type = value_type.? };
+        var map_def = ObjMap.MapDef.init(self.allocator, key_type.?, value_type.?);
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .Map = map_def };
 
