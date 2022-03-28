@@ -67,7 +67,6 @@ export fn bz_pushList(self: *VM, value: *ObjList) void {
 
 /// Converts a value to a boolean
 export fn bz_valueToBool(value: *Value) bool {
-    // TODO: should i type check ?
     return value.Boolean;
 }
 
@@ -208,7 +207,6 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
 }
 
 export fn bz_listAppend(self: *ObjList, value: *Value) bool {
-    // TODO: should we type check?
     self.rawAppend(value.*) catch {
         return false;
     };

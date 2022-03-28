@@ -19,7 +19,6 @@ const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
-const ObjError = _obj.ObjError;
 const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjClosure = _obj.ObjClosure;

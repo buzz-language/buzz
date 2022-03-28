@@ -214,7 +214,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             break :closure off_offset;
         },
 
-        // TODO: remove
         .OP_PRINT => simpleInstruction(instruction, offset),
     };
 }

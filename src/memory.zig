@@ -22,7 +22,6 @@ const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjNative = _obj.ObjNative;
-const ObjError = _obj.ObjError;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);
@@ -95,7 +94,6 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
         .EnumInstance => ObjEnumInstance.cast(obj).?.mark(vm),
         .Bound => ObjBoundMethod.cast(obj).?.mark(vm),
         .Native => ObjNative.cast(obj).?.mark(vm),
-        .Error => ObjError.cast(obj).?.mark(vm),
     };
 }
 
@@ -154,7 +152,6 @@ fn freeObj(vm: *VM, obj: *Obj) void {
         .EnumInstance => free(vm, ObjEnumInstance, ObjEnumInstance.cast(obj).?),
         .Bound => free(vm, ObjBoundMethod, ObjBoundMethod.cast(obj).?),
         .Native => free(vm, ObjNative, ObjNative.cast(obj).?),
-        .Error => free(vm, ObjError, ObjError.cast(obj).?),
     }
 }
 

@@ -43,7 +43,6 @@ pub const ObjType = enum {
     EnumInstance,
     Bound,
     Native,
-    Error,
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
@@ -52,7 +51,6 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
     var obj: *T = try allocate(vm, T);
     obj.* = data;
 
-    // TODO: How to avoid this?
     var object: *Obj = switch (T) {
         ObjString => ObjString.toObj(obj),
         ObjTypeDef => ObjTypeDef.toObj(obj),
@@ -67,7 +65,6 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         ObjEnumInstance => ObjEnumInstance.toObj(obj),
         ObjBoundMethod => ObjBoundMethod.toObj(obj),
         ObjNative => ObjNative.toObj(obj),
-        ObjError => ObjError.toObj(obj),
         else => {},
     };
 
@@ -168,7 +165,6 @@ pub const Obj = struct {
             },
 
             .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
-            .Error => unreachable, //type_def.def_type == .Error,
         };
     }
 
@@ -199,7 +195,6 @@ pub const Obj = struct {
             .List => ObjList.cast(self).?.type_def.eql(type_def),
             .Map => ObjMap.cast(self).?.type_def.eql(type_def),
             .Native => unreachable, // TODO
-            .Error => unreachable,
         };
     }
 
@@ -242,7 +237,6 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .Native,
-            .Error,
             => {
                 return self == other;
             },
@@ -276,35 +270,6 @@ pub const ObjNative = struct {
 
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Native) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
-    }
-};
-
-pub const ObjError = struct {
-    const Self = @This();
-
-    obj: Obj = .{ .obj_type = .Error },
-
-    message: *ObjString,
-    // payload: *ObjObjectInstance // TODO: Instance of `Error`
-
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.message.toObj());
-    }
-
-    pub fn toObj(self: *Self) *Obj {
-        return &self.obj;
-    }
-
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
-    }
-
-    pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Error) {
             return null;
         }
 
@@ -1742,11 +1707,6 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             var native: *ObjNative = ObjNative.cast(obj).?;
 
             return try std.fmt.bufPrint(buf, "native: 0x{x}", .{@ptrToInt(native)});
-        },
-        .Error => {
-            var err: *ObjError = ObjError.cast(obj).?;
-
-            return try std.fmt.bufPrint(buf, "err: 0x{x} `{s}`", .{ @ptrToInt(err), err.message.string });
         },
     };
 }

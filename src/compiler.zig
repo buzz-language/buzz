@@ -24,7 +24,6 @@ const valueEql = _value.valueEql;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
-const ObjError = _obj.ObjError;
 const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjClosure = _obj.ObjClosure;
@@ -879,7 +878,6 @@ pub const Compiler = struct {
                         if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
                             found_main = true;
 
-                            // TODO: Somehow push cli args on the stack
                             try self.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
                             try self.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
                             try self.emitCodeArgs(.OP_CALL, 1, 0);
@@ -1250,7 +1248,6 @@ pub const Compiler = struct {
 
     // When a break statement, will return index of jump to patch
     fn statement(self: *Self, hanging: bool) !?std.ArrayList(usize) {
-        // TODO: remove
         if (try self.match(.If)) {
             assert(!hanging);
             return try self.ifStatement();
@@ -1765,7 +1762,6 @@ pub const Compiler = struct {
 
         // Parse return type
         if (function_type != .Test and (function_type != .Catch or self.check(.Greater))) {
-            // TODO: infer return type for catch closures
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
             function_typedef.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
@@ -1952,7 +1948,6 @@ pub const Compiler = struct {
             var with_default: bool = false;
             if (try self.match(.Equal)) {
                 if (static) {
-                    // TODO: to avoid this, new opcode that doesn't pop instance and push value
                     try self.emitOpCode(.OP_COPY);
                 }
 
@@ -2103,7 +2098,7 @@ pub const Compiler = struct {
                     if (imported_symbols.get(global.name.string) != null) {
                         _ = imported_symbols.remove(global.name.string);
                     } else if (selective_import) {
-                        global.hidden = true; // TODO: should i copy this?
+                        global.hidden = true;
                     }
 
                     // Search for name collision
@@ -2192,7 +2187,6 @@ pub const Compiler = struct {
         try self.consume(.Identifier, "Expected identifier after `export`.");
 
         // Search for a global with that name
-        // FIXME: NO NEED TO EXPORT EVERYTHING NOW
         if (try self.resolveGlobal(null, self.parser.previous_token.?)) |slot| {
             const global: *Global = &self.globals.items[slot];
 
@@ -4126,7 +4120,6 @@ pub const Compiler = struct {
     }
 
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        // TODO: eventually allow dot on Class/Enum/Object themselves for static stuff
         if (callee_type.def_type != .ObjectInstance and callee_type.def_type != .Object and callee_type.def_type != .Enum and callee_type.def_type != .EnumInstance and callee_type.def_type != .List and callee_type.def_type != .Map and callee_type.def_type != .Placeholder) {
             try self.reportError("Doesn't have field access.");
         }
