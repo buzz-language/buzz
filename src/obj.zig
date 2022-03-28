@@ -462,6 +462,7 @@ pub const ObjFunction = struct {
         return_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
         function_type: FunctionType = .Function,
+        lambda: bool = false,
     };
 };
 

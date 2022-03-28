@@ -1772,7 +1772,8 @@ pub const Compiler = struct {
         }
 
         // Parse body
-        if ((function_type == .Anonymous or function_type == .Catch) and try self.match(.Arrow)) {
+        if (try self.match(.Arrow)) {
+            function_typedef.resolved_type.?.Function.lambda = true;
             var expr_type: *ObjTypeDef = try self.expression(false);
 
             if (!function_typedef.resolved_type.?.Function.return_type.eql(expr_type)) {
@@ -2235,6 +2236,11 @@ pub const Compiler = struct {
         }
 
         var function_def: *ObjTypeDef = try self.function(name_token, function_type, null, null);
+
+        if (function_def.resolved_type.?.Function.lambda) {
+            try self.consume(.Semicolon, "Expected `;` after lambda function");
+        }
+
         // Now that we have the full function type, get the local and update its type_def
         if (self.current.?.scope_depth > 0) {
             self.current.?.locals[slot].type_def = function_def;

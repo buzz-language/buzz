@@ -15,11 +15,9 @@ pub fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ?[:0]c
 // TODO: maybe use [:0]u8 throughout so we don't have to do this
 // FIXME: leaks memory
 pub fn toCString(allocator: std.mem.Allocator, string: []const u8) ?[*:0]const u8 {
-    var c_string: ?[]u8 = allocator.dupeZ(u8, string) catch null;
-
-    if (c_string == null) {
+    var c_string: ?[]u8 = allocator.dupeZ(u8, string) catch {
         return null;
-    }
+    };
 
     return @ptrCast([*:0]u8, c_string.?);
 }

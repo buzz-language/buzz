@@ -68,6 +68,9 @@ fun sayHiTo(str name, str? lastName, num age) > str {
     | Interpolation with `{}`
     return "Hi {name} {lastName ?? ""}!"
 }
+
+| Same could be an arrow function
+fun sayHiTo(str name, str? lastName, num age) > str -> "Hi {name} {lastName ?? ""}!"
 ```
 
 When called, only the first argument name of a function can be omitted, order is not required:
