@@ -1,5 +1,5 @@
-import "lib/std.buzz";
-import "lib/os.buzz" as os;
+import "lib/std";
+import "lib/os" as os;
 
 test "os.env" {
     assert(os.env("HOME") != null, message: "could get env variable");

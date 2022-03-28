@@ -1,5 +1,5 @@
-import "lib/std.buzz";
-import "lib/gc.buzz" as gc;
+import "lib/std";
+import "lib/gc" as gc;
 
 object Kill {
     num yo = -1

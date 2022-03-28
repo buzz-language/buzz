@@ -241,7 +241,7 @@ num result = willFail() catch {
 | hello.buzz
 
 | Import std lib
-import "lib/std.buzz";
+import "lib/std";
 
 fun sayHello() > void {
     print("Hello world!");
@@ -253,7 +253,7 @@ export sayHello;
 
 ```buzz
 | main.buzz
-import "hello.buzz";
+import "hello";
 
 func main() > void {
     sayHello();
@@ -292,7 +292,7 @@ Build a dynamic library for it (TODO: instructions for this) and you can use it 
 
 ```buzz
 | main.buzz
-import "mylib.buzz"
+import "mylib"
 
 fun main() > void {
     assert(1 + 1 == 2, message: "Congrats on doing math!");

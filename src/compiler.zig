@@ -1793,23 +1793,9 @@ pub const Compiler = struct {
 
         // `extern` functions don't have upvalues
         if (function_type == .Extern) {
-            // Search for a .dylib with the same name as the current script
-            const basename: []const u8 = std.fs.path.basename(self.script_name);
-            const ext: []const u8 = std.fs.path.extension(self.script_name);
-            var lib_name: std.ArrayList(u8) = std.ArrayList(u8).init(self.allocator);
-            const writer = lib_name.writer();
-            defer lib_name.deinit();
-
-            try writer.print(
-                "{s}lib{s}.dylib",
-                .{
-                    self.script_name[0..(self.script_name.len - basename.len)],
-                    basename[0..(basename.len - ext.len)],
-                },
-            );
-
+            // Search for a dylib/so/dll with the same name as the current script
             if (try self.importLibSymbol(
-                lib_name.items,
+                self.script_name,
                 function_def.name.string,
             )) |native| {
                 try self.emitCodeArg(.OP_CONSTANT, try self.makeConstant(native.toValue()));
@@ -2043,11 +2029,37 @@ pub const Compiler = struct {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
+            const buzz_path: ?[]const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
+
+            var lib_path = std.ArrayList(u8).init(self.allocator);
+            defer lib_path.deinit();
+            _ = try lib_path.writer().print(
+                "{s}/{s}.buzz",
+                .{ buzz_path, file_name },
+            );
+
+            var dir_path = std.ArrayList(u8).init(self.allocator);
+            defer dir_path.deinit();
+            _ = try dir_path.writer().print(
+                "./{s}.buzz",
+                .{file_name},
+            );
+
             // Find and read file
-            var file = std.fs.cwd().openFile(file_name, .{}) catch {
-                try self.reportError("File not found.");
-                return;
-            };
+            var file: std.fs.File = (if (std.fs.path.isAbsolute(lib_path.items))
+                std.fs.openFileAbsolute(lib_path.items, .{}) catch null
+            else
+                std.fs.cwd().openFile(lib_path.items, .{}) catch null) orelse (if (std.fs.path.isAbsolute(dir_path.items))
+                std.fs.openFileAbsolute(dir_path.items, .{}) catch {
+                    try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
+                    return;
+                }
+            else
+                std.fs.cwd().openFile(dir_path.items, .{}) catch {
+                    try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
+                    return;
+                });
+
             defer file.close();
 
             // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
@@ -2120,7 +2132,37 @@ pub const Compiler = struct {
     // TODO: support other platform lib formats
     // TODO: when to close the lib?
     fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
-        var lib: ?std.DynLib = std.DynLib.open(file_name) catch null;
+        const buzz_path: ?[]const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
+
+        var lib_path = std.ArrayList(u8).init(self.allocator);
+        defer lib_path.deinit();
+        try lib_path.writer().print(
+            "{s}/{s}.{s}",
+            .{
+                buzz_path, file_name, switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
+            },
+        );
+
+        var dir_path = std.ArrayList(u8).init(self.allocator);
+        defer dir_path.deinit();
+        try dir_path.writer().print(
+            "./{s}.{s}",
+            .{
+                file_name, switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
+            },
+        );
+
+        var lib: ?std.DynLib = std.DynLib.open(lib_path.items) catch std.DynLib.open(dir_path.items) catch null;
 
         if (lib) |*dlib| {
             // Convert symbol names to zig slices
@@ -2142,7 +2184,11 @@ pub const Compiler = struct {
             return native;
         }
 
-        try self.reportError(std.mem.sliceTo(dlerror(), 0));
+        if (builtin.os.tag == .macos) {
+            try self.reportError(std.mem.sliceTo(dlerror(), 0));
+        } else {
+            try self.reportErrorFmt("Could not open lib `{s}`", .{file_name});
+        }
 
         return null;
     }

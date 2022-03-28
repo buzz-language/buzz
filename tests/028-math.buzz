@@ -1,5 +1,5 @@
-import "lib/std.buzz";
-import "lib/math.buzz" as math;
+import "lib/std";
+import "lib/math" as math;
 
 test "math" {
     assert(math.abs(-12.234) == 12.234, message: "math.abs");

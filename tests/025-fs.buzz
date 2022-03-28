@@ -1,5 +1,5 @@
-import "lib/std.buzz";
-import "lib/fs.buzz" as fs;
+import "lib/std";
+import "lib/fs" as fs;
 
 test "fs.cwd" {
     assert(fs.cwd() != "", message: "Could get cwd");

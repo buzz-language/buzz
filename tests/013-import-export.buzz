@@ -1,4 +1,4 @@
-import "tests/utils/testing.buzz" as testing;
+import "tests/utils/testing" as testing;
 
 num mine = 42;
 

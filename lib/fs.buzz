@@ -1,4 +1,4 @@
-import "lib/os.buzz" as os;
+import "lib/os" as os;
 
 | Returns current directory absolute path
 fun cwd() > str {

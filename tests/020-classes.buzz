@@ -1,4 +1,4 @@
-import "lib/std.buzz";
+import "lib/std";
 
 class Form {
     num x,

@@ -1,4 +1,4 @@
-import "lib/std.buzz";
+import "lib/std";
 
 enum(str) MyErrors {
     failed = "Something failed",

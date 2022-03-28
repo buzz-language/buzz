@@ -1,4 +1,4 @@
-import "lib/os.buzz" as os;
+import "lib/os" as os;
 
 test "os.exit" {
     os.exit(12);

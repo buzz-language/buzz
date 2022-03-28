@@ -1,6 +1,6 @@
-import "lib/std.buzz";
-import "lib/io.buzz";
-import "lib/fs.buzz";
+import "lib/std";
+import "lib/io";
+import "lib/fs";
 
 test "Write & read a file" {
     File file = File.open("./hello.txt", mode: FileMode.write);

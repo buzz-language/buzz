@@ -1,4 +1,4 @@
-import "lib/std.buzz" as std;
+import "lib/std" as std;
 
 num unexported = 42;
 

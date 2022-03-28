@@ -1,4 +1,4 @@
-import "lib/std.buzz";
+import "lib/std";
 
 test "parseNumber" {
     assert(parseNumber("12.42") == 12.42, message: "Could parse float");

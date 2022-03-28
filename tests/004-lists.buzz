@@ -1,4 +1,4 @@
-import "lib/std.buzz";
+import "lib/std";
 
 test "Lists" {
     [num] list = [1, 2, 3, 4];
