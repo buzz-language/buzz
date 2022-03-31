@@ -360,6 +360,7 @@ pub const ObjClosure = struct {
     function: *ObjFunction,
     upvalues: std.ArrayList(*ObjUpValue),
     // Pointer to the global with which the function was declared
+    // TODO: can those be collected by gc?
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
@@ -461,6 +462,7 @@ pub const ObjFunction = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
+        has_defaults: std.StringArrayHashMap(bool),
         function_type: FunctionType = .Function,
         lambda: bool = false,
     };
@@ -841,6 +843,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "append", false),
                     .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     .return_type = obj_list,
                 };
 
@@ -869,6 +872,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
                     .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
@@ -894,6 +898,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
                     .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
@@ -933,6 +938,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "next", false),
                     .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     // When reached end of list, returns null
                     .return_type = try compiler.getTypeDef(
                         ObjTypeDef{
@@ -1110,6 +1116,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "size", false),
                     .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .def_type = .Number,
                     }),
@@ -1138,6 +1145,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
                     .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .optional = true,
                         .def_type = self.value_type.def_type,

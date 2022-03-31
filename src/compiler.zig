@@ -440,6 +440,7 @@ pub const Compiler = struct {
             .name = try copyStringRaw(self.strings, self.allocator, "$script", false),
             .return_type = try self.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
+            .has_defaults = std.StringArrayHashMap(bool).init(self.allocator),
             .function_type = .ScriptEntryPoint,
         };
 
@@ -1531,6 +1532,7 @@ pub const Compiler = struct {
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = try self.getTypeDef(return_type.toInstance()),
             .parameters = parameters,
+            .has_defaults = std.StringArrayHashMap(bool).init(self.allocator),
             .function_type = .Anonymous,
         };
 
@@ -1566,7 +1568,7 @@ pub const Compiler = struct {
                 }, false);
 
                 if (try self.match(.LeftParen)) {
-                    const arg_count: u8 = try self.argumentList(super_method.?.resolved_type.?.Function.parameters);
+                    const arg_count: u8 = try self.argumentList(super_method.?.resolved_type.?.Function.parameters, super_method.?.resolved_type.?.Function.has_defaults);
                     _ = try self.namedVariable(Token{
                         .token_type = .Identifier,
                         .lexeme = "super",
@@ -1665,7 +1667,7 @@ pub const Compiler = struct {
             .def_type = .Function,
         };
 
-        var function_def: ObjFunction.FunctionDef = .{
+        var function_def = ObjFunction.FunctionDef{
             .name = if (name) |uname|
                 try copyStringRaw(
                     self.strings,
@@ -1682,6 +1684,7 @@ pub const Compiler = struct {
                 ),
             .return_type = undefined,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
+            .has_defaults = std.StringArrayHashMap(bool).init(self.allocator),
             .function_type = function_type,
         };
 
@@ -1740,8 +1743,11 @@ pub const Compiler = struct {
                         else => param_type,
                     };
 
-                    var slot: usize = try self.parseVariable(param_type, true, // function arguments are constant
-                        "Expected parameter name");
+                    var slot: usize = try self.parseVariable(
+                        param_type,
+                        true, // function arguments are constant
+                        "Expected parameter name",
+                    );
 
                     if (self.current.?.scope_depth > 0) {
                         var local: Local = self.current.?.locals[slot];
@@ -1752,6 +1758,67 @@ pub const Compiler = struct {
                     }
 
                     try self.defineGlobalVariable(@intCast(u24, slot));
+
+                    // Default arguments
+                    if (function_type == .Function or function_type == .Method or function_type == .Anonymous) {
+                        // if (arg == void) arg = default
+                        try self.emitCodeArg(if (self.current.?.scope_depth > 0) .OP_GET_LOCAL else .OP_GET_GLOBAL, @intCast(u24, slot));
+                        try self.emitOpCode(.OP_VOID);
+                        try self.emitOpCode(.OP_EQUAL);
+                        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
+
+                        if (try self.match(.Equal)) {
+                            var expr_type: *ObjTypeDef = try self.expression(false);
+
+                            // If only receiver is placeholder, make the assumption that its type if what the expression's return
+                            if (param_type.def_type == .Placeholder and expr_type.def_type != .Placeholder) {
+                                param_type.resolved_type.?.Placeholder.resolved_def_type = expr_type.def_type;
+                                param_type.resolved_type.?.Placeholder.resolved_type = expr_type;
+                                // If only expression is a placeholder, make the inverse assumption
+                            } else if (expr_type.def_type == .Placeholder and param_type.def_type != .Placeholder) {
+                                if (self.current.?.scope_depth == 0) {
+                                    try self.reportError("Unknown expression type.");
+                                }
+
+                                expr_type.resolved_type.?.Placeholder.resolved_def_type = param_type.def_type;
+                                expr_type.resolved_type.?.Placeholder.resolved_type = param_type;
+                                // If both are placeholders, check that they are compatible and enrich them
+                            } else if (expr_type.def_type == .Placeholder and param_type.def_type == .Placeholder and expr_type.resolved_type.?.Placeholder.eql(param_type.resolved_type.?.Placeholder)) {
+                                if (self.current.?.scope_depth == 0) {
+                                    try self.reportError("Unknown expression type.");
+                                }
+
+                                try PlaceholderDef.link(param_type, expr_type, .Assignment);
+                                // Else do a normal type check
+                            } else if (!param_type.eql(expr_type)) {
+                                try self.reportTypeCheck(param_type, expr_type, "Wrong variable type");
+                            }
+
+                            if (self.current.?.scope_depth > 0) {
+                                var local: Local = self.current.?.locals[slot];
+                                try function_typedef.resolved_type.?.Function.has_defaults.put(local.name.string, true);
+                            } else {
+                                var global: Global = self.globals.items[slot];
+                                try function_typedef.resolved_type.?.Function.has_defaults.put(global.name.string, true);
+                            }
+                        } else {
+                            try self.emitOpCode(if (param_type.optional) .OP_NULL else .OP_VOID);
+
+                            if (param_type.optional) {
+                                if (self.current.?.scope_depth > 0) {
+                                    var local: Local = self.current.?.locals[slot];
+                                    try function_typedef.resolved_type.?.Function.has_defaults.put(local.name.string, true);
+                                } else {
+                                    var global: Global = self.globals.items[slot];
+                                    try function_typedef.resolved_type.?.Function.has_defaults.put(global.name.string, true);
+                                }
+                            }
+                        }
+
+                        try self.emitCodeArg(if (self.current.?.scope_depth > 0) .OP_SET_LOCAL else .OP_SET_GLOBAL, @intCast(u24, slot));
+
+                        try self.patchJump(exit_jump);
+                    }
 
                     if (!try self.match(.Comma)) break;
                 }
@@ -2409,7 +2476,7 @@ pub const Compiler = struct {
                 try self.reportTypeCheck(var_type, expr_type, "Wrong variable type");
             }
         } else {
-            try self.emitOpCode(.OP_NULL);
+            try self.emitOpCode(.OP_VOID);
         }
 
         if (!in_list) {
@@ -3264,10 +3331,10 @@ pub const Compiler = struct {
         // If the placeholder guessed an actual full type, use argumentList with it
         if (placeholder_type.resolved_type.?.Placeholder.resolved_type) |resolved_type| {
             if (resolved_type.def_type == .Function) {
-                return try self.argumentList(resolved_type.resolved_type.?.Function.parameters);
+                return try self.argumentList(resolved_type.resolved_type.?.Function.parameters, resolved_type.resolved_type.?.Function.has_defaults);
             }
         } else if (placeholder_type.resolved_type.?.Placeholder.resolved_parameters) |parameters| {
-            return try self.argumentList(parameters);
+            return try self.argumentList(parameters, null);
         }
 
         // Otherwise parse the argument list as we find it and enrich placeholder assumptions
@@ -3323,10 +3390,17 @@ pub const Compiler = struct {
         return arg_count;
     }
 
-    fn argumentList(self: *Self, function_parameters: ?std.StringArrayHashMap(*ObjTypeDef)) !u8 {
+    fn argumentList(self: *Self, function_parameters: ?std.StringArrayHashMap(*ObjTypeDef), defaults: ?std.StringArrayHashMap(bool)) !u8 {
         if (function_parameters) |parameters| {
-            var arg_count: u8 = 0;
             var parameter_keys: [][]const u8 = parameters.keys();
+
+            var missing_parameters = std.StringArrayHashMap(usize).init(self.allocator);
+            defer missing_parameters.deinit();
+            for (parameter_keys) |param_name, pindex| {
+                try missing_parameters.put(param_name, pindex);
+            }
+
+            var arg_count: u8 = 0;
 
             if (!self.check(.RightParen)) {
                 var parsed_arguments = std.ArrayList(ParsedArg).init(self.allocator);
@@ -3347,12 +3421,14 @@ pub const Compiler = struct {
                     if (arg_name != null) {
                         if (arg_count == 0) {
                             if (try self.match(.Colon)) {
+                                _ = missing_parameters.orderedRemove(arg_name.?.lexeme);
                                 hanging = false;
                             } else {
                                 // The identifier we just parsed is not the argument name but the start of an expression
                                 hanging = true;
                             }
                         } else {
+                            _ = missing_parameters.orderedRemove(arg_name.?.lexeme);
                             try self.consume(.Colon, "Expected `:` after argument name.");
                         }
                     }
@@ -3424,59 +3500,80 @@ pub const Compiler = struct {
                         // First argument without name, check its type
                         var param_type: *ObjTypeDef = parameters.get(parameter_keys[0]).?;
                         if (!param_type.eql(argument.arg_type)) {
-                            var wrong_type_str: []u8 = try self.allocator.alloc(u8, 100);
                             var param_type_str: []const u8 = try param_type.toString(self.allocator);
                             var expr_type_str: []const u8 = try argument.arg_type.toString(self.allocator);
                             defer {
-                                self.allocator.free(wrong_type_str);
                                 self.allocator.free(param_type_str);
                                 self.allocator.free(expr_type_str);
                             }
                             var name: []const u8 = parameter_keys[0];
 
-                            try self.reportError(try std.fmt.bufPrint(wrong_type_str, "Expected argument `{s}` to be `{s}`, got `{s}`.", .{ name, param_type_str, expr_type_str }));
+                            try self.reportErrorFmt(
+                                "Expected argument `{s}` to be `{s}`, got `{s}`.",
+                                .{ name, param_type_str, expr_type_str },
+                            );
 
                             return 0;
+                        }
+
+                        _ = missing_parameters.orderedRemove(parameter_keys[0]);
+                    }
+                }
+
+                // For all missing parameters that have default value, we push void on the stack
+                if (defaults) |udefaults| {
+                    var it = missing_parameters.iterator();
+                    while (it.next()) |entry| {
+                        if (udefaults.get(entry.key_ptr.*) orelse false) {
+                            try self.emitOpCode(.OP_VOID);
+                            try parsed_arguments.append(ParsedArg{
+                                .name = Token.identifier(entry.key_ptr.*),
+                                .arg_type = parameters.get(entry.key_ptr.*).?,
+                            });
+                            arg_count += 1;
+                            order_differs = true;
                         }
                     }
                 }
 
                 // If order differ we emit OP_SWAP so that OP_CALL know where its arguments are
                 if (order_differs) {
-                    var already_swapped = std.AutoHashMap(u8, u8).init(self.allocator);
-                    defer already_swapped.deinit();
+                    // Until everything is in place
+                    while (true) {
+                        var ordered: bool = true;
+                        for (parsed_arguments.items) |argument, index| {
+                            assert(argument.name != null or index == 0);
 
-                    for (parsed_arguments.items) |argument, index| {
-                        assert(argument.name != null or index == 0);
+                            var arg_name: []const u8 = if (argument.name) |uname| uname.lexeme else parameter_keys[0];
+                            if (!mem.eql(u8, arg_name, parameter_keys[index])) {
+                                ordered = false;
+                                // Search for the correct index for this argument
+                                for (parameter_keys) |param_name, pindex| {
+                                    if (mem.eql(u8, param_name, arg_name)) {
+                                        // TODO: both OP_SWAP args could fit in a 32 bit instruction
+                                        try self.emitCodeArg(.OP_SWAP, @intCast(u24, arg_count - index - 1));
+                                        // to where it should be
+                                        try self.emit(@intCast(u32, arg_count - pindex - 1));
 
-                        var arg_name: []const u8 = if (argument.name) |uname| uname.lexeme else parameter_keys[0];
-                        if (!mem.eql(u8, arg_name, parameter_keys[index])) {
-                            // Search for the correct index for this argument
-                            for (parameter_keys) |param_name, pindex| {
-                                if (mem.eql(u8, param_name, arg_name)) {
-                                    var already: ?u8 = already_swapped.get(@intCast(u8, pindex));
-                                    if (already != null and already.? == @intCast(u8, index)) {
+                                        // Swap it for the compiler too
+                                        var temp = parsed_arguments.items[index];
+                                        parsed_arguments.items[index] = parsed_arguments.items[pindex];
+                                        parsed_arguments.items[pindex] = temp;
+
+                                        // Stop (so we can take the swap into account) and try again
                                         break;
                                     }
-
-                                    // TODO: both OP_SWAP args could fit in a 32 bit instruction
-                                    try self.emitCodeArg(.OP_SWAP, @intCast(u24, index));
-                                    // to where it should be
-                                    try self.emit(@intCast(u32, pindex));
-
-                                    try already_swapped.put(@intCast(u8, index), @intCast(u8, pindex));
                                 }
                             }
                         }
+
+                        if (ordered) break;
                     }
                 }
             }
 
             if (parameter_keys.len != arg_count) {
-                var arity: []u8 = try self.allocator.alloc(u8, 100);
-                defer self.allocator.free(arity);
-
-                try self.reportError(try std.fmt.bufPrint(arity, "Expected {} arguments, got {}", .{ parameter_keys.len, arg_count }));
+                try self.reportErrorFmt("Expected {} arguments, got {}", .{ parameter_keys.len, arg_count });
 
                 return 0;
             }
@@ -4055,7 +4152,7 @@ pub const Compiler = struct {
     fn call(self: *Self, _: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
         var arg_count: u8 = 0;
         if (callee_type.def_type == .Function) {
-            arg_count = try self.argumentList(callee_type.resolved_type.?.Function.parameters);
+            arg_count = try self.argumentList(callee_type.resolved_type.?.Function.parameters, callee_type.resolved_type.?.Function.has_defaults);
 
             try self.emitCodeArgs(
                 .OP_CALL,
@@ -4065,7 +4162,7 @@ pub const Compiler = struct {
 
             return callee_type.resolved_type.?.Function.return_type;
         } else if (callee_type.def_type == .Native) {
-            arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters);
+            arg_count = try self.argumentList(callee_type.resolved_type.?.Native.parameters, callee_type.resolved_type.?.Native.has_defaults);
 
             try self.emitCodeArgs(
                 .OP_CALL,
@@ -4242,7 +4339,7 @@ pub const Compiler = struct {
 
                     try self.emitCodeArg(.OP_GET_PROPERTY, name);
 
-                    const arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
+                    const arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters, property_type.?.resolved_type.?.Function.has_defaults);
 
                     try self.emitCodeArgs(.OP_CALL, arg_count, try self.inlineCatch(property_type.?.resolved_type.?.Function.return_type));
 
@@ -4322,7 +4419,7 @@ pub const Compiler = struct {
                         try self.reportError("Can't be called.");
                     }
 
-                    var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters);
+                    var arg_count: u8 = try self.argumentList(property_type.?.resolved_type.?.Function.parameters, property_type.?.resolved_type.?.Function.has_defaults);
 
                     try self.emitCodeArg(.OP_INVOKE, name);
                     try self.emitTwo(arg_count, try self.inlineCatch(property_type.?.resolved_type.?.Function.return_type));
@@ -4374,7 +4471,7 @@ pub const Compiler = struct {
                 if (try ObjList.ListDef.member(callee_type, self, member_name)) |member| {
                     if (try self.match(.LeftParen)) {
                         try self.emitOpCode(.OP_COPY); // List is first argument
-                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
+                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters, member.resolved_type.?.Native.has_defaults);
                         try self.emitCodeArg(.OP_INVOKE, name);
                         try self.emitTwo(arg_count + 1, try self.inlineCatch(member.resolved_type.?.Native.return_type));
 
@@ -4394,7 +4491,7 @@ pub const Compiler = struct {
                 if (try ObjMap.MapDef.member(callee_type, self, member_name)) |member| {
                     if (try self.match(.LeftParen)) {
                         try self.emitOpCode(.OP_COPY); // Map is first argument
-                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters);
+                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters, member.resolved_type.?.Native.has_defaults);
                         try self.emitCodeArg(.OP_INVOKE, name);
                         try self.emitTwo(arg_count + 1, try self.inlineCatch(member.resolved_type.?.Native.return_type));
 

@@ -149,6 +149,7 @@ export fn bz_newFunctionType(vm: *VM, name: [*:0]const u8, return_type: ?*ObjTyp
         .name = (bz_string(vm, name) orelse bz_string(vm, @ptrCast([*:0]const u8, ""))).?,
         .return_type = return_type orelse bz_voidType().?,
         .parameters = std.StringArrayHashMap(*ObjTypeDef).init(std.heap.c_allocator),
+        .has_defaults = std.StringArrayHashMap(bool).init(std.heap.c_allocator),
     };
 
     var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };

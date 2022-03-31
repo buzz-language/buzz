@@ -1,4 +1,3 @@
-// zig fmt: off
 const std = @import("std");
 const print = std.debug.print;
 const _chunk = @import("./chunk.zig");
@@ -13,7 +12,7 @@ const ObjFunction = _obj.ObjFunction;
 
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
     print("\u{001b}[2m", .{}); // Dimmed
-    print("=== {s} ===\n", .{ name });
+    print("=== {s} ===\n", .{name});
 
     var offset: usize = 0;
     while (offset < chunk.code.items.len) {
@@ -26,7 +25,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
     const arg_count: u8 = @intCast(u8, chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(u8, 0x00ffffff & chunk.code.items[offset + 1]);
-    
+
     var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, chunk.constants.items[constant]);
     defer std.heap.c_allocator.free(value_str);
 
@@ -36,7 +35,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 }
 
 fn simpleInstruction(code: OpCode, offset: usize) usize {
-    print("{}\t", .{ code });
+    print("{}\t", .{code});
 
     return offset + 1;
 }
@@ -111,12 +110,12 @@ pub fn dumpStack(vm: *VM) !void {
 }
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
-    print("\n{:0>3} ", .{ offset });
+    print("\n{:0>3} ", .{offset});
 
     if (offset > 0 and chunk.lines.items[offset] == chunk.lines.items[offset - 1]) {
         print("|   ", .{});
     } else {
-        print("{:0>3} ", .{ chunk.lines.items[offset] });
+        print("{:0>3} ", .{chunk.lines.items[offset]});
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
@@ -154,7 +153,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_TO_STRING,
         .OP_INSTANCE,
         .OP_FOREACH,
-        .OP_GET_SUPER => simpleInstruction(instruction, offset),
+        .OP_GET_SUPER,
+        => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
@@ -170,8 +170,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_EXPORT,
         .OP_COPY,
         .OP_CLOSE_UPVALUE,
-        .OP_RETURN => byteInstruction(instruction, chunk, offset),
-        
+        .OP_RETURN,
+        => byteInstruction(instruction, chunk, offset),
+
         .OP_OBJECT,
         .OP_ENUM,
         .OP_LIST,
@@ -181,15 +182,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_PROPERTY,
         .OP_SET_PROPERTY,
         .OP_INHERIT,
-        .OP_CONSTANT, => try constantInstruction(instruction, chunk, offset),
+        .OP_CONSTANT,
+        => try constantInstruction(instruction, chunk, offset),
 
-        .OP_JUMP,
-        .OP_JUMP_IF_FALSE => jumpInstruction(instruction, chunk, true, offset),
+        .OP_JUMP, .OP_JUMP_IF_FALSE => jumpInstruction(instruction, chunk, true, offset),
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
-        .OP_SUPER_INVOKE,
-        .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
+        .OP_SUPER_INVOKE, .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
         .OP_CALL => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {

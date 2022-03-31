@@ -856,10 +856,7 @@ pub const VM = struct {
     }
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
-        // We don't type check or check arity because it was done at comptime
-
-        // TODO: do we check for stack overflow
-
+        // TODO: check for stack overflow
         var frame = CallFrame{
             .closure = closure,
             .ip = 0,
