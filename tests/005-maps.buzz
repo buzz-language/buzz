@@ -22,3 +22,7 @@ test "map merge" {
     assert(map["two"] == 2, message: "map merge");
     assert(map.size() == 3, message: "map merge");
 }
+
+test "map.keys" {
+    assert(<str, num>{"one": 1, "two": 2, "three": 4}.keys().join(",") == "one,two,three", message: "map.keys");
+}

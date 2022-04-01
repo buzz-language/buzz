@@ -1602,6 +1602,8 @@ pub const ObjMap = struct {
             nativeFn = remove;
         } else if (mem.eql(u8, method, "size")) {
             nativeFn = size;
+        } else if (mem.eql(u8, method, "keys")) {
+            nativeFn = keys;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1651,19 +1653,72 @@ pub const ObjMap = struct {
         return 1;
     }
 
+    pub fn keys(vm: *VM) c_int {
+        var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+
+        var map_keys: []HashableValue = self.map.keys();
+        var result = std.ArrayList(Value).init(vm.allocator);
+        for (map_keys) |key| {
+            result.append(hashableToValue(key)) catch {
+                var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            };
+        }
+
+        var list_def: ObjList.ListDef = ObjList.ListDef.init(
+            vm.allocator,
+            self.type_def.resolved_type.?.Map.key_type,
+        );
+
+        var list_def_union: ObjTypeDef.TypeUnion = .{
+            .List = list_def,
+        };
+
+        var list_def_type: *ObjTypeDef = allocateObject(vm, ObjTypeDef, ObjTypeDef{
+            .def_type = .List,
+            .optional = false,
+            .resolved_type = list_def_union,
+        }) catch {
+            var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        var list = allocateObject(
+            vm,
+            ObjList,
+            ObjList.init(vm.allocator, list_def_type),
+        ) catch {
+            var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        list.items.deinit();
+        list.items = result;
+
+        vm.push(list.toValue());
+
+        return 1;
+    }
+
     pub fn rawNext(self: *Self, key: ?HashableValue) ?HashableValue {
-        const keys: []HashableValue = self.map.keys();
+        const map_keys: []HashableValue = self.map.keys();
 
         if (key) |ukey| {
             const index: usize = self.map.getIndex(ukey).?;
 
-            if (index < keys.len - 1) {
-                return keys[index + 1];
+            if (index < map_keys.len - 1) {
+                return map_keys[index + 1];
             } else {
                 return null;
             }
         } else {
-            return if (keys.len > 0) keys[0] else null;
+            return if (map_keys.len > 0) map_keys[0] else null;
         }
     }
 
@@ -1766,6 +1821,39 @@ pub const ObjMap = struct {
                 );
 
                 try self.methods.put("remove", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "keys")) {
+                var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                    compiler.allocator,
+                    self.key_type,
+                );
+
+                var list_def_union: ObjTypeDef.TypeUnion = .{
+                    .List = list_def,
+                };
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "keys", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .return_type = try compiler.getTypeDef(.{
+                        .def_type = .List,
+                        .optional = false,
+                        .resolved_type = list_def_union,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("keys", native_type);
 
                 return native_type;
             }
