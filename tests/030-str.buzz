@@ -16,3 +16,9 @@ test "str.indexOf" {
     assert("hello world".indexOf("world") == 6, message: "str.indexOf");
     assert("hello world".indexOf("moon") == null, message: "str.indexOf");
 }
+
+test "str.split" {
+    [str] splits = "one,two,three".split(",");
+
+    assert(splits[0] == "one" and splits[1] == "two" and splits[2] == "three", message: "str.split");
+}
