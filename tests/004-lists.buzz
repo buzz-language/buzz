@@ -31,3 +31,10 @@ test "Lists" {
 
     assert(strList.remove(12) == null, message: "returns null when removing non existent index");
 }
+
+test "list.sub" {
+    [num] list = [1, 2, 3, 4];
+    [num] sub = list.sub(1, len: 2);
+
+    assert(sub.len() == 2 and sub[0] == 2 and sub[1] == 3, message: "list.sub");
+}
