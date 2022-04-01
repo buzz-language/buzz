@@ -3960,6 +3960,7 @@ pub const Compiler = struct {
                 if (left_operand_type.def_type != .Number
                     and left_operand_type.def_type != .String
                     and left_operand_type.def_type != .List
+                    and left_operand_type.def_type != .Map
                     and left_operand_type.def_type != .Placeholder) {
                     try self.reportError("Expected `num` or `str`.");
                 }

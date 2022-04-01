@@ -15,3 +15,10 @@ test "Maps" {
     | assert(map["hello"] == null, message: "removed element");
     assert(map.size() == 1, message: "map size");
 }
+
+test "map merge" {
+    {str, num} map = <str, num>{"one": 1, "two": 22} + <str, num>{"three": 3, "two": 2};
+
+    assert(map["two"] == 2, message: "map merge");
+    assert(map.size() == 3, message: "map merge");
+}

@@ -866,6 +866,9 @@ pub const VM = struct {
         const right_l: ?*ObjList = if (right == .Obj) ObjList.cast(right.Obj) else null;
         const left_l: ?*ObjList = if (left == .Obj) ObjList.cast(left.Obj) else null;
 
+        const right_m: ?*ObjMap = if (right == .Obj) ObjMap.cast(right.Obj) else null;
+        const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
+
         switch (code) {
             .OP_ADD => add: {
                 if (right_s != null) {
@@ -874,18 +877,34 @@ pub const VM = struct {
                 } else if (right_f != null) {
                     self.push(Value{ .Number = right_f.? + left_f.? });
                     break :add;
+                } else if (right_l != null) {
+                    var new_list = std.ArrayList(Value).init(self.allocator);
+                    try new_list.appendSlice(right_l.?.items.items);
+                    try new_list.appendSlice(left_l.?.items.items);
+
+                    self.push(
+                        (try _obj.allocateObject(self, ObjList, ObjList{
+                            .type_def = left_l.?.type_def,
+                            .methods = left_l.?.methods,
+                            .items = new_list,
+                        })).toValue(),
+                    );
+
+                    break :add;
                 }
 
-                // list
-                var new_list = std.ArrayList(Value).init(self.allocator);
-                try new_list.appendSlice(right_l.?.items.items);
-                try new_list.appendSlice(left_l.?.items.items);
+                // map
+                var new_map = try right_m.?.map.clone();
+                var it = left_m.?.map.iterator();
+                while (it.next()) |entry| {
+                    try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
+                }
 
                 self.push(
-                    (try _obj.allocateObject(self, ObjList, ObjList{
-                        .type_def = left_l.?.type_def,
-                        .methods = left_l.?.methods,
-                        .items = new_list,
+                    (try _obj.allocateObject(self, ObjMap, ObjMap{
+                        .type_def = left_m.?.type_def,
+                        .methods = left_m.?.methods,
+                        .map = new_map,
                     })).toValue(),
                 );
             },
