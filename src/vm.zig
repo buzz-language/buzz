@@ -1161,43 +1161,69 @@ pub const VM = struct {
     }
 
     fn subscript(self: *Self) !void {
-        var list_or_map: *Obj = self.peek(1).Obj;
+        var subscriptable: *Obj = self.peek(1).Obj;
         var index: Value = self.peek(0);
 
-        if (list_or_map.obj_type == .List) {
-            var list: *ObjList = ObjList.cast(list_or_map).?;
+        switch (subscriptable.obj_type) {
+            .List => {
+                var list: *ObjList = ObjList.cast(subscriptable).?;
 
-            if (index.Number < 0) {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
-            }
+                if (index.Number < 0) {
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                }
 
-            const list_index: usize = @floatToInt(usize, index.Number);
+                const list_index: usize = @floatToInt(usize, index.Number);
 
-            if (list_index < list.items.items.len) {
-                var list_item: Value = list.items.items[list_index];
+                if (list_index < list.items.items.len) {
+                    var list_item: Value = list.items.items[list_index];
 
-                // Pop list and index
+                    // Pop list and index
+                    _ = self.pop();
+                    _ = self.pop();
+
+                    // Push value
+                    self.push(list_item);
+                } else {
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                }
+            },
+            .Map => {
+                var map: *ObjMap = ObjMap.cast(subscriptable).?;
+
+                // Pop map and key
                 _ = self.pop();
                 _ = self.pop();
 
-                // Push value
-                self.push(list_item);
-            } else {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
-            }
-        } else {
-            var map: *ObjMap = ObjMap.cast(list_or_map).?;
+                if (map.map.get(valueToHashable(index))) |value| {
+                    // Push value
+                    self.push(value);
+                } else {
+                    self.push(Value{ .Null = null });
+                }
+            },
+            .String => {
+                var str: *ObjString = ObjString.cast(subscriptable).?;
 
-            // Pop map and key
-            _ = self.pop();
-            _ = self.pop();
+                if (index.Number < 0) {
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound str access.")).toValue());
+                }
 
-            if (map.map.get(valueToHashable(index))) |value| {
-                // Push value
-                self.push(value);
-            } else {
-                self.push(Value{ .Null = null });
-            }
+                const str_index: usize = @floatToInt(usize, index.Number);
+
+                if (str_index < str.string.len) {
+                    var str_item: Value = (try _obj.copyString(self, &([_]u8{str.string[str_index]}))).toValue();
+
+                    // Pop str and index
+                    _ = self.pop();
+                    _ = self.pop();
+
+                    // Push value
+                    self.push(str_item);
+                } else {
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound str access.")).toValue());
+                }
+            },
+            else => unreachable,
         }
     }
 

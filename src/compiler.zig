@@ -4041,13 +4041,39 @@ pub const Compiler = struct {
     }
 
     fn subscript(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (callee_type.def_type != .List and callee_type.def_type != .Map and callee_type.def_type != .Placeholder and (callee_type.def_type != .Placeholder or !callee_type.resolved_type.?.Placeholder.isSubscriptable())) {
+        // zig fmt: off
+        if (callee_type.def_type != .List
+            and callee_type.def_type != .Map
+            and callee_type.def_type != .String
+            and callee_type.def_type != .Placeholder
+            and (callee_type.def_type != .Placeholder
+            or !callee_type.resolved_type.?.Placeholder.isSubscriptable())) {
             try self.reportError("Not subscriptable.");
         }
+        // zig fmt: on
 
         var item_type: ?*ObjTypeDef = null;
 
-        if (callee_type.def_type == .List or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeList())) {
+        if (callee_type.def_type == .String or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.resolved_def_type orelse .Void == .String)) {
+            item_type = try self.getTypeDef(.{ .def_type = .String });
+
+            if (callee_type.def_type == .Placeholder) {
+                try PlaceholderDef.link(callee_type, item_type.?, .Subscript);
+            }
+
+            var index_type: *ObjTypeDef = try self.expression(false);
+
+            if (index_type.def_type != .Number) {
+                if (index_type.def_type == .Placeholder and (index_type.resolved_type.?.Placeholder.resolved_def_type == null or index_type.resolved_type.?.Placeholder.resolved_def_type.? == .Number) and (index_type.resolved_type.?.Placeholder.resolved_type == null or index_type.resolved_type.?.Placeholder.resolved_type.?.def_type == .Number)) {
+                    index_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                    index_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(.{
+                        .def_type = .Number,
+                    });
+                } else {
+                    try self.reportError("Expected `num` index.");
+                }
+            }
+        } else if (callee_type.def_type == .List or (callee_type.def_type == .Placeholder and callee_type.resolved_type.?.Placeholder.couldBeList())) {
             if (callee_type.def_type == .List) {
                 item_type = callee_type.resolved_type.?.List.item_type;
             } else {
@@ -4134,7 +4160,7 @@ pub const Compiler = struct {
 
         try self.consume(.RightBracket, "Expected `]`.");
 
-        if (can_assign and try self.match(.Equal)) {
+        if (can_assign and try self.match(.Equal) and callee_type.def_type != .String and (callee_type.def_type != .Placeholder or callee_type.resolved_type.?.Placeholder.resolved_def_type orelse .Void != .String)) {
             var parsed_type: *ObjTypeDef = try self.expression(false);
 
             if (item_type != null and !item_type.?.eql(parsed_type)) {

@@ -1929,7 +1929,11 @@ pub const PlaceholderDef = struct {
             return true;
         }
 
-        return self.subscriptable.? and (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map) and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map);
+        // zig fmt: off
+        return self.subscriptable.?
+            and (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map or self.resolved_def_type.? == .String)
+            and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map or self.resolved_type.?.def_type == .String);
+        // zig fmt: on
     }
 
     pub fn isIterable(self: *Self) bool {
