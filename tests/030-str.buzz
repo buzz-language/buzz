@@ -1,0 +1,5 @@
+import "lib/std";
+
+test "str.len" {
+    assert("hello world".len() == 11, message: "str.len");
+}

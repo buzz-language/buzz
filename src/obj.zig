@@ -281,6 +281,9 @@ pub const ObjNative = struct {
 pub const ObjString = struct {
     const Self = @This();
 
+    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
+
     obj: Obj = .{ .obj_type = .String },
 
     /// The actual string
@@ -310,6 +313,83 @@ pub const ObjString = struct {
         try new_string.appendSlice(other.string);
 
         return copyString(vm, new_string.items);
+    }
+
+    pub fn len(vm: *VM) c_int {
+        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        vm.push(Value{ .Number = @intToFloat(f64, str.string.len) });
+
+        return 1;
+    }
+
+    // TODO: find a way to return the same ObjNative pointer for the same type of Lists
+    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+        if (Self.members) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+
+        var nativeFn: ?NativeFn = null;
+        if (mem.eql(u8, method, "len")) {
+            nativeFn = len;
+        }
+
+        if (nativeFn) |unativeFn| {
+            var native: *ObjNative = try allocateObject(
+                vm,
+                ObjNative,
+                .{
+                    .native = unativeFn,
+                },
+            );
+
+            try Self.members.?.put(method, native);
+
+            return native;
+        }
+
+        return null;
+    }
+
+    pub fn memberDef(compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
+        if (Self.memberDefs) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(compiler.allocator);
+
+        if (mem.eql(u8, method, "len")) {
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(compiler.strings, compiler.allocator, "applenend", false),
+                .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try compiler.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("len", native_type);
+
+            return native_type;
+        }
+
+        return null;
     }
 };
 

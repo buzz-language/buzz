@@ -1,6 +1,7 @@
 import "lib/std";
 
-fun hey(str name = "Joe", num age = 12, str? father, num fourth = 1) > str -> "Hello {name} you're {age} {father} {fourth}";
+fun hey(str name = "Joe", num age = 12, str? father, num fourth = 1) > str
+    -> "Hello {name} you're {age} {father} {fourth}";
 
 test "function default arguments" {
     assert(hey("John") == "Hello John you're 12 null 1", message: "Could reorder or omit argument");

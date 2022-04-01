@@ -542,6 +542,15 @@ pub const VM = struct {
                                 unreachable;
                             }
                         },
+                        .String => {
+                            const name: *ObjString = self.readString(arg);
+
+                            if (try ObjString.member(self, name.string)) |member| {
+                                try self.bindMethod(null, member);
+                            } else {
+                                unreachable;
+                            }
+                        },
                         else => unreachable,
                     }
                 },
@@ -1038,6 +1047,16 @@ pub const VM = struct {
                 }
 
                 try self.invokeFromObject(instance.object, name, arg_count, catch_values);
+            },
+            .String => {
+                if (try ObjString.member(self, name.string)) |member| {
+                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    (self.stack_top - arg_count - 1)[0] = member_value;
+
+                    return try self.callValue(member_value, arg_count, catch_values);
+                }
+
+                unreachable;
             },
             .List => {
                 var list: *ObjList = ObjList.cast(obj).?;

@@ -4269,9 +4269,18 @@ pub const Compiler = struct {
     }
 
     fn dot(self: *Self, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef {
-        if (callee_type.def_type != .ObjectInstance and callee_type.def_type != .Object and callee_type.def_type != .Enum and callee_type.def_type != .EnumInstance and callee_type.def_type != .List and callee_type.def_type != .Map and callee_type.def_type != .Placeholder) {
+        // zig fmt: off
+        if (callee_type.def_type != .ObjectInstance
+            and callee_type.def_type != .Object
+            and callee_type.def_type != .Enum
+            and callee_type.def_type != .EnumInstance
+            and callee_type.def_type != .List
+            and callee_type.def_type != .Map
+            and callee_type.def_type != .Placeholder
+            and callee_type.def_type != .String) {
             try self.reportError("Doesn't have field access.");
         }
+        // zig fmt: on
 
         try self.consume(.Identifier, "Expected property name after `.`");
         var member_name: []const u8 = self.parser.previous_token.?.lexeme;
@@ -4279,6 +4288,26 @@ pub const Compiler = struct {
 
         // Check that name is a property
         switch (callee_type.def_type) {
+            .String => {
+                if (try ObjString.memberDef(self, member_name)) |member| {
+                    if (try self.match(.LeftParen)) {
+                        try self.emitOpCode(.OP_COPY); // String is first argument
+                        var arg_count: u8 = try self.argumentList(member.resolved_type.?.Native.parameters, member.resolved_type.?.Native.has_defaults);
+                        try self.emitCodeArg(.OP_INVOKE, name);
+                        try self.emitTwo(arg_count + 1, try self.inlineCatch(member.resolved_type.?.Native.return_type));
+
+                        return member.resolved_type.?.Native.return_type;
+                    }
+
+                    // Else just get it
+                    try self.emitCodeArg(.OP_GET_PROPERTY, name);
+
+                    return member;
+                }
+
+                try self.reportError("String property doesn't exist.");
+                return callee_type;
+            },
             .Object => {
                 var obj_def: ObjObject.ObjectDef = callee_type.resolved_type.?.Object;
 
