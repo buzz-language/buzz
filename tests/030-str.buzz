@@ -22,3 +22,8 @@ test "str.split" {
 
     assert(splits[0] == "one" and splits[1] == "two" and splits[2] == "three", message: "str.split");
 }
+
+test "str.sub" {
+    assert("hello world".sub(6, len: null) == "world", message: "str.sub");
+    assert("hello world".sub(0, len: 5) == "hello", message: "str.sub");
+}

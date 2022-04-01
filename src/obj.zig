@@ -350,6 +350,41 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn sub(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(2).Obj).?;
+        var start: f64 = vm.peek(1).Number;
+        var upto_value: Value = vm.peek(0);
+        var upto: ?f64 = if (upto_value == .Number) upto_value.Number else null;
+
+        if (start < 0 or start >= @intToFloat(f64, self.string.len)) {
+            var err: ?*ObjString = copyString(vm, "`start` is out of bound") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        }
+
+        if (upto != null and upto.? < 0) {
+            var err: ?*ObjString = copyString(vm, "`len` must greater or equal to 0") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        }
+
+        const limit: usize = if (upto != null and @floatToInt(usize, start + upto.?) < self.string.len) @floatToInt(usize, start + upto.?) else self.string.len;
+        var substr: []const u8 = self.string[@floatToInt(usize, start)..limit];
+
+        vm.push(
+            (copyString(vm, substr) catch {
+                var err: ?*ObjString = copyString(vm, "Could not get sub string") catch null;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            }).toValue(),
+        );
+
+        return 1;
+    }
+
     pub fn split(vm: *VM) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *Self = Self.cast(vm.peek(0).Obj).?;
@@ -395,15 +430,15 @@ pub const ObjString = struct {
         };
 
         var it = std.mem.split(u8, self.string, separator.string);
-        while (it.next()) |sub| {
-            var sub_str: ?*ObjString = copyString(vm, sub) catch {
+        while (it.next()) |fragment| {
+            var fragment_str: ?*ObjString = copyString(vm, fragment) catch {
                 var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
             };
 
-            list.rawAppend(sub_str.?.toValue()) catch {
+            list.rawAppend(fragment_str.?.toValue()) catch {
                 var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -450,6 +485,8 @@ pub const ObjString = struct {
             nativeFn = indexOf;
         } else if (mem.eql(u8, method, "split")) {
             nativeFn = split;
+        } else if (mem.eql(u8, method, "sub")) {
+            nativeFn = sub;
         }
 
         if (nativeFn) |unativeFn| {
@@ -600,6 +637,49 @@ pub const ObjString = struct {
             );
 
             try Self.memberDefs.?.put("split", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "sub")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put(
+                "start",
+                try compiler.getTypeDef(
+                    .{
+                        .def_type = .Number,
+                    },
+                ),
+            );
+            try parameters.put(
+                "len",
+                try compiler.getTypeDef(
+                    .{
+                        .def_type = .Number,
+                        .optional = true,
+                    },
+                ),
+            );
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(compiler.strings, compiler.allocator, "sub", false),
+                .parameters = parameters,
+                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                .return_type = try compiler.getTypeDef(ObjTypeDef{ .def_type = .String }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try compiler.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("sub", native_type);
 
             return native_type;
         }
