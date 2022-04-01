@@ -24,5 +24,9 @@ test "map merge" {
 }
 
 test "map.keys" {
-    assert(<str, num>{"one": 1, "two": 2, "three": 4}.keys().join(",") == "one,two,three", message: "map.keys");
+    assert(<str, num>{"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
+}
+
+test "map.values" {
+    assert(<str, num>{"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
 }

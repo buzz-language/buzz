@@ -1604,6 +1604,8 @@ pub const ObjMap = struct {
             nativeFn = size;
         } else if (mem.eql(u8, method, "keys")) {
             nativeFn = keys;
+        } else if (mem.eql(u8, method, "values")) {
+            nativeFn = values;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1693,6 +1695,57 @@ pub const ObjMap = struct {
             ObjList.init(vm.allocator, list_def_type),
         ) catch {
             var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        list.items.deinit();
+        list.items = result;
+
+        vm.push(list.toValue());
+
+        return 1;
+    }
+
+    pub fn values(vm: *VM) c_int {
+        var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+
+        var map_values: []Value = self.map.values();
+        var result = std.ArrayList(Value).init(vm.allocator);
+        result.appendSlice(map_values) catch {
+            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        var list_def: ObjList.ListDef = ObjList.ListDef.init(
+            vm.allocator,
+            self.type_def.resolved_type.?.Map.value_type,
+        );
+
+        var list_def_union: ObjTypeDef.TypeUnion = .{
+            .List = list_def,
+        };
+
+        var list_def_type: *ObjTypeDef = allocateObject(vm, ObjTypeDef, ObjTypeDef{
+            .def_type = .List,
+            .optional = false,
+            .resolved_type = list_def_union,
+        }) catch {
+            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        var list = allocateObject(
+            vm,
+            ObjList,
+            ObjList.init(vm.allocator, list_def_type),
+        ) catch {
+            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -1854,6 +1907,39 @@ pub const ObjMap = struct {
                 );
 
                 try self.methods.put("keys", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "values")) {
+                var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                    compiler.allocator,
+                    self.value_type,
+                );
+
+                var list_def_union: ObjTypeDef.TypeUnion = .{
+                    .List = list_def,
+                };
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "values", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .return_type = try compiler.getTypeDef(.{
+                        .def_type = .List,
+                        .optional = false,
+                        .resolved_type = list_def_union,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("values", native_type);
 
                 return native_type;
             }
