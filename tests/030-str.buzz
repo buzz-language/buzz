@@ -7,3 +7,7 @@ test "str subscript" {
 test "str.len" {
     assert("hello world".len() == 11, message: "str.len");
 }
+
+test "str.byte" {
+    assert("hello world".byte(1) == 101, message: "str.byte");
+}

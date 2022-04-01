@@ -323,6 +323,22 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn byte(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var index: f64 = vm.peek(0).Number;
+
+        if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
+            var err: ?*ObjString = copyString(vm, "Out of bound access to str") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        }
+
+        vm.push(Value{ .Number = @intToFloat(f64, self.string[@floatToInt(usize, index)]) });
+
+        return 1;
+    }
+
     pub fn next(self: *Self, vm: *VM, str_index: ?f64) !?f64 {
         if (str_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
@@ -351,6 +367,8 @@ pub const ObjString = struct {
         var nativeFn: ?NativeFn = null;
         if (mem.eql(u8, method, "len")) {
             nativeFn = len;
+        } else if (mem.eql(u8, method, "byte")) {
+            nativeFn = byte;
         }
 
         if (nativeFn) |unativeFn| {
@@ -384,8 +402,35 @@ pub const ObjString = struct {
             // It's always the string.
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "applenend", false),
+                .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
                 .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
+                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try compiler.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("len", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "byte")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put("at", try compiler.getTypeDef(.{ .def_type = .Number }));
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
+                .parameters = parameters,
                 .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                 .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
             };
