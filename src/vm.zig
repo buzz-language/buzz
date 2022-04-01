@@ -305,14 +305,15 @@ pub const VM = struct {
                 .OP_GET_UPVALUE => self.push(current_frame.closure.upvalues.items[arg].location.*),
                 .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
-                .OP_TO_STRING => self.push(
-                    Value{
-                        .Obj = (try _obj.copyString(
-                            self,
-                            try valueToString(self.allocator, self.pop()),
-                        )).toObj(),
-                    },
-                ),
+                .OP_TO_STRING => {
+                    var str = try valueToString(self.allocator, self.pop());
+                    defer self.allocator.free(str);
+                    self.push(
+                        Value{
+                            .Obj = (try _obj.copyString(self, str)).toObj(),
+                        },
+                    );
+                },
                 .OP_NEGATE => self.push(Value{ .Number = -self.pop().Number }),
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;

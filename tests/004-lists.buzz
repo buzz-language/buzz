@@ -42,3 +42,7 @@ test "list.sub" {
 test "list.indexOf" {
     assert([0, 1, 2, 3].indexOf(2) == 2, message: "list.indexOf");
 }
+
+test "list.join" {
+    assert([1, 2, 3, 4].join(",") == "1,2,3,4", message: "list.join");
+}

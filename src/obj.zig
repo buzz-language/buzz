@@ -1086,6 +1086,8 @@ pub const ObjList = struct {
             nativeFn = sub;
         } else if (mem.eql(u8, method, "indexOf")) {
             nativeFn = indexOf;
+        } else if (mem.eql(u8, method, "join")) {
+            nativeFn = join;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1171,6 +1173,52 @@ pub const ObjList = struct {
         }
 
         vm.push(if (index) |uindex| Value{ .Number = @intToFloat(f64, uindex) } else Value{ .Null = false });
+
+        return 1;
+    }
+
+    pub fn join(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
+
+        var result = std.ArrayList(u8).init(vm.allocator);
+        defer result.deinit();
+        for (self.items.items) |item, i| {
+            var el_str = valueToString(vm.allocator, item) catch {
+                var err: ?*ObjString = copyString(vm, "could not stringify element") catch null;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            };
+            defer vm.allocator.free(el_str);
+
+            result.appendSlice(el_str) catch {
+                var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            };
+
+            if (i + 1 < self.items.items.len) {
+                result.appendSlice(separator.string) catch {
+                    var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                };
+            }
+        }
+
+        vm.push(
+            Value{
+                .Obj = (copyString(vm, result.items) catch {
+                    var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                }).toObj(),
+            },
+        );
 
         return 1;
     }
@@ -1484,6 +1532,35 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("indexOf", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "join")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the string.
+
+                try parameters.put("separator", try compiler.getTypeDef(.{ .def_type = .String }));
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "join", false),
+                    .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .return_type = try compiler.getTypeDef(ObjTypeDef{
+                        .def_type = .String,
+                    }),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("join", native_type);
 
                 return native_type;
             }

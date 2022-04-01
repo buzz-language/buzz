@@ -51,6 +51,7 @@ pub fn hashableToValue(hashable: HashableValue) Value {
 }
 
 pub fn valueToString(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    // TODO: use arraylist writer
     var buf: []u8 = try allocator.alloc(u8, 1000);
 
     return switch (value) {
