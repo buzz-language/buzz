@@ -10,7 +10,7 @@ A small/lightweight typed scripting language written in Zig
     <img src="https://github.com/giann/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
-**Note: This is very much in development. Seriously, don't even try to build it.**
+**Note: This is very much in development. I continuously built it with zig master.**
 
 # Goals
 
@@ -304,3 +304,7 @@ fun main() > void {
 ```
 
 _Native_ functions have all the same signature `fn myfunction(vm: *VM) bool`. If values must be returned, push them on the stack and return `true`.
+
+<p align="center">
+    <img src="https://raw.githubusercontent.com/ziglang/logo/master/zig-logo-dark.svg" alt="zig" height="100">
+</p>
