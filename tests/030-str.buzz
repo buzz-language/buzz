@@ -24,6 +24,7 @@ test "str.split" {
 }
 
 test "str.sub" {
+    | TODO: right now we can't use default value and omit arguments on native functions
     assert("hello world".sub(6, len: null) == "world", message: "str.sub");
     assert("hello world".sub(0, len: 5) == "hello", message: "str.sub");
 }

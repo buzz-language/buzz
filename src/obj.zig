@@ -1084,6 +1084,8 @@ pub const ObjList = struct {
             nativeFn = remove;
         } else if (mem.eql(u8, method, "sub")) {
             nativeFn = sub;
+        } else if (mem.eql(u8, method, "indexOf")) {
+            nativeFn = indexOf;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1149,6 +1151,26 @@ pub const ObjList = struct {
         }
 
         vm.push(list.items.orderedRemove(@floatToInt(usize, list_index)));
+
+        return 1;
+    }
+
+    pub fn indexOf(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var needle: Value = vm.peek(0);
+
+        var index: ?usize = 0;
+        var i: usize = 0;
+        for (self.items.items) |item| {
+            if (valueEql(needle, item)) {
+                index = i;
+                break;
+            }
+
+            i += 1;
+        }
+
+        vm.push(if (index) |uindex| Value{ .Number = @intToFloat(f64, uindex) } else Value{ .Null = false });
 
         return 1;
     }
@@ -1429,6 +1451,39 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("sub", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "indexOf")) {
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the string.
+
+                try parameters.put("needle", self.item_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "indexOf", false),
+                    .parameters = parameters,
+                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .return_type = try compiler.getTypeDef(
+                        .{
+                            .def_type = self.item_type.def_type,
+                            .optional = true,
+                            .resolved_type = self.item_type.resolved_type,
+                        },
+                    ),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+                var native_type = try compiler.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Native,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("indexOf", native_type);
 
                 return native_type;
             }
