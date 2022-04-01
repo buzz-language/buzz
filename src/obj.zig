@@ -323,6 +323,21 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn next(self: *Self, vm: *VM, str_index: ?f64) !?f64 {
+        if (str_index) |index| {
+            if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
+                try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to str")).toValue());
+            }
+
+            return if (index + 1 >= @intToFloat(f64, self.string.len))
+                null
+            else
+                index + 1;
+        } else {
+            return if (self.string.len > 0) @intToFloat(f64, 0) else null;
+        }
+    }
+
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
         if (Self.members) |umembers| {

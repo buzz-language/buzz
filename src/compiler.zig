@@ -2970,12 +2970,53 @@ pub const Compiler = struct {
         try self.consume(.RightParen, "Expected `)` after `foreach`.");
 
         // TODO: object with `next` method
-        if (iterable_type.def_type != .List and iterable_type.def_type != .Map and iterable_type.def_type != .Enum and (iterable_type.def_type != .Placeholder or !iterable_type.resolved_type.?.Placeholder.isIterable())) {
+        // zig fmt: off
+        if (iterable_type.def_type != .List
+            and iterable_type.def_type != .Map
+            and iterable_type.def_type != .Enum
+            and iterable_type.def_type != .String
+            and (iterable_type.def_type != .Placeholder or !iterable_type.resolved_type.?.Placeholder.isIterable())) {
             try self.reportError("Not iterable.");
         }
+        // zig fmt: on
 
         // Check key and value type
         switch (iterable_type.def_type) {
+            .String => {
+                if (value_type == null) {
+                    try self.reportError("Missing value variable.");
+                }
+
+                const int_type: *ObjTypeDef = try self.getTypeDef(ObjTypeDef{
+                    .def_type = .Number,
+                });
+
+                if (!key_type.eql(int_type)) {
+                    try self.reportTypeCheck(int_type, key_type, "Bad key type");
+                }
+
+                if (key_type.def_type == .Placeholder) {
+                    key_type.resolved_type.?.Placeholder.resolved_def_type = .Number;
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Is not a `num`.");
+                    }
+                }
+
+                if (!key_type.eql(int_type)) {
+                    try self.reportTypeCheck(int_type, key_type, "Should be");
+                }
+
+                if (key_type.def_type == .Placeholder and iterable_type.def_type != .Placeholder) {
+                    // TODO: we could enrich with placeholder.resolved_def_type/resolved_type
+                    key_type.resolved_type.?.Placeholder.resolved_def_type = .String;
+                    key_type.resolved_type.?.Placeholder.resolved_type = try self.getTypeDef(
+                        ObjTypeDef{ .def_type = .String },
+                    );
+                    if (!key_type.resolved_type.?.Placeholder.isCoherent()) {
+                        try self.reportError("Is not a str.");
+                    }
+                }
+            },
             .Enum => {
                 if (value_type != null) {
                     try self.reportError("Only one variable allowed when iterating over Enum.");
@@ -3064,6 +3105,7 @@ pub const Compiler = struct {
                 // But the rest of foreachStatement should still works since the only difference
                 // between all types iteration is the presence of the value or not.
                 // Which doesn't impact at all the following code.
+                unreachable;
             },
         }
 

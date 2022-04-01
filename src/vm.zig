@@ -674,6 +674,21 @@ pub const VM = struct {
         var iterable_value: Value = self.peek(0);
         var iterable: *Obj = iterable_value.Obj;
         switch (iterable.obj_type) {
+            .String => {
+                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var str: *ObjString = ObjString.cast(iterable).?;
+
+                key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
+                    Value{ .Number = new_index }
+                else
+                    Value{ .Null = null };
+
+                // Set new value
+                if (key_slot.* != .Null) {
+                    value_slot.* = (try _obj.copyString(self, &([_]u8{str.string[@floatToInt(usize, key_slot.Number)]}))).toValue();
+                }
+            },
             .List => {
                 var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
                 var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);

@@ -49,3 +49,12 @@ test "foreach on enum" {
 
     assert(sum == 3, message: "foreach on enum");
 }
+
+test "foreach on str" {
+    str hello = "";
+    foreach (num index, str char in "hello world") {
+        hello = "{hello}{char}";
+    }
+
+    assert(hello == "hello world", message: "foreach on str");
+}

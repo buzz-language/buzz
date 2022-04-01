@@ -146,6 +146,10 @@ foreach (num i, str value in listOfStrings) {
 foreach (str key, num value in aMap) {
     | ...
 }
+
+foreach (num i, str char in aString) {
+    | ...
+}
 ```
 
 ## Objects and Classes
