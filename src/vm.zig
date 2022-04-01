@@ -612,7 +612,12 @@ pub const VM = struct {
                     self.push(Value{ .Boolean = right < left });
                 },
 
-                .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_MOD => try self.binary(instruction),
+                .OP_ADD,
+                .OP_SUBTRACT,
+                .OP_MULTIPLY,
+                .OP_DIVIDE,
+                .OP_MOD,
+                => try self.binary(instruction),
 
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
@@ -855,17 +860,34 @@ pub const VM = struct {
         const right_f: ?f64 = if (right == .Number) right.Number else null;
         const left_f: ?f64 = if (left == .Number) left.Number else null;
 
-        const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj).? else null;
-        const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj).? else null;
+        const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
+        const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
+
+        const right_l: ?*ObjList = if (right == .Obj) ObjList.cast(right.Obj) else null;
+        const left_l: ?*ObjList = if (left == .Obj) ObjList.cast(left.Obj) else null;
 
         switch (code) {
             .OP_ADD => add: {
                 if (right_s != null) {
                     self.push(Value{ .Obj = (try right_s.?.concat(self, left_s.?)).toObj() });
                     break :add;
+                } else if (right_f != null) {
+                    self.push(Value{ .Number = right_f.? + left_f.? });
+                    break :add;
                 }
 
-                self.push(Value{ .Number = right_f.? + left_f.? });
+                // list
+                var new_list = std.ArrayList(Value).init(self.allocator);
+                try new_list.appendSlice(right_l.?.items.items);
+                try new_list.appendSlice(left_l.?.items.items);
+
+                self.push(
+                    (try _obj.allocateObject(self, ObjList, ObjList{
+                        .type_def = left_l.?.type_def,
+                        .methods = left_l.?.methods,
+                        .items = new_list,
+                    })).toValue(),
+                );
             },
 
             .OP_SUBTRACT => self.push(Value{ .Number = right_f.? - left_f.? }),

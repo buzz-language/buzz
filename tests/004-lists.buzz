@@ -46,3 +46,7 @@ test "list.indexOf" {
 test "list.join" {
     assert([1, 2, 3, 4].join(",") == "1,2,3,4", message: "list.join");
 }
+
+test "list concat" {
+    assert(([1, 2, 3] + [4, 5, 6]).join(",") == "1,2,3,4,5,6", message: "list concat");
+}

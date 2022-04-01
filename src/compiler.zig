@@ -3956,9 +3956,14 @@ pub const Compiler = struct {
             },
 
             .Plus => {
-                if (left_operand_type.def_type != .Number and left_operand_type.def_type != .String and left_operand_type.def_type != .Placeholder) {
+                // zig fmt: off
+                if (left_operand_type.def_type != .Number
+                    and left_operand_type.def_type != .String
+                    and left_operand_type.def_type != .List
+                    and left_operand_type.def_type != .Placeholder) {
                     try self.reportError("Expected `num` or `str`.");
                 }
+                // zig fmt: on
 
                 if (right_operand_type.def_type == .Placeholder and left_operand_type.def_type != .Placeholder) {
                     right_operand_type.resolved_type.?.Placeholder.resolved_def_type = left_operand_type.def_type;
