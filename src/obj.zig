@@ -339,6 +339,17 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn indexOf(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        var index = std.mem.indexOf(u8, self.string, needle.string);
+
+        vm.push(if (index) |uindex| Value{ .Number = @intToFloat(f64, uindex) } else Value{ .Null = false });
+
+        return 1;
+    }
+
     pub fn next(self: *Self, vm: *VM, str_index: ?f64) !?f64 {
         if (str_index) |index| {
             if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
@@ -369,6 +380,8 @@ pub const ObjString = struct {
             nativeFn = len;
         } else if (mem.eql(u8, method, "byte")) {
             nativeFn = byte;
+        } else if (mem.eql(u8, method, "indexOf")) {
+            nativeFn = indexOf;
         }
 
         if (nativeFn) |unativeFn| {
@@ -433,6 +446,38 @@ pub const ObjString = struct {
                 .parameters = parameters,
                 .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
                 .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try compiler.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("len", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "indexOf")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put("needle", try compiler.getTypeDef(.{ .def_type = .String }));
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
+                .parameters = parameters,
+                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                .return_type = try compiler.getTypeDef(
+                    .{
+                        .def_type = .Number,
+                        .optional = true,
+                    },
+                ),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };

@@ -11,3 +11,8 @@ test "str.len" {
 test "str.byte" {
     assert("hello world".byte(1) == 101, message: "str.byte");
 }
+
+test "str.indexOf" {
+    assert("hello world".indexOf("world") == 6, message: "str.indexOf");
+    assert("hello world".indexOf("moon") == null, message: "str.indexOf");
+}
