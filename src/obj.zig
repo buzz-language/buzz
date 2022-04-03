@@ -2161,6 +2161,16 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
+    pub fn cloneOptional(self: *Self, compiler: *Compiler) !*ObjTypeDef {
+        return compiler.getTypeDef(
+            .{
+                .optional = true,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
     pub fn deinit(_: *Self) void {
         std.debug.print("ObjTypeDef.deinit not implemented\n", .{});
     }
@@ -2397,8 +2407,14 @@ pub const ObjTypeDef = struct {
     pub fn eql(self: *Self, other: *Self) bool {
         const type_eql: bool = self.def_type == other.def_type and ((self.resolved_type == null and other.resolved_type == null) or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
 
-        return self == other or (self.optional and other.def_type == .Void) // Void is equal to any optional type
-        or (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder);
+        // zig fmt: off
+        return self == other
+            or (self.optional and other.def_type == .Void) // Void is equal to any optional type
+            or (
+                (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder)
+                and (self.optional or !other.optional)
+            );
+        // zig fmt: on
     }
 };
 

@@ -8,6 +8,8 @@ test "Maps" {
 
     <num, bool>{1: true, 2: false};
 
+    assert(map["bye"] is num?, message: "yeah");
+
     assert(map["bye"] == 2, message: "map subscript");
     assert((<num, bool>{1: true, 2: false})[2] == false, message: "map expression subscript");
 

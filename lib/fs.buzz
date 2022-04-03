@@ -5,7 +5,7 @@ fun cwd() > str {
     str? dir = os.env("PWD");
 
     if (dir != null) {
-        return dir;
+        return dir!;
     } else {
         throw "Could not get current directory";
     }

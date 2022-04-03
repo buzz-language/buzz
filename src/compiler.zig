@@ -4163,7 +4163,9 @@ pub const Compiler = struct {
                 assert(callee_type.def_type == .Placeholder);
 
                 // item_type is a placeholder
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{ .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?) };
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+                };
 
                 if (callee_type.resolved_type.?.Placeholder.resolved_type) |resolved| {
                     placeholder_resolved_type.Placeholder.resolved_def_type = resolved.resolved_type.?.Map.value_type.def_type;
@@ -4217,6 +4219,10 @@ pub const Compiler = struct {
 
             try self.emitOpCode(.OP_SET_SUBSCRIPT);
         } else {
+            if (callee_type.def_type == .Map and item_type != null) {
+                item_type = try item_type.?.cloneOptional(self);
+            }
+
             try self.emitOpCode(.OP_GET_SUBSCRIPT);
         }
 
