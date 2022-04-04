@@ -49,7 +49,7 @@
         },
         {
           "name": "keyword.operator.comparison.buzz",
-          "match": "(==|!=|<=?|>=?|\\bis\\b)"
+          "match": "(==|!=|<=?|>=?|\\bis|\\?\\?)"
         },
         {
           "name": "keyword.declaration.dart",
@@ -65,7 +65,7 @@
         },
         {
           "name": "storage.type.built-in.primitive.buzz",
-          "match": "\\b(str|num|bool|type)\\b"
+          "match": "\\b(str|num|bool|type)\\b\\??"
         }
       ]
     },

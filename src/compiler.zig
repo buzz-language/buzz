@@ -2196,7 +2196,6 @@ pub const Compiler = struct {
         }
     }
 
-    // TODO: support other platform lib formats
     // TODO: when to close the lib?
     fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
         const buzz_path: ?[]const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
@@ -2636,10 +2635,10 @@ pub const Compiler = struct {
                 try self.emitOpCode(.OP_ENUM_CASE);
             }
 
+            try enum_type.resolved_type.?.Enum.cases.append(case_name);
+
             // TODO: how to not force a comma at last case?
             try self.consume(.Comma, "Expected `,` after case definition.");
-
-            try enum_type.resolved_type.?.Enum.cases.append(case_name);
         }
 
         try self.consume(.RightBrace, "Expected `}` after enum body.");
@@ -4489,7 +4488,7 @@ pub const Compiler = struct {
                 }
 
                 // If its a field or placeholder, we can assign to it
-                // FIXME: here get info that field is constant or not
+                // TODO: here get info that field is constant or not
                 if (can_assign and try self.match(.Equal)) {
                     if (property_type.?.def_type == .Placeholder) {
                         property_type.?.resolved_type.?.Placeholder.assignable = true;

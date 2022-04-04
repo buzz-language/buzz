@@ -22,7 +22,6 @@ pub const OpCode = enum(u8) {
     OP_SET_LOCAL,
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
-    // TODO: could be OP_GET_PROPERTY/OP_SET_PROPERTY when object use index instead of names
     OP_GET_SUBSCRIPT,
     OP_SET_SUBSCRIPT,
     OP_GET_SUPER,
