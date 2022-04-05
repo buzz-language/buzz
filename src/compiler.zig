@@ -2347,7 +2347,9 @@ pub const Compiler = struct {
 
         self.markInitialized();
 
-        if (std.mem.eql(u8, name_token.lexeme, "main") and self.current.?.function_type == .ScriptEntryPoint) {
+        const is_main = std.mem.eql(u8, name_token.lexeme, "main") and self.current.?.function_type == .ScriptEntryPoint;
+
+        if (is_main) {
             if (function_type == .Extern) {
                 try self.reportError("`main` can't be `extern`.");
             }
@@ -2374,11 +2376,34 @@ pub const Compiler = struct {
         }
 
         // TODO: if (is_main) check function signature is `fun ([str]) > num`
+        if (is_main) {
+            try self.checkMainSignature(function_def);
+        }
 
         try self.defineGlobalVariable(@intCast(u24, slot));
 
         if (function_type == .Extern) {
             try self.consume(.Semicolon, "Expected `;` after `extern` function declaration.");
+        }
+    }
+
+    fn checkMainSignature(self: *Self, function_def: *ObjTypeDef) !void {
+        if (function_def.def_type != .Function) {
+            try self.reportError("main should be a function");
+        }
+
+        if (function_def.resolved_type.?.Function.return_type.def_type != .Number) {
+            try self.reportError("main should return num");
+        }
+
+        if (function_def.resolved_type.?.Function.parameters.count() != 1) {
+            try self.reportError("main should have one argument of type [str]");
+        }
+
+        const parameter = function_def.resolved_type.?.Function.parameters.values()[0];
+
+        if (parameter.def_type != .List or parameter.resolved_type.?.List.item_type.def_type != .String) {
+            try self.reportError("main should have one argument of type [str]");
         }
     }
 
