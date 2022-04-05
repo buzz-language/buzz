@@ -56,3 +56,9 @@ pub const ObjList = opaque {
 };
 
 pub const ObjFunction = opaque {};
+
+pub const UserData = opaque {};
+
+pub const ObjUserData = opaque {
+    pub extern fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData;
+};

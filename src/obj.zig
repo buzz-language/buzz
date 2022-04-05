@@ -43,6 +43,7 @@ pub const ObjType = enum {
     EnumInstance,
     Bound,
     Native,
+    UserData,
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
@@ -65,6 +66,7 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         ObjEnumInstance => ObjEnumInstance.toObj(obj),
         ObjBoundMethod => ObjBoundMethod.toObj(obj),
         ObjNative => ObjNative.toObj(obj),
+        ObjUserData => ObjUserData.toObj(obj),
         else => {},
     };
 
@@ -164,7 +166,7 @@ pub const Obj = struct {
                 );
             },
 
-            .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
+            .UserData, .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
         };
     }
 
@@ -194,7 +196,7 @@ pub const Obj = struct {
             },
             .List => ObjList.cast(self).?.type_def.eql(type_def),
             .Map => ObjMap.cast(self).?.type_def.eql(type_def),
-            .Native => unreachable, // TODO
+            .UserData, .Native => unreachable, // TODO
         };
     }
 
@@ -237,6 +239,7 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .Native,
+            .UserData,
             => {
                 return self == other;
             },
@@ -257,6 +260,35 @@ pub const ObjNative = struct {
     // type_def: *ObjTypeDef,
 
     native: NativeFn,
+
+    pub fn mark(_: *Self, _: *VM) void {}
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
+    pub fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .Native) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
+    }
+};
+
+pub const UserData = opaque {};
+
+/// User data, type around an opaque pointer
+pub const ObjUserData = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .UserData },
+
+    userdata: *UserData,
 
     pub fn mark(_: *Self, _: *VM) void {}
 
@@ -2509,6 +2541,11 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             var native: *ObjNative = ObjNative.cast(obj).?;
 
             return try std.fmt.bufPrint(buf, "native: 0x{x}", .{@ptrToInt(native)});
+        },
+        .UserData => {
+            var userdata: *ObjUserData = ObjUserData.cast(obj).?;
+
+            return try std.fmt.bufPrint(buf, "userdata: 0x{x}", .{@ptrToInt(userdata)});
         },
     };
 }

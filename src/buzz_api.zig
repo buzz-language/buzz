@@ -13,6 +13,8 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
+const ObjUserData = _obj.ObjUserData;
+const UserData = _obj.UserData;
 const Compiler = _compiler.Compiler;
 
 // Stack manipulation
@@ -213,6 +215,16 @@ export fn bz_listAppend(self: *ObjList, value: *Value) bool {
     };
 
     return true;
+}
+
+export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
+    return _obj.allocateObject(
+        vm,
+        ObjUserData,
+        ObjUserData{ .userdata = userdata },
+    ) catch {
+        return null;
+    };
 }
 
 export fn bz_throw(vm: *VM, value: *Value) void {
