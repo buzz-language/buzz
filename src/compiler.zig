@@ -218,6 +218,14 @@ pub const ParserState = struct {
 pub const Compiler = struct {
     const Self = @This();
 
+    pub const BlockType = enum {
+        While,
+        Do,
+        For,
+        ForEach,
+        Function,
+    };
+
     const Precedence = enum {
         None,
         Assignment, // =, -=, +=, *=, /=
@@ -1143,7 +1151,7 @@ pub const Compiler = struct {
         return true;
     }
 
-    fn declarationOrStatement(self: *Self) !?std.ArrayList(usize) {
+    fn declarationOrStatement(self: *Self, block_type: BlockType) !?std.ArrayList(usize) {
         var hanging: bool = false;
         const constant: bool = try self.match(.Const);
         // Things we can match with the first token
@@ -1244,14 +1252,14 @@ pub const Compiler = struct {
             try self.reportError("`const` not allowed here.");
         }
 
-        return try self.statement(hanging);
+        return try self.statement(hanging, block_type);
     }
 
     // When a break statement, will return index of jump to patch
-    fn statement(self: *Self, hanging: bool) !?std.ArrayList(usize) {
+    fn statement(self: *Self, hanging: bool, block_type: BlockType) !?std.ArrayList(usize) {
         if (try self.match(.If)) {
             assert(!hanging);
-            return try self.ifStatement();
+            return try self.ifStatement(block_type);
         } else if (try self.match(.For)) {
             assert(!hanging);
             try self.forStatement();
@@ -1270,13 +1278,13 @@ pub const Compiler = struct {
         } else if (try self.match(.Break)) {
             assert(!hanging);
             var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(self.allocator);
-            try breaks.append(try self.breakStatement());
+            try breaks.append(try self.breakStatement(block_type));
 
             return breaks;
         } else if (try self.match(.Continue)) {
             assert(!hanging);
             var continues: std.ArrayList(usize) = std.ArrayList(usize).init(self.allocator);
-            try continues.append(try self.continueStatement());
+            try continues.append(try self.continueStatement(block_type));
 
             return continues;
         } else if (try self.match(.Throw)) {
@@ -1477,11 +1485,11 @@ pub const Compiler = struct {
     }
 
     // Returns a list of break jumps to patch
-    fn block(self: *Self) anyerror!std.ArrayList(usize) {
+    fn block(self: *Self, block_type: BlockType) anyerror!std.ArrayList(usize) {
         var breaks = std.ArrayList(usize).init(self.allocator);
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            if (try self.declarationOrStatement()) |jumps| {
+            if (try self.declarationOrStatement(block_type)) |jumps| {
                 try breaks.appendSlice(jumps.items);
                 jumps.deinit();
             }
@@ -1851,7 +1859,7 @@ pub const Compiler = struct {
             self.current.?.return_emitted = true;
         } else if (function_type != .Extern) {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
-            _ = try self.block();
+            _ = try self.block(.Function);
         }
 
         self.current.?.function.type_def = try self.getTypeDef(function_typedef);
@@ -2934,13 +2942,21 @@ pub const Compiler = struct {
         try self.emitOpCode(.OP_POP);
     }
 
-    fn breakStatement(self: *Self) !usize {
+    fn breakStatement(self: *Self, block_type: BlockType) !usize {
+        if (block_type == .Function) {
+            try self.reportError("break is not allowed here.");
+        }
+
         try self.consume(.Semicolon, "Expected `;` after `break`.");
 
         return try self.emitJump(.OP_JUMP);
     }
 
-    fn continueStatement(self: *Self) !usize {
+    fn continueStatement(self: *Self, block_type: BlockType) !usize {
+        if (block_type == .Function) {
+            try self.reportError("continue is not allowed here.");
+        }
+
         try self.consume(.Semicolon, "Expected `;` after `continue`.");
 
         return try self.emitJump(.OP_LOOP);
@@ -3125,7 +3141,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
 
-        var breaks: std.ArrayList(usize) = try self.block();
+        var breaks: std.ArrayList(usize) = try self.block(.ForEach);
         defer breaks.deinit();
 
         try self.emitLoop(loop_start);
@@ -3193,7 +3209,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `for` definition.");
 
-        var breaks: std.ArrayList(usize) = try self.block();
+        var breaks: std.ArrayList(usize) = try self.block(.For);
         defer breaks.deinit();
 
         try self.emitLoop(expr_loop);
@@ -3228,7 +3244,7 @@ pub const Compiler = struct {
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
 
-        var breaks: std.ArrayList(usize) = try self.block();
+        var breaks: std.ArrayList(usize) = try self.block(.While);
         defer breaks.deinit();
 
         try self.emitLoop(loop_start);
@@ -3250,7 +3266,7 @@ pub const Compiler = struct {
         try self.consume(.LeftBrace, "Expected `{` after `do`.");
         self.beginScope();
 
-        var breaks: std.ArrayList(usize) = try self.block();
+        var breaks: std.ArrayList(usize) = try self.block(.Do);
         defer breaks.deinit();
 
         try self.consume(.Until, "Expected `until` after `do` block.");
@@ -3281,7 +3297,7 @@ pub const Compiler = struct {
         try self.endScope();
     }
 
-    fn ifStatement(self: *Self) anyerror!std.ArrayList(usize) {
+    fn ifStatement(self: *Self, block_type: BlockType) anyerror!std.ArrayList(usize) {
         try self.consume(.LeftParen, "Expected `(` after `if`.");
 
         var parsed_type: *ObjTypeDef = try self.expression(false);
@@ -3296,7 +3312,7 @@ pub const Compiler = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
-        var breaks: std.ArrayList(usize) = try self.block();
+        var breaks: std.ArrayList(usize) = try self.block(block_type);
         try self.endScope();
 
         const else_jump: usize = try self.emitJump(.OP_JUMP);
@@ -3306,14 +3322,14 @@ pub const Compiler = struct {
 
         if (try self.match(.Else)) {
             if (try self.match(.If)) {
-                var else_if_breaks: std.ArrayList(usize) = try self.ifStatement();
+                var else_if_breaks: std.ArrayList(usize) = try self.ifStatement(block_type);
                 try breaks.appendSlice(else_if_breaks.items);
                 else_if_breaks.deinit();
             } else {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
                 self.beginScope();
                 self.current.?.return_counts = true;
-                var else_breaks: std.ArrayList(usize) = try self.block();
+                var else_breaks: std.ArrayList(usize) = try self.block(block_type);
                 try breaks.appendSlice(else_breaks.items);
                 else_breaks.deinit();
                 self.current.?.return_counts = false;

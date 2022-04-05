@@ -1,0 +1,11 @@
+test "break outside of loop" {
+    while (true) {
+        break;
+    }
+
+    if (true) {
+        break;
+    }
+
+    break;
+}
