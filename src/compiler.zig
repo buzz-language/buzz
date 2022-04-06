@@ -2375,7 +2375,6 @@ pub const Compiler = struct {
             }
         }
 
-        // TODO: if (is_main) check function signature is `fun ([str]) > num`
         if (is_main) {
             try self.checkMainSignature(function_def);
         }

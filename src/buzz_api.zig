@@ -217,6 +217,18 @@ export fn bz_listAppend(self: *ObjList, value: *Value) bool {
     return true;
 }
 
+export fn bz_valueToList(value: *Value) *ObjList {
+    return ObjList.cast(value.Obj).?;
+}
+
+export fn bz_listGet(self: *ObjList, index: usize) *Value {
+    return &self.items.items[index];
+}
+
+export fn bz_listLen(self: *ObjList) usize {
+    return self.items.items.len;
+}
+
 export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     return _obj.allocateObject(
         vm,

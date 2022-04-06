@@ -14,7 +14,7 @@ extern fun tmpFilename(str? prefix) > str;
 extern fun buzzExit(num exitCode) > void;
 
 | Execute command and return its exit code
-extern fun execute(str command) > num;
+extern fun execute([str] command) > num;
 
 export time;
 export env;

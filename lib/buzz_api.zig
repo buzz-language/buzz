@@ -53,6 +53,9 @@ pub const ObjString = opaque {
 pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList;
     pub extern fn bz_listAppend(self: *ObjList, value: *Value) bool;
+    pub extern fn bz_valueToList(value: *Value) *ObjList;
+    pub extern fn bz_listGet(self: *ObjList, index: usize) *Value;
+    pub extern fn bz_listLen(self: *ObjList) usize;
 };
 
 pub const ObjFunction = opaque {};

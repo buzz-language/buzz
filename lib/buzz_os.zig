@@ -115,9 +115,22 @@ export fn buzzExit(vm: *api.VM) c_int {
 }
 
 export fn execute(vm: *api.VM) c_int {
-    const command: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse "", 0);
+    // const command: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse "", 0);
+    var command = std.ArrayList([]const u8).init(api.VM.allocator);
+    defer command.deinit();
 
-    const child_process = std.ChildProcess.init(&[_][]const u8{command}, api.VM.allocator) catch {
+    const argv = api.ObjList.bz_valueToList(vm.bz_peek(0));
+    const len = argv.bz_listLen();
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        command.append(utils.toSlice(api.Value.bz_valueToString(argv.bz_listGet(i)) orelse "")) catch {
+            vm.bz_throwString("Could not execute");
+
+            return -1;
+        };
+    }
+
+    const child_process = std.ChildProcess.init(command.items, api.VM.allocator) catch {
         vm.bz_throwString("Could not execute");
 
         return -1;
