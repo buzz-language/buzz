@@ -1919,41 +1919,41 @@ pub const Compiler = struct {
 
         // Parse type and name
         if (try self.match(.Str)) {
-            try self.consume(.Identifier, "Expected property name.");
-            name = self.parser.previous_token.?.clone();
-            name_constant = try self.identifierConstant(name.?.lexeme);
-
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .String,
             });
-        } else if (try self.match(.Num)) {
+
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
             name_constant = try self.identifierConstant(name.?.lexeme);
-
+        } else if (try self.match(.Num)) {
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Number,
             });
-        } else if (try self.match(.Bool)) {
+
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
             name_constant = try self.identifierConstant(name.?.lexeme);
-
+        } else if (try self.match(.Bool)) {
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Bool,
             });
-        } else if (try self.match(.Type)) {
+
             try self.consume(.Identifier, "Expected property name.");
             name = self.parser.previous_token.?.clone();
             name_constant = try self.identifierConstant(name.?.lexeme);
-
+        } else if (try self.match(.Type)) {
             type_def = try self.getTypeDef(ObjTypeDef{
                 .optional = try self.match(.Question),
                 .def_type = .Type,
             });
+
+            try self.consume(.Identifier, "Expected property name.");
+            name = self.parser.previous_token.?.clone();
+            name_constant = try self.identifierConstant(name.?.lexeme);
         } else if (try self.match(.LeftBracket)) {
             type_def = try self.parseListType();
 
