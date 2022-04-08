@@ -6,7 +6,7 @@ const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
 const VM = @import("./vm.zig").VM;
-const Compiler = @import("./compiler.zig").Compiler;
+const Parser = @import("./parser.zig").Parser;
 const _memory = @import("./memory.zig");
 const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
@@ -538,29 +538,29 @@ pub const ObjString = struct {
         return null;
     }
 
-    pub fn memberDef(compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
+    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
         if (Self.memberDefs) |umembers| {
             if (umembers.get(method)) |umethod| {
                 return umethod;
             }
         }
 
-        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(compiler.allocator);
+        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
         if (mem.eql(u8, method, "len")) {
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
-                .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
+                .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
+                .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
+                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try compiler.getTypeDef(
+            var native_type = try parser.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -571,23 +571,23 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("at", try compiler.getTypeDef(.{ .def_type = .Number }));
+            try parameters.put("at", try parser.getTypeDef(.{ .def_type = .Number }));
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "byte", false),
+                .name = try copyStringRaw(parser.strings, parser.allocator, "byte", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                .return_type = try compiler.getTypeDef(.{ .def_type = .Number }),
+                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try compiler.getTypeDef(
+            var native_type = try parser.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -598,18 +598,18 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("needle", try compiler.getTypeDef(.{ .def_type = .String }));
+            try parameters.put("needle", try parser.getTypeDef(.{ .def_type = .String }));
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "indexOf", false),
+                .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                .return_type = try compiler.getTypeDef(
+                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .return_type = try parser.getTypeDef(
                     .{
                         .def_type = .Number,
                         .optional = true,
@@ -619,7 +619,7 @@ pub const ObjString = struct {
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try compiler.getTypeDef(
+            var native_type = try parser.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -630,16 +630,16 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("separator", try compiler.getTypeDef(.{ .def_type = .String }));
+            try parameters.put("separator", try parser.getTypeDef(.{ .def_type = .String }));
 
             var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                compiler.allocator,
-                try compiler.getTypeDef(ObjTypeDef{
+                parser.allocator,
+                try parser.getTypeDef(ObjTypeDef{
                     .def_type = .String,
                 }),
             );
@@ -649,10 +649,10 @@ pub const ObjString = struct {
             };
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "split", false),
+                .name = try copyStringRaw(parser.strings, parser.allocator, "split", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                .return_type = try compiler.getTypeDef(ObjTypeDef{
+                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .return_type = try parser.getTypeDef(ObjTypeDef{
                     .def_type = .List,
                     .optional = false,
                     .resolved_type = list_def_union,
@@ -661,7 +661,7 @@ pub const ObjString = struct {
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try compiler.getTypeDef(
+            var native_type = try parser.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -672,14 +672,14 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
             try parameters.put(
                 "start",
-                try compiler.getTypeDef(
+                try parser.getTypeDef(
                     .{
                         .def_type = .Number,
                     },
@@ -687,7 +687,7 @@ pub const ObjString = struct {
             );
             try parameters.put(
                 "len",
-                try compiler.getTypeDef(
+                try parser.getTypeDef(
                     .{
                         .def_type = .Number,
                         .optional = true,
@@ -696,15 +696,15 @@ pub const ObjString = struct {
             );
 
             var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(compiler.strings, compiler.allocator, "sub", false),
+                .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                .return_type = try compiler.getTypeDef(ObjTypeDef{ .def_type = .String }),
+                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .return_type = try parser.getTypeDef(ObjTypeDef{ .def_type = .String }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try compiler.getTypeDef(
+            var native_type = try parser.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -1354,7 +1354,7 @@ pub const ObjList = struct {
             self.methods.deinit();
         }
 
-        pub fn member(obj_list: *ObjTypeDef, compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
+        pub fn member(obj_list: *ObjTypeDef, parser: *Parser, method: []const u8) !?*ObjTypeDef {
             var self = obj_list.resolved_type.?.List;
 
             if (self.methods.get(method)) |native_def| {
@@ -1362,7 +1362,7 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1371,26 +1371,26 @@ pub const ObjList = struct {
                 try parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "append", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "append", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
                     .return_type = obj_list,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
+                var native_type = try parser.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
 
                 try self.methods.put("append", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var at_type = try compiler.getTypeDef(
+                var at_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Number,
                         .optional = false,
@@ -1400,10 +1400,10 @@ pub const ObjList = struct {
                 try parameters.put("at", at_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(.{
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .return_type = try parser.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
                         .resolved_type = self.item_type.resolved_type,
@@ -1412,7 +1412,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1423,13 +1423,13 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "len", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .return_type = try parser.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                         },
@@ -1438,7 +1438,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1449,7 +1449,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1457,7 +1457,7 @@ pub const ObjList = struct {
                 // `key` arg is number
                 try parameters.put(
                     "key",
-                    try compiler.getTypeDef(
+                    try parser.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                             .optional = true,
@@ -1466,11 +1466,11 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "next", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "next", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
                     // When reached end of list, returns null
-                    .return_type = try compiler.getTypeDef(
+                    .return_type = try parser.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                             .optional = true,
@@ -1480,7 +1480,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1491,14 +1491,14 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "sub")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
                 try parameters.put(
                     "start",
-                    try compiler.getTypeDef(
+                    try parser.getTypeDef(
                         .{
                             .def_type = .Number,
                         },
@@ -1506,7 +1506,7 @@ pub const ObjList = struct {
                 );
                 try parameters.put(
                     "len",
-                    try compiler.getTypeDef(
+                    try parser.getTypeDef(
                         .{
                             .def_type = .Number,
                             .optional = true,
@@ -1515,15 +1515,15 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "sub", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
                     .return_type = obj_list,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1534,7 +1534,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "indexOf")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -1542,10 +1542,10 @@ pub const ObjList = struct {
                 try parameters.put("needle", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "indexOf", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .return_type = try parser.getTypeDef(
                         .{
                             .def_type = self.item_type.def_type,
                             .optional = true,
@@ -1556,7 +1556,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1567,25 +1567,25 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "join")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put("separator", try compiler.getTypeDef(.{ .def_type = .String }));
+                try parameters.put("separator", try parser.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "join", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "join", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(ObjTypeDef{
+                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .return_type = try parser.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1848,7 +1848,7 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
-        pub fn member(obj_list: *ObjTypeDef, compiler: *Compiler, method: []const u8) !?*ObjTypeDef {
+        pub fn member(obj_list: *ObjTypeDef, compiler: *Parser, method: []const u8) !?*ObjTypeDef {
             var self = obj_list.resolved_type.?.Map;
 
             if (self.methods.get(method)) |native_def| {
@@ -2193,10 +2193,20 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
-    pub fn cloneOptional(self: *Self, compiler: *Compiler) !*ObjTypeDef {
+    pub fn cloneOptional(self: *Self, compiler: *Parser) !*ObjTypeDef {
         return compiler.getTypeDef(
             .{
                 .optional = true,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
+    pub fn cloneNonOptional(self: *Self, compiler: *Parser) !*ObjTypeDef {
+        return compiler.getTypeDef(
+            .{
+                .optional = false,
                 .def_type = self.def_type,
                 .resolved_type = self.resolved_type,
             },

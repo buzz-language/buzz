@@ -4,7 +4,7 @@ const api = @import("./buzz_api.zig");
 export fn abs(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.absFloat(n));
+    vm.bz_pushNum(if (n < 0) n * -1 else n);
 
     return 1;
 }
@@ -114,10 +114,11 @@ export fn sqrt(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn tan(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
-
-    vm.bz_pushNum(std.math.tan(n));
-
-    return 1;
-}
+// FIXME: crashes zig
+// export fn tan(vm: *api.VM) c_int {
+//     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+//
+//     vm.bz_pushNum(std.math.tan(n));
+//
+//     return 1;
+// }

@@ -35,6 +35,14 @@
       "program": "${workspaceFolder}/zig-out/bin/test",
       "args": ["/usr/local/bin/zig"],
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "AST",
+      "program": "${workspaceFolder}/parser",
+      "args": [],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

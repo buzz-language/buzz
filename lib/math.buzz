@@ -36,7 +36,7 @@ extern fun sin(num n) > num;
 
 extern fun sqrt(num n) > num;
 
-extern fun tan(num n) > num;
+| extern fun tan(num n) > num;
 
 export abs;
 export acos;

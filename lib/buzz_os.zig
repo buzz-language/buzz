@@ -130,11 +130,7 @@ export fn execute(vm: *api.VM) c_int {
         };
     }
 
-    const child_process = std.ChildProcess.init(command.items, api.VM.allocator) catch {
-        vm.bz_throwString("Could not execute");
-
-        return -1;
-    };
+    var child_process = std.ChildProcess.init(command.items, api.VM.allocator);
     child_process.disable_aslr = true;
 
     child_process.spawn() catch {
