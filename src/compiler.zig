@@ -1451,13 +1451,13 @@ pub const Compiler = struct {
                 var first_jump: OptJump = jumps.items[0];
 
                 if (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) < @enumToInt(first_jump.precedence)) {
-                    // Hope over pop if actual value
+                    // Hope over OP_POP if actual value
                     const njump: usize = try self.emitJump(.OP_JUMP);
 
                     for (jumps.items) |jump| {
                         try self.patchJump(jump.jump);
                     }
-                    // If aborted by a null optional, will result in null on the stackl
+                    // If aborted by a null optional, will result in null on the stack
                     try self.emitOpCode(.OP_POP);
 
                     try self.patchJump(njump);
@@ -2610,13 +2610,13 @@ pub const Compiler = struct {
             .resolved_type = enum_resolved,
         };
 
-        const name_constant: u24 = try self.makeConstant(Value{
+        const type_constant: u24 = try self.makeConstant(Value{
             .Obj = enum_type.toObj(),
         });
 
         const slot: usize = try self.declareVariable(enum_type, enum_name, true);
 
-        try self.emitCodeArg(.OP_ENUM, name_constant);
+        try self.emitCodeArg(.OP_ENUM, type_constant);
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         self.markInitialized();

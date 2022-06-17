@@ -152,6 +152,7 @@ pub const Frame = struct {
     // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     return_emitted: bool = false,
     function_node: *FunctionNode,
+    function: ?*ObjFunction = null,
     constants: std.ArrayList(Value),
 };
 
@@ -178,7 +179,7 @@ pub const Parser = struct {
         Function,
     };
 
-    const Precedence = enum {
+    pub const Precedence = enum {
         None,
         Assignment, // =, -=, +=, *=, /=
         Is, // is
@@ -309,6 +310,9 @@ pub const Parser = struct {
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
 
+    // Jump to patch at end of current expression with a optional unwrapping in the middle of it
+    opt_jumps: ?std.ArrayList(Precedence) = null,
+
     pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
         return .{
             .allocator = allocator,
@@ -364,7 +368,7 @@ pub const Parser = struct {
             }
         }
 
-        return if (self.parser.had_error) null else self.endFrame().toNode();
+        return if (self.parser.had_error) null else self.endFrame().node;
     }
 
     fn beginFrame(self: *Self, function_type: FunctionType, function_node: *FunctionNode, this: ?*ParseNode) !void {
@@ -834,7 +838,7 @@ pub const Parser = struct {
 
                 node.type_name = user_type_name;
 
-                return node.toNode();
+                return node.node;
             } else if (!constant and try self.match(.Export)) {
                 return try self.exportStatement();
             } else {
@@ -955,7 +959,7 @@ pub const Parser = struct {
             var node = try self.allocator.create(ThrowNode);
             node.* = .{ .error_value = error_value };
 
-            return node.toNode();
+            return node.node;
         } else {
             return try self.expressionStatement(hanging);
         }
@@ -992,7 +996,7 @@ pub const Parser = struct {
             },
         };
 
-        _ = try self.declareVariable(
+        const slot = try self.declareVariable(
             object_type,
             object_name,
             true, // Object is always constant
@@ -1009,6 +1013,7 @@ pub const Parser = struct {
         self.current_object = object_compiler;
 
         // Inherited class?
+        var parent_slot: ?usize = null;
         if (is_class) {
             object_type.resolved_type.?.Object.inheritable = true;
 
@@ -1019,7 +1024,7 @@ pub const Parser = struct {
                     try self.reportError("A class can't inherit itself.");
                 }
 
-                var parent_slot: usize = try self.parseUserType();
+                parent_slot = try self.parseUserType();
                 var parent: *ObjTypeDef = self.globals.items[parent_slot].type_def;
 
                 object_type.resolved_type.?.Object.super = parent;
@@ -1048,7 +1053,8 @@ pub const Parser = struct {
 
         var fields = std.StringHashMap(void).init(self.allocator);
         defer fields.deinit();
-        var members = std.ArrayList(*ParseNode).init(self.allocator);
+        var methods = std.StringHashMap(*ParseNode);
+        var properties = std.StringHashMap(?*ParseNode);
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             const static: bool = try self.match(.Static);
 
@@ -1057,7 +1063,7 @@ pub const Parser = struct {
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
-                    try self.reportError("A method with that name already exists.");
+                    try self.reportError("A member with that name already exists.");
                 }
 
                 // Does a placeholder exists for this name ?
@@ -1087,43 +1093,53 @@ pub const Parser = struct {
                 }
 
                 try fields.put(method_name, {});
-                try members.append(method_node);
+                try methods.put(method_name, method_node);
             } else {
-                var constant = try self.match(.Const);
-                var prop = VarDeclarationNode.cast(try self.varDeclaration(
-                    try self.parseTypeDef(),
-                    if (static) .Semicolon else .Nothing,
-                    constant,
-                    true,
-                )).?;
+                // TODO: constant object properties
+                // const constant = try self.match(.Const);
+                const property_type = try self.parseTypeDef();
 
-                // If end of block, the declaration can omit trailing comma
-                if (!self.check(.RightBrace) and !static) {
-                    try self.consume(.Comma, "Expected `,` after property declaration.");
+                try self.consume(.Identifier, "Expected property name.");
+                const property_name = self.parser.previous_token.?.clone();
+
+                if (fields.get(property_name.lexeme) != null) {
+                    try self.reportError("A member with that name already exists.");
                 }
 
-                if (fields.get(prop.name.lexeme) != null) {
-                    try self.reportError("A property with that name already exists.");
+                var default: ?*ParseNode = null;
+
+                if (try self.match(.Equal)) {
+                    default = try self.expression(false);
+                }
+
+                if (static) {
+                    if (!self.check(.RightBrace) or self.check(.Semicolon)) {
+                        try self.consume(.Semicolon, "Expected `;` after static property definition.");
+                    }
+                } else {
+                    if (!self.check(.RightBrace) or self.check(.Comma)) {
+                        try self.consume(.Comma, "Expected `,` after property definition.");
+                    }
                 }
 
                 if (static) {
                     try object_type.resolved_type.?.Object.static_fields.put(
-                        prop.name.lexeme,
-                        prop.type_def.?,
+                        property_name.lexeme,
+                        property_type,
                     );
                 } else {
                     try object_type.resolved_type.?.Object.fields.put(
-                        prop.name.lexeme,
-                        prop.type_def.?,
+                        property_name.lexeme,
+                        property_type,
                     );
 
-                    if (prop.value != null) {
-                        try object_type.resolved_type.?.Object.fields_defaults.put(prop.name.lexeme, {});
+                    if (default != null) {
+                        try object_type.resolved_type.?.Object.fields_defaults.put(property_name, {});
                     }
                 }
 
-                try fields.put(prop.name.lexeme, {});
-                try members.append(prop.toNode());
+                try fields.put(property_name, {});
+                try properties.put(property_name, default);
             }
         }
 
@@ -1131,15 +1147,19 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ObjectDeclarationNode);
         node.* = ObjectDeclarationNode{
-            .members = members.items,
+            .parent_slot = parent_slot,
+            .slot = slot,
+            .methods = methods,
+            .properties = properties,
         };
         node.node.type_def = object_type;
+        node.node.location = self.parser.previous_token.?;
 
         self.endScope();
 
         self.current_object = null;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn method(self: *Self, this: *ParseNode) !*ParseNode {
@@ -1169,7 +1189,7 @@ pub const Parser = struct {
         var node = try self.allocator.create(BreakNode);
         node.* = .{};
 
-        return node.toNode();
+        return node.node;
     }
 
     fn continueStatement(self: *Self, block_type: BlockType) !*ParseNode {
@@ -1182,7 +1202,7 @@ pub const Parser = struct {
         var node = try self.allocator.create(ContinueNode);
         node.* = .{};
 
-        return node.toNode();
+        return node.node;
     }
 
     fn ifStatement(self: *Self, block_type: BlockType) anyerror!*ParseNode {
@@ -1216,8 +1236,9 @@ pub const Parser = struct {
             .body = body,
             .else_branch = else_branch,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn forStatement(self: *Self) !*ParseNode {
@@ -1264,8 +1285,9 @@ pub const Parser = struct {
             .post_loop = post_loop,
             .body = body,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn forEachStatement(self: *Self) !*ParseNode {
@@ -1305,8 +1327,9 @@ pub const Parser = struct {
             .iterable = iterable,
             .block = body,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn whileStatement(self: *Self) !*ParseNode {
@@ -1329,8 +1352,9 @@ pub const Parser = struct {
             .condition = condition,
             .block = body,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn doUntilStatement(self: *Self) !*ParseNode {
@@ -1355,11 +1379,19 @@ pub const Parser = struct {
             .condition = condition,
             .block = body,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn returnStatement(self: *Self) !*ParseNode {
+        if (self.current.?.scope_depth == 0) {
+            try self.reportError("Can't use `return` at top-level.");
+        } else if (self.current.?.scope_depth == 1 or self.current.?.return_counts) {
+            // scope_depth at 1 == "root" level of the function
+            self.current.?.return_emitted = true;
+        }
+
         var value: ?*ParseNode = null;
         if (!try self.match(.Semicolon)) {
             value = try self.expression(false);
@@ -1371,8 +1403,9 @@ pub const Parser = struct {
         node.* = ReturnNode{
             .value = value,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
@@ -1391,6 +1424,7 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
         };
+        node.node.location = self.parser.previous_token.?;
 
         if (node.value != null and node.value.?.type_def.?.def_type == .Placeholder) {
             try PlaceholderDef.link(var_type, node.value.?.type_def.?, .Assignment);
@@ -1405,7 +1439,7 @@ pub const Parser = struct {
 
         self.markInitialized();
 
-        return node.toNode();
+        return node.node;
     }
 
     fn userVarDeclaration(self: *Self, _: bool, constant: bool) !*ParseNode {
@@ -1489,8 +1523,9 @@ pub const Parser = struct {
             .path = path,
             .import = import,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn exportStatement(self: *Self) !*ParseNode {
@@ -1518,8 +1553,9 @@ pub const Parser = struct {
                 .identifier = identifier,
                 .alias = alias,
             };
+            node.node.location = self.parser.previous_token.?;
 
-            return node.toNode();
+            return node.node;
         }
 
         try self.reportError("Unknown global.");
@@ -1529,8 +1565,9 @@ pub const Parser = struct {
             .identifier = identifier,
             .alias = identifier,
         };
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn funDeclaration(self: *Self) !*ParseNode {
@@ -1643,6 +1680,11 @@ pub const Parser = struct {
     }
 
     fn enumDeclaration(self: *Self) !*ParseNode {
+        if (self.current.?.scope_depth > 0) {
+            try self.reportError("Enum must be defined at top-level.");
+            return;
+        }
+
         var enum_case_type: *ObjTypeDef = undefined;
         var case_type_picked: bool = false;
         if (try self.match(.LeftParen)) {
@@ -1659,6 +1701,13 @@ pub const Parser = struct {
         try self.consume(.Identifier, "Expected enum name.");
         var enum_name: Token = self.parser.previous_token.?.clone();
 
+        for (self.globals.items) |global| {
+            if (mem.eql(u8, global.name.string, enum_name.lexeme)) {
+                try self.reportError("Global with that name already exists.");
+                break;
+            }
+        }
+
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.allocator,
             try copyStringRaw(self.strings, self.allocator, enum_name.lexeme, false),
@@ -1672,6 +1721,9 @@ pub const Parser = struct {
             .def_type = .Enum,
             .resolved_type = enum_resolved,
         };
+
+        const slot: usize = try self.declareVariable(enum_type, enum_name, true);
+        try self.markInitialized();
 
         try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
@@ -1692,8 +1744,9 @@ pub const Parser = struct {
             } else {
                 var constant_node = try self.allocator.create(NumberNode);
                 constant_node.* = NumberNode{ .constant = case_index };
+                constant_node.node.location = self.parser.previous_token.?;
 
-                try cases.append(constant_node.toNode());
+                try cases.append(constant_node.node);
             }
 
             try enum_type.resolved_type.?.Enum.cases.append(case_name);
@@ -1710,16 +1763,19 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(EnumNode);
         node.* = EnumNode{
+            .slot = slot,
             .cases = cases,
         };
         node.node.type_def = enum_type;
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
         var node = try self.allocator.create(ObjectInitNode);
         node.* = ObjectInitNode.init(self.allocator);
+        node.node.location = self.parser.previous_token.?;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             try self.consume(.Identifier, "Expected property name");
@@ -1737,7 +1793,7 @@ pub const Parser = struct {
 
         node.node.type_def = if (object.type_def) |type_def| try self.getTypeDef(type_def.toInstance()) else null;
 
-        return node.toNode();
+        return node.node;
     }
 
     pub fn expression(self: *Self, hanging: bool) !*ParseNode {
@@ -1757,7 +1813,7 @@ pub const Parser = struct {
 
         try self.consume(.RightBrace, "Expected `}}` after block.");
 
-        return node.toNode();
+        return node.node;
     }
 
     inline fn getRule(token: TokenType) ParseRule {
@@ -1782,10 +1838,26 @@ pub const Parser = struct {
         var node: *ParseNode = try prefixRule.?(self, canAssign);
 
         while (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) >= @enumToInt(precedence)) {
+            var patch_opt_jumps = false;
+
+            // Patch optional jumps
+            if (self.opt_jumps) |jumps| {
+                assert(jumps.items.len > 0);
+                var first_jump: Precedence = jumps.items[0];
+
+                if (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) < @enumToInt(first_jump)) {
+                    patch_opt_jumps = true;
+
+                    jumps.deinit();
+                    self.opt_jumps = null;
+                }
+            }
+
             _ = try self.advance();
 
             var infixRule: InfixParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
             node = try infixRule(self, canAssign, node);
+            node.patch_opt_jumps = true;
         }
 
         if (canAssign and (try self.match(.Equal))) {
@@ -1826,9 +1898,10 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = slot_type,
         };
-        node.toNode().type_def = var_def;
+        node.node.location = self.parser.previous_token.?;
+        node.node.type_def = var_def;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn number(self: *Self, _: bool) anyerror!*ParseNode {
@@ -1840,12 +1913,13 @@ pub const Parser = struct {
         node.node.type_def = try self.getTypeDef(.{
             .def_type = .Number,
         });
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn string(self: *Self, _: bool) anyerror!*ParseNode {
-        return (try StringParser.init(self, self.parser.previous_token.?.literal_string.?).parse()).toNode();
+        return (try StringParser.init(self, self.parser.previous_token.?.literal_string.?).parse()).node;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ParseNode {
@@ -1866,7 +1940,9 @@ pub const Parser = struct {
                     .def_type = .Bool,
                 });
 
-                return node.toNode();
+                node.node.location = self.parser.previous_token.?;
+
+                return node.node;
             },
             .True => {
                 var node = try self.allocator.create(BooleanNode);
@@ -1877,7 +1953,9 @@ pub const Parser = struct {
                     .def_type = .Bool,
                 });
 
-                return node.toNode();
+                node.node.location = self.parser.previous_token.?;
+
+                return node.node;
             },
             .Null => {
                 var node = try self.allocator.create(NullNode);
@@ -1888,7 +1966,9 @@ pub const Parser = struct {
                     .def_type = .Void,
                 });
 
-                return node.toNode();
+                node.node.location = self.parser.previous_token.?;
+
+                return node.node;
             },
             else => unreachable,
         }
@@ -1905,12 +1985,13 @@ pub const Parser = struct {
             .operator = operator,
         };
         node.node.type_def = left.type_def;
+        node.node.location = self.parser.previous_token.?;
 
-        return node.toNode();
+        return node.node;
     }
 
-    fn argumentList(self: *Self) !std.ArrayList(ParsedArg) {
-        var arguments = std.ArrayList(ParsedArg).init(self.allocator);
+    fn argumentList(self: *Self) !std.ArrayList(*ParseNode) {
+        var arguments = std.StringArrayHashMap(*ParseNode).init(self.allocator);
 
         var arg_count: u8 = 0;
         while (!try self.match(.RightParen)) {
@@ -1938,12 +2019,7 @@ pub const Parser = struct {
                 }
             }
 
-            var expr: *ParseNode = try self.expression(hanging);
-
-            try arguments.append(ParsedArg{
-                .name = if (!hanging) arg_name else null, // If hanging, the identifier is NOT the argument name
-                .arg = expr,
-            });
+            try arguments.put(if (!hanging) arg_name else "$", try self.expression(hanging));
 
             if (arg_count == 255) {
                 try self.reportError("Can't have more than 255 arguments.");
@@ -1971,6 +2047,10 @@ pub const Parser = struct {
             .catches = try self.inlineCatch(),
         };
 
+        node.node.location = self.parser.previous_token.?;
+
+        // Note: callee.node.type_def has been populated with the member being referenced
+
         // Node type is Function or Native return type or nothing/placeholder
         node.node.type_def = if (callee.type_def != null and callee.type_def.?.def_type == .Function)
             callee.type_def.?.resolved_type.?.Function.return_type
@@ -1995,23 +2075,43 @@ pub const Parser = struct {
             }
         }
 
-        return node.toNode();
+        return node.node;
     }
 
     fn unwrap(self: *Self, _: bool, unwrapped: *ParseNode) anyerror!*ParseNode {
         var node = try self.allocator.create(UnwrapNode);
-        node.* = UnwrapNode{ .unwrapped = unwrapped };
+        node.* = UnwrapNode{
+            .unwrapped = unwrapped,
+            .original_type = unwrapped.type_def,
+        };
+        node.node.location = self.parser.previous_token.?;
+
+        if (unwrapped.type_def != null and unwrapped.type_def.?.def_type != .Placeholder and !unwrapped.type_def.?.optional) {
+            try self.reportError("Not an optional.");
+        }
+
         node.node.type_def = if (unwrapped.type_def) |type_def| try self.cloneTypeNonOptional(type_def) else null;
 
-        return node.toNode();
+        try self.opt_jumps.?.append(getRule(self.parser.current_token.?.token_type).precedence);
+
+        return node.node;
     }
 
     fn forceUnwrap(self: *Self, _: bool, unwrapped: *ParseNode) anyerror!*ParseNode {
         var node = try self.allocator.create(ForceUnwrapNode);
-        node.* = ForceUnwrapNode{ .unwrapped = unwrapped };
+        node.* = ForceUnwrapNode{
+            .unwrapped = unwrapped,
+            .original_type = unwrapped.type_def,
+        };
+        node.node.location = self.parser.previous_token.?;
+
+        if (unwrapped.type_def != null and unwrapped.type_def.?.def_type != .Placeholder and !unwrapped.type_def.?.optional) {
+            try self.reportError("Not an optional.");
+        }
+
         node.node.type_def = if (unwrapped.type_def) |type_def| try self.cloneTypeNonOptional(type_def) else null;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn variable(self: *Self, can_assign: bool) anyerror!*ParseNode {
@@ -2050,6 +2150,7 @@ pub const Parser = struct {
             .callee = callee,
             .identifier = self.parser.previous_token.?,
         };
+        node.node.location = self.parser.previous_token.?;
         // Check that name is a property
         const callee_def_type = if (callee.type_def) |type_def| type_def.def_type else .Placeholder;
         switch (callee_def_type) {
@@ -2060,7 +2161,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
 
                         assert(member.def_type == .Native);
-                        node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                        node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
@@ -2106,7 +2207,7 @@ pub const Parser = struct {
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = property_type;
 
-                    node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                    node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2151,7 +2252,8 @@ pub const Parser = struct {
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = property_type;
 
-                    node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                    node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
+                    node.call.?.invoked = true;
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2162,19 +2264,20 @@ pub const Parser = struct {
             .Enum => {
                 var enum_def: ObjEnum.EnumDef = callee.type_def.?.resolved_type.?.Enum;
 
-                for (enum_def.cases.items) |case| {
+                for (enum_def.cases.items) |case, index| {
                     if (mem.eql(u8, case, member_name)) {
                         var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
                             .EnumInstance = callee.type_def.?,
                         };
 
                         var enum_instance: *ObjTypeDef = try self.getTypeDef(.{
-                            .optional = try self.match(.Question),
+                            .optional = false,
                             .def_type = .EnumInstance,
                             .resolved_type = enum_instance_resolved_type,
                         });
 
                         node.node.type_def = enum_instance;
+                        node.enum_index = index;
                         break;
                     }
                 }
@@ -2197,7 +2300,8 @@ pub const Parser = struct {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = member;
 
-                        node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                        node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
+                        node.call.?.invoked = true;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
@@ -2214,7 +2318,8 @@ pub const Parser = struct {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = member;
 
-                        node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                        node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
+                        node.call.?.invoked = true;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
@@ -2248,7 +2353,7 @@ pub const Parser = struct {
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = placeholder;
 
-                    node.call = CallNode.cast(try self.call(can_assign, node.toNode())).?;
+                    node.call = CallNode.cast(try self.call(can_assign, node.node)).?;
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2259,7 +2364,7 @@ pub const Parser = struct {
             else => unreachable,
         }
 
-        return node.toNode();
+        return node.node;
     }
 
     fn and_(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
@@ -2271,13 +2376,14 @@ pub const Parser = struct {
             .right = right,
             .operator = .And,
         };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = try self.getTypeDef(
             .{
                 .def_type = .Bool,
             },
         );
 
-        return node.toNode();
+        return node.node;
     }
 
     fn or_(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
@@ -2289,13 +2395,14 @@ pub const Parser = struct {
             .right = right,
             .operator = .Or,
         };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = try self.getTypeDef(
             .{
                 .def_type = .Bool,
             },
         );
 
-        return node.toNode();
+        return node.node;
     }
 
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
@@ -2306,13 +2413,14 @@ pub const Parser = struct {
             .left = left,
             .constant = constant,
         };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = try self.getTypeDef(
             .{
                 .def_type = .Bool,
             },
         );
 
-        return node.toNode();
+        return node.node;
     }
 
     fn binary(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
@@ -2331,6 +2439,8 @@ pub const Parser = struct {
             .operator = operator,
         };
 
+        node.node.location = self.parser.previous_token.?;
+
         node.node.type_def = switch (operator) {
             .QuestionQuestion => if (right.type_def orelse left.type_def) |type_def| try self.cloneTypeNonOptional(type_def) else null,
 
@@ -2344,7 +2454,8 @@ pub const Parser = struct {
                 .def_type = .Bool,
             }),
 
-            .Plus,
+            .Plus => left.type_def orelse right.type_def,
+
             .Minus,
             .Star,
             .Slash,
@@ -2356,7 +2467,7 @@ pub const Parser = struct {
             else => null,
         };
 
-        return node.toNode();
+        return node.node;
     }
 
     fn subscript(self: *Self, can_assign: bool, subscripted: *ParseNode) anyerror!*ParseNode {
@@ -2398,9 +2509,10 @@ pub const Parser = struct {
             .index = index,
             .value = value,
         };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = subscripted_type_def;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn list(self: *Self, _: bool) anyerror!*ParseNode {
@@ -2446,9 +2558,10 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ListNode);
         node.* = ListNode{ .items = items.items };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = list_type;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn map(self: *Self, _: bool) anyerror!*ParseNode {
@@ -2507,9 +2620,10 @@ pub const Parser = struct {
             .keys = keys.items,
             .values = values.items,
         };
+        node.node.location = self.parser.previous_token.?;
         node.node.type_def = map_type;
 
-        return node.toNode();
+        return node.node;
     }
 
     fn super(self: *Self, _: bool) anyerror!*ParseNode {
@@ -2517,27 +2631,46 @@ pub const Parser = struct {
         try self.consume(.Identifier, "Expected superclass method name.");
         var member_name = self.parser.previous_token.?;
 
-        if (try self.match(.LeftParen)) {
-            var node = try self.allocator.create(SuperCallNode);
-            node.* = SuperCallNode{
-                .member_name = member_name,
-                .arguments = try self.argumentList(),
-                .catches = try self.inlineCatch(),
-            };
+        var node = try self.allocator.create(SuperNode);
+        node.* = SuperNode{
+            .identifier = member_name,
+        };
+        node.node.location = self.parser.previous_token.?;
 
+        if (try self.match(.LeftParen)) {
             const super_method: ?*ObjTypeDef = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme);
+
+            // call will look at parent node for function definition
+            node.node.type_def = super_method;
+
+            node.call = try self.call(false, self);
+            node.call.?.super = try self.namedVariable(
+                Token{
+                    .token_type = .Identifier,
+                    .lexeme = "super",
+                    .line = 0,
+                    .column = 0,
+                },
+                false,
+            );
+
             node.node.type_def = if (super_method) |umethod| umethod.resolved_type.?.Function.return_type else null;
 
-            return node.toNode();
+            return node.node;
         } else {
-            var node = try self.allocator.create(SuperNode);
-            node.* = SuperNode{
-                .member_name = member_name,
-            };
+            node.super = try self.namedVariable(
+                Token{
+                    .token_type = .Identifier,
+                    .lexeme = "super",
+                    .line = 0,
+                    .column = 0,
+                },
+                false,
+            );
 
             node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, member_name.lexeme);
 
-            return node.toNode();
+            return node.node;
         }
     }
 
@@ -2672,7 +2805,7 @@ pub const Parser = struct {
                             null_node.* = .{};
                             null_node.node.type_def = try self.getTypeDef(.{ .def_type = .Void });
 
-                            try function_node.default_arguments.put(arg_name, null_node.toNode());
+                            try function_node.default_arguments.put(arg_name, null_node.node);
 
                             try function_node.node.type_def.?.resolved_type.?.Function.has_defaults.put(arg_name, true);
                         }
@@ -2717,7 +2850,7 @@ pub const Parser = struct {
 
         function_node.node.type_def = try self.getTypeDef(function_typedef);
 
-        return self.endFrame().toNode();
+        return self.endFrame().node;
     }
 
     fn inlineCatch(self: *Self) ![]*ParseNode {

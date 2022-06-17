@@ -121,9 +121,11 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write(self: *Self, code: u32, line: usize) !void {
+    pub fn write(self: *Self, code: u32, line: ?usize) !void {
         _ = try self.code.append(code);
-        _ = try self.lines.append(line);
+        if (line != null) {
+            _ = try self.lines.append(line.?);
+        }
     }
 
     pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {

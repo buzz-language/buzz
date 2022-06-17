@@ -43,6 +43,14 @@
       "program": "${workspaceFolder}/parser",
       "args": [],
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "t",
+      "program": "${workspaceFolder}/t",
+      "args": ["src/parser.zig"],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

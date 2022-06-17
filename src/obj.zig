@@ -1848,8 +1848,8 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
-        pub fn member(obj_list: *ObjTypeDef, compiler: *Parser, method: []const u8) !?*ObjTypeDef {
-            var self = obj_list.resolved_type.?.Map;
+        pub fn member(obj_map: *ObjTypeDef, compiler: *Parser, method: []const u8) !?*ObjTypeDef {
+            var self = obj_map.resolved_type.?.Map;
 
             if (self.methods.get(method)) |native_def| {
                 return native_def;
