@@ -4,7 +4,8 @@ const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const utils = @import("./utils.zig");
 const memory = @import("./memory.zig");
-const _compiler = @import("./compiler.zig");
+const _parser = @import("./parser.zig");
+const _codegen = @import("./codegen.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
@@ -15,7 +16,8 @@ const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
 const UserData = _obj.UserData;
-const Compiler = _compiler.Compiler;
+const Parser = _parser.Parser;
+const CodeGen = _codegen.CodeGen;
 
 // Stack manipulation
 
@@ -266,17 +268,19 @@ export fn bz_deinitVM(self: *VM) void {
 }
 
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
-    var imports = std.StringHashMap(Compiler.ScriptImport).init(self.allocator);
+    var imports = std.StringHashMap(Parser.ScriptImport).init(self.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.allocator);
-    var compiler = Compiler.init(self.allocator, self.strings, &imports, false);
+    var parser = Parser.init(self.allocator, self.strings, &imports, false);
+    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &parser.type_defs, false);
     defer {
+        codegen.deinit();
         imports.deinit();
-        compiler.deinit();
+        parser.deinit();
         strings.deinit();
     }
 
-    if (compiler.compile(utils.toSlice(source), utils.toSlice(file_name), false) catch null) |function| {
-        return function;
+    if (parser.parse(utils.toSlice(source), utils.toSlice(file_name)) catch null) |function_node| {
+        return function_node.toByteCode(function_node, &codegen, null) catch null;
     } else {
         return null;
     }

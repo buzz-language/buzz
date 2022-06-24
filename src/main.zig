@@ -2,19 +2,22 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const VM = @import("./vm.zig").VM;
-const _compiler = @import("./compiler.zig");
-const Compiler = _compiler.Compiler;
-const CompileError = _compiler.CompileError;
+const _parser = @import("./parser.zig");
+const Parser = _parser.Parser;
+const CompileError = _parser.CompileError;
+const CodeGen = @import("./codegen.zig").CodeGen;
 const ObjString = @import("./obj.zig").ObjString;
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
-    var imports = std.StringHashMap(Compiler.ScriptImport).init(allocator);
+    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(allocator, &strings);
-    var compiler = Compiler.init(allocator, &strings, &imports, false);
+    var parser = Parser.init(allocator, &strings, &imports, false);
+    var codegen = CodeGen.init(allocator, &parser, &strings, &parser.type_defs, testing);
     defer {
+        codegen.deinit();
         vm.deinit();
-        compiler.deinit();
+        parser.deinit();
         strings.deinit();
         var it = imports.iterator();
         while (it.next()) |kv| {
@@ -34,8 +37,11 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
 
     _ = try file.readAll(source);
 
-    if (try compiler.compile(source, file_name, testing)) |function| {
-        _ = try vm.interpret(function, args);
+    if (try parser.parse(source, file_name)) |function_node| {
+        _ = try vm.interpret(
+            (try function_node.toByteCode(function_node, &codegen, null)).?,
+            args,
+        );
     } else {
         return CompileError.Recoverable;
     }

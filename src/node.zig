@@ -101,22 +101,24 @@ pub const ParseNode = struct {
 
     fn generate(self: *Self, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (self.patch_opt_jumps) {
-            assert(codegen.opt_jumps != null and codegen.opt_jumps.?.items.len > 0);
+            assert(codegen.opt_jumps != null);
 
             // Hope over OP_POP if actual value
-            const njump: usize = try codegen.emitJump(.OP_JUMP);
+            const njump: usize = try codegen.emitJump(self.location, .OP_JUMP);
 
             for (codegen.opt_jumps.?.items) |jump| {
                 try codegen.patchJump(jump);
             }
             // If aborted by a null optional, will result in null on the stack
-            try codegen.emitOpCode(.OP_POP);
+            try codegen.emitOpCode(self.location, .OP_POP);
 
             try codegen.patchJump(njump);
 
             codegen.opt_jumps.?.deinit();
             codegen.opt_jumps = null;
         }
+
+        return null;
     }
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -173,11 +175,11 @@ pub const NamedVariableNode = struct {
         }
 
         if (self.value) |value| {
-            _ = try value.toJson(value, codegen);
+            _ = try value.toByteCode(value, codegen, breaks);
 
-            try codegen.emitCodeArg(set_op, self.slot);
+            try codegen.emitCodeArg(self.node.location, set_op, @intCast(u24, self.slot));
         } else {
-            try codegen.emitCodeArg(get_op, self.slot);
+            try codegen.emitCodeArg(self.node.location, get_op, @intCast(u24, self.slot));
         }
 
         return null;
@@ -230,7 +232,9 @@ pub const NumberNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitConstant(Value{ .Number = self.constant });
+        try codegen.emitConstant(self.node.location, Value{ .Number = self.constant });
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -272,7 +276,9 @@ pub const BooleanNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitOpCode(if (self.constant) .OP_TRUE else .OP_FALSE);
+        try codegen.emitOpCode(self.node.location, if (self.constant) .OP_TRUE else .OP_FALSE);
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -314,7 +320,7 @@ pub const StringLiteralNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitConstant(self.constant.toValue());
+        try codegen.emitConstant(self.node.location, self.constant.toValue());
 
         return null;
     }
@@ -361,24 +367,24 @@ pub const StringNode = struct {
 
         if (self.elements.len == 0) {
             // Push the empty string which is always the constant 0
-            try codegen.emitCodeArg(.OP_CONSTANT, 0);
+            try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, 0);
 
             return null;
         }
 
         for (self.elements) |element, index| {
             if (element.type_def == null or element.type_def.?.def_type == .Placeholder) {
-                codegen.reportErrorAt(element.location, "Unknown type");
+                try codegen.reportErrorAt(element.location, "Unknown type");
 
                 break;
             }
 
             _ = try element.toByteCode(element, codegen, breaks);
             if (element.type_def.?.def_type != .String) {
-                try codegen.emitOpCode(.OP_TO_STRING);
+                try codegen.emitOpCode(self.node.location, .OP_TO_STRING);
 
                 if (index >= 2) {
-                    try codegen.emitOpCode(.OP_ADD);
+                    try codegen.emitOpCode(self.node.location, .OP_ADD);
                 }
             }
         }
@@ -441,7 +447,9 @@ pub const NullNode = struct {
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
-        try codegen.emitOpCode(.OP_NULL);
+        try codegen.emitOpCode(node.location, .OP_NULL);
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -482,7 +490,7 @@ pub const ListNode = struct {
         var self = Self.cast(node).?;
 
         const item_type = self.node.type_def.?.resolved_type.?.List.item_type;
-        const list_offset: usize = try codegen.emitList();
+        const list_offset: usize = try codegen.emitList(self.node.location);
 
         for (self.items) |item| {
             if (item.type_def.?.def_type == .Placeholder) {
@@ -490,12 +498,14 @@ pub const ListNode = struct {
             } else if (!item.type_def.?.eql(item_type)) {
                 try codegen.reportTypeCheckAt(item_type, item.type_def.?, "Bad list type", item.location);
             } else {
-                _ = try item.toJson(item, codegen);
+                _ = try item.toByteCode(item, codegen, breaks);
             }
         }
 
         const list_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
-        try self.patchList(list_offset, list_type_constant);
+        try codegen.patchList(list_offset, list_type_constant);
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -551,17 +561,17 @@ pub const MapNode = struct {
         const key_type = self.node.type_def.?.resolved_type.?.Map.key_type;
         const value_type = self.node.type_def.?.resolved_type.?.Map.value_type;
 
-        const map_offset: usize = try codegen.emitMap();
+        const map_offset: usize = try codegen.emitMap(self.node.location);
 
         assert(self.keys.len == self.values.len);
 
         for (self.keys) |key, i| {
             const value = self.values[i];
 
-            _ = try key.toJson(key, codegen);
-            _ = try value.toJson(value, codegen);
+            _ = try key.toByteCode(key, codegen, breaks);
+            _ = try value.toByteCode(value, codegen, breaks);
 
-            try codegen.emitOpCode(.OP_SET_MAP);
+            try codegen.emitOpCode(self.node.location, .OP_SET_MAP);
 
             if (key.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(key.location, "Unknown type");
@@ -654,19 +664,19 @@ pub const UnwrapNode = struct {
             try codegen.reportErrorAt(self.unwrapped.location, "Not an optional.");
         }
 
-        try codegen.emitCodeArg(.OP_COPY, 1);
-        try codegen.emitOpCode(.OP_NULL);
-        try codegen.emitOpCode(.OP_EQUAL);
-        try codegen.emitOpCode(.OP_NOT);
+        try codegen.emitCodeArg(self.node.location, .OP_COPY, 1);
+        try codegen.emitOpCode(self.node.location, .OP_NULL);
+        try codegen.emitOpCode(self.node.location, .OP_EQUAL);
+        try codegen.emitOpCode(self.node.location, .OP_NOT);
 
-        const jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
+        const jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
 
         if (codegen.opt_jumps == null) {
             codegen.opt_jumps = std.ArrayList(usize).init(codegen.allocator);
         }
         try codegen.opt_jumps.?.append(jump);
 
-        try self.emitOpCode(.OP_POP); // Pop test result
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop test result
 
         return null;
     }
@@ -724,7 +734,7 @@ pub const ForceUnwrapNode = struct {
             try codegen.reportErrorAt(self.unwrapped.location, "Not an optional.");
         }
 
-        try codegen.emitOpCode(.OP_UNWRAP);
+        try codegen.emitOpCode(self.node.location, .OP_UNWRAP);
 
         return null;
     }
@@ -772,9 +782,11 @@ pub const IsNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitCodeArg(.OP_CONSTANT, try codegen.makeConstant(self.constant));
+        try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
 
-        try codegen.emitOpCode(.OP_IS);
+        try codegen.emitOpCode(self.node.location, .OP_IS);
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -826,7 +838,7 @@ pub const UnaryNode = struct {
             try codegen.reportErrorAt(node.location, "Unknown type");
         }
 
-        _ = try self.left.toJson(self.left, codegen);
+        _ = try self.left.toByteCode(self.left, codegen, breaks);
 
         switch (self.operator) {
             .Bang => {
@@ -838,7 +850,7 @@ pub const UnaryNode = struct {
                     );
                 }
 
-                try codegen.emitOpCode(.OP_NOT);
+                try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .Minus => {
                 if (left_type.def_type != .Number) {
@@ -849,7 +861,7 @@ pub const UnaryNode = struct {
                     );
                 }
 
-                try codegen.emitOpCode(.OP_NEGATE);
+                try codegen.emitOpCode(self.node.location, .OP_NEGATE);
             },
             else => unreachable,
         }
@@ -918,59 +930,59 @@ pub const BinaryNode = struct {
                     try codegen.reportErrorAt(node.location, "Not an optional");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_NULL_OR);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_NULL_OR);
             },
             .Greater => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Number) {
-                    try self.reportErrorAt(self.left.location, "Expected `num`.");
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_GREATER);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_GREATER);
             },
             .Less => {
                 if (left_type.def_type != .Number) {
-                    try self.reportErrorAt(self.left.location, "Expected `num`.");
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_LESS);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_LESS);
             },
             .GreaterEqual => {
                 if (left_type.def_type != .Number) {
-                    try self.reportErrorAt(self.left.location, "Expected `num`.");
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_LESS);
-                try codegen.emitOpCode(.OP_NOT);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_LESS);
+                try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .LessEqual => {
                 if (left_type.def_type != .Number) {
-                    try self.reportErrorAt(self.left.location, "Expected `num`.");
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_GREATER);
-                try codegen.emitOpCode(.OP_NOT);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_GREATER);
+                try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .BangEqual => {
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_EQUAL);
-                try codegen.emitOpCode(.OP_NOT);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_EQUAL);
+                try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .EqualEqual => {
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_EQUAL);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_EQUAL);
             },
             .Plus => {
                 // zig fmt: off
@@ -978,61 +990,61 @@ pub const BinaryNode = struct {
                     and left_type.def_type != .String
                     and left_type.def_type != .List
                     and left_type.def_type != .Map) {
-                    try self.reportError("Expected a `num`, `str`, list or map.");
+                    try codegen.reportErrorAt(self.left.location, "Expected a `num`, `str`, list or map.");
                 }
                 // zig fmt: on
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_ADD);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_ADD);
             },
             .Minus => {
                 if (left_type.def_type != .Number) {
                     try codegen.reportErrorAt(node.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_SUBTRACT);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_SUBTRACT);
             },
             .Star => {
                 if (left_type.def_type != .Number) {
                     try codegen.reportErrorAt(node.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_MULTIPLY);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_MULTIPLY);
             },
             .Slash => {
                 if (left_type.def_type != .Number) {
                     try codegen.reportErrorAt(node.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_DIVIDE);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_DIVIDE);
             },
             .Percent => {
                 if (left_type.def_type != .Number) {
                     try codegen.reportErrorAt(node.location, "Expected `num`.");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
-                _ = try self.right.toJson(self.right, codegen);
-                try codegen.emitOpCode(.OP_MOD);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_MOD);
             },
             .And => {
                 if (left_type.def_type != .Bool) {
                     try codegen.reportErrorAt(node.location, "`and` expects operands to be `bool`");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
 
-                const end_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-                try codegen.emitOpCode(.OP_POP);
+                const end_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+                try codegen.emitOpCode(self.node.location, .OP_POP);
 
-                _ = try self.right.toJson(self.right, codegen);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
 
                 try codegen.patchJump(end_jump);
             },
@@ -1041,15 +1053,15 @@ pub const BinaryNode = struct {
                     try codegen.reportErrorAt(node.location, "`and` expects operands to be `bool`");
                 }
 
-                _ = try self.left.toJson(self.left, codegen);
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
 
-                const else_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-                const end_jump: usize = try codegen.emitJump(.OP_JUMP);
+                const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+                const end_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
-                try self.patchJump(else_jump);
-                try codegen.emitOpCode(.OP_POP);
+                try codegen.patchJump(else_jump);
+                try codegen.emitOpCode(self.node.location, .OP_POP);
 
-                _ = try self.right.toJson(self.right, codegen);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
 
                 try codegen.patchJump(end_jump);
             },
@@ -1106,15 +1118,15 @@ pub const SubscriptNode = struct {
         var self = Self.cast(node).?;
 
         if (self.subscripted.type_def == null or self.subscripted.type_def.?.def_type == .Placeholder) {
-            codegen.reportErrorAt(self.subscripted.location, "Unknown type.");
+            try codegen.reportErrorAt(self.subscripted.location, "Unknown type.");
         }
 
         if (self.index.type_def == null or self.index.type_def.?.def_type == .Placeholder) {
-            codegen.reportErrorAt(self.index.location, "Unknown type.");
+            try codegen.reportErrorAt(self.index.location, "Unknown type.");
         }
 
         if (self.value != null and (self.value.?.type_def == null or self.value.?.type_def.?.def_type == .Placeholder)) {
-            codegen.reportErrorAt(self.value.?.location, "Unknown type.");
+            try codegen.reportErrorAt(self.value.?.location, "Unknown type.");
         }
 
         switch (self.subscripted.type_def.?.def_type) {
@@ -1147,6 +1159,7 @@ pub const SubscriptNode = struct {
                     }
                 }
             },
+            else => try codegen.reportErrorAt(node.location, "Not subscriptable."),
         }
 
         _ = try self.index.toByteCode(self.index, codegen, breaks);
@@ -1154,9 +1167,9 @@ pub const SubscriptNode = struct {
         if (self.value) |value| {
             _ = try value.toByteCode(value, codegen, breaks);
 
-            codegen.emitOpCode(.OP_SET_SUBSCRIPT);
+            try codegen.emitOpCode(self.node.location, .OP_SET_SUBSCRIPT);
         } else {
-            codegen.emitOpCode(.OP_GET_SUBSCRIPT);
+            try codegen.emitOpCode(self.node.location, .OP_GET_SUBSCRIPT);
         }
 
         return null;
@@ -1213,6 +1226,8 @@ pub const FunctionNode = struct {
     arrow_expr: ?*ParseNode = null,
     native: ?*ObjNative = null,
     test_message: ?*ParseNode = null,
+    // If true this is the root of a script being imported
+    import_root: bool = false,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
@@ -1242,7 +1257,8 @@ pub const FunctionNode = struct {
             )).toObj(),
         });
 
-        codegen.current.?.function = function;
+        codegen.current.?.function = try codegen.allocator.create(ObjFunction);
+        codegen.current.?.function.?.* = function;
 
         const function_type = self.node.type_def.?.resolved_type.?.Function.function_type;
 
@@ -1251,9 +1267,9 @@ pub const FunctionNode = struct {
 
         // Generate function's body bytecode
         if (self.arrow_expr) |arrow_expr| {
-            try arrow_expr.toJson(arrow_expr.node, codegen);
+            _ = try arrow_expr.toByteCode(arrow_expr, codegen, breaks);
         } else {
-            try self.body.?.toJson(self.body.?.node, codegen);
+            _ = try self.body.?.node.toByteCode(&self.body.?.node, codegen, breaks);
         }
 
         if (function_type != .Extern) {
@@ -1267,9 +1283,9 @@ pub const FunctionNode = struct {
                         if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
                             found_main = true;
 
-                            try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                            try codegen.emitCodeArg(.OP_GET_LOCAL, 1); // cli args are always local 0
-                            try codegen.emitCodeArgs(.OP_CALL, 1, 0);
+                            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
+                            try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, 1); // cli args are always local 0
+                            try codegen.emitCodeArgs(self.node.location, .OP_CALL, 1, 0);
                             break;
                         }
                     }
@@ -1277,14 +1293,14 @@ pub const FunctionNode = struct {
                     // Create an entry point wich runs all `test`
                     for (codegen.globals.items) |global, index| {
                         if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
-                            try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
-                            try codegen.emitCodeArgs(.OP_CALL, 0, 0);
+                            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
+                            try codegen.emitCodeArgs(self.node.location, .OP_CALL, 0, 0);
                         }
                     }
                 }
 
                 // If we're being imported, put all globals on the stack
-                if (codegen.imported) {
+                if (self.import_root) {
                     var exported_count: usize = 0;
                     for (codegen.globals.items) |_, index| {
                         exported_count += 1;
@@ -1294,35 +1310,37 @@ pub const FunctionNode = struct {
                             break;
                         }
 
-                        try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, index));
+                        try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
                     }
 
-                    try codegen.emitCodeArg(.OP_EXPORT, @intCast(u24, exported_count));
+                    try codegen.emitCodeArg(self.node.location, .OP_EXPORT, @intCast(u24, exported_count));
                 } else {
-                    try codegen.emitOpCode(.OP_VOID);
-                    try codegen.emitOpCode(.OP_RETURN);
+                    try codegen.emitOpCode(self.node.location, .OP_VOID);
+                    try codegen.emitOpCode(self.node.location, .OP_RETURN);
                 }
-            } else if (codegen.current.?.function.type_def.resolved_type.?.Function.return_type.def_type == .Void and !codegen.current.?.return_emitted) {
+            } else if (codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !codegen.current.?.return_emitted) {
                 // TODO: detect if some branches of the function body miss a return statement
-                try codegen.emitReturn();
+                try codegen.emitReturn(self.node.location);
             }
         }
 
         var frame = codegen.current.?;
-        var current_function: *ObjFunction = frame.function;
+        var current_function: *ObjFunction = frame.function.?;
 
         codegen.current = frame.enclosing;
 
-        // `extern` functions don't have upvalues
-        if (function_type == .Extern) {
-            try codegen.emitCodeArg(.OP_CONSTANT, try codegen.makeConstant(self.native.toValue()));
-        } else {
-            try codegen.emitCodeArg(.OP_CLOSURE, try codegen.makeConstant(current_function.toValue()));
+        if (function_type != .ScriptEntryPoint) {
+            // `extern` functions don't have upvalues
+            if (function_type == .Extern) {
+                try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.native.?.toValue()));
+            } else {
+                try codegen.emitCodeArg(self.node.location, .OP_CLOSURE, try codegen.makeConstant(current_function.toValue()));
 
-            var i: usize = 0;
-            while (i < current_function.upvalue_count) : (i += 1) {
-                try codegen.emit(if (frame.upvalues[i].is_local) 1 else 0);
-                try codegen.emit(frame.upvalues[i].index);
+                var i: usize = 0;
+                while (i < current_function.upvalue_count) : (i += 1) {
+                    try codegen.emit(self.node.location, if (frame.upvalues[i].is_local) 1 else 0);
+                    try codegen.emit(self.node.location, frame.upvalues[i].index);
+                }
             }
         }
 
@@ -1453,21 +1471,22 @@ pub const CallNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+        const callee_type = self.callee.type_def;
 
-        if (self.callee_type == null or self.callee_type.?.def_type == .Placeholder) {
+        if (callee_type == null or callee_type.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.callee.location, "Unknown type");
         }
 
-        const args: std.StringArrayHashMap(*ObjTypeDef) = if (self.callee_type.?.def_type == .Function)
-            self.callee_type.?.resolved_type.?.Function.parameters
+        const args: std.StringArrayHashMap(*ObjTypeDef) = if (callee_type.?.def_type == .Function)
+            callee_type.?.resolved_type.?.Function.parameters
         else
-            self.callee_type.?.resolved_type.?.Native.parameters;
+            callee_type.?.resolved_type.?.Native.parameters;
         const arg_keys = args.keys();
 
         // FIXME: Right now if dot call, can't have default arguments because we don't have a reference to the method ParseNode.
         //        For native calls it's acceptable but not for user defined object methods.
         //        https://github.com/giann/buzz/issues/45
-        const default_args = self.callee.node_type == .Function and FunctionNode.cast(self.callee).?.default_arguments;
+        const default_args = if (self.callee.node_type == .Function) FunctionNode.cast(self.callee).?.default_arguments else null;
 
         // Push arguments on the stack, in the correct order
         for (arg_keys) |arg_key, index| {
@@ -1491,7 +1510,8 @@ pub const CallNode = struct {
                 }
 
                 _ = try argument.?.toByteCode(argument.?, codegen, breaks);
-            } else if (default_args != null and default_args.?.get(arg_key)) |default| {
+            } else if (default_args != null and default_args.?.get(arg_key) != null) {
+                const default = default_args.?.get(arg_key);
                 _ = try default.?.toByteCode(default.?, codegen, breaks);
             } else {
                 try codegen.reportErrorFmt(node.location, "Missing argument `{s}`.", .{arg_key});
@@ -1500,13 +1520,13 @@ pub const CallNode = struct {
 
         // If super call, push super as a new local
         if (self.super) |super| {
-            _ = try super.node.toByteCode(super.node, codegen, breaks);
+            _ = try super.node.toByteCode(&super.node, codegen, breaks);
         }
 
         if (self.invoked) {
-            try codegen.emitCodeArg(.OP_INVOKE, try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme));
+            try codegen.emitCodeArg(self.node.location, .OP_INVOKE, try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme));
         } else if (self.super != null) {
-            try codegen.emitCodeArg(.OP_SUPER_INVOKE, try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme));
+            try codegen.emitCodeArg(self.node.location, .OP_SUPER_INVOKE, try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme));
         }
 
         // Catch clauses
@@ -1518,14 +1538,16 @@ pub const CallNode = struct {
 
         if (!self.invoked) {
             try codegen.emitCodeArgs(
+                self.node.location,
                 .OP_CALL,
-                self.arguments.count(),
-                if (self.catches) |catches| catches.len else 0,
+                @intCast(u8, self.arguments.count()),
+                if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         } else {
             try codegen.emitTwo(
-                self.arguments.count(),
-                if (self.catches) |catches| catches.len else 0,
+                self.node.location,
+                @intCast(u8, self.arguments.count()),
+                if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         }
 
@@ -1541,14 +1563,16 @@ pub const CallNode = struct {
 
         try out.writeAll(", \"arguments\": [");
 
-        for (self.arguments.items) |argument, i| {
-            try out.print("{{\"name\": \"{s}\", \"value\": ", .{if (argument.name) |name| name.lexeme else "N/A"});
+        for (self.arguments.keys()) |key, i| {
+            const argument = self.arguments.get(key).?;
 
-            try argument.arg.toJson(argument.arg, out);
+            try out.print("{{\"name\": \"{s}\", \"value\": ", .{key});
+
+            try argument.toJson(argument, out);
 
             try out.writeAll("}");
 
-            if (i < self.arguments.items.len - 1) {
+            if (i < self.arguments.keys().len - 1) {
                 try out.writeAll(",");
             }
         }
@@ -1629,13 +1653,13 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportTypeCheckAt(self.type_def.?, value.type_def.?, "Wrong variable type", value.location);
             }
 
-            _ = value.toByteCode(value, codegen, breaks);
+            _ = try value.toByteCode(value, codegen, breaks);
         } else {
-            try codegen.emitOpCode(.OP_VOID);
+            try codegen.emitOpCode(self.node.location, .OP_VOID);
         }
 
         if (self.slot_type == .Global) {
-            try codegen.emitCodeArg(.OP_DEFINE_GLOBAL, self.slot);
+            try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
         }
 
         return null;
@@ -1701,24 +1725,24 @@ pub const EnumNode = struct {
             try codegen.reportErrorAt(node.location, "Unknwon enum type.");
         }
 
-        try codegen.emitCodeArg(.OP_ENUM, try codegen.makeConstant(node.type_def.?.toValue()));
-        try codegen.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
+        try codegen.emitCodeArg(self.node.location, .OP_ENUM, try codegen.makeConstant(node.type_def.?.toValue()));
+        try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
 
-        try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, self.slot));
+        try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, self.slot));
 
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(case.location, "Unknown type.");
-            } else if (!case.type_def.eql(node.type_def.?.resolved_type.?.Enum.enum_type.toInstance())) {
-                try codegen.reportTypeCheckAt(node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(), case.type_def, "Bad enum case type", case.location);
+            } else if (!case.type_def.?.eql(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance())) {
+                try codegen.reportTypeCheckAt(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(), case.type_def.?, "Bad enum case type", case.location);
             }
 
             _ = try case.toByteCode(case, codegen, breaks);
 
-            try codegen.emitOpCode(.OP_ENUM_CASE);
+            try codegen.emitOpCode(self.node.location, .OP_ENUM_CASE);
         }
 
-        try codegen.emitOpCode(.OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         return null;
     }
@@ -1783,7 +1807,7 @@ pub const ThrowNode = struct {
 
         _ = try self.error_value.toByteCode(self.error_value, codegen, breaks);
 
-        codegen.emitOpCode(.OP_THROW);
+        try codegen.emitOpCode(self.node.location, .OP_THROW);
 
         return null;
     }
@@ -1829,7 +1853,7 @@ pub const BreakNode = struct {
 
         assert(breaks != null);
 
-        try breaks.?.append(codegen.emitJump(.OP_JUMP));
+        try breaks.?.append(try codegen.emitJump(node.location, .OP_JUMP));
 
         return null;
     }
@@ -1865,7 +1889,7 @@ pub const ContinueNode = struct {
 
         assert(breaks != null);
 
-        try breaks.?.append(codegen.emitJump(.OP_LOOP));
+        try breaks.?.append(try codegen.emitJump(node.location, .OP_LOOP));
 
         return null;
     }
@@ -1915,15 +1939,15 @@ pub const IfNode = struct {
 
         _ = try self.condition.toByteCode(self.condition, codegen, breaks);
 
-        const then_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-        try codegen.emitOpCode(.OP_POP);
+        const then_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         _ = try self.body.toByteCode(self.body, codegen, breaks);
 
-        const else_jump: usize = try codegen.emitJump(.OP_JUMP);
+        const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
         try codegen.patchJump(then_jump);
-        try codegen.emitOpCode(.OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         if (self.else_branch) |else_branch| {
             _ = try else_branch.toByteCode(else_branch, codegen, breaks);
@@ -1992,17 +2016,18 @@ pub const ReturnNode = struct {
             } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
                     codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type,
-                    value.type_def,
+                    value.type_def.?,
                     "Return value",
+                    value.location,
                 );
             }
 
             _ = try value.toByteCode(value, codegen, breaks);
         } else {
-            codegen.emitOpCode(.OP_VOID);
+            try codegen.emitOpCode(self.node.location, .OP_VOID);
         }
 
-        try codegen.emitOpCode(.OP_RETURN);
+        try codegen.emitOpCode(self.node.location, .OP_RETURN);
 
         return null;
     }
@@ -2076,15 +2101,15 @@ pub const ForNode = struct {
 
         _ = try self.condition.toByteCode(self.condition, codegen, _breaks);
 
-        const exit_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-        try codegen.emitOpCode(.OP_POP);
+        const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         // Jump over expressions which will be executed at end of loop
         // TODO: since we don't generate as we parse, we can get rid of this jump and just generate the post_loop later
-        var body_jump: usize = try codegen.emitJump(.OP_JUMP);
+        var body_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
-        const expr_loop: usize = self.currentCode();
-        for (self.post_loop) |expr| {
+        const expr_loop: usize = codegen.currentCode();
+        for (self.post_loop.items) |expr| {
             if (expr.type_def == null or expr.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(expr.location, "Unknown type");
             }
@@ -2092,20 +2117,20 @@ pub const ForNode = struct {
             _ = try expr.toByteCode(expr, codegen, _breaks);
         }
 
-        try codegen.emitLoop(loop_start);
+        try codegen.emitLoop(self.node.location, loop_start);
 
         try codegen.patchJump(body_jump);
 
         var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
         defer breaks.deinit();
 
-        _ = try self.block.toByteCode(self.block, codegen, &breaks);
+        _ = try self.body.toByteCode(self.body, codegen, &breaks);
 
-        try codegen.emitLoop(expr_loop);
+        try codegen.emitLoop(self.node.location, expr_loop);
 
         try codegen.patchJump(exit_jump);
 
-        try codegen.emitOpCode(.OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         // Patch breaks
         for (breaks.items) |jump| {
@@ -2188,7 +2213,6 @@ pub const ForEachNode = struct {
     value: *ParseNode,
     iterable: *ParseNode,
     block: *ParseNode,
-    key_slot: u24,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, _breaks);
@@ -2197,11 +2221,11 @@ pub const ForEachNode = struct {
 
         // Type checking
         if (self.iterable.type_def == null or self.iterable.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.iterable, "Unknown type.");
+            try codegen.reportErrorAt(self.iterable.location, "Unknown type.");
         } else {
             if (self.key) |key| {
                 if (key.type_def == null or key.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(key, "Unknown type.");
+                    try codegen.reportErrorAt(key.location, "Unknown type.");
                 }
 
                 switch (self.iterable.type_def.?.def_type) {
@@ -2216,11 +2240,12 @@ pub const ForEachNode = struct {
                         }
                     },
                     .Enum => try codegen.reportErrorAt(key.location, "No key available when iterating over enum."),
+                    else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
                 }
             }
 
             if (self.value.type_def == null or self.value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(self.value, "Unknown type.");
+                try codegen.reportErrorAt(self.value.location, "Unknown type.");
             }
 
             switch (self.iterable.type_def.?.def_type) {
@@ -2240,43 +2265,45 @@ pub const ForEachNode = struct {
                     }
                 },
                 .Enum => {
-                    if (!self.value.type_def.?.eql(self.iterable.type_def.?.toInstance())) {
-                        try codegen.reportTypeCheckAt(self.iterable.type_def.?.toInstance(), self.value.type_def.?, "Bad value type", self.value.location);
+                    const iterable_type = try codegen.getTypeDef(self.iterable.type_def.?.toInstance());
+                    if (!self.value.type_def.?.eql(iterable_type)) {
+                        try codegen.reportTypeCheckAt(iterable_type, self.value.type_def.?, "Bad value type", self.value.location);
                     }
                 },
+                else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
             }
         }
 
         _ = try self.iterable.toByteCode(self.iterable, codegen, _breaks);
 
-        const loop_start: usize = self.currentCode();
+        const loop_start: usize = codegen.currentCode();
 
         // Calls `next` and update key and value locals
-        try self.emitOpCode(.OP_FOREACH);
+        try codegen.emitOpCode(self.node.location, .OP_FOREACH);
 
         // If next key is null, exit loop
-        try self.emitCodeArg(.OP_GET_LOCAL, VarDeclarationNode.cast(self.key orelse self.value).?.slot);
-        try self.emitOpCode(.OP_NULL);
-        try self.emitOpCode(.OP_EQUAL);
-        try self.emitOpCode(.OP_NOT);
-        const exit_jump: usize = try self.emitJump(.OP_JUMP_IF_FALSE);
-        try self.emitOpCode(.OP_POP); // Pop condition result
+        try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, @intCast(u24, VarDeclarationNode.cast(self.key orelse self.value).?.slot));
+        try codegen.emitOpCode(self.node.location, .OP_NULL);
+        try codegen.emitOpCode(self.node.location, .OP_EQUAL);
+        try codegen.emitOpCode(self.node.location, .OP_NOT);
+        const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
 
         var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
         defer breaks.deinit();
 
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
 
-        try self.emitLoop(loop_start);
+        try codegen.emitLoop(self.node.location, loop_start);
 
         // Patch condition jump
-        try self.patchJump(exit_jump);
+        try codegen.patchJump(exit_jump);
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJumpOrLoop(jump, loop_start);
+            try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
-        try self.emitOpCode(.OP_POP); // Pop element being iterated on
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop element being iterated on
 
         return null;
     }
@@ -2352,7 +2379,7 @@ pub const WhileNode = struct {
 
         var self = Self.cast(node).?;
 
-        const loop_start: usize = self.currentCode();
+        const loop_start: usize = codegen.currentCode();
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.condition.location, "Unknown type.");
@@ -2364,22 +2391,22 @@ pub const WhileNode = struct {
 
         _ = try self.condition.toByteCode(self.condition, codegen, _breaks);
 
-        const exit_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-        try codegen.emitOpCode(.OP_POP);
+        const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
         defer breaks.deinit();
 
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
 
-        try self.emitLoop(loop_start);
-        try self.patchJump(exit_jump);
+        try codegen.emitLoop(self.node.location, loop_start);
+        try codegen.patchJump(exit_jump);
 
-        try self.emitOpCode(.OP_POP); // Pop condition (is not necessary if broke out of the loop)
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition (is not necessary if broke out of the loop)
 
         // Patch breaks
         for (breaks.items) |jump| {
-            try self.patchJumpOrLoop(jump, loop_start);
+            try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
         return null;
@@ -2460,21 +2487,23 @@ pub const DoUntilNode = struct {
             try codegen.reportErrorAt(self.condition.location, "`do` condition must be bool");
         }
 
-        _ = try self.condition.toByteCode(self.condition, codegen, breaks);
+        _ = try self.condition.toByteCode(self.condition, codegen, &breaks);
 
-        try codegen.emitOpCode(.OP_NOT);
-        const exit_jump: usize = try codegen.emitJump(.OP_JUMP_IF_FALSE);
-        try codegen.emitOpCode(.OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_NOT);
+        const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
-        try codegen.emitLoop(loop_start);
+        try codegen.emitLoop(self.node.location, loop_start);
         try codegen.patchJump(exit_jump);
 
-        try codegen.emitOpCode(.OP_POP); // Pop condition
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition
 
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
+
+        return null;
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -2536,7 +2565,7 @@ pub const BlockNode = struct {
 
         var self = Self.cast(node).?;
 
-        for (self.statements) |statement| {
+        for (self.statements.items) |statement| {
             _ = try statement.toByteCode(statement, codegen, breaks);
         }
 
@@ -2595,7 +2624,6 @@ pub const SuperNode = struct {
         .toByteCode = generate,
     },
 
-    this: *NamedVariableNode,
     identifier: Token,
     // if call, CallNode will fetch super
     super: ?*NamedVariableNode = null,
@@ -2607,13 +2635,13 @@ pub const SuperNode = struct {
         var self = Self.cast(node).?;
 
         if (self.call) |call| {
-            _ = try call.node.toByteCode(call.node, codegen, breaks);
+            _ = try call.node.toByteCode(&call.node, codegen, breaks);
         } else {
             assert(self.super != null);
 
-            _ = try self.super.?.node.toByteCode(self.super.?.node, codegen, breaks);
+            _ = try self.super.?.node.toByteCode(&self.super.?.node, codegen, breaks);
 
-            try codegen.emitCodeArg(.OP_GET_SUPER, try codegen.identifierConstant(self.identifier.lexeme));
+            try codegen.emitCodeArg(self.node.location, .OP_GET_SUPER, try codegen.identifierConstant(self.identifier.lexeme));
         }
 
         return null;
@@ -2622,7 +2650,7 @@ pub const SuperNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", ", .{self.member_name.lexeme});
+        try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", ", .{self.identifier.lexeme});
 
         try ParseNode.stringify(node, out);
 
@@ -2682,10 +2710,10 @@ pub const DotNode = struct {
         switch (callee_type.def_type) {
             .String => {
                 if (self.call) |call_node| { // Call
-                    try codegen.emitOpCode(.OP_COPY);
-                    _ = try call_node.toByteCode(call_node, codegen, breaks);
+                    try codegen.emitOpCode(self.node.location, .OP_COPY);
+                    _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);
                 } else { // Expression
-                    try codegen.emitCodeArg(.OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             .ObjectInstance, .Object => {
@@ -2696,28 +2724,28 @@ pub const DotNode = struct {
 
                     _ = try value.toByteCode(value, codegen, breaks);
 
-                    try codegen.emitCodeArg(.OP_SET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                 } else if (self.call) |call| {
-                    _ = try call.node.toByteCode(call.node, codegen, breaks);
+                    _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(.OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             .Enum => {
-                try codegen.emitCodeArg(.OP_GET_ENUM_CASE, self.enum_index.?);
+                try codegen.emitCodeArg(self.node.location, .OP_GET_ENUM_CASE, @intCast(u24, self.enum_index.?));
             },
             .EnumInstance => {
                 assert(std.mem.eql(u8, self.identifier.lexeme, "value"));
 
-                try codegen.emitOpCode(.OP_GET_ENUM_CASE_VALUE);
+                try codegen.emitOpCode(self.node.location, .OP_GET_ENUM_CASE_VALUE);
             },
             .List, .Map => {
                 if (self.call) |call| {
-                    try codegen.emitOpCode(.OP_COPY);
+                    try codegen.emitOpCode(self.node.location, .OP_COPY);
 
-                    _ = try call.node.toByteCode(call.node, codegen, breaks);
+                    _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(.OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             else => unreachable,
@@ -2797,7 +2825,7 @@ pub const ObjectInitNode = struct {
         }
 
         if (obj_def.super) |super_def| {
-            try self.checkOmittedProperty(super_def.resolved_type.?.Object, init_properties);
+            try self.checkOmittedProperty(codegen, super_def.resolved_type.?.Object, init_properties);
         }
     }
 
@@ -2806,7 +2834,7 @@ pub const ObjectInitNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitOpCode(.OP_INSTANCE);
+        try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(node.location, "Unknown type.");
@@ -2818,7 +2846,7 @@ pub const ObjectInitNode = struct {
         const obj_def = object_type.resolved_type.?.Object;
 
         // To keep track of what's been initialized or not by this statement
-        var init_properties = std.StringHashMap(void).init(self.allocator);
+        var init_properties = std.StringHashMap(void).init(codegen.allocator);
         defer init_properties.deinit();
 
         var it = self.properties.iterator();
@@ -2828,9 +2856,9 @@ pub const ObjectInitNode = struct {
             const value = kv.value_ptr.*;
 
             if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
-                try self.emitCodeArg(.OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
+                try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
-                if (value.type_def == null or value.type_def == .Placeholder) {
+                if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                     try codegen.reportErrorAt(value.location, "Unknown type.");
                 } else if (!value.type_def.?.eql(prop)) {
                     try codegen.reportTypeCheckAt(prop, value.type_def.?, "Wrong property type", value.location);
@@ -2840,10 +2868,10 @@ pub const ObjectInitNode = struct {
 
                 try init_properties.put(property_name, {});
 
-                try self.emitCodeArg(.OP_SET_PROPERTY, property_name_constant);
-                try self.emitOpCode(.OP_POP); // Pop property value
+                try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, property_name_constant);
+                try codegen.emitOpCode(self.node.location, .OP_POP); // Pop property value
             } else {
-                try codegen.reportErrorFmt("Property `{s}` does not exists", .{property_name});
+                try codegen.reportErrorFmt(node.location, "Property `{s}` does not exists", .{property_name});
             }
         }
 
@@ -2926,29 +2954,29 @@ pub const ObjectDeclarationNode = struct {
         const object_type_constant = try codegen.makeConstant(object_type.toValue());
 
         // Put  object on the stack and define global with it
-        try codegen.emitCodeArg(.OP_OBJECT, name_constant);
-        try codegen.emit(@intCast(u32, object_type_constant));
-        try codegen.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
+        try codegen.emitCodeArg(self.node.location, .OP_OBJECT, name_constant);
+        try codegen.emit(self.node.location, @intCast(u32, object_type_constant));
+        try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
 
         // Does it inherits from another object/class
         if (self.parent_slot) |parent_slot| {
             // Put parent on the stack as the `super` local
-            try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, parent_slot));
+            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, parent_slot));
 
             // Actually do the inheritance
-            try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, self.slot));
-            try codegen.emitCodeArg(.OP_INHERIT, @intCast(u24, parent_slot));
+            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, self.slot));
+            try codegen.emitCodeArg(self.node.location, .OP_INHERIT, @intCast(u24, parent_slot));
         }
 
         // Put the object on the stack to set its fields
-        try codegen.emitCodeArg(.OP_GET_GLOBAL, @intCast(u24, self.slot));
+        try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, self.slot));
 
         // Methods
         var it = self.methods.iterator();
         while (it.next()) |kv| {
             const member_name = kv.key_ptr.*;
             const member = kv.value_ptr.*;
-            const member_name_constant: u24 = try self.identifierConstant(member_name);
+            const member_name_constant: u24 = try codegen.identifierConstant(member_name);
 
             if (member.type_def == null or member.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(member.location, "Unknown type");
@@ -2956,8 +2984,8 @@ pub const ObjectDeclarationNode = struct {
 
             const is_static = object_type.resolved_type.?.Object.static_fields.get(member_name) != null;
 
-            _ = member.toByteCode(member, codegen, breaks);
-            try codegen.emitCodeArg(if (is_static) .OP_PROPERTY else .OP_METHOD, member_name_constant);
+            _ = try member.toByteCode(member, codegen, breaks);
+            try codegen.emitCodeArg(self.node.location, if (is_static) .OP_PROPERTY else .OP_METHOD, member_name_constant);
         }
 
         // Properties
@@ -2965,7 +2993,7 @@ pub const ObjectDeclarationNode = struct {
         while (it2.next()) |kv| {
             const member_name = kv.key_ptr.*;
             const member = kv.value_ptr.*;
-            const member_name_constant: u24 = try self.identifierConstant(member_name);
+            const member_name_constant: u24 = try codegen.identifierConstant(member_name);
             const is_static = object_type.resolved_type.?.Object.static_fields.get(member_name) != null;
             const property_type = object_type.resolved_type.?.Object.fields.get(member_name) orelse object_type.resolved_type.?.Object.static_fields.get(member_name);
 
@@ -2975,28 +3003,28 @@ pub const ObjectDeclarationNode = struct {
             if (member) |default| {
                 if (default.type_def == null or default.type_def.?.def_type == .Placeholder) {
                     try codegen.reportErrorAt(default.location, "Unknown type");
-                } else if (!property_type.eql(default.type_def.?)) {
-                    try codegen.reportTypeCheckAt(property_type, default.type_def.?, "Wrong property default value type", default.location);
+                } else if (!property_type.?.eql(default.type_def.?)) {
+                    try codegen.reportTypeCheckAt(property_type.?, default.type_def.?, "Wrong property default value type", default.location);
                 }
 
                 if (is_static) {
-                    try codegen.emitOpCode(.OP_COPY);
+                    try codegen.emitOpCode(self.node.location, .OP_COPY);
                 }
 
                 _ = try default.toByteCode(default, codegen, breaks);
 
                 // Create property default value
                 if (is_static) {
-                    try codegen.emitCodeArg(.OP_SET_PROPERTY, member_name_constant);
-                    try codegen.emitOpCode(.OP_POP);
+                    try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, member_name_constant);
+                    try codegen.emitOpCode(self.node.location, .OP_POP);
                 } else {
-                    try codegen.emitCodeArg(.OP_PROPERTY, member_name_constant);
+                    try codegen.emitCodeArg(self.node.location, .OP_PROPERTY, member_name_constant);
                 }
             }
         }
 
         // Pop object
-        try codegen.emitOpCode(.OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
 
         return null;
     }
@@ -3006,12 +3034,30 @@ pub const ObjectDeclarationNode = struct {
 
         try out.writeAll("{\"node\": \"ObjectDeclaration\", \"members\": [");
 
-        for (self.members) |member, i| {
+        var it = self.methods.iterator();
+        var i: usize = 0;
+        while (it.next()) |kv| {
+            const member = kv.value_ptr.*;
             try member.toJson(member, out);
 
-            if (i < self.members.len - 1) {
+            if (i < self.methods.count() - 1) {
                 try out.writeAll(",");
             }
+
+            i += 1;
+        }
+
+        var it2 = self.properties.iterator();
+        i = 0;
+        while (it2.next()) |kv| {
+            if (kv.value_ptr.*) |member| {
+                try member.toJson(member, out);
+
+                if (i < self.properties.count() - 1) {
+                    try out.writeAll(",");
+                }
+            }
+            i += 1;
         }
 
         try out.writeAll("], ");
@@ -3108,12 +3154,13 @@ pub const ImportNode = struct {
 
         if (self.import) |import| {
             try codegen.emitCodeArg(
+                self.node.location,
                 .OP_CONSTANT,
                 try codegen.makeConstant(
                     (try import.function.toByteCode(import.function, codegen, breaks)).?.toValue(),
                 ),
             );
-            try codegen.emitOpCode(.OP_IMPORT);
+            try codegen.emitOpCode(self.node.location, .OP_IMPORT);
         }
 
         return null;
