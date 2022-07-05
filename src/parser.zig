@@ -11,6 +11,7 @@ const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
 const _scanner = @import("./scanner.zig");
 const _utils = @import("./utils.zig");
+const _chunk = @import("./chunk.zig");
 const Config = @import("./config.zig").Config;
 const StringParser = @import("./string_parser.zig").StringParser;
 
@@ -79,11 +80,13 @@ const DoUntilNode = _node.DoUntilNode;
 const BlockNode = _node.BlockNode;
 const SuperNode = _node.SuperNode;
 const DotNode = _node.DotNode;
+const FunDeclarationNode = _node.FunDeclarationNode;
 const ObjectInitNode = _node.ObjectInitNode;
 const ObjectDeclarationNode = _node.ObjectDeclarationNode;
 const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
 const ParsedArg = _node.ParsedArg;
+const OpCode = _chunk.OpCode;
 
 extern fn dlerror() [*:0]u8;
 
@@ -146,11 +149,8 @@ pub const Frame = struct {
     upvalues: [255]UpValue,
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
-    // Set at true in a `else` statement of scope_depth 2
-    return_counts: bool = false,
     // If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
-    return_emitted: bool = false,
     function_node: *FunctionNode,
     function: ?*ObjFunction = null,
     constants: std.ArrayList(Value),
@@ -377,6 +377,32 @@ pub const Parser = struct {
             try std.io.getStdOut().writer().print("\n{s}", .{out.items});
         }
 
+        // If top level, search `main` or `test` function(s) and call them
+        // Then put any exported globals on the stack
+        if (function_type == .ScriptEntryPoint) {
+            for (self.globals.items) |global, index| {
+                if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
+                    function_node.main_slot = index;
+                    break;
+                }
+            }
+        }
+
+        var test_slots = std.ArrayList(usize).init(self.allocator);
+        // Create an entry point wich runs all `test`
+        for (self.globals.items) |global, index| {
+            if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
+                try test_slots.append(index);
+            }
+        }
+
+        function_node.test_slots = test_slots.items;
+
+        // If we're being imported, put all globals on the stack
+        if (self.imported) {
+            function_node.exported_count = self.globals.items.len;
+        }
+
         return if (self.parser.had_error) null else &self.endFrame().node;
     }
 
@@ -453,13 +479,26 @@ pub const Parser = struct {
         return current_node;
     }
 
-    inline fn beginScope(self: *Self) void {
+    fn beginScope(self: *Self) void {
         self.current.?.scope_depth += 1;
     }
 
-    inline fn endScope(self: *Self) void {
-        self.current.?.scope_depth -= 1;
-        self.current.?.local_count = 0;
+    fn endScope(self: *Self) !std.ArrayList(OpCode) {
+        var current = self.current.?;
+        var closing = std.ArrayList(OpCode).init(self.allocator);
+        current.scope_depth -= 1;
+
+        while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
+            if (current.locals[current.local_count - 1].is_captured) {
+                try closing.append(.OP_CLOSE_UPVALUE);
+            } else {
+                try closing.append(.OP_POP);
+            }
+
+            current.local_count -= 1;
+        }
+
+        return closing;
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
@@ -1164,7 +1203,7 @@ pub const Parser = struct {
         node.node.type_def = object_type;
         node.node.location = self.parser.previous_token.?;
 
-        self.endScope();
+        node.node.ends_scope = try self.endScope();
 
         self.current_object = null;
 
@@ -1224,7 +1263,7 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
         var body = try self.block(block_type);
-        self.endScope();
+        body.ends_scope = try self.endScope();
 
         var else_branch: ?*ParseNode = null;
         if (try self.match(.Else)) {
@@ -1235,7 +1274,7 @@ pub const Parser = struct {
 
                 self.beginScope();
                 else_branch = try self.block(block_type);
-                self.endScope();
+                else_branch.?.ends_scope = try self.endScope();
             }
         }
 
@@ -1285,7 +1324,7 @@ pub const Parser = struct {
 
         var body = try self.block(.For);
 
-        self.endScope();
+        body.ends_scope = try self.endScope();
 
         var node = try self.allocator.create(ForNode);
         node.* = ForNode{
@@ -1321,7 +1360,7 @@ pub const Parser = struct {
 
         var body = try self.block(.ForEach);
 
-        self.endScope();
+        body.ends_scope = try self.endScope();
 
         // Only one variable: it's the value not the key
         if (value == null) {
@@ -1354,7 +1393,7 @@ pub const Parser = struct {
 
         var body = try self.block(.While);
 
-        self.endScope();
+        body.ends_scope = try self.endScope();
 
         var node = try self.allocator.create(WhileNode);
         node.* = WhileNode{
@@ -1381,7 +1420,7 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after `until` condition.");
 
-        self.endScope();
+        condition.ends_scope = try self.endScope();
 
         var node = try self.allocator.create(DoUntilNode);
         node.* = DoUntilNode{
@@ -1396,9 +1435,6 @@ pub const Parser = struct {
     fn returnStatement(self: *Self) !*ParseNode {
         if (self.current.?.scope_depth == 0) {
             try self.reportError("Can't use `return` at top-level.");
-        } else if (self.current.?.scope_depth == 1 or self.current.?.return_counts) {
-            // scope_depth at 1 == "root" level of the function
-            self.current.?.return_emitted = true;
         }
 
         var value: ?*ParseNode = null;
@@ -1635,7 +1671,14 @@ pub const Parser = struct {
 
         self.markInitialized();
 
-        return function_node;
+        var node = try self.allocator.create(FunDeclarationNode);
+        node.* = FunDeclarationNode{
+            .slot = slot,
+            .slot_type = if (self.current.?.scope_depth == 0) .Global else .Local,
+            .function = FunctionNode.cast(function_node).?,
+        };
+
+        return &node.node;
     }
 
     fn parseListType(self: *Self) !*ObjTypeDef {
@@ -1798,6 +1841,8 @@ pub const Parser = struct {
                 try self.consume(.Comma, "Expected `,` after field initialization.");
             }
         }
+
+        try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
         node.node.type_def = if (object.type_def) |type_def| try self.getTypeDef(type_def.toInstance()) else null;
 
@@ -2002,7 +2047,7 @@ pub const Parser = struct {
         var arguments = std.StringArrayHashMap(*ParseNode).init(self.allocator);
 
         var arg_count: u8 = 0;
-        while (!try self.match(.RightParen)) {
+        while (!self.check(.RightParen)) {
             var hanging = false;
             var arg_name: ?Token = null;
             if (try self.match(.Identifier)) {
@@ -2167,9 +2212,12 @@ pub const Parser = struct {
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = member;
+                        node.member_type_def = member;
 
                         assert(member.def_type == .Native);
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                        node.call.?.invoked = true;
+                        node.call.?.invoked_on = .String;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
@@ -2177,9 +2225,9 @@ pub const Parser = struct {
 
                     // String has only native functions members
                     node.node.type_def = member;
+                } else {
+                    try self.reportError("String property doesn't exist.");
                 }
-
-                try self.reportError("String property doesn't exist.");
             },
             .Object => {
                 var obj_def: ObjObject.ObjectDef = callee.type_def.?.resolved_type.?.Object;
@@ -2214,6 +2262,7 @@ pub const Parser = struct {
                 } else if (try self.match(.LeftParen)) { // Do we call it
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = property_type;
+                    node.member_type_def = property_type;
 
                     node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
@@ -2259,9 +2308,11 @@ pub const Parser = struct {
                 } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = property_type;
+                    node.member_type_def = property_type;
 
                     node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
                     node.call.?.invoked = true;
+                    node.call.?.invoked_on = .ObjectInstance;
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2307,36 +2358,40 @@ pub const Parser = struct {
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = member;
+                        node.member_type_def = member;
 
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
                         node.call.?.invoked = true;
+                        node.call.?.invoked_on = .List;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
                     } else {
                         node.node.type_def = member;
                     }
+                } else {
+                    try self.reportError("List property doesn't exist.");
                 }
-
-                try self.reportError("List property doesn't exist.");
             },
             .Map => {
                 if (try ObjMap.MapDef.member(callee.type_def.?, self, member_name)) |member| {
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = member;
+                        node.member_type_def = member;
 
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
                         node.call.?.invoked = true;
+                        node.call.?.invoked_on = .Map;
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
                     } else {
                         node.node.type_def = member;
                     }
+                } else {
+                    try self.reportError("Map property doesn't exist.");
                 }
-
-                try self.reportError("Map property doesn't exist.");
             },
             .Placeholder => {
                 // We know nothing of the field
@@ -2360,8 +2415,10 @@ pub const Parser = struct {
                 } else if (try self.match(.LeftParen)) {
                     // `call` will look to the parent node for the function definition
                     node.node.type_def = placeholder;
+                    node.member_type_def = placeholder;
 
                     node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                    // TODO: here maybe we invoke instead of call??
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2854,6 +2911,15 @@ pub const Parser = struct {
             )) |native| {
                 function_node.native = native;
             }
+        } else {
+            // Bind upvalues
+            var i: usize = 0;
+            while (i < self.current.?.upvalue_count) : (i += 1) {
+                try function_node.upvalue_binding.put(
+                    self.current.?.upvalues[i].index,
+                    if (self.current.?.upvalues[i].is_local) true else false,
+                );
+            }
         }
 
         function_node.node.type_def = try self.getTypeDef(function_typedef);
@@ -2894,6 +2960,10 @@ pub const Parser = struct {
 
     // `test` is just like a function but we don't parse arguments and we don't care about its return type
     fn testStatement(self: *Self) !*ParseNode {
+        var function_def_placeholder: ObjTypeDef = .{
+            .def_type = .Function,
+        };
+
         var test_id = std.ArrayList(u8).init(self.allocator);
         try test_id.writer().print("$test#{}", .{self.test_count});
         // TODO: this string is never freed
@@ -2907,7 +2977,25 @@ pub const Parser = struct {
             .column = 0,
         };
 
-        return try self.function(name_token, FunctionType.Test, null, null);
+        const slot = try self.declareVariable(&function_def_placeholder, name_token, true);
+
+        self.markInitialized();
+
+        const function_node = try self.function(name_token, FunctionType.Test, null, null);
+
+        // Make it as a global definition
+        var node = try self.allocator.create(VarDeclarationNode);
+        node.* = VarDeclarationNode{
+            .name = name_token,
+            .value = function_node,
+            .type_def = function_node.type_def,
+            .constant = true,
+            .slot = slot,
+            .slot_type = .Global,
+        };
+        node.node.location = function_node.location;
+
+        return node.toNode();
     }
 
     fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!?ScriptImport {

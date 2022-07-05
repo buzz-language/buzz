@@ -25,7 +25,7 @@ const Token = _token.Token;
 const TokenType = _token.TokenType;
 const CodeGen = _codegen.CodeGen;
 const Parser = _parser.Parser;
-const Frame = _parser.Frame;
+const Frame = _codegen.Frame;
 const Local = _parser.Local;
 const Global = _parser.Global;
 const UpValue = _parser.UpValue;
@@ -41,8 +41,6 @@ pub const ParseNodeType = enum(u8) {
     Enum,
     VarDeclaration,
     FunDeclaration,
-    ListDeclaration,
-    MapDeclaration,
     ObjectDeclaration,
 
     Binary,
@@ -96,6 +94,9 @@ pub const ParseNode = struct {
     // Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
 
+    // Does this node closes a scope
+    ends_scope: ?std.ArrayList(OpCode) = null,
+
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
 
@@ -128,6 +129,20 @@ pub const ParseNode = struct {
                 if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
             },
         );
+    }
+
+    fn endScope(self: *Self, codegen: *CodeGen) anyerror!void {
+        if (self.ends_scope) |closing| {
+            for (closing.items) |op| {
+                try codegen.emitOpCode(self.location, op);
+            }
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.ends_scope) {
+            self.ends_scope.?.deinit();
+        }
     }
 };
 
@@ -182,6 +197,8 @@ pub const NamedVariableNode = struct {
             try codegen.emitCodeArg(self.node.location, get_op, @intCast(u24, self.slot));
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -234,6 +251,8 @@ pub const NumberNode = struct {
 
         try codegen.emitConstant(self.node.location, Value{ .Number = self.constant });
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -278,6 +297,8 @@ pub const BooleanNode = struct {
 
         try codegen.emitOpCode(self.node.location, if (self.constant) .OP_TRUE else .OP_FALSE);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -321,6 +342,8 @@ pub const StringLiteralNode = struct {
         var self = Self.cast(node).?;
 
         try codegen.emitConstant(self.node.location, self.constant.toValue());
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -369,6 +392,8 @@ pub const StringNode = struct {
             // Push the empty string which is always the constant 0
             try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, 0);
 
+            try node.endScope(codegen);
+
             return null;
         }
 
@@ -388,6 +413,8 @@ pub const StringNode = struct {
                 }
             }
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -449,6 +476,8 @@ pub const NullNode = struct {
 
         try codegen.emitOpCode(node.location, .OP_NULL);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -499,11 +528,15 @@ pub const ListNode = struct {
                 try codegen.reportTypeCheckAt(item_type, item.type_def.?, "Bad list type", item.location);
             } else {
                 _ = try item.toByteCode(item, codegen, breaks);
+
+                try codegen.emitOpCode(item.location, .OP_LIST_APPEND);
             }
         }
 
         const list_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
         try codegen.patchList(list_offset, list_type_constant);
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -593,6 +626,8 @@ pub const MapNode = struct {
         const map_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
         try codegen.patchMap(map_offset, map_type_constant);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -657,6 +692,8 @@ pub const UnwrapNode = struct {
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.unwrapped.location, "Unknown type");
 
+            try node.endScope(codegen);
+
             return null;
         }
 
@@ -677,6 +714,8 @@ pub const UnwrapNode = struct {
         try codegen.opt_jumps.?.append(jump);
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop test result
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -736,6 +775,8 @@ pub const ForceUnwrapNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_UNWRAP);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -785,6 +826,8 @@ pub const IsNode = struct {
         try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
 
         try codegen.emitOpCode(self.node.location, .OP_IS);
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -865,6 +908,8 @@ pub const UnaryNode = struct {
             },
             else => unreachable,
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -1068,6 +1113,8 @@ pub const BinaryNode = struct {
             else => unreachable,
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -1172,6 +1219,8 @@ pub const SubscriptNode = struct {
             try codegen.emitOpCode(self.node.location, .OP_GET_SUBSCRIPT);
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -1228,6 +1277,12 @@ pub const FunctionNode = struct {
     test_message: ?*ParseNode = null,
     // If true this is the root of a script being imported
     import_root: bool = false,
+    upvalue_binding: std.AutoArrayHashMap(u8, bool),
+
+    // Useful when generating root script bootstrap code
+    main_slot: ?usize = null,
+    test_slots: ?[]usize = null,
+    exported_count: ?usize = null,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
@@ -1237,19 +1292,16 @@ pub const FunctionNode = struct {
         var enclosing = codegen.current;
         codegen.current = try codegen.allocator.create(Frame);
         codegen.current.?.* = Frame{
-            .locals = [_]Local{undefined} ** 255,
-            .upvalues = [_]UpValue{undefined} ** 255,
             .enclosing = enclosing,
             .function_node = self,
-            .constants = std.ArrayList(Value).init(codegen.allocator),
         };
 
         var function = try ObjFunction.init(
             codegen.allocator,
-            self.node.type_def.?.resolved_type.?.Function.name,
+            node.type_def.?.resolved_type.?.Function.name,
         );
 
-        function.type_def = self.node.type_def.?;
+        function.type_def = node.type_def.?;
 
         // First chunk constant is the empty string
         _ = try function.chunk.addConstant(null, Value{
@@ -1260,7 +1312,7 @@ pub const FunctionNode = struct {
         codegen.current.?.function = try codegen.allocator.create(ObjFunction);
         codegen.current.?.function.?.* = function;
 
-        const function_type = self.node.type_def.?.resolved_type.?.Function.function_type;
+        const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
         // Can't have both arrow expression and body
         assert((self.arrow_expr != null and self.body == null) or (self.arrow_expr == null and self.body != null));
@@ -1278,49 +1330,38 @@ pub const FunctionNode = struct {
                 // If top level, search `main` or `test` function(s) and call them
                 // Then put any exported globals on the stack
                 if (!codegen.testing and function_type == .ScriptEntryPoint) {
-                    var found_main: bool = false;
-                    for (codegen.globals.items) |global, index| {
-                        if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
-                            found_main = true;
-
-                            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
-                            try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, 1); // cli args are always local 0
-                            try codegen.emitCodeArgs(self.node.location, .OP_CALL, 1, 0);
-                            break;
-                        }
+                    if (self.main_slot) |main_slot| {
+                        try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, main_slot));
+                        try codegen.emitCodeArg(node.location, .OP_GET_LOCAL, 1); // cli args are always local 0
+                        try codegen.emitCodeArgs(node.location, .OP_CALL, 1, 0);
                     }
-                } else if (codegen.testing) {
+                } else if (codegen.testing and self.test_slots != null) {
                     // Create an entry point wich runs all `test`
-                    for (codegen.globals.items) |global, index| {
-                        if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
-                            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
-                            try codegen.emitCodeArgs(self.node.location, .OP_CALL, 0, 0);
-                        }
+                    for (self.test_slots.?) |slot| {
+                        try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, slot));
+                        try codegen.emitCodeArgs(node.location, .OP_CALL, 0, 0);
                     }
                 }
 
                 // If we're being imported, put all globals on the stack
                 if (self.import_root) {
-                    var exported_count: usize = 0;
-                    for (codegen.globals.items) |_, index| {
-                        exported_count += 1;
-
-                        if (exported_count > 16777215) {
-                            try codegen.reportErrorAt(self.node.location, "Can't export more than 16777215 values.");
-                            break;
-                        }
-
-                        try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, index));
+                    if (self.exported_count orelse 0 > 16777215) {
+                        try codegen.reportErrorAt(node.location, "Can't export more than 16777215 values.");
                     }
 
-                    try codegen.emitCodeArg(self.node.location, .OP_EXPORT, @intCast(u24, exported_count));
+                    var index: usize = 0;
+                    while (index < self.exported_count orelse 0) : (index += 1) {
+                        try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, index));
+                    }
+
+                    try codegen.emitCodeArg(node.location, .OP_EXPORT, @intCast(u24, self.exported_count orelse 0));
                 } else {
-                    try codegen.emitOpCode(self.node.location, .OP_VOID);
-                    try codegen.emitOpCode(self.node.location, .OP_RETURN);
+                    try codegen.emitOpCode(node.location, .OP_VOID);
+                    try codegen.emitOpCode(node.location, .OP_RETURN);
                 }
             } else if (codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !codegen.current.?.return_emitted) {
                 // TODO: detect if some branches of the function body miss a return statement
-                try codegen.emitReturn(self.node.location);
+                try codegen.emitReturn(node.location);
             }
         }
 
@@ -1332,24 +1373,19 @@ pub const FunctionNode = struct {
         if (function_type != .ScriptEntryPoint) {
             // `extern` functions don't have upvalues
             if (function_type == .Extern) {
-                try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.native.?.toValue()));
+                try codegen.emitCodeArg(node.location, .OP_CONSTANT, try codegen.makeConstant(self.native.?.toValue()));
             } else {
-                try codegen.emitCodeArg(self.node.location, .OP_CLOSURE, try codegen.makeConstant(current_function.toValue()));
+                try codegen.emitCodeArg(node.location, .OP_CLOSURE, try codegen.makeConstant(current_function.toValue()));
 
-                var i: usize = 0;
-                while (i < current_function.upvalue_count) : (i += 1) {
-                    try codegen.emit(self.node.location, if (frame.upvalues[i].is_local) 1 else 0);
-                    try codegen.emit(self.node.location, frame.upvalues[i].index);
+                var it = self.upvalue_binding.iterator();
+                while (it.next()) |kv| {
+                    try codegen.emit(node.location, if (kv.value_ptr.*) 1 else 0);
+                    try codegen.emit(node.location, kv.key_ptr.*);
                 }
             }
         }
 
-        std.debug.print("\n\n==========================", .{});
-        try disassembler.disassembleChunk(
-            &current_function.chunk,
-            current_function.name.string,
-        );
-        std.debug.print("\n\n==========================", .{});
+        try node.endScope(codegen);
 
         return current_function;
     }
@@ -1403,6 +1439,7 @@ pub const FunctionNode = struct {
         var self = Self{
             .body = try parser.allocator.create(BlockNode),
             .default_arguments = std.StringArrayHashMap(*ParseNode).init(parser.allocator),
+            .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.allocator),
         };
 
         self.body.?.* = BlockNode.init(parser.allocator);
@@ -1465,13 +1502,19 @@ pub const CallNode = struct {
     arguments: std.StringArrayHashMap(*ParseNode),
     catches: ?[]*ParseNode = null,
     invoked: bool = false,
+    invoked_on: ?ObjTypeDef.Type = null,
     super: ?*NamedVariableNode = null,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
-        const callee_type = self.callee.type_def;
+
+        if (!self.invoked) {
+            _ = try self.callee.toByteCode(self.callee, codegen, breaks);
+        }
+
+        const callee_type = if (self.callee.node_type == .Dot) DotNode.cast(self.callee).?.member_type_def else self.callee.type_def;
 
         if (callee_type == null or callee_type.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.callee.location, "Unknown type");
@@ -1482,39 +1525,109 @@ pub const CallNode = struct {
         else
             callee_type.?.resolved_type.?.Native.parameters;
         const arg_keys = args.keys();
+        const arg_count = arg_keys.len;
+
+        var missing_arguments = std.StringArrayHashMap(usize).init(codegen.allocator);
+        defer missing_arguments.deinit();
+        for (arg_keys) |arg_name, pindex| {
+            try missing_arguments.put(arg_name, pindex);
+        }
 
         // FIXME: Right now if dot call, can't have default arguments because we don't have a reference to the method ParseNode.
         //        For native calls it's acceptable but not for user defined object methods.
         //        https://github.com/giann/buzz/issues/45
         const default_args = if (self.callee.node_type == .Function) FunctionNode.cast(self.callee).?.default_arguments else null;
 
-        // Push arguments on the stack, in the correct order
-        for (arg_keys) |arg_key, index| {
-            const argument: ?*ParseNode = if (index == 0 and self.arguments.get("$") != null)
-                self.arguments.get("$").? // First argument with omitted name
-            else
-                self.arguments.get(arg_key);
+        if (self.arguments.count() > args.count()) {
+            try codegen.reportErrorAt(node.location, "Too many arguments.");
+        }
 
-            if (argument != null) {
-                if (argument.?.type_def == null or argument.?.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(argument.?.location, "Unknown type");
-                }
+        // First push on the stack arguments has they are parsed
+        var needs_reorder = false;
+        for (self.arguments.keys()) |arg_key, index| {
+            const argument = self.arguments.get(arg_key).?;
+            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
+            const def_arg_type = args.get(actual_arg_key);
 
-                if (!args.get(arg_key).?.eql(argument.?.type_def.?)) {
+            if (index != args.getIndex(actual_arg_key)) {
+                needs_reorder = true;
+            }
+
+            // Type check the argument
+            if (def_arg_type) |arg_type| {
+                if (argument.type_def == null or argument.type_def.?.def_type == .Placeholder) {
+                    try codegen.reportErrorAt(argument.location, "Unknown type");
+                } else if (!arg_type.eql(argument.type_def.?)) {
                     try codegen.reportTypeCheckAt(
-                        args.get(arg_key).?,
-                        argument.?.type_def.?,
+                        arg_type,
+                        argument.type_def.?,
                         "Bad argument type",
-                        argument.?.location,
+                        argument.location,
                     );
                 }
 
-                _ = try argument.?.toByteCode(argument.?, codegen, breaks);
-            } else if (default_args != null and default_args.?.get(arg_key) != null) {
-                const default = default_args.?.get(arg_key);
-                _ = try default.?.toByteCode(default.?, codegen, breaks);
+                _ = missing_arguments.orderedRemove(actual_arg_key);
             } else {
-                try codegen.reportErrorFmt(node.location, "Missing argument `{s}`.", .{arg_key});
+                try codegen.reportErrorFmt(argument.location, "Argument `{s}` does not exists.", .{arg_key});
+            }
+
+            _ = try argument.toByteCode(argument, codegen, breaks);
+        }
+
+        // Push default arguments
+        if (default_args) |defaults| {
+            var tmp_missing_arguments = try missing_arguments.clone();
+            defer tmp_missing_arguments.deinit();
+            const missing_keys = tmp_missing_arguments.keys();
+            for (missing_keys) |missing_key| {
+                if (defaults.get(missing_key)) |default| {
+                    _ = try default.toByteCode(default, codegen, breaks);
+                    _ = missing_arguments.orderedRemove(missing_key);
+                    needs_reorder = true;
+                }
+            }
+        }
+
+        if (missing_arguments.count() > 0) {
+            const missing = try std.mem.join(codegen.allocator, ", ", missing_arguments.keys());
+            defer codegen.allocator.free(missing);
+            try codegen.reportErrorFmt(node.location, "Missing argument(s): {s}", .{missing});
+        }
+
+        // Reorder arguments
+        if (needs_reorder) {
+            // Argument order reference
+            const arguments = try codegen.allocator.alloc([]const u8, self.arguments.keys().len);
+            std.mem.copy([]const u8, arguments, self.arguments.keys());
+            defer codegen.allocator.free(arguments);
+
+            // Until ordered
+            while (true) {
+                var ordered = true;
+
+                for (arguments) |arg_key, index| {
+                    const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
+                    const correct_index = args.getIndex(actual_arg_key).?;
+
+                    if (correct_index != index) {
+                        ordered = false;
+
+                        // TODO: both OP_SWAP args could fit in a 32 bit instruction
+                        try codegen.emitCodeArg(node.location, .OP_SWAP, @intCast(u24, arg_count - index - 1));
+                        // to where it should be
+                        try codegen.emit(node.location, @intCast(u32, arg_count - correct_index - 1));
+
+                        // Switch it in the reference
+                        var temp = arguments[index];
+                        arguments[index] = arguments[correct_index];
+                        arguments[correct_index] = temp;
+
+                        // Stop (so we can take the swap into account) and try again
+                        break;
+                    }
+                }
+
+                if (ordered) break;
             }
         }
 
@@ -1524,9 +1637,18 @@ pub const CallNode = struct {
         }
 
         if (self.invoked) {
-            try codegen.emitCodeArg(self.node.location, .OP_INVOKE, try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme));
+            // TODO: can it be invoked without callee being a DotNode?
+            try codegen.emitCodeArg(
+                self.node.location,
+                .OP_INVOKE,
+                try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
+            );
         } else if (self.super != null) {
-            try codegen.emitCodeArg(self.node.location, .OP_SUPER_INVOKE, try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme));
+            try codegen.emitCodeArg(
+                self.node.location,
+                .OP_SUPER_INVOKE,
+                try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
+            );
         }
 
         // Catch clauses
@@ -1546,10 +1668,13 @@ pub const CallNode = struct {
         } else {
             try codegen.emitTwo(
                 self.node.location,
-                @intCast(u8, self.arguments.count()),
+                // FIXME: for anything else than object prop call, we need self.arguments.count() + 1 ?!
+                if (self.invoked_on.? != .ObjectInstance) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -1622,6 +1747,60 @@ pub const CallNode = struct {
     }
 };
 
+pub const FunDeclarationNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .FunDeclaration,
+        .toJson = stringify,
+        .toByteCode = generate,
+    },
+
+    function: *FunctionNode,
+    slot: usize,
+    slot_type: SlotType,
+
+    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?;
+
+        _ = try self.function.node.toByteCode(&self.function.node, codegen, breaks);
+
+        if (self.slot_type == .Global) {
+            try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
+        }
+
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
+
+        try self.function.node.toJson(&self.function.node, out);
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .FunDeclaration) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
 pub const VarDeclarationNode = struct {
     const Self = @This();
 
@@ -1649,7 +1828,7 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
-            } else if (!value.type_def.?.eql(self.type_def.?)) {
+            } else if (!value.type_def.?.eql(&self.type_def.?.toInstance())) {
                 try codegen.reportTypeCheckAt(self.type_def.?, value.type_def.?, "Wrong variable type", value.location);
             }
 
@@ -1661,6 +1840,8 @@ pub const VarDeclarationNode = struct {
         if (self.slot_type == .Global) {
             try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -1744,6 +1925,8 @@ pub const EnumNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -1809,6 +1992,8 @@ pub const ThrowNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_THROW);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -1855,6 +2040,8 @@ pub const BreakNode = struct {
 
         try breaks.?.append(try codegen.emitJump(node.location, .OP_JUMP));
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -1890,6 +2077,8 @@ pub const ContinueNode = struct {
         assert(breaks != null);
 
         try breaks.?.append(try codegen.emitJump(node.location, .OP_LOOP));
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -1954,6 +2143,8 @@ pub const IfNode = struct {
         }
 
         try codegen.patchJump(else_jump);
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -2028,6 +2219,8 @@ pub const ReturnNode = struct {
         }
 
         try codegen.emitOpCode(self.node.location, .OP_RETURN);
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -2136,6 +2329,8 @@ pub const ForNode = struct {
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -2305,6 +2500,8 @@ pub const ForEachNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop element being iterated on
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -2409,6 +2606,8 @@ pub const WhileNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -2503,6 +2702,8 @@ pub const DoUntilNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -2568,6 +2769,8 @@ pub const BlockNode = struct {
         for (self.statements.items) |statement| {
             _ = try statement.toByteCode(statement, codegen, breaks);
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -2644,6 +2847,8 @@ pub const SuperNode = struct {
             try codegen.emitCodeArg(self.node.location, .OP_GET_SUPER, try codegen.identifierConstant(self.identifier.lexeme));
         }
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -2681,6 +2886,7 @@ pub const DotNode = struct {
 
     callee: *ParseNode,
     identifier: Token,
+    member_type_def: ?*ObjTypeDef = null,
     value: ?*ParseNode = null,
     call: ?*CallNode = null,
     enum_index: ?usize = null,
@@ -2689,6 +2895,9 @@ pub const DotNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        _ = try self.callee.toByteCode(self.callee, codegen, breaks);
+
         const callee_type = self.callee.type_def.?;
 
         if (callee_type.def_type == .Placeholder) {
@@ -2726,6 +2935,11 @@ pub const DotNode = struct {
 
                     try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                 } else if (self.call) |call| {
+                    // Static call
+                    if (callee_type.def_type == .Object) {
+                        try codegen.emitCodeArg(node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    }
+
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
                     try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
@@ -2750,6 +2964,8 @@ pub const DotNode = struct {
             },
             else => unreachable,
         }
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -2877,6 +3093,8 @@ pub const ObjectInitNode = struct {
 
         // Did we initialized all properties without a default value?
         try self.checkOmittedProperty(codegen, obj_def, init_properties);
+
+        try node.endScope(codegen);
 
         return null;
     }
@@ -3026,6 +3244,8 @@ pub const ObjectDeclarationNode = struct {
         // Pop object
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -3102,7 +3322,9 @@ pub const ExportNode = struct {
     identifier: Token,
     alias: ?Token = null,
 
-    pub fn generate(_: *ParseNode, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    pub fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        try node.endScope(codegen);
+
         return null;
     }
 
@@ -3162,6 +3384,8 @@ pub const ImportNode = struct {
             );
             try codegen.emitOpCode(self.node.location, .OP_IMPORT);
         }
+
+        try node.endScope(codegen);
 
         return null;
     }

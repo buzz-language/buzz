@@ -15,7 +15,6 @@ const _node = @import("./node.zig");
 const _token = @import("./token.zig");
 const Config = @import("./config.zig").Config;
 const copyStringRaw = _obj.copyStringRaw;
-const Frame = _parser.Frame;
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
 const ObjString = _obj.ObjString;
@@ -28,6 +27,14 @@ const Chunk = _chunk.Chunk;
 const Token = _token.Token;
 const ObjTypeDef = _obj.ObjTypeDef;
 
+pub const Frame = struct {
+    enclosing: ?*Frame = null,
+    function_node: *FunctionNode,
+    function: ?*ObjFunction = null,
+    return_counts: bool = false,
+    return_emitted: bool = false,
+};
+
 pub const CodeGen = struct {
     const Self = @This();
 
@@ -35,7 +42,6 @@ pub const CodeGen = struct {
     allocator: Allocator,
     strings: *std.StringHashMap(*ObjString),
     type_defs: *std.StringHashMap(*ObjTypeDef),
-    globals: std.ArrayList(Global),
     testing: bool,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(usize) = null,
@@ -51,7 +57,6 @@ pub const CodeGen = struct {
             .strings = strings,
             .type_defs = type_defs,
             .testing = testing,
-            .globals = std.ArrayList(Global).init(allocator),
         };
     }
 
