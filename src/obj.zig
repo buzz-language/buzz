@@ -2301,7 +2301,7 @@ pub const ObjTypeDef = struct {
                     var return_type = try self.resolved_type.?.Function.return_type.toString(allocator);
                     defer allocator.free(return_type);
 
-                    try type_str.appendSlice(") > ");
+                    try type_str.appendSlice(" > ");
                     try type_str.appendSlice(return_type);
                 }
             },

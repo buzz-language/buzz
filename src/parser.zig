@@ -1738,7 +1738,7 @@ pub const Parser = struct {
             enum_case_type = try self.getTypeDef(.{ .def_type = .Number });
         }
 
-        enum_case_type.* = enum_case_type.toInstance();
+        enum_case_type = try self.getTypeDef(enum_case_type.toInstance());
 
         try self.consume(.Identifier, "Expected enum name.");
         var enum_name: Token = self.parser.previous_token.?.clone();
