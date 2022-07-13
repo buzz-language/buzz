@@ -1568,7 +1568,7 @@ pub const CallNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (!self.invoked) {
+        if (!self.invoked and self.invoked_on == null) {
             _ = try self.callee.toByteCode(self.callee, codegen, breaks);
         }
 
@@ -1742,7 +1742,7 @@ pub const CallNode = struct {
 
         try out.writeAll("{\"node\": \"Call\"");
 
-        if (!self.invoked) {
+        if (!self.invoked and self.invoked_on == null) {
             try out.writeAll(", \"callee\": ");
             try self.callee.toJson(self.callee, out);
         }
@@ -2291,7 +2291,7 @@ pub const ReturnNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"Return\"");
+        try out.writeAll("{\"node\": \"Return\", ");
 
         if (self.value) |value| {
             try out.writeAll("\"value\": ");
@@ -3332,6 +3332,10 @@ pub const ObjectDeclarationNode = struct {
             }
 
             i += 1;
+        }
+
+        if (self.methods.count() > 0 and self.properties.count() > 0) {
+            try out.writeAll(",");
         }
 
         var it2 = self.properties.iterator();

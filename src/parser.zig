@@ -389,7 +389,7 @@ pub const Parser = struct {
         return if (self.parser.had_error) null else &self.endFrame().node;
     }
 
-    fn beginFrame(self: *Self, function_type: FunctionType, function_node: *FunctionNode, this: ?*ParseNode) !void {
+    fn beginFrame(self: *Self, function_type: FunctionType, function_node: *FunctionNode, this: ?*ObjTypeDef) !void {
         var enclosing = self.current;
         self.current = try self.allocator.create(Frame);
         self.current.?.* = Frame{
@@ -413,17 +413,8 @@ pub const Parser = struct {
         switch (function_type) {
             .Method => {
                 assert(this != null);
-                assert(this.?.type_def != null);
 
-                // `this`
-                var type_def: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = this.?.type_def.? };
-
-                local.type_def = try self.getTypeDef(
-                    ObjTypeDef{
-                        .def_type = .ObjectInstance,
-                        .resolved_type = type_def,
-                    },
-                );
+                local.type_def = this.?;
             },
             .EntryPoint, .ScriptEntryPoint => {
                 // `args` is [str]
@@ -1094,7 +1085,7 @@ pub const Parser = struct {
             const static: bool = try self.match(.Static);
 
             if (try self.match(.Fun)) {
-                var method_node: *ParseNode = try self.method(undefined);
+                var method_node: *ParseNode = try self.method(try self.getTypeDef(object_type.toInstance()));
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
@@ -1197,7 +1188,7 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn method(self: *Self, this: *ParseNode) !*ParseNode {
+    fn method(self: *Self, this: *ObjTypeDef) !*ParseNode {
         try self.consume(.Identifier, "Expected method name.");
 
         return try self.function(
@@ -2259,6 +2250,7 @@ pub const Parser = struct {
                     node.member_type_def = property_type;
 
                     node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                    node.call.?.invoked_on = .Object;
 
                     // Node type is the return type of the call
                     node.node.type_def = node.call.?.node.type_def;
@@ -2737,7 +2729,7 @@ pub const Parser = struct {
         return try self.function(null, .Anonymous, null, null);
     }
 
-    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ParseNode, inferred_return: ?*ParseNode) !*ParseNode {
+    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef, inferred_return: ?*ParseNode) !*ParseNode {
         var function_node = try self.allocator.create(FunctionNode);
         function_node.* = try FunctionNode.init(
             self,
