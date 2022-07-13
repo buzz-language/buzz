@@ -1786,6 +1786,9 @@ pub const Parser = struct {
             } else {
                 var constant_node = try self.allocator.create(NumberNode);
                 constant_node.* = NumberNode{ .constant = case_index };
+                constant_node.node.type_def = try self.getTypeDef(.{
+                    .def_type = .Number,
+                });
                 constant_node.node.location = self.parser.previous_token.?;
 
                 try cases.append(&constant_node.node);

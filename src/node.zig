@@ -876,6 +876,8 @@ pub const IsNode = struct {
 
         var self = Self.cast(node).?;
 
+        _ = try self.left.toByteCode(self.left, codegen, breaks);
+
         try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
 
         try codegen.emitOpCode(self.node.location, .OP_IS);
