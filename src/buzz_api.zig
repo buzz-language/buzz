@@ -270,8 +270,9 @@ export fn bz_deinitVM(self: *VM) void {
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.allocator);
-    var parser = Parser.init(self.allocator, self.strings, &imports, false);
-    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &parser.type_defs, false);
+    var type_defs = std.StringHashMap(*ObjTypeDef).init(self.allocator);
+    var parser = Parser.init(self.allocator, self.strings, &imports, &type_defs, false);
+    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &type_defs, false);
     defer {
         codegen.deinit();
         imports.deinit();

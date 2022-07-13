@@ -258,7 +258,7 @@ pub const NamedVariableNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\",", .{ self.identifier.lexeme, self.slot });
+        try out.print("{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",", .{ self.identifier.lexeme, self.slot, self.slot_type });
 
         try ParseNode.stringify(node, out);
 
@@ -1480,6 +1480,7 @@ pub const FunctionNode = struct {
         }
 
         if (self.test_message) |test_message| {
+            try out.writeAll("\"test_message\": ");
             try test_message.toJson(test_message, out);
 
             try out.writeAll(", ");
@@ -1737,9 +1738,12 @@ pub const CallNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"Call\", \"callee\": ");
+        try out.writeAll("{\"node\": \"Call\"");
 
-        try self.callee.toJson(self.callee, out);
+        if (!self.invoked) {
+            try out.writeAll(", \"callee\": ");
+            try self.callee.toJson(self.callee, out);
+        }
 
         try out.writeAll(", \"arguments\": [");
 
@@ -1837,6 +1841,8 @@ pub const FunDeclarationNode = struct {
         try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
 
         try self.function.node.toJson(&self.function.node, out);
+
+        try out.writeAll(",");
 
         try ParseNode.stringify(node, out);
 

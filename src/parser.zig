@@ -300,7 +300,7 @@ pub const Parser = struct {
     scanner: ?Scanner = null,
     parser: ParserState,
     script_name: []const u8 = undefined,
-    type_defs: std.StringHashMap(*ObjTypeDef),
+    type_defs: *std.StringHashMap(*ObjTypeDef),
     strings: *std.StringHashMap(*ObjString),
     // If true the script is being imported
     imported: bool = false,
@@ -314,28 +314,20 @@ pub const Parser = struct {
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
-    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
+    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), type_defs: *std.StringHashMap(*ObjTypeDef), imported: bool) Self {
         return .{
             .allocator = allocator,
             .parser = ParserState.init(allocator),
             .strings = strings,
             .imports = imports,
             .imported = imported,
-            .type_defs = std.StringHashMap(*ObjTypeDef).init(allocator),
+            .type_defs = type_defs,
             .globals = std.ArrayList(Global).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.parser.deinit();
-
-        // TODO: key are strings on the heap so free them, does this work?
-        var it = self.type_defs.iterator();
-        while (it.next()) |kv| {
-            self.allocator.free(kv.key_ptr.*);
-        }
-
-        self.type_defs.deinit();
     }
 
     pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?*ParseNode {
@@ -3047,7 +3039,7 @@ pub const Parser = struct {
 
             _ = try file.readAll(source);
 
-            var parser = Parser.init(self.allocator, self.strings, self.imports, true);
+            var parser = Parser.init(self.allocator, self.strings, self.imports, self.type_defs, true);
             defer parser.deinit();
 
             if (try parser.parse(source, file_name)) |import_node| {
