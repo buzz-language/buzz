@@ -70,6 +70,15 @@ pub const CodeGen = struct {
         self.had_error = false;
         self.panic_mode = false;
 
+        if (Config.debug) {
+            var out = std.ArrayList(u8).init(self.allocator);
+            defer out.deinit();
+
+            try root.node.toJson(&root.node, out.writer());
+
+            try std.io.getStdOut().writer().print("\n{s}", .{out.items});
+        }
+
         const function = try root.node.toByteCode(&root.node, self, null);
 
         return if (self.had_error) null else function;

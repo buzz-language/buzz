@@ -360,15 +360,6 @@ pub const Parser = struct {
             }
         }
 
-        if (Config.debug and !self.parser.had_error) {
-            var out = std.ArrayList(u8).init(self.allocator);
-            defer out.deinit();
-
-            try function_node.node.toJson(&function_node.node, out.writer());
-
-            try std.io.getStdOut().writer().print("\n{s}", .{out.items});
-        }
-
         // If top level, search `main` or `test` function(s) and call them
         // Then put any exported globals on the stack
         if (function_type == .ScriptEntryPoint) {
@@ -872,6 +863,10 @@ pub const Parser = struct {
                     };
 
                     var_type = try self.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
+                }
+
+                if ((try self.match(.Question)) and !var_type.?.optional) {
+                    var_type = try var_type.?.cloneToggleOptional(self);
                 }
 
                 var node = VarDeclarationNode.cast(try self.varDeclaration(var_type.?, .Semicolon, constant, true)).?;
@@ -1452,8 +1447,6 @@ pub const Parser = struct {
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
-        parsed_type.optional = try self.match(.Question);
-
         var var_type = try self.getTypeDef(parsed_type.toInstance());
 
         const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
@@ -3197,6 +3190,7 @@ pub const Parser = struct {
 
         var function_typedef: ObjTypeDef = .{
             .def_type = .Function,
+            .optional = try self.match(.Question),
         };
 
         var function_def: ObjFunction.FunctionDef = .{

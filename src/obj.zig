@@ -2193,8 +2193,18 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
-    pub fn cloneOptional(self: *Self, compiler: *Parser) !*ObjTypeDef {
-        return compiler.getTypeDef(
+    pub fn cloneToggleOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
+        return parser.getTypeDef(
+            .{
+                .optional = !self.optional,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
+    pub fn cloneOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
+        return parser.getTypeDef(
             .{
                 .optional = true,
                 .def_type = self.def_type,
@@ -2203,8 +2213,8 @@ pub const ObjTypeDef = struct {
         );
     }
 
-    pub fn cloneNonOptional(self: *Self, compiler: *Parser) !*ObjTypeDef {
-        return compiler.getTypeDef(
+    pub fn cloneNonOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
+        return parser.getTypeDef(
             .{
                 .optional = false,
                 .def_type = self.def_type,
