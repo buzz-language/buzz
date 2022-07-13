@@ -3079,6 +3079,7 @@ pub const ObjectInitNode = struct {
         .toByteCode = generate,
     },
 
+    object: *ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringHashMap(*ParseNode),
 
     fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
@@ -3110,6 +3111,8 @@ pub const ObjectInitNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        _ = try self.object.toByteCode(self.object, codegen, breaks);
 
         try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
@@ -3186,8 +3189,9 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}");
     }
 
-    pub fn init(allocator: Allocator) Self {
+    pub fn init(allocator: Allocator, object: *ParseNode) Self {
         return Self{
+            .object = object,
             .properties = std.StringHashMap(*ParseNode).init(allocator),
         };
     }

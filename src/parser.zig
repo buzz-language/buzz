@@ -1816,7 +1816,7 @@ pub const Parser = struct {
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
         var node = try self.allocator.create(ObjectInitNode);
-        node.* = ObjectInitNode.init(self.allocator);
+        node.* = ObjectInitNode.init(self.allocator, object);
         node.node.location = self.parser.previous_token.?;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
@@ -3523,33 +3523,3 @@ pub const Parser = struct {
         return null;
     }
 };
-
-test "dumping ast to json" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
-        .safety = true,
-    }){};
-
-    var strings = std.StringHashMap(*ObjString).init(gpa.allocator());
-    var imports = std.StringHashMap(Parser.ScriptImport).init(gpa.allocator());
-
-    var program =
-        \\ import "lib/std";
-        \\ str yo = "hello";
-        \\ fun main([str] args) > num {
-        \\     print("hello world");
-        \\ }
-    ;
-
-    var parser = Parser.init(gpa.allocator(), &strings, &imports, false);
-
-    if (try parser.parse(program, "test")) |root| {
-        var out = std.ArrayList(u8).init(std.heap.c_allocator);
-        defer out.deinit();
-
-        try root.toJson(root, out.writer());
-
-        try std.io.getStdOut().writer().print("\n{s}", .{out.items});
-    } else {
-        try std.io.getStdOut().writer().writeAll("{{}");
-    }
-}

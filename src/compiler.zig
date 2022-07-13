@@ -2789,6 +2789,7 @@ pub const Compiler = struct {
         // Put  object on the stack and define global with it
         try self.emitCodeArg(.OP_OBJECT, name_constant);
         try self.emit(@intCast(u32, object_type_constant));
+
         try self.emitCodeArg(.OP_DEFINE_GLOBAL, @intCast(u24, slot));
 
         // Mark initialized so we can refer to it inside its own declaration
