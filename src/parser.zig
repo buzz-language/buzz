@@ -2884,6 +2884,11 @@ pub const Parser = struct {
         if (try self.match(.Arrow)) {
             function_node.node.type_def.?.resolved_type.?.Function.lambda = true;
             function_node.arrow_expr = try self.expression(false);
+
+            if (function_node.body) |placeholder_body| {
+                self.allocator.destroy(placeholder_body);
+            }
+            function_node.body = null;
         } else if (function_type != .Extern) {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             function_node.body = BlockNode.cast(try self.block(.Function)).?;
