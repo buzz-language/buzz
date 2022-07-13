@@ -53,6 +53,7 @@ pub const ParseNodeType = enum(u8) {
     And,
     Or,
 
+    Expression,
     NamedVariable,
 
     Number,
@@ -143,6 +144,58 @@ pub const ParseNode = struct {
         if (self.ends_scope) {
             self.ends_scope.?.deinit();
         }
+    }
+};
+
+pub const ExpressionNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Expression,
+        .toJson = stringify,
+        .toByteCode = generate,
+    },
+
+    expression: *ParseNode,
+
+    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?;
+
+        _ = try self.expression.toByteCode(self.expression, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_POP);
+
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Expression\", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll(",\"expression\": ");
+
+        try self.expression.toJson(self.expression, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Expression) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
     }
 };
 
@@ -1163,6 +1216,8 @@ pub const SubscriptNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        _ = try self.subscripted.toByteCode(self.subscripted, codegen, breaks);
 
         if (self.subscripted.type_def == null or self.subscripted.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.subscripted.location, "Unknown type.");

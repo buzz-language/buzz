@@ -67,6 +67,7 @@ const FunctionNode = _node.FunctionNode;
 const CallNode = _node.CallNode;
 const SuperCallNode = _node.SuperCallNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
+const ExpressionNode = _node.ExpressionNode;
 const EnumNode = _node.EnumNode;
 const ThrowNode = _node.ThrowNode;
 const BreakNode = _node.BreakNode;
@@ -343,7 +344,6 @@ pub const Parser = struct {
         }
 
         self.scanner = Scanner.init(source);
-        defer self.scanner = null;
 
         const function_type: FunctionType = if (self.imported) .Script else .ScriptEntryPoint;
         var function_node = try self.allocator.create(FunctionNode);
@@ -1222,9 +1222,15 @@ pub const Parser = struct {
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !*ParseNode {
-        var node = try self.expression(hanging);
+        var node = try self.allocator.create(ExpressionNode);
+        node.* = ExpressionNode{
+            .expression = try self.expression(hanging),
+        };
+        node.node.location = node.expression.location;
+
         try self.consume(.Semicolon, "Expected `;` after expression.");
-        return node;
+
+        return &node.node;
     }
 
     fn breakStatement(self: *Self, block_type: BlockType) !*ParseNode {
