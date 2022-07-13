@@ -70,7 +70,7 @@ pub const CodeGen = struct {
         self.had_error = false;
         self.panic_mode = false;
 
-        const function = try root.generate(root.node, self);
+        const function = try root.node.toByteCode(&root.node, self, null);
 
         return if (self.had_error) null else function;
     }
@@ -252,7 +252,7 @@ pub const CodeGen = struct {
 
             l += 1;
         }
-        std.debug.print("{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, location.line + 1, location.column + 1, message });
+        std.debug.print("{s}{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, location.line + 1, location.column + 1, message });
     }
 
     // Unlocated error, should not be used

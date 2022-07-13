@@ -605,7 +605,7 @@ pub const Parser = struct {
 
             l += 1;
         }
-        std.debug.print("{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, token.line + 1, token.column + 1, message });
+        std.debug.print("{s}{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, token.line + 1, token.column + 1, message });
     }
 
     fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {

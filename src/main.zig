@@ -7,6 +7,7 @@ const Parser = _parser.Parser;
 const CompileError = _parser.CompileError;
 const CodeGen = @import("./codegen.zig").CodeGen;
 const ObjString = @import("./obj.zig").ObjString;
+const FunctionNode = @import("./node.zig").FunctionNode;
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
@@ -38,10 +39,12 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
     _ = try file.readAll(source);
 
     if (try parser.parse(source, file_name)) |function_node| {
-        _ = try vm.interpret(
-            (try function_node.toByteCode(function_node, &codegen, null)).?,
-            args,
-        );
+        if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+            _ = try vm.interpret(
+                function,
+                args,
+            );
+        }
     } else {
         return CompileError.Recoverable;
     }
