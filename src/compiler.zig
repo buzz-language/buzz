@@ -244,8 +244,8 @@ pub const Compiler = struct {
         Primary, // literal, (grouped expression), super.ref, identifier, <type>[alist], <a, map>{...}
     };
 
-    const ParseFn = fn (compiler: *Compiler, can_assign: bool) anyerror!*ObjTypeDef;
-    const InfixParseFn = fn (compiler: *Compiler, can_assign: bool, callee_type: *ObjTypeDef) anyerror!*ObjTypeDef;
+    const ParseFn = fn (*Compiler, bool) anyerror!*ObjTypeDef;
+    const InfixParseFn = fn (*Compiler, bool, *ObjTypeDef) anyerror!*ObjTypeDef;
 
     const ParseRule = struct {
         prefix: ?ParseFn,

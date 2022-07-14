@@ -1377,6 +1377,8 @@ pub const FunctionNode = struct {
         // Generate function's body bytecode
         if (self.arrow_expr) |arrow_expr| {
             _ = try arrow_expr.toByteCode(arrow_expr, codegen, breaks);
+            try codegen.emitOpCode(arrow_expr.location, .OP_RETURN);
+            codegen.current.?.return_emitted = true;
         } else {
             _ = try self.body.?.node.toByteCode(&self.body.?.node, codegen, breaks);
         }
@@ -1712,6 +1714,36 @@ pub const CallNode = struct {
         // Catch clauses
         if (self.catches) |catches| {
             for (catches) |catch_clause| {
+                if (catch_clause.type_def == null or catch_clause.type_def.?.def_type == .Placeholder) {
+                    try codegen.reportErrorAt(catch_clause.location, "Unknown type.");
+                } else {
+                    switch (catch_clause.type_def.?.def_type) {
+                        .Function => {
+                            if (!catch_clause.type_def.?.resolved_type.?.Function.return_type.eql(node.type_def.?)) {
+                                try codegen.reportTypeCheckAt(
+                                    node.type_def.?,
+                                    catch_clause.type_def.?.resolved_type.?.Function.return_type,
+                                    "Wrong catch clause return type",
+                                    catch_clause.location,
+                                );
+                            }
+                        },
+                        else => {
+                            assert(self.catches.?.len == 1);
+
+                            // Expression
+                            if (!catch_clause.type_def.?.eql(node.type_def.?)) {
+                                try codegen.reportTypeCheckAt(
+                                    node.type_def.?,
+                                    catch_clause.type_def.?.resolved_type.?.Function.return_type,
+                                    "Wrong catch clause return type",
+                                    catch_clause.location,
+                                );
+                            }
+                        },
+                    }
+                }
+
                 _ = try catch_clause.toByteCode(catch_clause, codegen, breaks);
             }
         }

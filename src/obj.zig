@@ -248,7 +248,7 @@ pub const Obj = struct {
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = fn (vm: *VM) c_int;
+pub const NativeFn = fn (*VM) c_int;
 
 /// Native function
 pub const ObjNative = struct {

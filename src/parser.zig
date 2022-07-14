@@ -198,8 +198,8 @@ pub const Parser = struct {
         Primary, // literal, (grouped expression), super.ref, identifier, <type>[alist], <a, map>{...}
     };
 
-    const ParseFn = fn (parser: *Parser, can_assign: bool) anyerror!*ParseNode;
-    const InfixParseFn = fn (parser: *Parser, can_assign: bool, callee_node: *ParseNode) anyerror!*ParseNode;
+    const ParseFn = fn (*Parser, bool) anyerror!*ParseNode;
+    const InfixParseFn = fn (*Parser, bool, *ParseNode) anyerror!*ParseNode;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
@@ -1195,7 +1195,6 @@ pub const Parser = struct {
             self.parser.previous_token.?.clone(),
             .Method,
             this,
-            null,
         );
     }
 
@@ -1628,7 +1627,7 @@ pub const Parser = struct {
             function_type = .EntryPoint;
         }
 
-        var function_node: *ParseNode = try self.function(name_token, function_type, null, null);
+        var function_node: *ParseNode = try self.function(name_token, function_type, null);
 
         if (function_node.type_def.?.resolved_type.?.Function.lambda) {
             try self.consume(.Semicolon, "Expected `;` after lambda function");
@@ -2726,10 +2725,10 @@ pub const Parser = struct {
     }
 
     fn fun(self: *Self, _: bool) anyerror!*ParseNode {
-        return try self.function(null, .Anonymous, null, null);
+        return try self.function(null, .Anonymous, null);
     }
 
-    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef, inferred_return: ?*ParseNode) !*ParseNode {
+    fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ParseNode {
         var function_node = try self.allocator.create(FunctionNode);
         function_node.* = try FunctionNode.init(
             self,
@@ -2870,14 +2869,13 @@ pub const Parser = struct {
         }
 
         // Parse return type
+        var parsed_return_type = false;
         if (function_type != .Test and (function_type != .Catch or self.check(.Greater))) {
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
-        } else if (function_type == .Catch and inferred_return != null and inferred_return.?.type_def != null) {
-            function_node.node.type_def.?.resolved_type.?.Function.return_type = inferred_return.?.type_def.?;
-        } else {
-            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.getTypeDef(.{ .def_type = .Void });
+
+            parsed_return_type = true;
         }
 
         // Parse body
@@ -2889,9 +2887,18 @@ pub const Parser = struct {
                 self.allocator.destroy(placeholder_body);
             }
             function_node.body = null;
+
+            if (!parsed_return_type and function_node.arrow_expr.?.type_def != null) {
+                function_node.node.type_def.?.resolved_type.?.Function.return_type = function_node.arrow_expr.?.type_def.?;
+                parsed_return_type = true;
+            }
         } else if (function_type != .Extern) {
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             function_node.body = BlockNode.cast(try self.block(.Function)).?;
+        }
+
+        if (!parsed_return_type) {
+            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.getTypeDef(.{ .def_type = .Void });
         }
 
         if (function_type == .Extern) {
@@ -2925,7 +2932,7 @@ pub const Parser = struct {
             if (try self.match(.LeftBrace)) {
                 var catch_count: u8 = 0;
                 while (!self.check(.RightBrace) and !self.check(.Eof)) {
-                    try catches.append(try self.function(null, .Catch, null, null));
+                    try catches.append(try self.function(null, .Catch, null));
 
                     catch_count += 1;
 
@@ -2972,7 +2979,7 @@ pub const Parser = struct {
 
         self.markInitialized();
 
-        const function_node = try self.function(name_token, FunctionType.Test, null, null);
+        const function_node = try self.function(name_token, FunctionType.Test, null);
 
         // Make it as a global definition
         var node = try self.allocator.create(VarDeclarationNode);
