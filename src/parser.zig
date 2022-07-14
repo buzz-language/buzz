@@ -1494,6 +1494,10 @@ pub const Parser = struct {
             _ = try self.declarePlaceholder(user_type_name, var_type);
         }
 
+        if (try self.match(.Question)) {
+            var_type = try var_type.?.cloneOptional(self);
+        }
+
         return try self.varDeclaration(var_type.?, .Semicolon, constant, true);
     }
 
@@ -2114,6 +2118,9 @@ pub const Parser = struct {
 
         node.node.type_def = if (unwrapped.type_def) |type_def| try self.cloneTypeNonOptional(type_def) else null;
 
+        if (self.opt_jumps == null) {
+            self.opt_jumps = std.ArrayList(Precedence).init(self.allocator);
+        }
         try self.opt_jumps.?.append(getRule(self.parser.current_token.?.token_type).precedence);
 
         return &node.node;

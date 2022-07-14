@@ -577,7 +577,7 @@ pub const ListNode = struct {
         for (self.items) |item| {
             if (item.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(item.location, "Unknown type");
-            } else if (!item.type_def.?.eql(item_type)) {
+            } else if (!item_type.eql(item.type_def.?)) {
                 try codegen.reportTypeCheckAt(item_type, item.type_def.?, "Bad list type", item.location);
             } else {
                 _ = try item.toByteCode(item, codegen, breaks);
@@ -667,11 +667,11 @@ pub const MapNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type");
             }
 
-            if (!key.type_def.?.eql(key_type)) {
+            if (!key_type.eql(key.type_def.?)) {
                 try codegen.reportTypeCheckAt(key_type, key.type_def.?, "Bad key type", key.location);
             }
 
-            if (!value.type_def.?.eql(value_type)) {
+            if (!value_type.eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(value_type, value.type_def.?, "Bad value type", value.location);
             }
         }
@@ -1719,7 +1719,7 @@ pub const CallNode = struct {
                 } else {
                     switch (catch_clause.type_def.?.def_type) {
                         .Function => {
-                            if (!catch_clause.type_def.?.resolved_type.?.Function.return_type.eql(node.type_def.?)) {
+                            if (!node.type_def.?.eql(catch_clause.type_def.?.resolved_type.?.Function.return_type)) {
                                 try codegen.reportTypeCheckAt(
                                     node.type_def.?,
                                     catch_clause.type_def.?.resolved_type.?.Function.return_type,
@@ -1732,7 +1732,7 @@ pub const CallNode = struct {
                             assert(self.catches.?.len == 1);
 
                             // Expression
-                            if (!catch_clause.type_def.?.eql(node.type_def.?)) {
+                            if (!node.type_def.?.eql(catch_clause.type_def.?)) {
                                 try codegen.reportTypeCheckAt(
                                     node.type_def.?,
                                     catch_clause.type_def.?.resolved_type.?.Function.return_type,
@@ -1923,7 +1923,7 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
-            } else if (!value.type_def.?.eql(&self.type_def.?.toInstance())) {
+            } else if (!(&self.type_def.?.toInstance()).eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(self.type_def.?, value.type_def.?, "Wrong variable type", value.location);
             }
 
@@ -2009,7 +2009,7 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(case.location, "Unknown type.");
-            } else if (!case.type_def.?.eql(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance())) {
+            } else if (!(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance()).eql(case.type_def.?)) {
                 try codegen.reportTypeCheckAt(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(), case.type_def.?, "Bad enum case type", case.location);
             }
 
@@ -2525,7 +2525,7 @@ pub const ForEachNode = struct {
                         }
                     },
                     .Map => {
-                        if (!key.type_def.?.eql(self.iterable.type_def.?.resolved_type.?.Map.key_type)) {
+                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(key.type_def.?)) {
                             try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def.?, "Bad key type", key.location);
                         }
                     },
@@ -2540,12 +2540,12 @@ pub const ForEachNode = struct {
 
             switch (self.iterable.type_def.?.def_type) {
                 .Map => {
-                    if (!self.value.type_def.?.eql(self.iterable.type_def.?.resolved_type.?.Map.value_type)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.value_type, self.value.type_def.?, "Bad value type", self.value.location);
                     }
                 },
                 .List => {
-                    if (!self.value.type_def.?.eql(self.iterable.type_def.?.resolved_type.?.List.item_type)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.List.item_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.List.item_type, self.value.type_def.?, "Bad value type", self.value.location);
                     }
                 },
@@ -2556,7 +2556,7 @@ pub const ForEachNode = struct {
                 },
                 .Enum => {
                     const iterable_type = try codegen.getTypeDef(self.iterable.type_def.?.toInstance());
-                    if (!self.value.type_def.?.eql(iterable_type)) {
+                    if (!iterable_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(iterable_type, self.value.type_def.?, "Bad value type", self.value.location);
                     }
                 },
@@ -3174,7 +3174,7 @@ pub const ObjectInitNode = struct {
 
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                     try codegen.reportErrorAt(value.location, "Unknown type.");
-                } else if (!value.type_def.?.eql(prop)) {
+                } else if (!prop.eql(value.type_def.?)) {
                     try codegen.reportTypeCheckAt(prop, value.type_def.?, "Wrong property type", value.location);
                 }
 
