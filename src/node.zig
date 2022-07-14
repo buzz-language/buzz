@@ -1923,8 +1923,8 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
-            } else if (!(&self.type_def.?.toInstance()).eql(value.type_def.?)) {
-                try codegen.reportTypeCheckAt(self.type_def.?, value.type_def.?, "Wrong variable type", value.location);
+            } else if (!(try codegen.getTypeDef(self.type_def.?.toInstance())).eql(value.type_def.?) and !(try self.type_def.?.toInstance().codegenCloneNonOptional(codegen)).eql(value.type_def.?)) {
+                try codegen.reportTypeCheckAt(&self.type_def.?.toInstance(), value.type_def.?, "Wrong variable type", value.location);
             }
 
             _ = try value.toByteCode(value, codegen, breaks);

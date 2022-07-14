@@ -11,6 +11,7 @@ const _memory = @import("./memory.zig");
 const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
 const Config = @import("./config.zig").Config;
+const CodeGen = @import("./codegen.zig").CodeGen;
 
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
@@ -2223,6 +2224,36 @@ pub const ObjTypeDef = struct {
         );
     }
 
+    pub fn codegenCloneToggleOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
+        return codegen.getTypeDef(
+            .{
+                .optional = !self.optional,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
+    pub fn codegenCloneOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
+        return codegen.getTypeDef(
+            .{
+                .optional = true,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
+    pub fn codegenCloneNonOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
+        return codegen.getTypeDef(
+            .{
+                .optional = false,
+                .def_type = self.def_type,
+                .resolved_type = self.resolved_type,
+            },
+        );
+    }
+
     pub fn deinit(_: *Self) void {
         std.debug.print("ObjTypeDef.deinit not implemented\n", .{});
     }
@@ -2392,7 +2423,7 @@ pub const ObjTypeDef = struct {
             },
             .EnumInstance => return a.EnumInstance.eql(b.EnumInstance),
 
-            .Object, .Enum => false, // Thore are never equal even if definition is the same
+            .Object, .Enum => false, // Those are never equal even if definition is the same
 
             .List => return a.List.item_type.eql(b.List.item_type),
             .Map => return a.Map.key_type.eql(b.Map.key_type) and a.Map.value_type.eql(b.Map.value_type),
@@ -2457,9 +2488,13 @@ pub const ObjTypeDef = struct {
 
     // Compare two type definitions
     pub fn eql(self: *Self, other: *Self) bool {
-        const type_eql: bool = self.def_type == other.def_type and ((self.resolved_type == null and other.resolved_type == null) or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?));
-
         // zig fmt: off
+        const type_eql: bool = self.def_type == other.def_type
+            and (
+                (self.resolved_type == null and other.resolved_type == null)
+                    or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?)
+            );
+
         return self == other
             or (self.optional and other.def_type == .Void) // Void is equal to any optional type
             or (
