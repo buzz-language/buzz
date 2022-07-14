@@ -1002,14 +1002,6 @@ pub const Parser = struct {
         try self.consume(.Identifier, "Expected object name.");
         var object_name: Token = self.parser.previous_token.?.clone();
 
-        // Check a global doesn't already exist
-        for (self.globals.items) |global| {
-            if (mem.eql(u8, global.name.string, object_name.lexeme)) {
-                try self.reportError("Global with that name already exists.");
-                break;
-            }
-        }
-
         // Create type
         var object_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
         object_type.* = .{
@@ -1732,13 +1724,6 @@ pub const Parser = struct {
 
         try self.consume(.Identifier, "Expected enum name.");
         var enum_name: Token = self.parser.previous_token.?.clone();
-
-        for (self.globals.items) |global| {
-            if (mem.eql(u8, global.name.string, enum_name.lexeme)) {
-                try self.reportError("Global with that name already exists.");
-                break;
-            }
-        }
 
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.allocator,
@@ -3416,7 +3401,9 @@ pub const Parser = struct {
         // Search for an existing placeholder global with the same name
         for (self.globals.items) |global, index| {
             if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.name.string)) {
-                try self.resolvePlaceholder(global.type_def, global_type, constant);
+                if (global_type.def_type != .Placeholder) {
+                    try self.resolvePlaceholder(global.type_def, global_type, constant);
+                }
 
                 return index;
             }
