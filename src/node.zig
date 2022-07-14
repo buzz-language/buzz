@@ -460,10 +460,10 @@ pub const StringNode = struct {
             _ = try element.toByteCode(element, codegen, breaks);
             if (element.type_def.?.def_type != .String) {
                 try codegen.emitOpCode(self.node.location, .OP_TO_STRING);
+            }
 
-                if (index >= 2) {
-                    try codegen.emitOpCode(self.node.location, .OP_ADD);
-                }
+            if (index >= 1) {
+                try codegen.emitOpCode(self.node.location, .OP_ADD);
             }
         }
 
