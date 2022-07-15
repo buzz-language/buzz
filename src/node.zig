@@ -1628,6 +1628,7 @@ pub const CallNode = struct {
             callee_type.?.resolved_type.?.Function.parameters
         else
             callee_type.?.resolved_type.?.Native.parameters;
+
         const defaults = if (callee_type.?.def_type == .Function)
             callee_type.?.resolved_type.?.Function.defaults
         else

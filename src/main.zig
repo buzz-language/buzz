@@ -71,7 +71,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
                     parsing_time / 1000000,
                     codegen_time / 1000000,
                     running_time / 1000000,
-                    (parsing_time + codegen_time + running_time) / 1000000,
+                    parsing_time / 1000000 + codegen_time / 1000000 + running_time / 1000000,
                 },
             );
         }

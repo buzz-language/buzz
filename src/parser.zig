@@ -669,7 +669,7 @@ pub const Parser = struct {
                         });
 
                         try self.resolvePlaceholder(child, instance_type, false);
-                    } else if (resolved_type.def_type != .Function) {
+                    } else if (resolved_type.def_type == .Function) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type, false);
                     }
                 },
@@ -1122,6 +1122,23 @@ pub const Parser = struct {
 
                 if (fields.get(property_name.lexeme) != null) {
                     try self.reportError("A member with that name already exists.");
+                }
+
+                // Does a placeholder exists for this name ?
+                if (static) {
+                    if (object_type.resolved_type.?.Object.static_placeholders.get(property_name.lexeme)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, property_type, false);
+
+                        // Now we know the placeholder was a field
+                        _ = object_type.resolved_type.?.Object.static_placeholders.remove(property_name.lexeme);
+                    }
+                } else {
+                    if (object_type.resolved_type.?.Object.placeholders.get(property_name.lexeme)) |placeholder| {
+                        try self.resolvePlaceholder(placeholder, property_type, false);
+
+                        // Now we know the placeholder was a field
+                        _ = object_type.resolved_type.?.Object.placeholders.remove(property_name.lexeme);
+                    }
                 }
 
                 var default: ?*ParseNode = null;
@@ -1655,7 +1672,7 @@ pub const Parser = struct {
     }
 
     fn parseListType(self: *Self) !*ObjTypeDef {
-        var list_item_type: *ObjTypeDef = try self.parseTypeDef();
+        var list_item_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
@@ -1678,11 +1695,11 @@ pub const Parser = struct {
     }
 
     fn parseMapType(self: *Self) !*ObjTypeDef {
-        var key_type: *ObjTypeDef = try self.parseTypeDef();
+        var key_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
 
         try self.consume(.Comma, "Expected `,` after key type.");
 
-        var value_type: *ObjTypeDef = try self.parseTypeDef();
+        var value_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
 
         try self.consume(.RightBrace, "Expected `}` after value type.");
 
@@ -2254,7 +2271,7 @@ pub const Parser = struct {
                 var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name) orelse self.getSuperMethod(object, member_name);
 
                 // Is it a property
-                property_type = property_type orelse obj_def.fields.get(member_name) orelse self.getSuperField(object, member_name);
+                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name) orelse self.getSuperField(object, member_name);
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -2267,6 +2284,8 @@ pub const Parser = struct {
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
                     });
+
+                    try object.resolved_type.?.Object.placeholders.put(member_name, placeholder);
 
                     property_type = placeholder;
                 } else if (property_type == null) {
@@ -2614,7 +2633,7 @@ pub const Parser = struct {
         // A lone map expression is prefixed by `<type, type>`
         // When key_type != null, we come from list() which just parsed `<type,`
         if (key_type != null) {
-            value_type = try self.parseTypeDef();
+            value_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
 
             try self.consume(.Greater, "Expected `>` after map type.");
             try self.consume(.LeftBrace, "Expected `{` before map entries.");
