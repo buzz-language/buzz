@@ -497,7 +497,7 @@ pub const StringNode = struct {
             }
 
             _ = try element.toByteCode(element, codegen, breaks);
-            if (element.type_def.?.def_type != .String) {
+            if (element.type_def.?.def_type != .String or element.type_def.?.optional) {
                 try codegen.emitOpCode(self.node.location, .OP_TO_STRING);
             }
 
