@@ -101,7 +101,11 @@ pub const ParseNode = struct {
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
 
-    fn generate(self: *Self, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(_: *Self, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        return null;
+    }
+
+    fn patchOptJumps(self: *Self, codegen: *CodeGen) !void {
         if (self.patch_opt_jumps) {
             assert(codegen.opt_jumps != null);
 
@@ -119,8 +123,6 @@ pub const ParseNode = struct {
             codegen.opt_jumps.?.deinit();
             codegen.opt_jumps = null;
         }
-
-        return null;
     }
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
@@ -167,6 +169,7 @@ pub const ExpressionNode = struct {
 
         try codegen.emitOpCode(node.location, .OP_POP);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -250,6 +253,7 @@ pub const NamedVariableNode = struct {
             try codegen.emitCodeArg(self.node.location, get_op, @intCast(u24, self.slot));
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -304,6 +308,7 @@ pub const NumberNode = struct {
 
         try codegen.emitConstant(self.node.location, Value{ .Number = self.constant });
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -350,6 +355,7 @@ pub const BooleanNode = struct {
 
         try codegen.emitOpCode(self.node.location, if (self.constant) .OP_TRUE else .OP_FALSE);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -396,6 +402,7 @@ pub const StringLiteralNode = struct {
 
         try codegen.emitConstant(self.node.location, self.constant.toValue());
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -467,6 +474,7 @@ pub const StringNode = struct {
             }
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -529,6 +537,7 @@ pub const NullNode = struct {
 
         try codegen.emitOpCode(node.location, .OP_NULL);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -589,6 +598,7 @@ pub const ListNode = struct {
         const list_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
         try codegen.patchList(list_offset, list_type_constant);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -679,6 +689,7 @@ pub const MapNode = struct {
         const map_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
         try codegen.patchMap(map_offset, map_type_constant);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -754,7 +765,9 @@ pub const UnwrapNode = struct {
             try codegen.reportErrorAt(self.unwrapped.location, "Not an optional.");
         }
 
-        try codegen.emitCodeArg(self.node.location, .OP_COPY, 1);
+        _ = try self.unwrapped.toByteCode(self.unwrapped, codegen, breaks);
+
+        try codegen.emitOpCode(self.node.location, .OP_COPY);
         try codegen.emitOpCode(self.node.location, .OP_NULL);
         try codegen.emitOpCode(self.node.location, .OP_EQUAL);
         try codegen.emitOpCode(self.node.location, .OP_NOT);
@@ -768,6 +781,7 @@ pub const UnwrapNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop test result
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -828,6 +842,7 @@ pub const ForceUnwrapNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_UNWRAP);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -882,6 +897,7 @@ pub const IsNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_IS);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -964,6 +980,7 @@ pub const UnaryNode = struct {
             else => unreachable,
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -1168,6 +1185,7 @@ pub const BinaryNode = struct {
             else => unreachable,
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -1276,6 +1294,7 @@ pub const SubscriptNode = struct {
             try codegen.emitOpCode(self.node.location, .OP_GET_SUBSCRIPT);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -1444,6 +1463,7 @@ pub const FunctionNode = struct {
             }
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return current_function;
@@ -1764,6 +1784,7 @@ pub const CallNode = struct {
             );
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -1864,6 +1885,7 @@ pub const FunDeclarationNode = struct {
             try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -1936,6 +1958,7 @@ pub const VarDeclarationNode = struct {
             try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2020,6 +2043,7 @@ pub const EnumNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2087,6 +2111,7 @@ pub const ThrowNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_THROW);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2135,6 +2160,7 @@ pub const BreakNode = struct {
 
         try breaks.?.append(try codegen.emitJump(node.location, .OP_JUMP));
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2173,6 +2199,7 @@ pub const ContinueNode = struct {
 
         try breaks.?.append(try codegen.emitJump(node.location, .OP_LOOP));
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2239,6 +2266,7 @@ pub const IfNode = struct {
 
         try codegen.patchJump(else_jump);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2315,6 +2343,7 @@ pub const ReturnNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_RETURN);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2425,6 +2454,7 @@ pub const ForNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2595,6 +2625,7 @@ pub const ForEachNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop element being iterated on
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2701,6 +2732,7 @@ pub const WhileNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2797,6 +2829,7 @@ pub const DoUntilNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2865,6 +2898,7 @@ pub const BlockNode = struct {
             _ = try statement.toByteCode(statement, codegen, breaks);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -2942,6 +2976,7 @@ pub const SuperNode = struct {
             try codegen.emitCodeArg(self.node.location, .OP_GET_SUPER, try codegen.identifierConstant(self.identifier.lexeme));
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -3060,6 +3095,7 @@ pub const DotNode = struct {
             else => unreachable,
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -3192,6 +3228,7 @@ pub const ObjectInitNode = struct {
         // Did we initialized all properties without a default value?
         try self.checkOmittedProperty(codegen, obj_def, init_properties);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -3343,6 +3380,7 @@ pub const ObjectDeclarationNode = struct {
         // Pop object
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -3426,6 +3464,7 @@ pub const ExportNode = struct {
     alias: ?Token = null,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
@@ -3488,6 +3527,7 @@ pub const ImportNode = struct {
             try codegen.emitOpCode(self.node.location, .OP_IMPORT);
         }
 
+        try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;

@@ -1864,18 +1864,16 @@ pub const Parser = struct {
         var node: *ParseNode = try prefixRule.?(self, canAssign);
 
         while (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) >= @enumToInt(precedence)) {
-            var patch_opt_jumps = false;
-
             // Patch optional jumps
             if (self.opt_jumps) |jumps| {
                 assert(jumps.items.len > 0);
                 var first_jump: Precedence = jumps.items[0];
 
                 if (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) < @enumToInt(first_jump)) {
-                    patch_opt_jumps = true;
-
                     jumps.deinit();
                     self.opt_jumps = null;
+
+                    node.patch_opt_jumps = true;
                 }
             }
 
@@ -1883,7 +1881,6 @@ pub const Parser = struct {
 
             var infixRule: InfixParseFn = getRule(self.parser.previous_token.?.token_type).infix.?;
             node = try infixRule(self, canAssign, node);
-            // node.patch_opt_jumps = true;
         }
 
         if (canAssign and (try self.match(.Equal))) {
