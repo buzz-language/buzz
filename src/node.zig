@@ -1775,7 +1775,7 @@ pub const CallNode = struct {
             }
         }
 
-        if (!self.invoked) {
+        if (!self.invoked and self.super == null) {
             try codegen.emitCodeArgs(
                 self.node.location,
                 .OP_CALL,
@@ -1786,7 +1786,7 @@ pub const CallNode = struct {
             try codegen.emitTwo(
                 self.node.location,
                 // FIXME: for anything else than object prop call, we need self.arguments.count() + 1 ?!
-                if (self.invoked_on.? != .ObjectInstance) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                if (self.super == null and (self.invoked_on != null and self.invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         }
@@ -2983,12 +2983,15 @@ pub const SuperNode = struct {
     member_type_def: ?*ObjTypeDef = null,
     // if call, CallNode will fetch super
     super: ?*NamedVariableNode = null,
+    this: *NamedVariableNode,
     call: ?*CallNode = null,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        _ = try self.this.node.toByteCode(&self.this.node, codegen, breaks);
 
         if (self.call) |call| {
             _ = try call.node.toByteCode(&call.node, codegen, breaks);

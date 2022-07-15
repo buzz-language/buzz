@@ -2673,6 +2673,15 @@ pub const Parser = struct {
         var node = try self.allocator.create(SuperNode);
         node.* = SuperNode{
             .identifier = member_name,
+            .this = NamedVariableNode.cast(try self.namedVariable(
+                Token{
+                    .token_type = .Identifier,
+                    .lexeme = "this",
+                    .line = 0,
+                    .column = 0,
+                },
+                false,
+            )).?,
         };
         node.node.location = self.parser.previous_token.?;
 

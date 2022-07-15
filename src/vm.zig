@@ -663,9 +663,10 @@ pub const VM = struct {
 
             if (Config.debug_stack) {
                 std.debug.print(
-                    "frame: {s}, code: {}\n",
+                    "frame: {s} {*}, code: {}\n",
                     .{
                         current_frame.closure.function.name.string,
+                        current_frame.slots,
                         instruction,
                     },
                 );
