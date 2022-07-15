@@ -2390,7 +2390,7 @@ pub const ForNode = struct {
         .toByteCode = generate,
     },
 
-    init_expressions: std.ArrayList(*ParseNode),
+    init_declarations: std.ArrayList(*VarDeclarationNode),
     condition: *ParseNode,
     post_loop: std.ArrayList(*ParseNode),
     body: *ParseNode,
@@ -2400,12 +2400,8 @@ pub const ForNode = struct {
 
         var self = Self.cast(node).?;
 
-        for (self.init_expressions.items) |expr| {
-            if (expr.type_def == null or expr.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(expr.location, "Unknown type");
-            }
-
-            _ = try expr.toByteCode(expr, codegen, _breaks);
+        for (self.init_declarations.items) |var_declaration| {
+            _ = try var_declaration.node.toByteCode(&var_declaration.node, codegen, _breaks);
         }
 
         const loop_start: usize = codegen.currentCode();
@@ -2465,12 +2461,12 @@ pub const ForNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"For\", \"init_expression\": [");
+        try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
 
-        for (self.init_expressions.items) |expression, i| {
-            try expression.toJson(expression, out);
+        for (self.init_declarations.items) |var_declaration, i| {
+            try var_declaration.node.toJson(&var_declaration.node, out);
 
-            if (i < self.init_expressions.items.len - 1) {
+            if (i < self.init_declarations.items.len - 1) {
                 try out.writeAll(",");
             }
         }
@@ -2499,13 +2495,13 @@ pub const ForNode = struct {
 
     pub fn init(allocator: Allocator) Self {
         return Self{
-            .init_expression = std.ArrayList(*ParseNode).init(allocator),
+            .init_declarations = std.ArrayList(*VarDeclarationNode).init(allocator),
             .post_loop = std.ArrayList(*ParseNode).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.init_expressions.deinit();
+        self.init_declarations.deinit();
         self.post_loop.deinit();
     }
 

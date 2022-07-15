@@ -1269,9 +1269,9 @@ pub const Parser = struct {
 
         self.beginScope();
 
-        var init_expressions = std.ArrayList(*ParseNode).init(self.allocator);
+        var init_declarations = std.ArrayList(*VarDeclarationNode).init(self.allocator);
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
-            try init_expressions.append(try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, true));
+            try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, true)).?);
 
             if (!self.check(.Semicolon)) {
                 try self.consume(.Comma, "Expected `,` after for loop variable");
@@ -1303,7 +1303,7 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ForNode);
         node.* = ForNode{
-            .init_expressions = init_expressions,
+            .init_declarations = init_declarations,
             .condition = condition,
             .post_loop = post_loop,
             .body = body,
