@@ -1953,7 +1953,7 @@ pub const VarDeclarationNode = struct {
 
             _ = try value.toByteCode(value, codegen, breaks);
         } else {
-            try codegen.emitOpCode(self.node.location, .OP_VOID);
+            try codegen.emitOpCode(self.node.location, .OP_NULL);
         }
 
         if (self.slot_type == .Global) {
@@ -2527,8 +2527,8 @@ pub const ForEachNode = struct {
         .toByteCode = generate,
     },
 
-    key: ?*ParseNode = null,
-    value: *ParseNode,
+    key: ?*VarDeclarationNode = null,
+    value: *VarDeclarationNode,
     iterable: *ParseNode,
     block: *ParseNode,
 
@@ -2543,55 +2543,74 @@ pub const ForEachNode = struct {
         } else {
             if (self.key) |key| {
                 if (key.type_def == null or key.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(key.location, "Unknown type.");
+                    try codegen.reportErrorAt(key.node.location, "Unknown type.");
                 }
 
                 switch (self.iterable.type_def.?.def_type) {
                     .String, .List => {
                         if (key.type_def.?.def_type != .Number) {
-                            try codegen.reportErrorAt(key.location, "Expected `num`.");
+                            try codegen.reportErrorAt(key.node.location, "Expected `num`.");
                         }
                     },
                     .Map => {
                         if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(key.type_def.?)) {
-                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def.?, "Bad key type", key.location);
+                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def.?, "Bad key type", key.node.location);
                         }
                     },
-                    .Enum => try codegen.reportErrorAt(key.location, "No key available when iterating over enum."),
+                    .Enum => try codegen.reportErrorAt(key.node.location, "No key available when iterating over enum."),
                     else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
                 }
             }
 
             if (self.value.type_def == null or self.value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(self.value.location, "Unknown type.");
+                try codegen.reportErrorAt(self.value.node.location, "Unknown type.");
             }
 
             switch (self.iterable.type_def.?.def_type) {
                 .Map => {
                     if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.eql(self.value.type_def.?)) {
-                        try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.value_type, self.value.type_def.?, "Bad value type", self.value.location);
+                        try codegen.reportTypeCheckAt(
+                            self.iterable.type_def.?.resolved_type.?.Map.value_type,
+                            self.value.type_def.?,
+                            "Bad value type",
+                            self.value.node.location,
+                        );
                     }
                 },
                 .List => {
                     if (!self.iterable.type_def.?.resolved_type.?.List.item_type.eql(self.value.type_def.?)) {
-                        try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.List.item_type, self.value.type_def.?, "Bad value type", self.value.location);
+                        try codegen.reportTypeCheckAt(
+                            self.iterable.type_def.?.resolved_type.?.List.item_type,
+                            self.value.type_def.?,
+                            "Bad value type",
+                            self.value.node.location,
+                        );
                     }
                 },
                 .String => {
                     if (self.value.type_def.?.def_type != .String) {
-                        try codegen.reportErrorAt(self.value.location, "Expected `str`.");
+                        try codegen.reportErrorAt(self.value.node.location, "Expected `str`.");
                     }
                 },
                 .Enum => {
                     const iterable_type = try codegen.getTypeDef(self.iterable.type_def.?.toInstance());
                     if (!iterable_type.eql(self.value.type_def.?)) {
-                        try codegen.reportTypeCheckAt(iterable_type, self.value.type_def.?, "Bad value type", self.value.location);
+                        try codegen.reportTypeCheckAt(
+                            iterable_type,
+                            self.value.type_def.?,
+                            "Bad value type",
+                            self.value.node.location,
+                        );
                     }
                 },
                 else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
             }
         }
 
+        if (self.key) |key| {
+            _ = try key.node.toByteCode(&key.node, codegen, _breaks);
+        }
+        _ = try self.value.node.toByteCode(&self.value.node, codegen, _breaks);
         _ = try self.iterable.toByteCode(self.iterable, codegen, _breaks);
 
         const loop_start: usize = codegen.currentCode();
@@ -2600,7 +2619,7 @@ pub const ForEachNode = struct {
         try codegen.emitOpCode(self.node.location, .OP_FOREACH);
 
         // If next key is null, exit loop
-        try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, @intCast(u24, VarDeclarationNode.cast(self.key orelse self.value).?.slot));
+        try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, @intCast(u24, (self.key orelse self.value).slot));
         try codegen.emitOpCode(self.node.location, .OP_NULL);
         try codegen.emitOpCode(self.node.location, .OP_EQUAL);
         try codegen.emitOpCode(self.node.location, .OP_NOT);
@@ -2621,6 +2640,7 @@ pub const ForEachNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop element being iterated on
 
         try node.patchOptJumps(codegen);
@@ -2636,12 +2656,12 @@ pub const ForEachNode = struct {
 
         if (self.key) |key| {
             try out.writeAll("\"key\": ");
-            try key.toJson(key, out);
+            try key.node.toJson(&key.node, out);
         }
 
         try out.writeAll(", \"value\": ");
 
-        try self.value.toJson(self.value, out);
+        try self.value.node.toJson(&self.value.node, out);
 
         try out.writeAll(", \"iterable\": ");
 

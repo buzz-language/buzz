@@ -1334,8 +1334,6 @@ pub const Parser = struct {
 
         var body = try self.block(.ForEach);
 
-        body.ends_scope = try self.endScope();
-
         // Only one variable: it's the value not the key
         if (value == null) {
             value = key;
@@ -1344,12 +1342,13 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ForEachNode);
         node.* = ForEachNode{
-            .key = key,
-            .value = value.?,
+            .key = if (key != null) VarDeclarationNode.cast(key.?).? else null,
+            .value = VarDeclarationNode.cast(value.?).?,
             .iterable = iterable,
             .block = body,
         };
         node.node.location = self.parser.previous_token.?;
+        node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
@@ -1367,14 +1366,13 @@ pub const Parser = struct {
 
         var body = try self.block(.While);
 
-        body.ends_scope = try self.endScope();
-
         var node = try self.allocator.create(WhileNode);
         node.* = WhileNode{
             .condition = condition,
             .block = body,
         };
         node.node.location = self.parser.previous_token.?;
+        node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
@@ -1394,14 +1392,13 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after `until` condition.");
 
-        condition.ends_scope = try self.endScope();
-
         var node = try self.allocator.create(DoUntilNode);
         node.* = DoUntilNode{
             .condition = condition,
             .block = body,
         };
         node.node.location = self.parser.previous_token.?;
+        node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
@@ -1436,7 +1433,7 @@ pub const Parser = struct {
         node.* = VarDeclarationNode{
             .name = self.parser.previous_token.?,
             .value = if (can_assign and try self.match(.Equal)) try self.expression(false) else null,
-            .type_def = parsed_type,
+            .type_def = var_type,
             .constant = constant,
             .slot = slot,
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
