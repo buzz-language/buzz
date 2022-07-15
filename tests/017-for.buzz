@@ -14,7 +14,6 @@ test "multiple variable and expressions in for loop" {
     for (num i = 0, num j = 9; i < 10 and j >= 0; i = i + 1, j = j - 1) {
         sum = sum + i + j;
     }
-    
 
     assert(sum == 90, message: "multiple var loop");
 }

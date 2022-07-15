@@ -1299,8 +1299,6 @@ pub const Parser = struct {
 
         var body = try self.block(.For);
 
-        body.ends_scope = try self.endScope();
-
         var node = try self.allocator.create(ForNode);
         node.* = ForNode{
             .init_declarations = init_declarations,
@@ -1309,6 +1307,7 @@ pub const Parser = struct {
             .body = body,
         };
         node.node.location = self.parser.previous_token.?;
+        node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
