@@ -1412,7 +1412,7 @@ pub const FunctionNode = struct {
                 if (!codegen.testing and function_type == .ScriptEntryPoint) {
                     if (self.main_slot) |main_slot| {
                         try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, main_slot));
-                        try codegen.emitCodeArg(node.location, .OP_GET_LOCAL, 1); // cli args are always local 0
+                        try codegen.emitCodeArg(node.location, .OP_GET_LOCAL, 0); // cli args are always local 0
                         try codegen.emitCodeArgs(node.location, .OP_CALL, 1, 0);
                     }
                 } else if (codegen.testing and self.test_slots != null) {

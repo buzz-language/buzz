@@ -2194,10 +2194,10 @@ pub const Parser = struct {
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
+                    } else {
+                        // String has only native functions members
+                        node.node.type_def = member;
                     }
-
-                    // String has only native functions members
-                    node.node.type_def = member;
                 } else {
                     try self.reportError("String property doesn't exist.");
                 }
