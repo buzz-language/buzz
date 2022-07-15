@@ -23,6 +23,10 @@ test "Optional chaining" {
     Me? me = Me{};
 
     assert(me?.list?.len() == 3, message: "chaining optionals work");
+
+    Me? you = null;
+
+    assert(you?.list?.len() == null, message: "chaining optionals work");
 }
 
 test "Null coalescing operator" {

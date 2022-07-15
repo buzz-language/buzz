@@ -1874,6 +1874,10 @@ pub const Parser = struct {
                     self.opt_jumps = null;
 
                     node.patch_opt_jumps = true;
+
+                    if (node.type_def != null) {
+                        node.type_def = try node.type_def.?.cloneOptional(self);
+                    }
                 }
             }
 

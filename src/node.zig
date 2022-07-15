@@ -840,6 +840,8 @@ pub const ForceUnwrapNode = struct {
             try codegen.reportErrorAt(self.unwrapped.location, "Not an optional.");
         }
 
+        _ = try self.unwrapped.toByteCode(self.unwrapped, codegen, breaks);
+
         try codegen.emitOpCode(self.node.location, .OP_UNWRAP);
 
         try node.patchOptJumps(codegen);
