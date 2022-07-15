@@ -3541,13 +3541,7 @@ pub const ImportNode = struct {
         var self = Self.cast(node).?;
 
         if (self.import) |import| {
-            try codegen.emitCodeArg(
-                self.node.location,
-                .OP_CONSTANT,
-                try codegen.makeConstant(
-                    (try import.function.toByteCode(import.function, codegen, breaks)).?.toValue(),
-                ),
-            );
+            _ = try import.function.toByteCode(import.function, codegen, breaks);
             try codegen.emitOpCode(self.node.location, .OP_IMPORT);
         }
 

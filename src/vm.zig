@@ -760,14 +760,14 @@ pub const VM = struct {
     }
 
     fn import(self: *Self, value: Value) Error!void {
-        var function: *ObjFunction = ObjFunction.cast(value.Obj).?;
+        var closure: *ObjClosure = ObjClosure.cast(value.Obj).?;
 
         var vm = try self.allocator.create(VM);
         vm.* = try VM.init(self.allocator, self.strings);
         // TODO: we can't free this because exported closure refer to it
         // defer vm.deinit();
 
-        try vm.interpret(function, null);
+        try vm.interpret(closure.function, null);
 
         // Top of stack is how many export we got
         var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
