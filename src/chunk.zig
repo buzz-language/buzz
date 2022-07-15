@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const compiler = @import("./compiler.zig");
 const _value = @import("./value.zig");
 const _vm = @import("./vm.zig");
 const VM = _vm.VM;
