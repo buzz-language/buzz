@@ -2762,7 +2762,7 @@ pub const Parser = struct {
                 ),
             .return_type = undefined,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
-            .has_defaults = std.StringArrayHashMap(bool).init(self.allocator),
+            .defaults = std.StringArrayHashMap(Value).init(self.allocator),
             .function_type = function_type,
         };
 
@@ -2844,21 +2844,17 @@ pub const Parser = struct {
                         if (try self.match(.Equal)) {
                             var expr = try self.expression(false);
 
-                            if (expr.type_def.?.def_type == .Placeholder and param_type.def_type == .Placeholder) {
-                                try PlaceholderDef.link(expr.type_def.?, param_type, .Assignment);
+                            if (!expr.isConstant()) {
+                                try self.reportError("Default parameters must be constant values.");
                             }
 
-                            try function_node.default_arguments.put(arg_name, expr);
-
-                            try function_node.node.type_def.?.resolved_type.?.Function.has_defaults.put(arg_name, true);
+                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, (try expr.toValue(self.allocator, self.strings)).?);
                         } else if (param_type.optional) {
                             var null_node: *NullNode = try self.allocator.create(NullNode);
                             null_node.* = .{};
                             null_node.node.type_def = try self.getTypeDef(.{ .def_type = .Void });
 
-                            try function_node.default_arguments.put(arg_name, &null_node.node);
-
-                            try function_node.node.type_def.?.resolved_type.?.Function.has_defaults.put(arg_name, true);
+                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, (try null_node.node.toValue(self.allocator, self.strings)).?);
                         }
                     }
 
@@ -3205,7 +3201,7 @@ pub const Parser = struct {
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = try self.getTypeDef(return_type.toInstance()),
             .parameters = parameters,
-            .has_defaults = std.StringArrayHashMap(bool).init(self.allocator),
+            .defaults = std.StringArrayHashMap(Value).init(self.allocator),
             .function_type = .Anonymous,
         };
 

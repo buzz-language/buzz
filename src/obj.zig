@@ -555,7 +555,7 @@ pub const ObjString = struct {
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
                 .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
             };
 
@@ -582,7 +582,7 @@ pub const ObjString = struct {
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "byte", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
             };
 
@@ -609,7 +609,7 @@ pub const ObjString = struct {
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.getTypeDef(
                     .{
                         .def_type = .Number,
@@ -652,7 +652,7 @@ pub const ObjString = struct {
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "split", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.getTypeDef(ObjTypeDef{
                     .def_type = .List,
                     .optional = false,
@@ -699,7 +699,7 @@ pub const ObjString = struct {
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                 .parameters = parameters,
-                .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.getTypeDef(ObjTypeDef{ .def_type = .String }),
             };
 
@@ -870,7 +870,8 @@ pub const ObjFunction = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
-        has_defaults: std.StringArrayHashMap(bool),
+        // Storing here the defaults means they can only be non-Obj values
+        defaults: std.StringArrayHashMap(Value),
         function_type: FunctionType = .Function,
         lambda: bool = false,
     };
@@ -1374,7 +1375,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "append", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = obj_list,
                 };
 
@@ -1403,7 +1404,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = try parser.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
@@ -1429,7 +1430,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = try parser.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
@@ -1469,7 +1470,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "next", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     // When reached end of list, returns null
                     .return_type = try parser.getTypeDef(
                         ObjTypeDef{
@@ -1518,7 +1519,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = obj_list,
                 };
 
@@ -1545,7 +1546,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = try parser.getTypeDef(
                         .{
                             .def_type = self.item_type.def_type,
@@ -1578,7 +1579,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "join", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = try parser.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
@@ -1860,7 +1861,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "size", false),
                     .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .def_type = .Number,
                     }),
@@ -1889,7 +1890,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
                     .parameters = parameters,
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .optional = true,
                         .def_type = self.value_type.def_type,
@@ -1922,7 +1923,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "keys", false),
                     .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
@@ -1955,7 +1956,7 @@ pub const ObjMap = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(compiler.strings, compiler.allocator, "values", false),
                     .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .has_defaults = std.StringArrayHashMap(bool).init(compiler.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
                     .return_type = try compiler.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,

@@ -101,6 +101,38 @@ pub const ParseNode = struct {
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
 
+    // TODO: constant expressions (https://github.com/giann/buzz/issues/46)
+    pub fn isConstant(self: *Self) bool {
+        // zig fmt: off
+        return self.node_type == .Number
+            or self.node_type == .StringLiteral
+            or self.node_type == .Boolean
+            or self.node_type == .Null
+            or (
+                self.node_type == .String
+                    and StringNode.cast(self).?.elements.len == 1
+                    and StringNode.cast(self).?.elements[0].isConstant()
+                );
+        // zig fmt: on
+    }
+
+    pub fn toValue(self: *Self, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!?Value {
+        return switch (self.node_type) {
+            .Number => Value{ .Number = NumberNode.cast(self).?.constant },
+            .String => string: {
+                const string_node = StringNode.cast(self).?;
+                const element = string_node.elements[0];
+                const element_value = (try element.toValue(allocator, strings)).?;
+
+                break :string (try copyStringRaw(strings, allocator, try valueToString(allocator, element_value), true)).toValue();
+            },
+            .StringLiteral => StringLiteralNode.cast(self).?.constant.toValue(),
+            .Boolean => Value{ .Boolean = BooleanNode.cast(self).?.constant },
+            .Null => Value{ .Null = null },
+            else => null,
+        };
+    }
+
     fn generate(_: *Self, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         return null;
     }
@@ -1348,7 +1380,6 @@ pub const FunctionNode = struct {
         .toByteCode = generate,
     },
 
-    default_arguments: std.StringArrayHashMap(*ParseNode),
     body: ?*BlockNode = null,
     arrow_expr: ?*ParseNode = null,
     native: ?*ObjNative = null,
@@ -1475,23 +1506,10 @@ pub const FunctionNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Function\", \"type\": \"{}\", \"default_arguments\": {{", .{self.node.type_def.?.resolved_type.?.Function.function_type});
-
-        var it = self.default_arguments.iterator();
-        var first = true;
-        while (it.next()) |entry| {
-            if (!first) {
-                try out.writeAll(",");
-            }
-
-            first = false;
-
-            try out.print("\"{s}\": ", .{entry.key_ptr.*});
-            try entry.value_ptr.*.toJson(entry.value_ptr.*, out);
-        }
+        try out.print("{{\"node\": \"Function\", \"type\": \"{}\", ", .{self.node.type_def.?.resolved_type.?.Function.function_type});
 
         if (self.body) |body| {
-            try out.writeAll("}, \"body\": ");
+            try out.writeAll("\"body\": ");
 
             try body.toNode().toJson(body.toNode(), out);
         } else if (self.arrow_expr) |expr| {
@@ -1521,7 +1539,6 @@ pub const FunctionNode = struct {
     pub fn init(parser: *Parser, function_type: FunctionType, file_name_or_name: ?[]const u8) !Self {
         var self = Self{
             .body = try parser.allocator.create(BlockNode),
-            .default_arguments = std.StringArrayHashMap(*ParseNode).init(parser.allocator),
             .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.allocator),
         };
 
@@ -1538,7 +1555,7 @@ pub const FunctionNode = struct {
             .name = try copyStringRaw(parser.strings, parser.allocator, function_name, false),
             .return_type = try parser.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-            .has_defaults = std.StringArrayHashMap(bool).init(parser.allocator),
+            .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
             .function_type = function_type,
         };
 
@@ -1611,6 +1628,10 @@ pub const CallNode = struct {
             callee_type.?.resolved_type.?.Function.parameters
         else
             callee_type.?.resolved_type.?.Native.parameters;
+        const defaults = if (callee_type.?.def_type == .Function)
+            callee_type.?.resolved_type.?.Function.defaults
+        else
+            callee_type.?.resolved_type.?.Native.defaults;
         const arg_keys = args.keys();
         const arg_count = arg_keys.len;
 
@@ -1619,11 +1640,6 @@ pub const CallNode = struct {
         for (arg_keys) |arg_name, pindex| {
             try missing_arguments.put(arg_name, pindex);
         }
-
-        // FIXME: Right now if dot call, can't have default arguments because we don't have a reference to the method ParseNode.
-        //        For native calls it's acceptable but not for user defined object methods.
-        //        https://github.com/giann/buzz/issues/45
-        const default_args = if (self.callee.node_type == .Function) FunctionNode.cast(self.callee).?.default_arguments else null;
 
         if (self.arguments.count() > args.count()) {
             try codegen.reportErrorAt(node.location, "Too many arguments.");
@@ -1661,14 +1677,22 @@ pub const CallNode = struct {
             _ = try argument.toByteCode(argument, codegen, breaks);
         }
 
+        // Argument order reference
+        var arguments_order_ref = std.ArrayList([]const u8).init(codegen.allocator);
+        defer arguments_order_ref.deinit();
+        try arguments_order_ref.appendSlice(self.arguments.keys());
+
         // Push default arguments
-        if (default_args) |defaults| {
+        if (missing_arguments.count() > 0) {
             var tmp_missing_arguments = try missing_arguments.clone();
             defer tmp_missing_arguments.deinit();
             const missing_keys = tmp_missing_arguments.keys();
             for (missing_keys) |missing_key| {
                 if (defaults.get(missing_key)) |default| {
-                    _ = try default.toByteCode(default, codegen, breaks);
+                    // TODO: like ObjTypeDef, avoid generating constants multiple time for the same value
+                    try codegen.emitConstant(node.location, default);
+
+                    try arguments_order_ref.append(missing_key);
                     _ = missing_arguments.orderedRemove(missing_key);
                     needs_reorder = true;
                 }
@@ -1683,16 +1707,11 @@ pub const CallNode = struct {
 
         // Reorder arguments
         if (needs_reorder) {
-            // Argument order reference
-            const arguments = try codegen.allocator.alloc([]const u8, self.arguments.keys().len);
-            std.mem.copy([]const u8, arguments, self.arguments.keys());
-            defer codegen.allocator.free(arguments);
-
             // Until ordered
             while (true) {
                 var ordered = true;
 
-                for (arguments) |arg_key, index| {
+                for (arguments_order_ref.items) |arg_key, index| {
                     const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
                     const correct_index = args.getIndex(actual_arg_key).?;
 
@@ -1705,9 +1724,9 @@ pub const CallNode = struct {
                         try codegen.emit(node.location, @intCast(u32, arg_count - correct_index - 1));
 
                         // Switch it in the reference
-                        var temp = arguments[index];
-                        arguments[index] = arguments[correct_index];
-                        arguments[correct_index] = temp;
+                        var temp = arguments_order_ref.items[index];
+                        arguments_order_ref.items[index] = arguments_order_ref.items[correct_index];
+                        arguments_order_ref.items[correct_index] = temp;
 
                         // Stop (so we can take the swap into account) and try again
                         break;
@@ -1779,7 +1798,7 @@ pub const CallNode = struct {
             try codegen.emitCodeArgs(
                 self.node.location,
                 .OP_CALL,
-                @intCast(u8, self.arguments.count()),
+                @intCast(u8, arguments_order_ref.items.len),
                 if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         } else {
