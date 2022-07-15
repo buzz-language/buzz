@@ -33,7 +33,7 @@ export fn atan(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn ceil(vm: *api.VM) c_int {
+export fn bzceil(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.ceil(n));
@@ -41,7 +41,7 @@ export fn ceil(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn cos(vm: *api.VM) c_int {
+export fn bzcos(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.cos(n));
@@ -49,7 +49,7 @@ export fn cos(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn exp(vm: *api.VM) c_int {
+export fn bzexp(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.exp(n));
@@ -57,7 +57,7 @@ export fn exp(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn floor(vm: *api.VM) c_int {
+export fn bzfloor(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.floor(n));
@@ -65,7 +65,7 @@ export fn floor(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn log(vm: *api.VM) c_int {
+export fn bzlog(vm: *api.VM) c_int {
     const base = api.Value.bz_valueToNumber(vm.bz_peek(1));
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
@@ -98,7 +98,7 @@ export fn random(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn sin(vm: *api.VM) c_int {
+export fn bzsin(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.sin(n));
@@ -106,7 +106,7 @@ export fn sin(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn sqrt(vm: *api.VM) c_int {
+export fn bzsqrt(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
 
     vm.bz_pushNum(std.math.sqrt(n));
@@ -114,11 +114,10 @@ export fn sqrt(vm: *api.VM) c_int {
     return 1;
 }
 
-// FIXME: crashes zig
-// export fn tan(vm: *api.VM) c_int {
-//     const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
-//
-//     vm.bz_pushNum(std.math.tan(n));
-//
-//     return 1;
-// }
+export fn bztan(vm: *api.VM) c_int {
+    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+
+    vm.bz_pushNum(std.math.tan(n));
+
+    return 1;
+}

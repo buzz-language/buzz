@@ -6,9 +6,9 @@ extern fun asin(num n) > num;
 
 extern fun atan(num n) > num;
 
-extern fun ceil(num n) > num;
+extern fun bzceil(num n) > num;
 
-extern fun cos(num n) > num;
+extern fun bzcos(num n) > num;
 
 const num pi = 3.1415926535898;
 
@@ -16,11 +16,11 @@ fun deg(num n) > num {
     return n * 180 / pi;
 }
 
-extern fun exp(num n) > num;
+extern fun bzexp(num n) > num;
 
-extern fun floor(num n) > num;
+extern fun bzfloor(num n) > num;
 
-extern fun log(num base, num n) > num;
+extern fun bzlog(num base, num n) > num;
 
 extern fun max(num a, num b) > num;
 
@@ -32,27 +32,27 @@ fun rad(num n) > num {
 
 extern fun random() > num;
 
-extern fun sin(num n) > num;
+extern fun bzsin(num n) > num;
 
-extern fun sqrt(num n) > num;
+extern fun bzsqrt(num n) > num;
 
-| extern fun tan(num n) > num;
+extern fun bztan(num n) > num;
 
 export abs;
 export acos;
 export asin;
 export atan;
-export ceil;
-export cos;
+export bzsqrt as sqrt;
+export bzceil as ceil;
+export bzcos as cos;
 export deg;
-export exp;
-export floor;
-export log;
+export bzexp as exp;
+export bzfloor as floor;
+export bzlog as log;
 export max;
 export min;
 export pi;
 export rad;
 export random;
-export sin;
-export sqrt;
-export tan;
+export bzsin as sin;
+export bztan as tan;
