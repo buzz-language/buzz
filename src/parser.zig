@@ -2695,6 +2695,8 @@ pub const Parser = struct {
 
             node.node.type_def = if (super_method) |umethod| umethod.resolved_type.?.Function.return_type else null;
 
+            node.member_type_def = super_method;
+
             return &node.node;
         } else {
             node.super = NamedVariableNode.cast(try self.namedVariable(
@@ -2708,6 +2710,7 @@ pub const Parser = struct {
             )).?;
 
             node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, member_name.lexeme);
+            node.member_type_def = node.node.type_def;
 
             return &node.node;
         }

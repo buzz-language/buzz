@@ -1447,6 +1447,7 @@ pub const FunctionNode = struct {
 
         var frame = codegen.current.?;
         var current_function: *ObjFunction = frame.function.?;
+        current_function.upvalue_count = @intCast(u8, self.upvalue_binding.count());
 
         codegen.current = frame.enclosing;
 
@@ -1592,11 +1593,15 @@ pub const CallNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (!self.invoked and self.invoked_on == null) {
+        if (!self.invoked and self.super == null and self.invoked_on == null) {
             _ = try self.callee.toByteCode(self.callee, codegen, breaks);
         }
 
-        const callee_type = if (self.callee.node_type == .Dot) DotNode.cast(self.callee).?.member_type_def else self.callee.type_def;
+        const callee_type = switch (self.callee.node_type) {
+            .Dot => DotNode.cast(self.callee).?.member_type_def,
+            .Super => SuperNode.cast(self.callee).?.member_type_def,
+            else => self.callee.type_def,
+        };
 
         if (callee_type == null or callee_type.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.callee.location, "Unknown type");
@@ -2975,6 +2980,7 @@ pub const SuperNode = struct {
     },
 
     identifier: Token,
+    member_type_def: ?*ObjTypeDef = null,
     // if call, CallNode will fetch super
     super: ?*NamedVariableNode = null,
     call: ?*CallNode = null,
