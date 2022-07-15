@@ -10,6 +10,7 @@ const _obj = @import("./obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const FunctionNode = @import("./node.zig").FunctionNode;
+const Config = @import("./config.zig").Config;
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
@@ -42,11 +43,36 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
 
     _ = try file.readAll(source);
 
+    var timer = try std.time.Timer.start();
+    var parsing_time: u64 = undefined;
+    var codegen_time: u64 = undefined;
+    var running_time: u64 = undefined;
+
     if (try parser.parse(source, file_name)) |function_node| {
+        parsing_time = timer.read();
+        timer.reset();
+
         if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+            codegen_time = timer.read();
+            timer.reset();
+
             _ = try vm.interpret(
                 function,
                 args,
+            );
+
+            running_time = timer.read();
+        }
+
+        if (Config.debug_perf) {
+            std.debug.print(
+                "\u{001b}[2mParsing: {} ms | Codegen: {} ms | Run: {} ms | Total: {} ms\u{001b}[0m\n",
+                .{
+                    parsing_time / 1000000,
+                    codegen_time / 1000000,
+                    running_time / 1000000,
+                    (parsing_time + codegen_time + running_time) / 1000000,
+                },
             );
         }
     } else {
