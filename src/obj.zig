@@ -2328,6 +2328,7 @@ pub const ObjTypeDef = struct {
                 }
 
                 try type_str.append(')');
+                try type_str.append(')');
 
                 if (function_def.return_type.def_type != Type.Void) {
                     var return_type = try self.resolved_type.?.Function.return_type.toString(allocator);
@@ -2349,7 +2350,14 @@ pub const ObjTypeDef = struct {
 
                 var ref: []u8 = try allocator.alloc(u8, 30);
                 defer allocator.free(ref);
-                ref = try std.fmt.bufPrint(ref, "{x}", .{@ptrToInt(&self)});
+                ref = try std.fmt.bufPrint(
+                    ref,
+                    "{s} @{x}",
+                    .{
+                        self.resolved_type.?.Native.name.string,
+                        @ptrToInt(&self),
+                    },
+                );
 
                 try type_str.appendSlice(ref);
                 try type_str.appendSlice(")");

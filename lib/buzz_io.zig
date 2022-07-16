@@ -148,14 +148,15 @@ export fn FileRead(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = std.ArrayList(u8).initCapacity(api.VM.allocator, n) catch {
+    var buffer = api.VM.allocator.alloc(u8, n) catch {
         vm.bz_throwString("Could not read file");
 
         return -1;
     };
-    buffer.expandToCapacity();
+    // bz_string will copy it
+    defer api.VM.allocator.free(buffer);
 
-    const read = reader.read(buffer.items) catch {
+    const read = reader.read(buffer) catch {
         vm.bz_throwString("Could not read file");
 
         return -1;
@@ -164,7 +165,7 @@ export fn FileRead(vm: *api.VM) c_int {
     if (read == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
             vm.bz_throwString("Could not read file");
 
             return -1;
