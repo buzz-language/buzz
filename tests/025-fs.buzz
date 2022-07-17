@@ -2,20 +2,20 @@ import "lib/std";
 import "lib/fs" as fs;
 
 test "fs.cwd" {
-    assert(fs.cwd() != "", message: "Could get cwd");
+    assert(fs.currentDirectory() != "", message: "Could get cwd");
 }
 
 test "mkDir/rm" {
-    fs.mkDir("yo");
-    fs.mkDir("{fs.cwd()}/yo2");
+    fs.makeDirectory("yo");
+    fs.makeDirectory("{fs.currentDirectory()}/yo2");
 
-    fs.rm("yo");
-    fs.rm("{fs.cwd()}/yo2");
+    fs.delete("yo");
+    fs.delete("{fs.currentDirectory()}/yo2");
 }
 
 test "ls" {
     bool containsREADME = false;
-    foreach (num i, str el in fs.ls(fs.cwd())) {
+    foreach (num i, str el in fs.list(fs.currentDirectory())) {
         if (el == "README.md") {
             containsREADME = true;
             break;
@@ -24,8 +24,23 @@ test "ls" {
 
     assert(containsREADME, message: "Could list element in current directory");
 
-    foreach (num i, str el in fs.ls("/doesnotexist") catch ["wentwrong"]) {
-        print("el: {el}");
+    foreach (num i, str el in fs.list("/doesnotexist") catch ["wentwrong"]) {
         assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
     }
+}
+
+test "move" {
+    fs.move(source: "README.md", destination: "lib/README.md");
+
+    assert(
+        fs.list("lib").indexOf("README.md") != null,
+        message: "Moved file to expected location"
+    );
+
+    fs.move(source: "lib/README.md", destination: "README.md");
+
+    assert(
+        fs.list(".").indexOf("README.md") != null,
+        message: "Moved file to expected location"
+    );
 }

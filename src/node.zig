@@ -1653,7 +1653,8 @@ pub const CallNode = struct {
             const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
             const def_arg_type = args.get(actual_arg_key);
 
-            if (index != args.getIndex(actual_arg_key)) {
+            const ref_index = args.getIndex(actual_arg_key);
+            if (index != ref_index) {
                 needs_reorder = true;
             }
 

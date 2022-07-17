@@ -2,7 +2,7 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const utils = @import("../src/utils.zig");
 
-export fn mkDir(vm: *api.VM) c_int {
+export fn makeDirectory(vm: *api.VM) c_int {
     const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
         vm.bz_throwString("Could not get filename");
 
@@ -26,7 +26,7 @@ export fn mkDir(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn rm(vm: *api.VM) c_int {
+export fn delete(vm: *api.VM) c_int {
     const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
         vm.bz_throwString("Could not get filename");
 
@@ -50,11 +50,66 @@ export fn rm(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn move(_: *api.VM) c_int {
-    unreachable;
+export fn move(vm: *api.VM) c_int {
+    const source: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse {
+        vm.bz_throwString("Could not get source");
+
+        return -1;
+    }, 0);
+
+    const destination: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
+        vm.bz_throwString("Could not get destination");
+
+        return -1;
+    }, 0);
+
+    const source_is_absolute = std.fs.path.isAbsolute(source);
+    const destination_is_absolute = std.fs.path.isAbsolute(destination);
+
+    if (source_is_absolute and destination_is_absolute) {
+        std.fs.renameAbsolute(source, destination) catch {
+            vm.bz_throwString("Could move file");
+
+            return -1;
+        };
+    } else if (!source_is_absolute and !destination_is_absolute) {
+        std.fs.cwd().rename(source, destination) catch {
+            vm.bz_throwString("Could move file");
+
+            return -1;
+        };
+    } else {
+        const source_absolute = if (source_is_absolute) source else std.fs.cwd().realpathAlloc(api.VM.allocator, source) catch {
+            vm.bz_throwString("Could move file");
+
+            return -1;
+        };
+        const destination_absolute = if (destination_is_absolute) destination else std.fs.cwd().realpathAlloc(api.VM.allocator, destination) catch {
+            vm.bz_throwString("Could move file");
+
+            return -1;
+        };
+        defer {
+            if (source_is_absolute) {
+                api.VM.allocator.free(source_absolute);
+            }
+
+            if (destination_is_absolute) {
+                api.VM.allocator.free(destination_absolute);
+            }
+        }
+
+        std.fs.renameAbsolute(source_absolute, destination_absolute) catch {
+            vm.bz_throwString("Could move file");
+
+            return -1;
+        };
+    }
+
+    return 0;
 }
 
-export fn ls(vm: *api.VM) c_int {
+export fn list(vm: *api.VM) c_int {
     const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
         vm.bz_throwString("Could not get filename");
 
@@ -74,7 +129,7 @@ export fn ls(vm: *api.VM) c_int {
             return -1;
         };
 
-    var list = api.ObjList.bz_newList(vm, api.ObjTypeDef.bz_stringType() orelse {
+    var file_list = api.ObjList.bz_newList(vm, api.ObjTypeDef.bz_stringType() orelse {
         vm.bz_throwString("Could not list directory");
 
         return -1;
@@ -100,14 +155,14 @@ export fn ls(vm: *api.VM) c_int {
             return -1;
         });
 
-        if (!list.bz_listAppend(vm.bz_pop())) {
+        if (!file_list.bz_listAppend(vm.bz_pop())) {
             vm.bz_throwString("Could not list directory");
 
             return -1;
         }
     }
 
-    vm.bz_pushList(list);
+    vm.bz_pushList(file_list);
 
     return 1;
 }

@@ -1,7 +1,7 @@
 import "lib/os" as os;
 
 | Returns current directory absolute path
-fun cwd() > str {
+fun currentDirectory() > str {
     str? dir = os.env("PWD");
 
     if (dir != null) {
@@ -15,19 +15,19 @@ fun cwd() > str {
 }
 
 | Creates directory path
-extern fun mkDir(str path) > void;
+extern fun makeDirectory(str path) > void;
 
 | Deletes directory or file at path
-extern fun rm(str path) > void;
+extern fun delete(str path) > void;
 
 | Moves/renames file
-extern fun move(str source, str dest) > void;
+extern fun move(str source, str destination) > void;
 
 | List files under path
-extern fun ls(str path) > [str];
+extern fun list(str path) > [str];
 
-export cwd;
-export mkDir;
-export rm;
+export currentDirectory;
+export makeDirectory;
+export delete;
 export move;
-export ls;
+export list;
