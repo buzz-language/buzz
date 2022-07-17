@@ -1,0 +1,159 @@
+import "lib/std";
+
+enum(str) JsonError {
+    parse = "Could not parse JSON",
+}
+
+object Json {
+    str? string = null,
+    bool? boolean = null,
+    num? number = null,
+    {str, Json}? map = null,
+    [Json]? list = null,
+
+    fun encode() > str {
+        if (this.string != null) {
+            return "\"{this.string!}\"";
+        } else if (this.boolean != null) {
+            return "{this.boolean!}";
+        } else if (this.number != null) {
+            return "{this.number!}";
+        } else if (this.map != null) {
+            str json = "\{";
+            const num size = this.map!.size();
+            num count = 0;
+            foreach (str key, Json value in this.map!) {
+                json = json + "\"{key}\":{value.encode()}";
+
+                if (count < size - 1) {
+                    json = json + ",";
+                }
+
+                count = count + 1;
+            }
+            return json + "}";
+        } else if (this.list != null) {
+            str json = "[";
+
+            const num len = this.list!.len();
+            foreach (num i, Json value in this.list!) {
+                json = json + value.encode();
+
+                if (i <= len - 1) {
+                    json = json + ",";
+                }
+            }
+
+            return json + "]";
+        } else {
+            return "null";
+        }
+    }
+
+    static fun decode(str json) > Json? {
+        if (json.len() == 0) {
+            return null;
+        }
+
+        if (json[0] == "[") {
+            return Json{ list = Json.decodeList(json.sub(1)) };
+        } else if (json[0] == "\{") {
+            return Json{ map = Json.decodeMap(json.sub(1)) };
+        } else if (json[0] == "\"") {
+            return Json{ string = Json.decodeString(json.sub(1)) };
+        } else if (parseNumber(json[0]) != null) {
+            return Json{ number = Json.decodeNumber() };
+        } else if (json.sub(0, len: 3) == "true") {
+            return Json{
+                boolean = true,
+            };
+        } else if (json.sub(0, len: 3) == "false") {
+            return Json{
+                boolean = false,
+            };
+        } else if (json.sub(0, len: 3) == "null") {
+            return Json{};
+        }
+
+        throw JsonError.parse;
+    }
+
+    static fun skipWhitespaces(str json) > str {
+        for (num offset = 0; json[offset] == " " or json[offset] == "\t"; offset = offset + 1) {}
+
+        return json.sub(offset);
+    }
+
+    static fun decodeList(str json) > [Json] {
+        [Json] list = <Json>[];
+
+        do {
+            json = Json.skipWhitespaces(json);
+
+            Json? decoded = Json.decode(json);
+
+            if (decoded != null) {
+                list.append(decoded);
+
+                json = json = Json.skipWhitespaces(json.sub(decoded.len() + 1));
+
+                if (json[0] != ",") {
+                    throw JsonError.parse;
+                }
+
+                json = Json.skipWhitespaces(json.sub(1));
+            } else {
+                throw JsonError.parse;
+            }
+        } until (json[0] == "]" or json.len() == 0)
+
+        if (json.len() == 0 or json[0] != "]") {
+            throw JsonError.parse;
+        }
+    }
+
+    static fun decodeNumber(str json) > num {
+        str number = "";
+        for (num offset = 0, str char = json[0]; offset < json.len() - 1 and parseNumber(char) != null; offset = offset + 1, number = number + char) {
+        }
+
+        num? result = parseNumber(number);
+
+        if (result == null) {
+            throw JsonError.parse;
+        }
+
+        return result!;
+    }
+
+    static fun decodeString(str json) > str {
+        str string = "";
+        num len = json.len();
+        for (num offset = 0, str char = json[0]; offset < len - 1; offset = offset + 1) {
+            if ((char == "\\" and offset < len - 2 and json[offset + 1] == "\"") or char != "\"") {
+                string = string + char;
+            } else {
+                break;
+            }
+        }
+
+        return string;
+    }
+}
+
+| test "Json.encode" {
+|     Json json = Json {
+|         map = {
+|             "hello": Json { string = "world" },
+|             "bye": Json { number = 42 },
+|         },
+|     };
+
+|     assert(json.encode() == "\{\"hello\":\"world\",\"bye\":42}", message: "valid encode");
+| }
+
+test "Json.decode" {
+    print(Json.decode("[ 12, true, \"hello\" ]")!.list![2]);
+}
+
+export Json;

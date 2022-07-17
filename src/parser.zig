@@ -2579,7 +2579,7 @@ pub const Parser = struct {
 
         // A lone list expression is prefixed by `<type>`
         if (self.parser.previous_token.?.token_type == .Less) {
-            item_type = try self.parseTypeDef();
+            item_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
 
             if (try self.match(.Comma)) {
                 return try self.mapFinalise(item_type.?);
@@ -3289,7 +3289,13 @@ pub const Parser = struct {
         } else if (try self.match(.Function)) {
             return try self.parseFunctionType();
         } else if ((try self.match(.Identifier))) {
-            return self.globals.items[try self.parseUserType()].type_def;
+            const user_type = self.globals.items[try self.parseUserType()].type_def;
+
+            if (try self.match(.Question)) {
+                return try user_type.cloneOptional(self);
+            }
+
+            return user_type;
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 

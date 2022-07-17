@@ -248,6 +248,9 @@ pub const Scanner = struct {
             } else if (self.peek() == '\\' and self.peekNext() == '{') {
                 // Escaped interpolation delimiter, go past it
                 _ = self.advance();
+            } else if (self.peek() == '\\' and self.peekNext() == '\\') {
+                // Escaped backslash, go past it
+                _ = self.advance();
             }
 
             _ = self.advance();
