@@ -2233,6 +2233,7 @@ pub const ObjTypeDef = struct {
     pub fn cloneToggleOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
         return type_registry.getTypeDef(
             .{
+                .obj = .{ .obj_type = self.obj.obj_type },
                 .optional = !self.optional,
                 .def_type = self.def_type,
                 .resolved_type = self.resolved_type,
@@ -2243,6 +2244,7 @@ pub const ObjTypeDef = struct {
     pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
         return type_registry.getTypeDef(
             .{
+                .obj = .{ .obj_type = self.obj.obj_type },
                 .optional = true,
                 .def_type = self.def_type,
                 .resolved_type = self.resolved_type,
@@ -2253,6 +2255,7 @@ pub const ObjTypeDef = struct {
     pub fn cloneNonOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
         return type_registry.getTypeDef(
             .{
+                .obj = .{ .obj_type = self.obj.obj_type },
                 .optional = false,
                 .def_type = self.def_type,
                 .resolved_type = self.resolved_type,

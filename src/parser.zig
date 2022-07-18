@@ -980,17 +980,20 @@ pub const Parser = struct {
         try self.consume(.Identifier, "Expected object name.");
         var object_name: Token = self.parser.previous_token.?.clone();
 
+        var object_def = ObjObject.ObjectDef.init(
+            self.allocator,
+            try copyStringRaw(self.strings, self.allocator, object_name.lexeme, false),
+        );
+
+        var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
+
         // Create type
-        var object_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        object_type.* = .{
-            .def_type = .Object,
-            .resolved_type = .{
-                .Object = ObjObject.ObjectDef.init(
-                    self.allocator,
-                    try copyStringRaw(self.strings, self.allocator, object_name.lexeme, false),
-                ),
+        var object_type: *ObjTypeDef = try self.type_registry.getTypeDef(
+            .{
+                .def_type = .Object,
+                .resolved_type = resolved_type,
             },
-        };
+        );
 
         const slot = try self.declareVariable(
             object_type,
@@ -1055,7 +1058,11 @@ pub const Parser = struct {
             const static: bool = try self.match(.Static);
 
             if (try self.match(.Fun)) {
-                var method_node: *ParseNode = try self.method(try self.type_registry.getTypeDef(try object_type.toInstance(self.type_registry)));
+                var method_node: *ParseNode = try self.method(
+                    if (static) object_type else try self.type_registry.getTypeDef(
+                        try object_type.toInstance(self.type_registry),
+                    ),
+                );
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
@@ -1435,7 +1442,7 @@ pub const Parser = struct {
         };
         node.node.location = self.parser.previous_token.?;
 
-        if (node.value != null and node.value.?.type_def.?.def_type == .Placeholder) {
+        if (var_type.def_type == .Placeholder and node.value != null and node.value.?.type_def.?.def_type == .Placeholder) {
             try PlaceholderDef.link(var_type, node.value.?.type_def.?, .Assignment);
         }
 
@@ -1728,11 +1735,12 @@ pub const Parser = struct {
 
         var enum_resolved: ObjTypeDef.TypeUnion = .{ .Enum = enum_def };
 
-        var enum_type: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        enum_type.* = ObjTypeDef{
-            .def_type = .Enum,
-            .resolved_type = enum_resolved,
-        };
+        var enum_type: *ObjTypeDef = try self.type_registry.getTypeDef(
+            .{
+                .def_type = .Enum,
+                .resolved_type = enum_resolved,
+            },
+        );
 
         const slot: usize = try self.declareVariable(enum_type, enum_name, true);
         self.markInitialized();
@@ -2200,7 +2208,7 @@ pub const Parser = struct {
             .Object => {
                 var obj_def: ObjObject.ObjectDef = callee.type_def.?.resolved_type.?.Object;
 
-                var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name);
+                var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name) orelse obj_def.static_placeholders.get(member_name);
 
                 // Not found, create a placeholder, this is a root placeholder not linked to anything
                 // TODO: test with something else than a name
