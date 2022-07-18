@@ -1001,6 +1001,9 @@ pub const Parser = struct {
             true, // Object is always constant
         );
 
+        // A placeholder may have been resolved so the correct ref to the ObjTypeDef is in the newly added or resolved global
+        object_type = self.globals.items[slot].type_def;
+
         // Mark initialized so we can refer to it inside its own declaration
         self.markInitialized();
 
@@ -2227,7 +2230,7 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    assert(false);
+                    try self.reportErrorFmt("Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
                 }
 
                 // Do we assign it ?
@@ -2275,7 +2278,7 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    assert(false);
+                    try self.reportErrorFmt("Property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
                 }
 
                 // If its a field or placeholder, we can assign to it

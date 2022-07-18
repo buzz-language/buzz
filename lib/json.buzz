@@ -53,7 +53,7 @@ object JsonParser {
             return null;
         }
 
-        const str char = this.advance();
+        const str? char = this.advance();
         if (char == "[") {
             return this.array();
         } else if (char == "\{") {
