@@ -674,6 +674,7 @@ pub const ObjString = struct {
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
             var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var defaults = std.StringArrayHashMap(Value).init(parser.allocator);
 
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
@@ -686,6 +687,7 @@ pub const ObjString = struct {
                     },
                 ),
             );
+
             try parameters.put(
                 "len",
                 try parser.type_registry.getTypeDef(
@@ -696,10 +698,13 @@ pub const ObjString = struct {
                 ),
             );
 
+            // `len` can be omitted
+            try defaults.put("len", Value{ .Null = null });
+
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                 .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .defaults = defaults,
                 .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
             };
 
