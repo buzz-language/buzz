@@ -16,7 +16,7 @@ test "Write & read a file" {
 
     fileB.close();
 
-    rm("./hello.txt");
+    delete("./hello.txt");
 }
 
 test "Write on stdout" {

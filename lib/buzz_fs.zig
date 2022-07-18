@@ -116,14 +116,14 @@ export fn list(vm: *api.VM) c_int {
         return -1;
     }, 0);
 
-    const dir: std.fs.Dir = if (std.fs.path.isAbsolute(filename))
-        std.fs.openDirAbsolute(filename, .{}) catch {
+    const dir = if (std.fs.path.isAbsolute(filename))
+        std.fs.openIterableDirAbsolute(filename, .{}) catch {
             vm.bz_throwString("Could not list directory");
 
             return -1;
         }
     else
-        std.fs.cwd().openDir(filename, .{}) catch {
+        std.fs.cwd().openIterableDir(filename, .{}) catch {
             vm.bz_throwString("Could not list directory");
 
             return -1;

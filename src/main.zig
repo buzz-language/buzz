@@ -117,7 +117,7 @@ test "Testing buzz" {
     else
         std.heap.c_allocator;
 
-    var test_dir = try std.fs.cwd().openDir("tests", .{ .iterate = true });
+    var test_dir = try std.fs.cwd().openIterableDir("tests", .{});
     var it = test_dir.iterate();
 
     var success = true;
