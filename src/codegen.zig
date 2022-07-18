@@ -240,6 +240,10 @@ pub const CodeGen = struct {
             l += 1;
         }
         std.debug.print("{s}{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, location.line + 1, location.column + 1, message });
+
+        if (Config.debug_stop_on_report) {
+            unreachable;
+        }
     }
 
     // Unlocated error, should not be used

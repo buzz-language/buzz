@@ -558,6 +558,10 @@ pub const Parser = struct {
             l += 1;
         }
         std.debug.print("{s}{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, token.line + 1, token.column + 1, message });
+
+        if (Config.debug_stop_on_report) {
+            unreachable;
+        }
     }
 
     fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {
@@ -712,7 +716,6 @@ pub const Parser = struct {
                 .Assignment => {
                     if (constant) {
                         try self.reportErrorAt(placeholder_def.where, "Is constant.");
-                        assert(false);
                         return;
                     }
 
