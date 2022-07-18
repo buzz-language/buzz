@@ -88,6 +88,7 @@ const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
+const TypeRegistry = _obj.TypeRegistry;
 
 extern fn dlerror() [*:0]u8;
 
@@ -300,7 +301,7 @@ pub const Parser = struct {
     scanner: ?Scanner = null,
     parser: ParserState,
     script_name: []const u8 = undefined,
-    type_defs: *std.StringHashMap(*ObjTypeDef),
+    type_registry: *TypeRegistry,
     strings: *std.StringHashMap(*ObjString),
     // If true the script is being imported
     imported: bool = false,
@@ -314,14 +315,14 @@ pub const Parser = struct {
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
-    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), type_defs: *std.StringHashMap(*ObjTypeDef), imported: bool) Self {
+    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString), imports: *std.StringHashMap(ScriptImport), type_registry: *TypeRegistry, imported: bool) Self {
         return .{
             .allocator = allocator,
             .parser = ParserState.init(allocator),
             .strings = strings,
             .imports = imports,
             .imported = imported,
-            .type_defs = type_defs,
+            .type_registry = type_registry,
             .globals = std.ArrayList(Global).init(allocator),
         };
     }
@@ -420,17 +421,17 @@ pub const Parser = struct {
                 // `args` is [str]
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     self.allocator,
-                    try self.getTypeDef(.{ .def_type = .String }),
+                    try self.type_registry.getTypeDef(.{ .def_type = .String }),
                 );
 
                 var list_union: ObjTypeDef.TypeUnion = .{ .List = list_def };
 
-                local.type_def = try self.getTypeDef(ObjTypeDef{ .def_type = .List, .resolved_type = list_union });
+                local.type_def = try self.type_registry.getTypeDef(ObjTypeDef{ .def_type = .List, .resolved_type = list_union });
             },
             else => {
                 // TODO: do we actually need to reserve that space since we statically know if we need it?
                 // nothing
-                local.type_def = try self.getTypeDef(ObjTypeDef{
+                local.type_def = try self.type_registry.getTypeDef(ObjTypeDef{
                     .def_type = .Void,
                 });
             },
@@ -473,29 +474,6 @@ pub const Parser = struct {
         }
 
         return closing;
-    }
-
-    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        var type_def_str: []const u8 = try type_def.toString(self.allocator);
-
-        // We don't return a cached version of a placeholder since they all maintain a particular state (link)
-        if (type_def.def_type != .Placeholder) {
-            if (self.type_defs.get(type_def_str)) |type_def_ptr| {
-                self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
-                return type_def_ptr;
-            }
-        }
-
-        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        type_def_ptr.* = type_def;
-
-        _ = try self.type_defs.put(type_def_str, type_def_ptr);
-
-        return type_def_ptr;
-    }
-
-    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
-        return self.type_defs.get(name);
     }
 
     pub fn advance(self: *Self) !void {
@@ -663,7 +641,7 @@ pub const Parser = struct {
                     if (resolved_type.def_type == .Object) {
                         var instance_union: ObjTypeDef.TypeUnion = .{ .ObjectInstance = resolved_type };
 
-                        var instance_type: *ObjTypeDef = try self.getTypeDef(.{
+                        var instance_type: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                             .def_type = .ObjectInstance,
                             .resolved_type = instance_union,
                         });
@@ -722,7 +700,7 @@ pub const Parser = struct {
                                 if (mem.eql(u8, case, child_placeholder.name.?.string)) {
                                     var enum_instance_def: ObjTypeDef.TypeUnion = .{ .EnumInstance = resolved_type };
 
-                                    try self.resolvePlaceholder(child, try self.getTypeDef(.{
+                                    try self.resolvePlaceholder(child, try self.type_registry.getTypeDef(.{
                                         .def_type = .EnumInstance,
                                         .resolved_type = enum_instance_def,
                                     }), true);
@@ -741,7 +719,7 @@ pub const Parser = struct {
 
                     // Assignment relation from a once Placeholder and now Class/Object/Enum is creating an instance
                     // TODO: but does this allow `AClass = something;` ?
-                    var child_type: *ObjTypeDef = try self.getTypeDef(resolved_type.toInstance());
+                    var child_type: *ObjTypeDef = try self.type_registry.getTypeDef(try resolved_type.toInstance(self.type_registry));
 
                     // Is child type matching the parent?
                     try self.resolvePlaceholder(child, child_type, false);
@@ -801,28 +779,28 @@ pub const Parser = struct {
                 return try self.funDeclaration();
             } else if (try self.match(.Str)) {
                 return try self.varDeclaration(
-                    try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
                     .Semicolon,
                     constant,
                     true,
                 );
             } else if (try self.match(.Num)) {
                 return try self.varDeclaration(
-                    try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
                     .Semicolon,
                     constant,
                     true,
                 );
             } else if (try self.match(.Bool)) {
                 return try self.varDeclaration(
-                    try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
                     .Semicolon,
                     constant,
                     true,
                 );
             } else if (try self.match(.Type)) {
                 return try self.varDeclaration(
-                    try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
                     .Semicolon,
                     constant,
                     true,
@@ -853,11 +831,11 @@ pub const Parser = struct {
                         .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
                     };
 
-                    var_type = try self.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
+                    var_type = try self.type_registry.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
                 }
 
                 if ((try self.match(.Question)) and !var_type.?.optional) {
-                    var_type = try var_type.?.cloneToggleOptional(self);
+                    var_type = try var_type.?.cloneToggleOptional(self.type_registry);
                 }
 
                 var node = VarDeclarationNode.cast(try self.varDeclaration(var_type.?, .Semicolon, constant, true)).?;
@@ -889,28 +867,28 @@ pub const Parser = struct {
             return try self.funDeclaration();
         } else if (try self.match(.Str)) {
             return try self.varDeclaration(
-                try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
                 .Semicolon,
                 constant,
                 true,
             );
         } else if (try self.match(.Num)) {
             return try self.varDeclaration(
-                try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
                 .Semicolon,
                 constant,
                 true,
             );
         } else if (try self.match(.Bool)) {
             return try self.varDeclaration(
-                try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
                 .Semicolon,
                 constant,
                 true,
             );
         } else if (try self.match(.Type)) {
             return try self.varDeclaration(
-                try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
                 .Semicolon,
                 constant,
                 true,
@@ -1055,7 +1033,7 @@ pub const Parser = struct {
                         .line = 0,
                         .column = 0,
                     },
-                    try self.getTypeDef(parent.toInstance()),
+                    try self.type_registry.getTypeDef(try parent.toInstance(self.type_registry)),
                     true,
                 );
                 self.markInitialized();
@@ -1077,7 +1055,7 @@ pub const Parser = struct {
             const static: bool = try self.match(.Static);
 
             if (try self.match(.Fun)) {
-                var method_node: *ParseNode = try self.method(try self.getTypeDef(object_type.toInstance()));
+                var method_node: *ParseNode = try self.method(try self.type_registry.getTypeDef(try object_type.toInstance(self.type_registry)));
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
@@ -1442,7 +1420,7 @@ pub const Parser = struct {
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
-        var var_type = try self.getTypeDef(parsed_type.toInstance());
+        var var_type = try self.type_registry.getTypeDef(try parsed_type.toInstance(self.type_registry));
 
         const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
 
@@ -1496,7 +1474,7 @@ pub const Parser = struct {
                 false,
             );
 
-            var_type = try self.getTypeDef(
+            var_type = try self.type_registry.getTypeDef(
                 .{
                     .optional = try self.match(.Question),
                     .def_type = .Placeholder,
@@ -1508,7 +1486,7 @@ pub const Parser = struct {
         }
 
         if (try self.match(.Question)) {
-            var_type = try var_type.?.cloneOptional(self);
+            var_type = try var_type.?.cloneOptional(self.type_registry);
         }
 
         return try self.varDeclaration(var_type.?, .Semicolon, constant, true);
@@ -1672,7 +1650,7 @@ pub const Parser = struct {
     }
 
     fn parseListType(self: *Self) !*ObjTypeDef {
-        var list_item_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+        var list_item_type: *ObjTypeDef = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
@@ -1681,7 +1659,7 @@ pub const Parser = struct {
             .List = list_def,
         };
 
-        return try self.getTypeDef(
+        return try self.type_registry.getTypeDef(
             .{
                 .optional = try self.match(.Question),
                 .def_type = .List,
@@ -1695,11 +1673,11 @@ pub const Parser = struct {
     }
 
     fn parseMapType(self: *Self) !*ObjTypeDef {
-        var key_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+        var key_type: *ObjTypeDef = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
         try self.consume(.Comma, "Expected `,` after key type.");
 
-        var value_type: *ObjTypeDef = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+        var value_type: *ObjTypeDef = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
         try self.consume(.RightBrace, "Expected `}` after value type.");
 
@@ -1708,7 +1686,7 @@ pub const Parser = struct {
             .Map = map_def,
         };
 
-        return try self.getTypeDef(
+        return try self.type_registry.getTypeDef(
             .{
                 .optional = try self.match(.Question),
                 .def_type = .Map,
@@ -1734,10 +1712,10 @@ pub const Parser = struct {
 
             case_type_picked = true;
         } else {
-            enum_case_type = try self.getTypeDef(.{ .def_type = .Number });
+            enum_case_type = try self.type_registry.getTypeDef(.{ .def_type = .Number });
         }
 
-        enum_case_type = try self.getTypeDef(enum_case_type.toInstance());
+        enum_case_type = try self.type_registry.getTypeDef(try enum_case_type.toInstance(self.type_registry));
 
         try self.consume(.Identifier, "Expected enum name.");
         var enum_name: Token = self.parser.previous_token.?.clone();
@@ -1778,7 +1756,7 @@ pub const Parser = struct {
             } else {
                 var constant_node = try self.allocator.create(NumberNode);
                 constant_node.* = NumberNode{ .constant = case_index };
-                constant_node.node.type_def = try self.getTypeDef(.{
+                constant_node.node.type_def = try self.type_registry.getTypeDef(.{
                     .def_type = .Number,
                 });
                 constant_node.node.location = self.parser.previous_token.?;
@@ -1830,7 +1808,7 @@ pub const Parser = struct {
 
         try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
-        node.node.type_def = if (object.type_def) |type_def| try self.getTypeDef(type_def.toInstance()) else null;
+        node.node.type_def = if (object.type_def) |type_def| try self.type_registry.getTypeDef(try type_def.toInstance(self.type_registry)) else null;
 
         return &node.node;
     }
@@ -1889,7 +1867,7 @@ pub const Parser = struct {
                     node.patch_opt_jumps = true;
 
                     if (node.type_def != null) {
-                        node.type_def = try node.type_def.?.cloneOptional(self);
+                        node.type_def = try node.type_def.?.cloneOptional(self.type_registry);
                     }
                 }
             }
@@ -1950,7 +1928,7 @@ pub const Parser = struct {
         node.* = NumberNode{
             .constant = self.parser.previous_token.?.literal_number.?,
         };
-        node.node.type_def = try self.getTypeDef(.{
+        node.node.type_def = try self.type_registry.getTypeDef(.{
             .def_type = .Number,
         });
         node.node.location = self.parser.previous_token.?;
@@ -1976,7 +1954,7 @@ pub const Parser = struct {
 
                 node.* = BooleanNode{ .constant = false };
 
-                node.node.type_def = try self.getTypeDef(.{
+                node.node.type_def = try self.type_registry.getTypeDef(.{
                     .def_type = .Bool,
                 });
 
@@ -1989,7 +1967,7 @@ pub const Parser = struct {
 
                 node.* = BooleanNode{ .constant = true };
 
-                node.node.type_def = try self.getTypeDef(.{
+                node.node.type_def = try self.type_registry.getTypeDef(.{
                     .def_type = .Bool,
                 });
 
@@ -2002,7 +1980,7 @@ pub const Parser = struct {
 
                 node.* = NullNode{};
 
-                node.node.type_def = try self.getTypeDef(.{
+                node.node.type_def = try self.type_registry.getTypeDef(.{
                     .def_type = .Void,
                 });
 
@@ -2108,7 +2086,7 @@ pub const Parser = struct {
                 .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
             };
 
-            node.node.type_def = try self.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
+            node.node.type_def = try self.type_registry.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
 
             if (callee.type_def.?.def_type == .Placeholder) {
                 try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
@@ -2231,7 +2209,7 @@ pub const Parser = struct {
                         .Placeholder = PlaceholderDef.init(self.allocator, member_name_token),
                     };
 
-                    var placeholder: *ObjTypeDef = try self.getTypeDef(.{
+                    var placeholder: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                         .optional = false,
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
@@ -2279,7 +2257,7 @@ pub const Parser = struct {
                         .Placeholder = PlaceholderDef.init(self.allocator, member_name_token),
                     };
 
-                    var placeholder: *ObjTypeDef = try self.getTypeDef(.{
+                    var placeholder: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                         .optional = false,
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
@@ -2322,7 +2300,7 @@ pub const Parser = struct {
                             .EnumInstance = callee.type_def.?,
                         };
 
-                        var enum_instance: *ObjTypeDef = try self.getTypeDef(.{
+                        var enum_instance: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                             .optional = false,
                             .def_type = .EnumInstance,
                             .resolved_type = enum_instance_resolved_type,
@@ -2394,7 +2372,7 @@ pub const Parser = struct {
 
                 placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, member_name, false);
 
-                var placeholder = try self.getTypeDef(
+                var placeholder = try self.type_registry.getTypeDef(
                     .{
                         .def_type = .Placeholder,
                         .resolved_type = placeholder_resolved_type,
@@ -2435,7 +2413,7 @@ pub const Parser = struct {
             .operator = .And,
         };
         node.node.location = self.parser.previous_token.?;
-        node.node.type_def = try self.getTypeDef(
+        node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
             },
@@ -2454,7 +2432,7 @@ pub const Parser = struct {
             .operator = .Or,
         };
         node.node.location = self.parser.previous_token.?;
-        node.node.type_def = try self.getTypeDef(
+        node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
             },
@@ -2472,7 +2450,7 @@ pub const Parser = struct {
             .constant = constant,
         };
         node.node.location = self.parser.previous_token.?;
-        node.node.type_def = try self.getTypeDef(
+        node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
             },
@@ -2508,7 +2486,7 @@ pub const Parser = struct {
             .LessEqual,
             .BangEqual,
             .EqualEqual,
-            => try self.getTypeDef(ObjTypeDef{
+            => try self.type_registry.getTypeDef(ObjTypeDef{
                 .def_type = .Bool,
             }),
 
@@ -2518,7 +2496,7 @@ pub const Parser = struct {
             .Star,
             .Slash,
             .Percent,
-            => try self.getTypeDef(ObjTypeDef{
+            => try self.type_registry.getTypeDef(ObjTypeDef{
                 .def_type = .Number,
             }),
 
@@ -2579,7 +2557,7 @@ pub const Parser = struct {
 
         // A lone list expression is prefixed by `<type>`
         if (self.parser.previous_token.?.token_type == .Less) {
-            item_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+            item_type = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
             if (try self.match(.Comma)) {
                 return try self.mapFinalise(item_type.?);
@@ -2607,7 +2585,7 @@ pub const Parser = struct {
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .List = list_def };
 
-        var list_type: *ObjTypeDef = try self.getTypeDef(
+        var list_type: *ObjTypeDef = try self.type_registry.getTypeDef(
             .{
                 .def_type = .List,
                 .resolved_type = resolved_type,
@@ -2633,7 +2611,7 @@ pub const Parser = struct {
         // A lone map expression is prefixed by `<type, type>`
         // When key_type != null, we come from list() which just parsed `<type,`
         if (key_type != null) {
-            value_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+            value_type = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
             try self.consume(.Greater, "Expected `>` after map type.");
             try self.consume(.LeftBrace, "Expected `{` before map entries.");
@@ -2665,7 +2643,7 @@ pub const Parser = struct {
 
         var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .Map = map_def };
 
-        var map_type: *ObjTypeDef = try self.getTypeDef(
+        var map_type: *ObjTypeDef = try self.type_registry.getTypeDef(
             .{
                 .optional = try self.match(.Question),
                 .def_type = .Map,
@@ -2789,7 +2767,7 @@ pub const Parser = struct {
 
         function_typedef.resolved_type = function_resolved_type;
 
-        // We replace it with a self.getTypeDef pointer at the end
+        // We replace it with a self.type_registry.getTypeDef pointer at the end
         function_node.node.type_def = &function_typedef;
 
         // Parse argument list
@@ -2817,7 +2795,7 @@ pub const Parser = struct {
                         .Object => object: {
                             var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = param_type };
 
-                            break :object try self.getTypeDef(
+                            break :object try self.type_registry.getTypeDef(
                                 .{
                                     .optional = try self.match(.Question),
                                     .def_type = .ObjectInstance,
@@ -2828,7 +2806,7 @@ pub const Parser = struct {
                         .Enum => enum_instance: {
                             var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = param_type };
 
-                            break :enum_instance try self.getTypeDef(
+                            break :enum_instance try self.type_registry.getTypeDef(
                                 .{
                                     .optional = try self.match(.Question),
                                     .def_type = .EnumInstance,
@@ -2871,7 +2849,7 @@ pub const Parser = struct {
                         } else if (param_type.optional) {
                             var null_node: *NullNode = try self.allocator.create(NullNode);
                             null_node.* = .{};
-                            null_node.node.type_def = try self.getTypeDef(.{ .def_type = .Void });
+                            null_node.node.type_def = try self.type_registry.getTypeDef(.{ .def_type = .Void });
 
                             try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, (try null_node.node.toValue(self.allocator, self.strings)).?);
                         }
@@ -2889,7 +2867,7 @@ pub const Parser = struct {
         if (function_type != .Test and (function_type != .Catch or self.check(.Greater))) {
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
-            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.getTypeDef((try self.parseTypeDef()).toInstance());
+            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.type_registry.getTypeDef(try (try self.parseTypeDef()).toInstance(self.type_registry));
 
             parsed_return_type = true;
         }
@@ -2914,7 +2892,7 @@ pub const Parser = struct {
         }
 
         if (!parsed_return_type) {
-            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.getTypeDef(.{ .def_type = .Void });
+            function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.type_registry.getTypeDef(.{ .def_type = .Void });
         }
 
         if (function_type == .Extern) {
@@ -2936,7 +2914,7 @@ pub const Parser = struct {
             }
         }
 
-        function_node.node.type_def = try self.getTypeDef(function_typedef);
+        function_node.node.type_def = try self.type_registry.getTypeDef(function_typedef);
 
         return &self.endFrame().node;
     }
@@ -3055,7 +3033,7 @@ pub const Parser = struct {
 
             _ = try file.readAll(source);
 
-            var parser = Parser.init(self.allocator, self.strings, self.imports, self.type_defs, true);
+            var parser = Parser.init(self.allocator, self.strings, self.imports, self.type_registry, true);
             defer parser.deinit();
 
             if (try parser.parse(source, file_name)) |import_node| {
@@ -3208,7 +3186,7 @@ pub const Parser = struct {
         if (try self.match(.Greater)) {
             return_type = try self.parseTypeDef();
         } else {
-            return_type = try self.getTypeDef(.{ .def_type = .Void });
+            return_type = try self.type_registry.getTypeDef(.{ .def_type = .Void });
         }
 
         var function_typedef: ObjTypeDef = .{
@@ -3218,7 +3196,7 @@ pub const Parser = struct {
 
         var function_def: ObjFunction.FunctionDef = .{
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
-            .return_type = try self.getTypeDef(return_type.toInstance()),
+            .return_type = try self.type_registry.getTypeDef(try return_type.toInstance(self.type_registry)),
             .parameters = parameters,
             .defaults = std.StringArrayHashMap(Value).init(self.allocator),
             .function_type = .Anonymous,
@@ -3228,7 +3206,7 @@ pub const Parser = struct {
 
         function_typedef.resolved_type = function_resolved_type;
 
-        return try self.getTypeDef(function_typedef);
+        return try self.type_registry.getTypeDef(function_typedef);
     }
 
     fn parseUserType(self: *Self) !usize {
@@ -3255,7 +3233,7 @@ pub const Parser = struct {
                 false,
             );
 
-            var_type = try self.getTypeDef(
+            var_type = try self.type_registry.getTypeDef(
                 .{
                     .optional = try self.match(.Question),
                     .def_type = .Placeholder,
@@ -3271,17 +3249,17 @@ pub const Parser = struct {
 
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
         if (try self.match(.Str)) {
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
         } else if (try self.match(.Type)) {
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.Void)) {
-            return try self.getTypeDef(.{ .optional = false, .def_type = .Void });
+            return try self.type_registry.getTypeDef(.{ .optional = false, .def_type = .Void });
         } else if (try self.match(.Num)) {
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number });
         } else if (try self.match(.Bool)) {
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool });
         } else if (try self.match(.Type)) {
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.LeftBracket)) {
             return self.parseListType();
         } else if (try self.match(.LeftBrace)) {
@@ -3292,19 +3270,19 @@ pub const Parser = struct {
             const user_type = self.globals.items[try self.parseUserType()].type_def;
 
             if (try self.match(.Question)) {
-                return try user_type.cloneOptional(self);
+                return try user_type.cloneOptional(self.type_registry);
             }
 
             return user_type;
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 
-            return try self.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Void });
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Void });
         }
     }
 
     fn cloneTypeOptional(self: *Self, type_def: *ObjTypeDef) !*ObjTypeDef {
-        return self.getTypeDef(
+        return self.type_registry.getTypeDef(
             .{
                 .optional = true,
                 .def_type = type_def.def_type,
@@ -3314,7 +3292,7 @@ pub const Parser = struct {
     }
 
     fn cloneTypeNonOptional(self: *Self, type_def: *ObjTypeDef) !*ObjTypeDef {
-        return self.getTypeDef(
+        return self.type_registry.getTypeDef(
             .{
                 .optional = false,
                 .def_type = type_def.def_type,
@@ -3346,7 +3324,7 @@ pub const Parser = struct {
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{ .Placeholder = PlaceholderDef.init(self.allocator, name) };
             placeholder_resolved_type.Placeholder.name = try copyStringRaw(self.strings, self.allocator, name.lexeme, false);
 
-            placeholder_type = try self.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
+            placeholder_type = try self.type_registry.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
         }
 
         const global: usize = try self.addGlobal(name, placeholder_type, false);

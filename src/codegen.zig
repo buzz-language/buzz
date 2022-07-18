@@ -26,6 +26,7 @@ const Value = _value.Value;
 const Chunk = _chunk.Chunk;
 const Token = _token.Token;
 const ObjTypeDef = _obj.ObjTypeDef;
+const TypeRegistry = _obj.TypeRegistry;
 
 pub const Frame = struct {
     enclosing: ?*Frame = null,
@@ -41,7 +42,7 @@ pub const CodeGen = struct {
     current: ?*Frame = null,
     allocator: Allocator,
     strings: *std.StringHashMap(*ObjString),
-    type_defs: *std.StringHashMap(*ObjTypeDef),
+    type_registry: *TypeRegistry,
     testing: bool,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(usize) = null,
@@ -50,12 +51,12 @@ pub const CodeGen = struct {
     // Used to generate error messages
     parser: *Parser,
 
-    pub fn init(allocator: Allocator, parser: *Parser, strings: *std.StringHashMap(*ObjString), type_defs: *std.StringHashMap(*ObjTypeDef), testing: bool) Self {
+    pub fn init(allocator: Allocator, parser: *Parser, strings: *std.StringHashMap(*ObjString), type_registry: *TypeRegistry, testing: bool) Self {
         return .{
             .allocator = allocator,
             .parser = parser,
             .strings = strings,
-            .type_defs = type_defs,
+            .type_registry = type_registry,
             .testing = testing,
         };
     }
@@ -82,29 +83,6 @@ pub const CodeGen = struct {
         const function = try root.node.toByteCode(&root.node, self, null);
 
         return if (self.had_error) null else function;
-    }
-
-    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        var type_def_str: []const u8 = try type_def.toString(self.allocator);
-
-        // We don't return a cached version of a placeholder since they all maintain a particular state (link)
-        if (type_def.def_type != .Placeholder) {
-            if (self.type_defs.get(type_def_str)) |type_def_ptr| {
-                self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
-                return type_def_ptr;
-            }
-        }
-
-        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        type_def_ptr.* = type_def;
-
-        _ = try self.type_defs.put(type_def_str, type_def_ptr);
-
-        return type_def_ptr;
-    }
-
-    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
-        return self.type_defs.get(name);
     }
 
     pub fn emit(self: *Self, location: Token, code: u32) !void {

@@ -556,12 +556,12 @@ pub const ObjString = struct {
                 .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
                 .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
+                .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try parser.getTypeDef(
+            var native_type = try parser.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -577,18 +577,18 @@ pub const ObjString = struct {
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("at", try parser.getTypeDef(.{ .def_type = .Number }));
+            try parameters.put("at", try parser.type_registry.getTypeDef(.{ .def_type = .Number }));
 
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "byte", false),
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.getTypeDef(.{ .def_type = .Number }),
+                .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try parser.getTypeDef(
+            var native_type = try parser.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -604,13 +604,13 @@ pub const ObjString = struct {
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("needle", try parser.getTypeDef(.{ .def_type = .String }));
+            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
 
             var method_def = ObjFunction.FunctionDef{
                 .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.getTypeDef(
+                .return_type = try parser.type_registry.getTypeDef(
                     .{
                         .def_type = .Number,
                         .optional = true,
@@ -620,7 +620,7 @@ pub const ObjString = struct {
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try parser.getTypeDef(
+            var native_type = try parser.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -636,11 +636,11 @@ pub const ObjString = struct {
             // We omit first arg: it'll be OP_SWAPed in and we already parsed it
             // It's always the string.
 
-            try parameters.put("separator", try parser.getTypeDef(.{ .def_type = .String }));
+            try parameters.put("separator", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
 
             var list_def: ObjList.ListDef = ObjList.ListDef.init(
                 parser.allocator,
-                try parser.getTypeDef(ObjTypeDef{
+                try parser.type_registry.getTypeDef(ObjTypeDef{
                     .def_type = .String,
                 }),
             );
@@ -653,7 +653,7 @@ pub const ObjString = struct {
                 .name = try copyStringRaw(parser.strings, parser.allocator, "split", false),
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.getTypeDef(ObjTypeDef{
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                     .def_type = .List,
                     .optional = false,
                     .resolved_type = list_def_union,
@@ -662,7 +662,7 @@ pub const ObjString = struct {
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try parser.getTypeDef(
+            var native_type = try parser.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -680,7 +680,7 @@ pub const ObjString = struct {
 
             try parameters.put(
                 "start",
-                try parser.getTypeDef(
+                try parser.type_registry.getTypeDef(
                     .{
                         .def_type = .Number,
                     },
@@ -688,7 +688,7 @@ pub const ObjString = struct {
             );
             try parameters.put(
                 "len",
-                try parser.getTypeDef(
+                try parser.type_registry.getTypeDef(
                     .{
                         .def_type = .Number,
                         .optional = true,
@@ -700,12 +700,12 @@ pub const ObjString = struct {
                 .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.getTypeDef(ObjTypeDef{ .def_type = .String }),
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-            var native_type = try parser.getTypeDef(
+            var native_type = try parser.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = .Native,
                     .resolved_type = resolved_type,
@@ -1381,7 +1381,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
+                var native_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
 
                 try self.methods.put("append", native_type);
 
@@ -1392,7 +1392,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var at_type = try parser.getTypeDef(
+                var at_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Number,
                         .optional = false,
@@ -1405,7 +1405,7 @@ pub const ObjList = struct {
                     .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                    .return_type = try parser.getTypeDef(.{
+                    .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
                         .resolved_type = self.item_type.resolved_type,
@@ -1414,7 +1414,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1431,7 +1431,7 @@ pub const ObjList = struct {
                     .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                    .return_type = try parser.getTypeDef(
+                    .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                         },
@@ -1440,7 +1440,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1459,7 +1459,7 @@ pub const ObjList = struct {
                 // `key` arg is number
                 try parameters.put(
                     "key",
-                    try parser.getTypeDef(
+                    try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                             .optional = true,
@@ -1472,7 +1472,7 @@ pub const ObjList = struct {
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     // When reached end of list, returns null
-                    .return_type = try parser.getTypeDef(
+                    .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
                             .optional = true,
@@ -1482,7 +1482,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1500,7 +1500,7 @@ pub const ObjList = struct {
 
                 try parameters.put(
                     "start",
-                    try parser.getTypeDef(
+                    try parser.type_registry.getTypeDef(
                         .{
                             .def_type = .Number,
                         },
@@ -1508,7 +1508,7 @@ pub const ObjList = struct {
                 );
                 try parameters.put(
                     "len",
-                    try parser.getTypeDef(
+                    try parser.type_registry.getTypeDef(
                         .{
                             .def_type = .Number,
                             .optional = true,
@@ -1525,7 +1525,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1547,7 +1547,7 @@ pub const ObjList = struct {
                     .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                    .return_type = try parser.getTypeDef(
+                    .return_type = try parser.type_registry.getTypeDef(
                         .{
                             .def_type = self.item_type.def_type,
                             .optional = true,
@@ -1558,7 +1558,7 @@ pub const ObjList = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1574,20 +1574,20 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put("separator", try parser.getTypeDef(.{ .def_type = .String }));
+                try parameters.put("separator", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyStringRaw(parser.strings, parser.allocator, "join", false),
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                    .return_type = try parser.getTypeDef(ObjTypeDef{
+                    .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try parser.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1850,7 +1850,7 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
-        pub fn member(obj_map: *ObjTypeDef, compiler: *Parser, method: []const u8) !?*ObjTypeDef {
+        pub fn member(obj_map: *ObjTypeDef, parser: *Parser, method: []const u8) !?*ObjTypeDef {
             var self = obj_map.resolved_type.?.Map;
 
             if (self.methods.get(method)) |native_def| {
@@ -1859,17 +1859,17 @@ pub const ObjMap = struct {
 
             if (mem.eql(u8, method, "size")) {
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "size", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(.{
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "size", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .Number,
                     }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1880,7 +1880,7 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1888,10 +1888,10 @@ pub const ObjMap = struct {
                 try parameters.put("at", self.key_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "remove", false),
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(.{
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.value_type.def_type,
                         .resolved_type = self.value_type.resolved_type,
@@ -1900,7 +1900,7 @@ pub const ObjMap = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1912,7 +1912,7 @@ pub const ObjMap = struct {
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                    compiler.allocator,
+                    parser.allocator,
                     self.key_type,
                 );
 
@@ -1921,10 +1921,10 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "keys", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(.{
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "keys", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
                         .resolved_type = list_def_union,
@@ -1933,7 +1933,7 @@ pub const ObjMap = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -1945,7 +1945,7 @@ pub const ObjMap = struct {
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                    compiler.allocator,
+                    parser.allocator,
                     self.value_type,
                 );
 
@@ -1954,10 +1954,10 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(compiler.strings, compiler.allocator, "values", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(compiler.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(compiler.allocator),
-                    .return_type = try compiler.getTypeDef(.{
+                    .name = try copyStringRaw(parser.strings, parser.allocator, "values", false),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
                         .resolved_type = list_def_union,
@@ -1966,7 +1966,7 @@ pub const ObjMap = struct {
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
 
-                var native_type = try compiler.getTypeDef(
+                var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Native,
                         .resolved_type = resolved_type,
@@ -2139,6 +2139,36 @@ pub const ObjBoundMethod = struct {
     }
 };
 
+pub const TypeRegistry = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    registry: std.StringHashMap(*ObjTypeDef),
+
+    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+        var type_def_str: []const u8 = try type_def.toString(self.allocator);
+
+        // We don't return a cached version of a placeholder since they all maintain a particular state (link)
+        if (type_def.def_type != .Placeholder) {
+            if (self.registry.get(type_def_str)) |type_def_ptr| {
+                self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
+                return type_def_ptr;
+            }
+        }
+
+        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
+        type_def_ptr.* = type_def;
+
+        _ = try self.registry.put(type_def_str, type_def_ptr);
+
+        return type_def_ptr;
+    }
+
+    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
+        return self.registry.get(name);
+    }
+};
+
 /// Type
 pub const ObjTypeDef = struct {
     const Self = @This();
@@ -2195,8 +2225,8 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
-    pub fn cloneToggleOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
-        return parser.getTypeDef(
+    pub fn cloneToggleOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
+        return type_registry.getTypeDef(
             .{
                 .optional = !self.optional,
                 .def_type = self.def_type,
@@ -2205,8 +2235,8 @@ pub const ObjTypeDef = struct {
         );
     }
 
-    pub fn cloneOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
-        return parser.getTypeDef(
+    pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
+        return type_registry.getTypeDef(
             .{
                 .optional = true,
                 .def_type = self.def_type,
@@ -2215,38 +2245,8 @@ pub const ObjTypeDef = struct {
         );
     }
 
-    pub fn cloneNonOptional(self: *Self, parser: *Parser) !*ObjTypeDef {
-        return parser.getTypeDef(
-            .{
-                .optional = false,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
-    }
-
-    pub fn codegenCloneToggleOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
-        return codegen.getTypeDef(
-            .{
-                .optional = !self.optional,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
-    }
-
-    pub fn codegenCloneOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
-        return codegen.getTypeDef(
-            .{
-                .optional = true,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
-    }
-
-    pub fn codegenCloneNonOptional(self: *Self, codegen: *CodeGen) !*ObjTypeDef {
-        return codegen.getTypeDef(
+    pub fn cloneNonOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
+        return type_registry.getTypeDef(
             .{
                 .optional = false,
                 .def_type = self.def_type,
@@ -2379,10 +2379,10 @@ pub const ObjTypeDef = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn toInstance(self: *Self) Self {
+    pub fn toInstance(self: *Self, type_registry: *TypeRegistry) !Self {
         return switch (self.def_type) {
             .Object => object: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = self };
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = try self.cloneNonOptional(type_registry) };
 
                 break :object Self{
                     .optional = self.optional,
@@ -2391,7 +2391,7 @@ pub const ObjTypeDef = struct {
                 };
             },
             .Enum => enum_instance: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = self };
+                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = try self.cloneNonOptional(type_registry) };
 
                 break :enum_instance Self{
                     .optional = self.optional,

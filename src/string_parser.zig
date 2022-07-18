@@ -89,7 +89,7 @@ pub const StringParser = struct {
 
         var node = try self.parser.allocator.create(StringNode);
         node.* = .{ .elements = self.elements.items };
-        node.node.type_def = try self.parser.getTypeDef(.{ .def_type = .String });
+        node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
 
         return node;
     }
@@ -104,7 +104,7 @@ pub const StringParser = struct {
                 true, // The substring we built is now owned by parser
             ),
         };
-        node.node.type_def = try self.parser.getTypeDef(.{ .def_type = .String });
+        node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
 
         try self.elements.append(node.toNode());
     }

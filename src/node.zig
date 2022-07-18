@@ -1553,7 +1553,7 @@ pub const FunctionNode = struct {
 
         const function_def = ObjFunction.FunctionDef{
             .name = try copyStringRaw(parser.strings, parser.allocator, function_name, false),
-            .return_type = try parser.getTypeDef(.{ .def_type = .Void }),
+            .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
             .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
             .function_type = function_type,
@@ -1561,7 +1561,7 @@ pub const FunctionNode = struct {
 
         const type_def = ObjTypeDef.TypeUnion{ .Function = function_def };
 
-        self.node.type_def = try parser.getTypeDef(
+        self.node.type_def = try parser.type_registry.getTypeDef(
             .{
                 .def_type = .Function,
                 .resolved_type = type_def,
@@ -1973,8 +1973,8 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
-            } else if (!(try codegen.getTypeDef(self.type_def.?.toInstance())).eql(value.type_def.?) and !(try self.type_def.?.toInstance().codegenCloneNonOptional(codegen)).eql(value.type_def.?)) {
-                try codegen.reportTypeCheckAt(&self.type_def.?.toInstance(), value.type_def.?, "Wrong variable type", value.location);
+            } else if (!(try codegen.type_registry.getTypeDef(try self.type_def.?.toInstance(codegen.type_registry))).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
+                try codegen.reportTypeCheckAt(&(try self.type_def.?.toInstance(codegen.type_registry)), value.type_def.?, "Wrong variable type", value.location);
             }
 
             _ = try value.toByteCode(value, codegen, breaks);
@@ -2060,8 +2060,8 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(case.location, "Unknown type.");
-            } else if (!(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance()).eql(case.type_def.?)) {
-                try codegen.reportTypeCheckAt(&node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(), case.type_def.?, "Bad enum case type", case.location);
+            } else if (!(&(try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.type_registry))).eql(case.type_def.?)) {
+                try codegen.reportTypeCheckAt(&(try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
             }
 
             _ = try case.toByteCode(case, codegen, breaks);
@@ -2619,7 +2619,7 @@ pub const ForEachNode = struct {
                     }
                 },
                 .Enum => {
-                    const iterable_type = try codegen.getTypeDef(self.iterable.type_def.?.toInstance());
+                    const iterable_type = try codegen.type_registry.getTypeDef(try self.iterable.type_def.?.toInstance(codegen.type_registry));
                     if (!iterable_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,

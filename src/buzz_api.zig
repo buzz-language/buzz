@@ -16,6 +16,7 @@ const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
 const UserData = _obj.UserData;
+const TypeRegistry = _obj.TypeRegistry;
 const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
 
@@ -270,9 +271,12 @@ export fn bz_deinitVM(self: *VM) void {
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.allocator);
-    var type_defs = std.StringHashMap(*ObjTypeDef).init(self.allocator);
-    var parser = Parser.init(self.allocator, self.strings, &imports, &type_defs, false);
-    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &type_defs, false);
+    var type_registry = TypeRegistry{
+        .allocator = self.allocator,
+        .registry = std.StringHashMap(*ObjTypeDef).init(self.allocator),
+    };
+    var parser = Parser.init(self.allocator, self.strings, &imports, &type_registry, false);
+    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &type_registry, false);
     defer {
         codegen.deinit();
         imports.deinit();

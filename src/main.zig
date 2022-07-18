@@ -9,16 +9,20 @@ const CodeGen = @import("./codegen.zig").CodeGen;
 const _obj = @import("./obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
+const TypeRegistry = _obj.TypeRegistry;
 const FunctionNode = @import("./node.zig").FunctionNode;
 const Config = @import("./config.zig").Config;
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
-    var type_defs = std.StringHashMap(*ObjTypeDef).init(allocator);
+    var type_registry = TypeRegistry{
+        .allocator = allocator,
+        .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
+    };
     var vm = try VM.init(allocator, &strings);
-    var parser = Parser.init(allocator, &strings, &imports, &type_defs, false);
-    var codegen = CodeGen.init(allocator, &parser, &strings, &type_defs, testing);
+    var parser = Parser.init(allocator, &strings, &imports, &type_registry, false);
+    var codegen = CodeGen.init(allocator, &parser, &strings, &type_registry, testing);
     defer {
         codegen.deinit();
         vm.deinit();
@@ -29,7 +33,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
             kv.value_ptr.*.globals.deinit();
         }
         imports.deinit();
-        // TODO: free type_defs and its keys which are on the heap
+        // TODO: free type_registry and its keys which are on the heap
     }
 
     var file = std.fs.cwd().openFile(file_name, .{}) catch {
