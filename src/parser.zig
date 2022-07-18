@@ -616,7 +616,7 @@ pub const Parser = struct {
 
         if (resolved_type.def_type == .Placeholder) {
             if (Config.debug) {
-                std.debug.print("Attempted to resolve placeholder with placeholder.", .{});
+                std.debug.print("Attempted to resolve placeholder with placeholder.\n", .{});
             }
             return;
         }
@@ -632,22 +632,13 @@ pub const Parser = struct {
             switch (child_placeholder.parent_relation.?) {
                 .Call => {
                     // Can we call the parent?
-                    if (resolved_type.def_type != .Object and resolved_type.def_type != .Function) {
+                    if (resolved_type.def_type != .Function) {
                         try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
 
                     // Is the child types resolvable with parent return type
-                    if (resolved_type.def_type == .Object) {
-                        var instance_union: ObjTypeDef.TypeUnion = .{ .ObjectInstance = resolved_type };
-
-                        var instance_type: *ObjTypeDef = try self.type_registry.getTypeDef(.{
-                            .def_type = .ObjectInstance,
-                            .resolved_type = instance_union,
-                        });
-
-                        try self.resolvePlaceholder(child, instance_type, false);
-                    } else if (resolved_type.def_type == .Function) {
+                    if (resolved_type.def_type == .Function) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type, false);
                     }
                 },
@@ -657,14 +648,16 @@ pub const Parser = struct {
                     } else if (resolved_type.def_type == .Map) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.value_type, false);
                     } else {
-                        unreachable;
+                        try self.reportErrorAt(placeholder_def.where, "Can't be subscripted");
+                        return;
                     }
                 },
                 .Key => {
                     if (resolved_type.def_type == .Map) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.key_type, false);
                     } else {
-                        unreachable;
+                        try self.reportErrorAt(placeholder_def.where, "Can't be a key");
+                        return;
                     }
                 },
                 .FieldAccess => {
@@ -688,6 +681,8 @@ pub const Parser = struct {
                                     try self.resolvePlaceholder(child, method_def, true);
                                 }
                             }
+
+                            // TODO: search for static fields? search in inherited classes??
                         },
                         .Enum => {
                             // We can't create a field access placeholder without a name
@@ -708,12 +703,16 @@ pub const Parser = struct {
                                 }
                             }
                         },
-                        else => try self.reportErrorAt(placeholder_def.where, "Doesn't support field access"),
+                        else => {
+                            try self.reportErrorAt(placeholder_def.where, "Doesn't support field access");
+                            return;
+                        },
                     }
                 },
                 .Assignment => {
                     if (constant) {
                         try self.reportErrorAt(placeholder_def.where, "Is constant.");
+                        assert(false);
                         return;
                     }
 
@@ -725,6 +724,10 @@ pub const Parser = struct {
                     try self.resolvePlaceholder(child, child_type, false);
                 },
             }
+        }
+
+        if (placeholder.resolved_type.?.Placeholder.name) |name| {
+            std.debug.print("Resolved placeholder @{} {s} with @{}\n", .{ @ptrToInt(placeholder), name.string, @ptrToInt(resolved_type) });
         }
 
         // Overwrite placeholder with resolved_type
@@ -1434,20 +1437,22 @@ pub const Parser = struct {
 
         const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
 
+        const value = if (can_assign and try self.match(.Equal)) try self.expression(false) else null;
+
+        if (var_type.def_type == .Placeholder and value != null and value.?.type_def != null and value.?.type_def.?.def_type == .Placeholder) {
+            try PlaceholderDef.link(var_type, value.?.type_def.?, .Assignment);
+        }
+
         var node = try self.allocator.create(VarDeclarationNode);
         node.* = VarDeclarationNode{
             .name = self.parser.previous_token.?,
-            .value = if (can_assign and try self.match(.Equal)) try self.expression(false) else null,
+            .value = value,
             .type_def = var_type,
             .constant = constant,
             .slot = slot,
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
         };
         node.node.location = self.parser.previous_token.?;
-
-        if (var_type.def_type == .Placeholder and node.value != null and node.value.?.type_def.?.def_type == .Placeholder) {
-            try PlaceholderDef.link(var_type, node.value.?.type_def.?, .Assignment);
-        }
 
         switch (terminator) {
             .OptComma => _ = try self.match(.Comma),
@@ -1810,7 +1815,13 @@ pub const Parser = struct {
 
             try self.consume(.Equal, "Expected `=` after property nane.");
 
-            try node.properties.put(property_name, try self.expression(false));
+            const expr = try self.expression(false);
+
+            if (object.type_def != null and object.type_def.?.def_type == .Placeholder and expr.type_def.?.def_type == .Placeholder) {
+                try PlaceholderDef.link(object.type_def.?, expr.type_def.?, .Assignment);
+            }
+
+            try node.properties.put(property_name, expr);
 
             if (!self.check(.RightBrace) or self.check(.Comma)) {
                 try self.consume(.Comma, "Expected `,` after field initialization.");
@@ -2093,15 +2104,19 @@ pub const Parser = struct {
         // If null, create placeholder
         if (node.node.type_def == null) {
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                // TODO: token is wrong but what else can we put here?
-                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+                .Placeholder = PlaceholderDef.init(self.allocator, node.node.location),
             };
 
-            node.node.type_def = try self.type_registry.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
+            node.node.type_def = try self.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type,
+                },
+            );
 
-            if (callee.type_def.?.def_type == .Placeholder) {
-                try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
-            }
+            assert(callee.type_def.?.def_type == .Placeholder);
+
+            try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
         }
 
         return &node.node;
@@ -2851,6 +2866,10 @@ pub const Parser = struct {
                     if (function_type == .Function or function_type == .Method or function_type == .Anonymous) {
                         if (try self.match(.Equal)) {
                             var expr = try self.expression(false);
+
+                            if (expr.type_def != null and expr.type_def.?.def_type == .Placeholder and param_type.def_type == .Placeholder) {
+                                try PlaceholderDef.link(param_type, expr.type_def.?, .Assignment);
+                            }
 
                             if (!expr.isConstant()) {
                                 try self.reportError("Default parameters must be constant values.");

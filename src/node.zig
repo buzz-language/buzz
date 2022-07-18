@@ -3237,6 +3237,8 @@ pub const ObjectInitNode = struct {
         try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
+            std.debug.print("Unresolved placeholder @{} {s}\n", .{ @ptrToInt(node.type_def.?), node.type_def.?.resolved_type.?.Placeholder.name.?.string });
+            std.os.exit(1);
             try codegen.reportErrorAt(node.location, "Unknown type.");
         } else if (node.type_def.?.def_type != .ObjectInstance) {
             try codegen.reportErrorAt(node.location, "Expected an object or a class.");

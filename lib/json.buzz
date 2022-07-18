@@ -128,7 +128,6 @@ object JsonParser {
     fun number() > num? {
         str number = this.peek();
 
-        | TODO: this will allow number notation not allowed in JSON
         while (parseNumber(number) != null) {
             str char = this.advance();
 
