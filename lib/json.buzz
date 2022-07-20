@@ -5,6 +5,10 @@ object JsonParser {
     num offset = 0,
 
     fun advance() > str? {
+        if (this.offset >= this.source.len()) {
+            return null;
+        }
+
         str char = this.source[this.offset];
 
         this.offset = this.offset + 1;
@@ -17,7 +21,7 @@ object JsonParser {
             return null;
         }
 
-        this.source[this.offset];
+        return this.source[this.offset];
     }
 
     fun match(str expected) > bool {
@@ -36,7 +40,7 @@ object JsonParser {
 
     fun skipWhitespaces() > void {
         while (true) {
-            const str char = this.peek();
+            const str? char = this.peek();
 
             if (char == " " or char == "\r" or char == "\t") {
                 this.advance();
@@ -55,25 +59,28 @@ object JsonParser {
 
         const str? char = this.advance();
         if (char == "[") {
-            return this.array();
+            return Json{ list = this.array() };
         } else if (char == "\{") {
-            return this.map();
+            return Json{ map = this.map() };
         } else if (char.byte(0) >= "0".byte(0) and char.byte(0) <= "9".byte(0)) {
-            return Json{ number = this.number() };
+            return Json{ number = this.number(char!) };
         } else if (char == "\"") {
             return Json{ string = this.string() };
-        } else if (this.source.sub(this.offset) == "true") {
+        } else if (this.source.sub(this.offset - 1, len: 4) == "true") {
+            this.offset = this.offset + 3;
             return Json{ boolean = true };
-        } else if (this.source.sub(this.offset) == "false") {
+        } else if (this.source.sub(this.offset - 1, len: 5) == "false") {
+            this.offset = this.offset + 4;
             return Json{ boolean = false };
-        } else if (this.source.sub(this.offset) == "null") {
+        } else if (this.source.sub(this.offset - 1, len: 4) == "null") {
+            this.offset = this.offset + 3;
             return Json{};
         }
 
-        throw "Could not parse JSON: unexpected character at offset {this.offset}";
+        throw "Could not parse JSON: unexpected character `{char}` at offset {this.offset}";
     }
 
-    fun array() > Json? {
+    fun array() > [Json] {
         [Json] array = <Json>[];
 
         while (true) {
@@ -97,23 +104,18 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str, Json}? {
+    fun map() > {str, Json} {
         {str, Json} map = <str, Json>{};
 
         while (true) {
-            const str? key = this.string();
-
-            if (key == null) {
-                throw "Could not parse JSON: expected string at offset {this.offset}";
-            }
-
+            const str key = this.string();
             const Json? value = this.next();
 
             if (value == null) {
                 throw "Could not parse JSON: could not parse object property value at offset {this.offset}";
             }
 
-            map[key!] = value!;
+            map[key] = value!;
 
             if (this.match("}")) {
                 break;
@@ -125,11 +127,11 @@ object JsonParser {
         return map;
     }
 
-    fun number() > num? {
-        str number = this.peek();
+    fun number(str parsed) > num? {
+        str? number = parsed;
 
-        while (parseNumber(number) != null) {
-            str char = this.advance();
+        while (parseNumber(this.peek() ?? "NaN") != null) {
+            str? char = this.advance();
 
             if (char == null) {
                 break;
@@ -138,7 +140,11 @@ object JsonParser {
             number = number + char;
         }
 
-        return parseNumber(number);
+        if (number != null) {
+            return parseNumber(number!);
+        }
+
+        return null;
     }
 
     fun string() > str {
@@ -149,7 +155,7 @@ object JsonParser {
             if (char == "\\" and this.match("\"")) {
                 string = string + "\"";
             } else {
-                string = string + char;
+                string = string + char!;
             }
 
             char = this.advance();
@@ -210,19 +216,19 @@ object Json {
     }
 }
 
-| test "Json.encode" {
-|     Json json = Json {
-|         map = {
-|             "hello": Json { string = "world" },
-|             "bye": Json { number = 42 },
-|         },
-|     };
+test "Json.encode" {
+    Json json = Json {
+        map = {
+            "hello": Json { string = "world" },
+            "bye": Json { number = 42 },
+        },
+    };
 
-|     assert(json.encode() == "\{\"hello\":\"world\",\"bye\":42}", message: "valid encode");
-| }
+    assert(json.encode() == "\{\"hello\":\"world\",\"bye\":42}", message: "valid encode");
+}
 
 test "Json.decode" {
-    print(Json.decode("[ 12, true, \"hello\" ]")!.list![2]);
+    assert(Json.decode("[ 12, true, \"hello\" ]")!.list![2].string ?? "nothing" == "hello", message: "could decode simple JSON");
 }
 
 export Json;

@@ -2151,7 +2151,7 @@ pub const TypeRegistry = struct {
     registry: std.StringHashMap(*ObjTypeDef),
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        var type_def_str: []const u8 = try type_def.toString(self.allocator);
+        const type_def_str: []const u8 = try type_def.toString(self.allocator);
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
@@ -2167,6 +2167,14 @@ pub const TypeRegistry = struct {
         _ = try self.registry.put(type_def_str, type_def_ptr);
 
         return type_def_ptr;
+    }
+
+    pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
+        const type_def_str: []const u8 = try type_def.toString(self.allocator);
+
+        assert(type_def.def_type != .Placeholder);
+
+        _ = try self.registry.put(type_def_str, type_def);
     }
 
     pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
@@ -2230,37 +2238,64 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
-    pub fn cloneToggleOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
-        return type_registry.getTypeDef(
-            .{
-                .obj = .{ .obj_type = self.obj.obj_type },
-                .optional = !self.optional,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
+    pub fn rawCloneOptional(self: *Self) ObjTypeDef {
+        return .{
+            .obj = .{ .obj_type = self.obj.obj_type },
+            .optional = true,
+            .def_type = self.def_type,
+            .resolved_type = self.resolved_type,
+        };
+    }
+
+    pub fn rawCloneNonOptional(self: *Self) ObjTypeDef {
+        return .{
+            .obj = .{ .obj_type = self.obj.obj_type },
+            .optional = false,
+            .def_type = self.def_type,
+            .resolved_type = self.resolved_type,
+        };
     }
 
     pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
-        return type_registry.getTypeDef(
-            .{
-                .obj = .{ .obj_type = self.obj.obj_type },
-                .optional = true,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
+        // If already optional return itself
+        if (self.optional and self.def_type != .Placeholder) {
+            return self;
+        }
+
+        const optional = try type_registry.getTypeDef(self.rawCloneOptional());
+
+        if (self.def_type == .Placeholder) {
+            // Destroyed copied placeholder link
+            optional.resolved_type.?.Placeholder.parent = null;
+            optional.resolved_type.?.Placeholder.parent_relation = null;
+            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.allocator);
+
+            // Make actual link
+            try PlaceholderDef.link(self, optional, .Optional);
+        }
+
+        return optional;
     }
 
     pub fn cloneNonOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
-        return type_registry.getTypeDef(
-            .{
-                .obj = .{ .obj_type = self.obj.obj_type },
-                .optional = false,
-                .def_type = self.def_type,
-                .resolved_type = self.resolved_type,
-            },
-        );
+        // If already non optional return itself
+        if (!self.optional and self.def_type != .Placeholder) {
+            return self;
+        }
+
+        const non_optional = try type_registry.getTypeDef(self.rawCloneNonOptional());
+
+        if (self.def_type == .Placeholder) {
+            // Destroyed copied placeholder link
+            non_optional.resolved_type.?.Placeholder.parent = null;
+            non_optional.resolved_type.?.Placeholder.parent_relation = null;
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.allocator);
+
+            // Make actual link
+            try PlaceholderDef.link(self, non_optional, .Unwrap);
+        }
+
+        return non_optional;
     }
 
     pub fn deinit(_: *Self) void {
@@ -2278,34 +2313,35 @@ pub const ObjTypeDef = struct {
     }
 
     /// Beware: allocates a string, caller owns it
-    pub fn toString(self: Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn toString(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+        var writer = type_str.writer();
 
         switch (self.def_type) {
-            .Bool => try type_str.appendSlice("bool"),
-            .Number => try type_str.appendSlice("num"),
-            .String => try type_str.appendSlice("str"),
+            .Bool => try writer.writeAll("bool"),
+            .Number => try writer.writeAll("num"),
+            .String => try writer.writeAll("str"),
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
             .Object => {
-                try type_str.appendSlice("{ObjectDef}");
-                try type_str.appendSlice(self.resolved_type.?.Object.name.string);
+                try writer.writeAll("{ObjectDef}");
+                try writer.writeAll(self.resolved_type.?.Object.name.string);
             },
             .Enum => {
-                try type_str.appendSlice("{EnumDef}");
-                try type_str.appendSlice(self.resolved_type.?.Enum.name.string);
+                try writer.writeAll("{EnumDef}");
+                try writer.writeAll(self.resolved_type.?.Enum.name.string);
             },
 
-            .ObjectInstance => try type_str.appendSlice(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
-            .EnumInstance => try type_str.appendSlice(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
+            .ObjectInstance => try writer.writeAll(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
+            .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
             .List => {
                 var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
                 defer allocator.free(list_type);
 
-                try type_str.append('[');
-                try type_str.appendSlice(list_type);
-                try type_str.append(']');
+                try writer.writeAll("[");
+                try writer.writeAll(list_type);
+                try writer.writeAll("]");
             },
             .Map => {
                 var key_type = try self.resolved_type.?.Map.key_type.toString(allocator);
@@ -2313,48 +2349,48 @@ pub const ObjTypeDef = struct {
                 var value_type = try self.resolved_type.?.Map.value_type.toString(allocator);
                 defer allocator.free(value_type);
 
-                try type_str.append('{');
-                try type_str.appendSlice(key_type);
-                try type_str.append(',');
-                try type_str.appendSlice(value_type);
-                try type_str.append('}');
+                try writer.writeAll("{");
+                try writer.writeAll(key_type);
+                try writer.writeAll(",");
+                try writer.writeAll(value_type);
+                try writer.writeAll("}");
             },
             .Function => {
                 var function_def = self.resolved_type.?.Function;
 
-                try type_str.appendSlice("Function(");
-                try type_str.appendSlice(function_def.name.string);
-                try type_str.appendSlice("(");
+                try writer.writeAll("Function(");
+                try writer.writeAll(function_def.name.string);
+                try writer.writeAll("(");
 
                 var it = function_def.parameters.iterator();
                 while (it.next()) |kv| {
                     var param_type = try kv.value_ptr.*.toString(allocator);
                     defer allocator.free(param_type);
 
-                    try type_str.appendSlice(param_type);
-                    try type_str.append(',');
+                    try writer.writeAll(param_type);
+                    try writer.writeAll(",");
                 }
 
-                try type_str.append(')');
-                try type_str.append(')');
+                try writer.writeAll(")");
+                try writer.writeAll(")");
 
                 if (function_def.return_type.def_type != Type.Void) {
                     var return_type = try self.resolved_type.?.Function.return_type.toString(allocator);
                     defer allocator.free(return_type);
 
-                    try type_str.appendSlice(" > ");
-                    try type_str.appendSlice(return_type);
+                    try writer.writeAll(" > ");
+                    try writer.writeAll(return_type);
                 }
             },
-            .Type => try type_str.appendSlice("type"),
-            .Void => try type_str.appendSlice("void"),
+            .Type => try writer.writeAll("type"),
+            .Void => try writer.writeAll("void"),
 
             .Placeholder => {
-                try type_str.appendSlice("{PlaceholderDef}");
+                try writer.print("{{PlaceholderDef @{}}}", .{@ptrToInt(self)});
             },
 
             .Native => {
-                try type_str.appendSlice("Native(");
+                try writer.writeAll("Native(");
 
                 var ref: []u8 = try allocator.alloc(u8, 30);
                 defer allocator.free(ref);
@@ -2367,13 +2403,13 @@ pub const ObjTypeDef = struct {
                     },
                 );
 
-                try type_str.appendSlice(ref);
-                try type_str.appendSlice(")");
+                try writer.writeAll(ref);
+                try writer.writeAll(")");
             },
         }
 
         if (self.optional) {
-            try type_str.append('?');
+            try writer.writeAll("?");
         }
 
         return type_str.items;
@@ -2387,28 +2423,50 @@ pub const ObjTypeDef = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn toInstance(self: *Self, type_registry: *TypeRegistry) !Self {
-        return switch (self.def_type) {
-            .Object => object: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = try self.cloneNonOptional(type_registry) };
+    pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
+        var instance_type = try type_registry.getTypeDef(
+            switch (self.def_type) {
+                .Object => object: {
+                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = try self.cloneNonOptional(type_registry) };
 
-                break :object Self{
-                    .optional = self.optional,
-                    .def_type = .ObjectInstance,
-                    .resolved_type = resolved_type,
-                };
-            },
-            .Enum => enum_instance: {
-                var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = try self.cloneNonOptional(type_registry) };
+                    break :object Self{
+                        .optional = self.optional,
+                        .def_type = .ObjectInstance,
+                        .resolved_type = resolved_type,
+                    };
+                },
+                .Enum => enum_instance: {
+                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = try self.cloneNonOptional(type_registry) };
 
-                break :enum_instance Self{
-                    .optional = self.optional,
-                    .def_type = .EnumInstance,
-                    .resolved_type = resolved_type,
-                };
+                    break :enum_instance Self{
+                        .optional = self.optional,
+                        .def_type = .EnumInstance,
+                        .resolved_type = resolved_type,
+                    };
+                },
+                .Placeholder => placeholder: {
+                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = PlaceholderDef.init(
+                            allocator,
+                            self.resolved_type.?.Placeholder.where.clone(),
+                        ),
+                    };
+                    placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
+
+                    break :placeholder Self{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    };
+                },
+                else => self.*,
             },
-            else => self.*,
-        };
+        );
+
+        if (self.def_type == .Placeholder and instance_type.def_type == .Placeholder) {
+            try PlaceholderDef.link(self, instance_type, .Instance);
+        }
+
+        return instance_type;
     }
 
     pub fn cast(obj: *Obj) ?*Self {
@@ -2474,7 +2532,7 @@ pub const ObjTypeDef = struct {
                 return true;
             },
 
-            .Placeholder => a.Placeholder.eql(b.Placeholder),
+            .Placeholder => true, // TODO: should it be false?
             .Native => {
                 // Compare return types
                 if (a.Native.return_type.eql(b.Native.return_type)) {
@@ -2632,21 +2690,13 @@ pub const PlaceholderDef = struct {
         Key,
         FieldAccess,
         Assignment,
+        Instance,
+        Optional,
+        Unwrap,
     };
 
     name: ?*ObjString = null,
-
-    // Assumption made by the code referencing the value
-    callable: ?bool = null, // Function, Object or Class
-    subscriptable: ?bool = null, // Array or Map
-    field_accessible: ?bool = null, // Object, Class or Enum
-    assignable: ?bool = null, // Not a Function, Object, Class or Enum
-    resolved_parameters: ?std.StringArrayHashMap(*ObjTypeDef) = null, // Maybe we resolved argument list but we don't know yet if Object/Class or Function
-    resolved_def_type: ?ObjTypeDef.Type = null, // Meta type
-    // TODO: do we ever infer that much that we can build an actual type?
-    resolved_type: ?*ObjTypeDef = null, // Actual type
     where: Token, // Where the placeholder was created
-
     // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     // can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
@@ -2656,7 +2706,10 @@ pub const PlaceholderDef = struct {
     children: std.ArrayList(*ObjTypeDef),
 
     pub fn init(allocator: Allocator, where: Token) Self {
-        return Self{ .where = where.clone(), .children = std.ArrayList(*ObjTypeDef).init(allocator) };
+        return Self{
+            .where = where.clone(),
+            .children = std.ArrayList(*ObjTypeDef).init(allocator),
+        };
     }
 
     pub fn deinit(self: *Self) void {
@@ -2667,129 +2720,40 @@ pub const PlaceholderDef = struct {
         assert(parent.def_type == .Placeholder);
         assert(child.def_type == .Placeholder);
 
+        if (parent == child) {
+            return;
+        }
+
+        if (child.resolved_type.?.Placeholder.parent != null) {
+            if (Config.debug_placeholders) {
+                std.debug.print(
+                    ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
+                    .{
+                        @ptrToInt(child),
+                        if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+                        child.resolved_type.?.Placeholder.parent_relation.?,
+                        @ptrToInt(child.resolved_type.?.Placeholder.parent.?),
+                        if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+                    },
+                );
+            }
+            return;
+        }
+
         child.resolved_type.?.Placeholder.parent = parent;
         try parent.resolved_type.?.Placeholder.children.append(child);
         child.resolved_type.?.Placeholder.parent_relation = relation;
-    }
 
-    pub fn eql(a: Self, b: Self) bool {
-        if (a.resolved_parameters != null and b.resolved_parameters != null) {
-            var it = a.resolved_parameters.?.iterator();
-            while (it.next()) |kv| {
-                if (b.resolved_parameters.?.get(kv.key_ptr.*)) |b_arg_type| {
-                    return b_arg_type.eql(kv.value_ptr.*);
-                } else {
-                    return false;
-                }
-            }
+        if (Config.debug_placeholders) {
+            std.debug.print(
+                "Linking @{} (root: {}) with @{} as {}\n",
+                .{
+                    @ptrToInt(parent),
+                    parent.resolved_type.?.Placeholder.parent == null,
+                    @ptrToInt(child),
+                    relation,
+                },
+            );
         }
-
-        return ((a.callable != null and b.callable != null and a.callable.? == b.callable.?) or a.callable == null or b.callable == null) and ((a.subscriptable != null and b.subscriptable != null and a.subscriptable.? == b.subscriptable.?) or a.subscriptable == null or b.subscriptable == null) and ((a.field_accessible != null and b.field_accessible != null and a.field_accessible.? == b.field_accessible.?) or a.field_accessible == null or b.subscriptable == null) and ((a.assignable != null and b.assignable != null and a.assignable.? == b.assignable.?) or a.assignable == null or b.subscriptable == null) and ((a.resolved_def_type != null and b.resolved_def_type != null and a.resolved_def_type.? == b.resolved_def_type.?) or a.resolved_def_type == null or b.resolved_def_type == null) and ((a.resolved_type != null and b.resolved_type != null and a.resolved_type.?.eql(b.resolved_type.?)) or a.resolved_type == null or b.subscriptable == null);
-    }
-
-    pub fn enrich(one: *Self, other: *Self) !void {
-        one.callable = one.callable orelse other.callable;
-        other.callable = one.callable orelse other.callable;
-
-        one.subscriptable = one.subscriptable orelse other.subscriptable;
-        other.subscriptable = one.subscriptable orelse other.subscriptable;
-
-        one.field_accessible = one.field_accessible orelse other.field_accessible;
-        other.field_accessible = one.field_accessible orelse other.field_accessible;
-
-        one.assignable = one.assignable orelse other.assignable;
-        other.assignable = one.assignable orelse other.assignable;
-
-        one.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
-        other.resolved_def_type = one.resolved_def_type orelse other.resolved_def_type;
-
-        one.resolved_type = one.resolved_type orelse other.resolved_type;
-        other.resolved_type = one.resolved_type orelse other.resolved_type;
-
-        if (other.resolved_parameters) |parameters| {
-            one.resolved_parameters = try parameters.clone();
-        } else if (one.resolved_parameters) |parameters| {
-            other.resolved_parameters = try parameters.clone();
-        }
-    }
-
-    // TODO: zig bug here
-    pub fn isBasicType(self: Self, basic_type: ObjTypeDef.Type) bool {
-        return (self.resolved_def_type != null and self.resolved_def_type.? == basic_type) or (self.resolved_type != null and self.resolved_type.?.def_type == basic_type);
-    }
-
-    pub fn isAssignable(self: *Self) bool {
-        if (self.assignable == null) {
-            return true;
-        }
-
-        return self.assignable.? and (self.resolved_def_type == null
-        // TODO: method actually but right now we have no way to distinguish them
-        or self.resolved_def_type.? != .Function or self.resolved_def_type.? != .Object) and (self.resolved_type == null
-        // TODO: method actually but right now we have no way to distinguish them
-        or self.resolved_type.?.def_type != .Function or self.resolved_type.?.def_type != .Object);
-    }
-
-    pub fn isCallable(self: *Self) bool {
-        if (self.callable == null) {
-            return true;
-        }
-
-        return self.callable.? and (self.resolved_def_type == null or self.resolved_def_type.? == .Function) and (self.resolved_type == null or self.resolved_type.?.def_type == .Function);
-    }
-
-    pub fn isFieldAccessible(self: *Self) bool {
-        if (self.field_accessible == null) {
-            return true;
-        }
-
-        return self.field_accessible.? and (self.resolved_def_type == null or self.resolved_def_type.? == .Object or self.resolved_def_type.? == .Enum or self.resolved_def_type.? == .EnumInstance or self.resolved_def_type.? == .ObjectInstance) and (self.resolved_type == null or self.resolved_type.?.def_type == .Object or self.resolved_type.?.def_type == .Enum or self.resolved_type.?.def_type == .EnumInstance or self.resolved_type.?.def_type == .ObjectInstance);
-    }
-
-    pub fn isSubscriptable(self: *Self) bool {
-        if (self.subscriptable == null) {
-            return true;
-        }
-
-        // zig fmt: off
-        return self.subscriptable.?
-            and (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map or self.resolved_def_type.? == .String)
-            and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map or self.resolved_type.?.def_type == .String);
-        // zig fmt: on
-    }
-
-    pub fn isIterable(self: *Self) bool {
-        return (self.resolved_def_type == null or self.resolved_def_type.? == .List or self.resolved_def_type.? == .Map or self.resolved_def_type.? == .Enum) and (self.resolved_type == null or self.resolved_type.?.def_type == .List or self.resolved_type.?.def_type == .Map or self.resolved_type.?.def_type == .Enum);
-    }
-
-    pub fn couldBeList(self: *Self) bool {
-        return self.isSubscriptable() and (self.resolved_def_type == null or self.resolved_def_type.? == .List) and (self.resolved_type == null or self.resolved_type.?.def_type == .List);
-    }
-
-    pub fn couldBeMap(self: *Self) bool {
-        return self.isSubscriptable() and (self.resolved_def_type == null or self.resolved_def_type.? == .Map) and (self.resolved_type == null or self.resolved_type.?.def_type == .Map);
-    }
-
-    pub fn couldBeObject(self: *Self) bool {
-        return self.isFieldAccessible() and (self.resolved_def_type == null or self.resolved_def_type.? == .Object) and (self.resolved_type == null or self.resolved_type.?.def_type == .Object);
-    }
-
-    pub fn isCoherent(self: *Self) bool {
-        if (self.resolved_def_type != null and self.resolved_type != null and @as(ObjTypeDef.Type, self.resolved_type.?.def_type) != self.resolved_def_type.?) {
-            return false;
-        }
-
-        // Nothing can be called and subscrited
-        if ((self.callable orelse false) and (self.subscriptable orelse false)) {
-            return false;
-        }
-
-        // Nothing with fields can be subscrited
-        if ((self.field_accessible orelse false) and (self.subscriptable orelse false)) {
-            return false;
-        }
-
-        // `and` because we checked for compatibility earlier and those function will return true if the flag is null
-        return self.isCallable() and self.isSubscriptable() and self.isFieldAccessible() and self.isAssignable();
     }
 };

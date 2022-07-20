@@ -159,9 +159,10 @@ pub const ParseNode = struct {
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
         try out.print(
-            "\"type_def\": \"{s}\"",
+            "\"type_def\": \"{s} @{}\"",
             .{
                 if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
+                if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
             },
         );
     }
@@ -441,9 +442,9 @@ pub const StringLiteralNode = struct {
     }
 
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
-        var self = Self.cast(node).?;
+        // var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"{s}\", ", .{self.constant.string});
+        try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
 
         try ParseNode.stringify(node, out);
 
@@ -1601,8 +1602,6 @@ pub const CallNode = struct {
     callee: *ParseNode,
     arguments: std.StringArrayHashMap(*ParseNode),
     catches: ?[]*ParseNode = null,
-    invoked: bool = false,
-    invoked_on: ?ObjTypeDef.Type = null,
     super: ?*NamedVariableNode = null,
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1610,7 +1609,26 @@ pub const CallNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (!self.invoked and self.super == null and self.invoked_on == null) {
+        if (self.callee.type_def == null or self.callee.type_def.?.def_type == .Placeholder) {
+            try codegen.reportErrorAt(node.location, "Called element is of unkown type");
+        }
+
+        var invoked = false;
+        var invoked_on: ?ObjTypeDef.Type = null;
+
+        if (self.callee.node_type == .Dot) {
+            const dot = DotNode.cast(self.callee).?;
+            const field_accessed = dot.callee.type_def;
+
+            if (field_accessed == null or field_accessed.?.def_type == .Placeholder) {
+                try codegen.reportErrorAt(dot.node.location, "Unknown field type");
+            }
+
+            invoked = field_accessed.?.def_type != .Object;
+            invoked_on = field_accessed.?.def_type;
+        }
+
+        if (!invoked and self.super == null and invoked_on == null) {
             _ = try self.callee.toByteCode(self.callee, codegen, breaks);
         }
 
@@ -1744,7 +1762,7 @@ pub const CallNode = struct {
             _ = try super.node.toByteCode(&super.node, codegen, breaks);
         }
 
-        if (self.invoked) {
+        if (invoked) {
             // TODO: can it be invoked without callee being a DotNode?
             try codegen.emitCodeArg(
                 self.node.location,
@@ -1796,7 +1814,7 @@ pub const CallNode = struct {
             }
         }
 
-        if (!self.invoked and self.super == null) {
+        if (!invoked and self.super == null) {
             try codegen.emitCodeArgs(
                 self.node.location,
                 .OP_CALL,
@@ -1807,7 +1825,7 @@ pub const CallNode = struct {
             try codegen.emitTwo(
                 self.node.location,
                 // FIXME: for anything else than object prop call, we need self.arguments.count() + 1 ?!
-                if (self.super == null and (self.invoked_on != null and self.invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );
         }
@@ -1823,10 +1841,10 @@ pub const CallNode = struct {
 
         try out.writeAll("{\"node\": \"Call\"");
 
-        if (!self.invoked and self.invoked_on == null) {
-            try out.writeAll(", \"callee\": ");
-            try self.callee.toJson(self.callee, out);
-        }
+        // if (!invoked and invoked_on == null) {
+        //     try out.writeAll(", \"callee\": ");
+        //     try self.callee.toJson(self.callee, out);
+        // }
 
         try out.writeAll(", \"arguments\": [");
 
@@ -1973,8 +1991,8 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
-            } else if (!(try codegen.type_registry.getTypeDef(try self.type_def.?.toInstance(codegen.type_registry))).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
-                try codegen.reportTypeCheckAt(&(try self.type_def.?.toInstance(codegen.type_registry)), value.type_def.?, "Wrong variable type", value.location);
+            } else if (!(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
+                try codegen.reportTypeCheckAt(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry), value.type_def.?, "Wrong variable type", value.location);
             }
 
             _ = try value.toByteCode(value, codegen, breaks);
@@ -1995,13 +2013,15 @@ pub const VarDeclarationNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
+        const var_type = if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "";
+
         try out.print(
-            "{{\"node\": \"VarDeclaration\", \"name\": \"{s}\", \"constant\": {}, \"var_type_def\": \"{s}\", \"type_name\": \"{s}\", ",
+            "{{\"node\": \"VarDeclaration\", \"name\": \"{s}\", \"constant\": {}, \"var_type\": \"{s} @{}\", ",
             .{
                 self.name.lexeme,
                 self.constant,
-                if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
-                if (self.type_name) |type_name| type_name.lexeme else "N/A",
+                var_type,
+                if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
             },
         );
 
@@ -2060,8 +2080,8 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(case.location, "Unknown type.");
-            } else if (!(&(try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.type_registry))).eql(case.type_def.?)) {
-                try codegen.reportTypeCheckAt(&(try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
+            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry))).eql(case.type_def.?)) {
+                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
             }
 
             _ = try case.toByteCode(case, codegen, breaks);
@@ -2353,8 +2373,17 @@ pub const ReturnNode = struct {
         var self = Self.cast(node).?;
 
         if (self.value) |value| {
-            if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
+            if (value.type_def == null) {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
+            } else if (value.type_def.?.def_type == .Placeholder) {
+                try codegen.reportErrorFmt(
+                    value.type_def.?.resolved_type.?.Placeholder.where,
+                    "Unresolved placeholder @{} ({s})",
+                    .{
+                        @ptrToInt(value.type_def.?),
+                        if (value.type_def.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+                    },
+                );
             } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
                     codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type,
@@ -2385,9 +2414,8 @@ pub const ReturnNode = struct {
         if (self.value) |value| {
             try out.writeAll("\"value\": ");
             try value.toJson(value, out);
+            try out.writeAll(", ");
         }
-
-        try out.writeAll(", ");
 
         try ParseNode.stringify(node, out);
 
@@ -2619,7 +2647,7 @@ pub const ForEachNode = struct {
                     }
                 },
                 .Enum => {
-                    const iterable_type = try codegen.type_registry.getTypeDef(try self.iterable.type_def.?.toInstance(codegen.type_registry));
+                    const iterable_type = try self.iterable.type_def.?.toInstance(codegen.allocator, codegen.type_registry);
                     if (!iterable_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,
@@ -3237,8 +3265,6 @@ pub const ObjectInitNode = struct {
         try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
-            std.debug.print("Unresolved placeholder @{} {s}\n", .{ @ptrToInt(node.type_def.?), node.type_def.?.resolved_type.?.Placeholder.name.?.string });
-            std.os.exit(1);
             try codegen.reportErrorAt(node.location, "Unknown type.");
         } else if (node.type_def.?.def_type != .ObjectInstance) {
             try codegen.reportErrorAt(node.location, "Expected an object or a class.");
@@ -3441,12 +3467,15 @@ pub const ObjectDeclarationNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"ObjectDeclaration\", \"members\": [");
+        try out.writeAll("{\"node\": \"ObjectDeclaration\", \"members\": {");
 
         var it = self.methods.iterator();
         var i: usize = 0;
         while (it.next()) |kv| {
             const member = kv.value_ptr.*;
+
+            try out.print("\"{s}\": ", .{kv.key_ptr.*});
+
             try member.toJson(member, out);
 
             if (i < self.methods.count() - 1) {
@@ -3464,6 +3493,8 @@ pub const ObjectDeclarationNode = struct {
         i = 0;
         while (it2.next()) |kv| {
             if (kv.value_ptr.*) |member| {
+                try out.print("\"{s}\": ", .{kv.key_ptr.*});
+
                 try member.toJson(member, out);
 
                 if (i < self.properties.count() - 1) {
@@ -3473,7 +3504,7 @@ pub const ObjectDeclarationNode = struct {
             i += 1;
         }
 
-        try out.writeAll("], ");
+        try out.writeAll("}, ");
 
         try ParseNode.stringify(node, out);
 
