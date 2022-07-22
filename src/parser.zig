@@ -736,20 +736,29 @@ pub const Parser = struct {
                             var object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.Object;
 
                             // Search for a field matching the placeholder
-                            var resolved_as_field: bool = false;
+                            var resolved: bool = false;
                             if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
                                 try self.resolvePlaceholder(child, field, false);
-                                resolved_as_field = true;
+                                resolved = true;
                             }
 
                             // Search for a method matching the placeholder
-                            if (!resolved_as_field) {
+                            if (!resolved) {
                                 if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
                                     try self.resolvePlaceholder(child, method_def, true);
+                                    resolved = true;
                                 }
                             }
 
-                            // TODO: search for static fields? search in inherited classes??
+                            // Search for a static field
+                            if (!resolved) {
+                                if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
+                                    try self.resolvePlaceholder(child, static_def, false);
+                                    resolved = true;
+                                }
+                            }
+
+                            // TODO: static fields in inherited classes??
                         },
                         .ObjectInstance => {
                             // We can't create a field access placeholder without a name
@@ -771,7 +780,7 @@ pub const Parser = struct {
                                 }
                             }
 
-                            // TODO: search for static fields? search in inherited classes??
+                            // TODO:search in inherited classes??
                         },
                         .Enum => {
                             // We can't create a field access placeholder without a name

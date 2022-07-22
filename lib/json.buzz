@@ -200,24 +200,9 @@ object Json {
         }
     }
 
-    static fun decode(str json) > Json? {
+    static fun decode(str json) > Json {
         return JsonParser{ source = json }.next();
     }
-}
-
-test "Json.encode" {
-    Json json = Json {
-        map = {
-            "hello": Json { string = "world" },
-            "bye": Json { number = 42 },
-        },
-    };
-
-    assert(json.encode() == "\{\"hello\":\"world\",\"bye\":42}", message: "valid encode");
-}
-
-test "Json.decode" {
-    assert(Json.decode("[ 12, true, \"hello\" ]")!.list![2].string ?? "nothing" == "hello", message: "could decode simple JSON");
 }
 
 export Json;
