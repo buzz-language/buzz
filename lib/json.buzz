@@ -50,11 +50,11 @@ object JsonParser {
         }
     }
 
-    fun next() > Json? {
+    fun next() > Json {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
-            return null;
+            throw "Could not parse JSON: end of string";
         }
 
         const str? char = this.advance();
@@ -84,20 +84,14 @@ object JsonParser {
         [Json] array = <Json>[];
 
         while (true) {
-            const Json? element = this.next();
+            array.append(this.next());
 
             this.skipWhitespaces();
 
-            if (element != null) {
-                array.append(element!);
-
-                if (this.match("]")) {
-                    break;
-                } else if (!this.match(",")) {
-                    throw "Could not parse JSON: expected `,` at offset {this.offset}";
-                }
-            } else {
-                throw "Could not parse JSON: could not parse array element at offset {this.offset}";
+            if (this.match("]")) {
+                break;
+            } else if (!this.match(",")) {
+                throw "Could not parse JSON: expected `,` at offset {this.offset}";
             }
         }
 
@@ -108,14 +102,7 @@ object JsonParser {
         {str, Json} map = <str, Json>{};
 
         while (true) {
-            const str key = this.string();
-            const Json? value = this.next();
-
-            if (value == null) {
-                throw "Could not parse JSON: could not parse object property value at offset {this.offset}";
-            }
-
-            map[key] = value!;
+            map[this.string()] = this.next();
 
             if (this.match("}")) {
                 break;
@@ -127,8 +114,8 @@ object JsonParser {
         return map;
     }
 
-    fun number(str parsed) > num? {
-        str? number = parsed;
+    fun number(str parsed) > num {
+        str number = parsed;
 
         while (parseNumber(this.peek() ?? "NaN") != null) {
             str? char = this.advance();
@@ -137,14 +124,16 @@ object JsonParser {
                 break;
             }
 
-            number = number + char;
+            number = number + char!;
         }
 
-        if (number != null) {
-            return parseNumber(number!);
+        num? parsed = parseNumber(number);
+        
+        if (parsed == null) {
+            throw "Could not parse JSON: `{number}` is not a number";
         }
 
-        return null;
+        return parsed!;
     }
 
     fun string() > str {
