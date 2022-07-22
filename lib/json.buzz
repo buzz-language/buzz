@@ -161,6 +161,12 @@ object Json {
     {str, Json}? map = null,
     [Json]? list = null,
 
+    fun stringValue() > str -> this.string ?? ""
+    fun booleanValue() > bool -> this.boolean ?? false
+    fun numberValue() > num -> this.number ?? 0
+    fun mapValue() > {str, Json} -> this.map ?? <str, Json>{}
+    fun listValue() > [Json] -> this.list ?? <Json>[]
+
     fun encode() > str {
         if (this.string != null) {
             return "\"{this.string!}\"";

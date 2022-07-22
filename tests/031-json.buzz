@@ -17,7 +17,7 @@ test "Json.encode" {
 
 test "Json.decode" {
     assert(
-        Json.decode("[ 12, true, \"hello\" ]").list![2].string ?? "nothing" == "hello",
+        Json.decode("[ 12, true, \"hello\" ]").listValue()[2].string == "hello",
         message: "could decode simple JSON"
     );
 }
