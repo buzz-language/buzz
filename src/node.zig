@@ -1824,7 +1824,6 @@ pub const CallNode = struct {
         } else {
             try codegen.emitTwo(
                 self.node.location,
-                // FIXME: for anything else than object prop call, we need self.arguments.count() + 1 ?!
                 if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catches) |catches| @intCast(u16, catches.len) else 0,
             );

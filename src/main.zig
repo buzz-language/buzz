@@ -11,7 +11,12 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const TypeRegistry = _obj.TypeRegistry;
 const FunctionNode = @import("./node.zig").FunctionNode;
-const Config = @import("./config.zig").Config;
+var Config = @import("./config.zig").Config;
+const clap = @import("ext/clap/clap.zig");
+
+fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
+    return allocator.dupeZ(u8, string);
+}
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
@@ -91,25 +96,78 @@ pub fn main() !void {
     else
         std.heap.c_allocator;
 
-    var args: [][:0]u8 = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help    Show help and exit
+        \\-t, --test    Run test blocks in provided script
+        \\-v, --version Print version and exit
+        \\<str>...
+        \\
+    );
 
-    // TODO: use https://github.com/Hejsil/zig-clap
-    var testing: bool = false;
-    for (args) |arg, index| {
-        if (index > 0) {
-            if (index == 1 and std.mem.eql(u8, arg, "test")) {
-                testing = true;
-            } else {
-                runFile(allocator, arg, args[index..], testing) catch {
-                    // TODO: should probably choses appropriate error code
-                    std.os.exit(1);
-                };
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+    defer res.deinit();
 
-                std.os.exit(0);
-            }
-        }
+    if (res.args.help) {
+        std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
+
+        try clap.usage(
+            std.io.getStdErr().writer(),
+            clap.Help,
+            &params,
+        );
+
+        std.debug.print("\n\n", .{});
+
+        try clap.help(
+            std.io.getStdErr().writer(),
+            clap.Help,
+            &params,
+            .{
+                .description_on_new_line = false,
+                .description_indent = 4,
+                .spacing_between_parameters = 0,
+            },
+        );
+
+        std.os.exit(0);
     }
+
+    if (res.args.version) {
+        std.debug.print(
+            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {}\n",
+            .{
+                Config.version,
+                builtin.zig_version,
+            },
+        );
+
+        std.os.exit(0);
+    }
+
+    var positionals = std.ArrayList([:0]u8).init(allocator);
+    for (res.positionals) |pos| {
+        try positionals.append(try toNullTerminated(allocator, pos));
+    }
+    defer {
+        for (positionals.items) |pos| {
+            allocator.free(pos);
+        }
+        positionals.deinit();
+    }
+
+    runFile(allocator, res.positionals[0], positionals.items[1..], res.args.@"test") catch {
+        // TODO: should probably choses appropriate error code
+        std.os.exit(1);
+    };
+
+    std.os.exit(0);
 }
 
 test "Testing buzz" {
