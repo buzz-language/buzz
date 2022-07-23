@@ -494,7 +494,7 @@ pub const StringNode = struct {
             if (element.type_def == null or element.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(element.location, "Unknown type");
 
-                break;
+                continue;
             }
 
             _ = try element.toByteCode(element, codegen, breaks);
@@ -788,10 +788,6 @@ pub const UnwrapNode = struct {
 
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.unwrapped.location, "Unknown type");
-
-            try node.endScope(codegen);
-
-            return null;
         }
 
         if (!self.original_type.?.optional) {
@@ -981,14 +977,15 @@ pub const UnaryNode = struct {
 
         var self = Self.cast(node).?;
 
-        const left_type = self.left.type_def.?;
-
-        if (left_type.def_type == .Placeholder) {
+        if (self.left.type_def == null or self.left.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(node.location, "Unknown type");
+
+            return null;
         }
 
         _ = try self.left.toByteCode(self.left, codegen, breaks);
 
+        const left_type = self.left.type_def.?;
         switch (self.operator) {
             .Bang => {
                 if (left_type.def_type != .Bool) {
@@ -1068,8 +1065,16 @@ pub const BinaryNode = struct {
         const left_type = self.left.type_def.?;
         const right_type = self.right.type_def.?;
 
-        if (left_type.def_type == .Placeholder or right_type.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Unknown type");
+        if (self.left.type_def == null or self.left.type_def.?.def_type == .Placeholder) {
+            try codegen.reportErrorAt(self.left.location, "Unknown type");
+
+            return null;
+        }
+
+        if (self.right.type_def == null or self.right.type_def.?.def_type == .Placeholder) {
+            try codegen.reportErrorAt(self.right.location, "Unknown type");
+
+            return null;
         }
 
         if (!left_type.eql(right_type)) {

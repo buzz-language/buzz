@@ -388,18 +388,20 @@ pub const Parser = struct {
         }
 
         // Check there's no more root placeholders
-        for (self.globals.items) |global, index| {
-            if (global.type_def.def_type == .Placeholder) {
-                std.debug.print(
-                    "Placeholder remaining in globals at {}: @{} {s}\n",
-                    .{
-                        index,
-                        @ptrToInt(global.type_def),
-                        if (global.type_def.resolved_type.?.Placeholder.name) |name| name.string else "Unknown",
-                    },
-                );
+        if (Config.debug_placeholders) {
+            for (self.globals.items) |global, index| {
+                if (global.type_def.def_type == .Placeholder) {
+                    std.debug.print(
+                        "Placeholder remaining in globals at {}: @{} {s}\n",
+                        .{
+                            index,
+                            @ptrToInt(global.type_def),
+                            if (global.type_def.resolved_type.?.Placeholder.name) |name| name.string else "Unknown",
+                        },
+                    );
 
-                assert(false);
+                    assert(false);
+                }
             }
         }
 
@@ -1096,25 +1098,27 @@ pub const Parser = struct {
 
                 if (std.mem.eql(u8, object_name.lexeme, self.parser.previous_token.?.lexeme)) {
                     try self.reportError("A class can't inherit itself.");
+
+                    // Continue as if we did not parse parent
+                } else {
+                    parent_slot = try self.parseUserType();
+                    var parent: *ObjTypeDef = self.globals.items[parent_slot.?].type_def;
+
+                    object_type.resolved_type.?.Object.super = parent;
+
+                    self.beginScope();
+                    _ = try self.addLocal(
+                        Token{
+                            .token_type = .Identifier,
+                            .lexeme = "super",
+                            .line = 0,
+                            .column = 0,
+                        },
+                        try parent.toInstance(self.allocator, self.type_registry),
+                        true,
+                    );
+                    self.markInitialized();
                 }
-
-                parent_slot = try self.parseUserType();
-                var parent: *ObjTypeDef = self.globals.items[parent_slot.?].type_def;
-
-                object_type.resolved_type.?.Object.super = parent;
-
-                self.beginScope();
-                _ = try self.addLocal(
-                    Token{
-                        .token_type = .Identifier,
-                        .lexeme = "super",
-                        .line = 0,
-                        .column = 0,
-                    },
-                    try parent.toInstance(self.allocator, self.type_registry),
-                    true,
-                );
-                self.markInitialized();
             } else {
                 self.beginScope();
             }
