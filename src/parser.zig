@@ -290,6 +290,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Eof
         .{ .prefix = null, .infix = null, .precedence = .None }, // Error
         .{ .prefix = null, .infix = null, .precedence = .None }, // Void
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Docblock
     };
 
     pub const ScriptImport = struct {
@@ -336,7 +337,7 @@ pub const Parser = struct {
             self.scanner = null;
         }
 
-        self.scanner = Scanner.init(source);
+        self.scanner = Scanner.init(self.allocator, source);
 
         const function_type: FunctionType = if (self.imported) .Script else .ScriptEntryPoint;
         var function_node = try self.allocator.create(FunctionNode);
@@ -880,62 +881,72 @@ pub const Parser = struct {
         } else {
             const constant: bool = try self.match(.Const);
 
-            if (!constant and try self.match(.Object)) {
-                return try self.objectDeclaration(false);
-            } else if (!constant and try self.match(.Class)) {
-                return try self.objectDeclaration(true);
-            } else if (!constant and try self.match(.Enum)) {
-                return try self.enumDeclaration();
-            } else if (!constant and try self.match(.Fun)) {
-                return try self.funDeclaration();
-            } else if (try self.match(.Str)) {
-                return try self.varDeclaration(
+            var docblock: ?Token = null;
+            if (self.current.?.scope_depth == 0 and try self.match(.Docblock)) {
+                docblock = self.parser.previous_token.?;
+            }
+
+            const node = if (!constant and try self.match(.Object))
+                try self.objectDeclaration(false)
+            else if (!constant and try self.match(.Class))
+                try self.objectDeclaration(true)
+            else if (!constant and try self.match(.Enum))
+                try self.enumDeclaration()
+            else if (!constant and try self.match(.Fun))
+                try self.funDeclaration()
+            else if (try self.match(.Str))
+                try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
                     .Semicolon,
                     constant,
                     true,
-                );
-            } else if (try self.match(.Num)) {
-                return try self.varDeclaration(
+                )
+            else if (try self.match(.Num))
+                try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
                     .Semicolon,
                     constant,
                     true,
-                );
-            } else if (try self.match(.Bool)) {
-                return try self.varDeclaration(
+                )
+            else if (try self.match(.Bool))
+                try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
                     .Semicolon,
                     constant,
                     true,
-                );
-            } else if (try self.match(.Type)) {
-                return try self.varDeclaration(
+                )
+            else if (try self.match(.Type))
+                try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
                     .Semicolon,
                     constant,
                     true,
-                );
-            } else if (try self.match(.LeftBracket)) {
-                return try self.listDeclaration(constant);
-            } else if (try self.match(.LeftBrace)) {
-                return try self.mapDeclaration(constant);
-            } else if (!constant and try self.match(.Test)) {
-                return try self.testStatement();
-            } else if (try self.match(.Function)) {
-                return try self.varDeclaration(try self.parseFunctionType(), .Semicolon, constant, true);
-            } else if (try self.match(.Import)) {
-                return try self.importStatement();
+                )
+            else if (try self.match(.LeftBracket))
+                try self.listDeclaration(constant)
+            else if (try self.match(.LeftBrace))
+                try self.mapDeclaration(constant)
+            else if (!constant and try self.match(.Test))
+                try self.testStatement()
+            else if (try self.match(.Function))
+                try self.varDeclaration(try self.parseFunctionType(), .Semicolon, constant, true)
+            else if (try self.match(.Import))
+                try self.importStatement()
                 // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
-            } else if (try self.match(.Identifier)) {
-                return try self.userVarDeclaration(false, constant);
-            } else if (!constant and try self.match(.Export)) {
-                return try self.exportStatement();
-            } else {
-                try self.reportError("No declaration or statement.");
+            else if (try self.match(.Identifier))
+                try self.userVarDeclaration(false, constant)
+            else if (!constant and try self.match(.Export))
+                try self.exportStatement()
+            else
+                null;
 
-                return null;
+            if (node == null) {
+                try self.reportError("No declaration or statement.");
+            } else if (docblock != null) {
+                node.?.docblock = docblock;
             }
+
+            return node;
         }
 
         if (self.parser.panic_mode) {
@@ -1133,13 +1144,17 @@ pub const Parser = struct {
         defer fields.deinit();
         var methods = std.StringHashMap(*ParseNode).init(self.allocator);
         var properties = std.StringHashMap(?*ParseNode).init(self.allocator);
+        var docblocks = std.StringHashMap(?Token).init(self.allocator);
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            const docblock: ?Token = if (try self.match(.Docblock)) self.parser.previous_token.? else null;
+
             const static: bool = try self.match(.Static);
 
             if (try self.match(.Fun)) {
                 var method_node: *ParseNode = try self.method(
                     if (static) object_type else try object_type.toInstance(self.allocator, self.type_registry),
                 );
+
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
@@ -1190,6 +1205,7 @@ pub const Parser = struct {
 
                 try fields.put(method_name, {});
                 try methods.put(method_name, method_node);
+                try docblocks.put(method_name, docblock);
             } else {
                 // TODO: constant object properties
                 // const constant = try self.match(.Const);
@@ -1267,6 +1283,7 @@ pub const Parser = struct {
 
                 try fields.put(property_name.lexeme, {});
                 try properties.put(property_name.lexeme, default);
+                try docblocks.put(property_name.lexeme, docblock);
             }
         }
 
@@ -1290,6 +1307,7 @@ pub const Parser = struct {
             .slot = slot,
             .methods = methods,
             .properties = properties,
+            .docblocks = docblocks,
         };
         node.node.type_def = object_type;
         node.node.location = self.parser.previous_token.?;

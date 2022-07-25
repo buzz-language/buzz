@@ -16,6 +16,7 @@ pub const SourceLocation = struct {
 pub const Scanner = struct {
     const Self = @This();
 
+    allocator: Allocator,
     source: []const u8,
     current: SourceLocation = .{
         .start = 0,
@@ -24,8 +25,9 @@ pub const Scanner = struct {
         .offset = 0,
     },
 
-    pub fn init(source: []const u8) Self {
+    pub fn init(allocator: Allocator, source: []const u8) Self {
         return Self{
+            .allocator = allocator,
             .source = source,
         };
     }
@@ -127,6 +129,7 @@ pub const Scanner = struct {
             ':' => return self.makeToken(.Colon, null, null),
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null),
             '\"' => return self.string(),
+            '|' => return try self.docblock(),
 
             else => return self.makeToken(.Error, "Unexpected character.", null),
         };
@@ -144,6 +147,11 @@ pub const Scanner = struct {
                     _ = self.advance();
                 },
                 '|' => {
+                    // It's a docblock, we don't skip it
+                    if (self.peekNext() == '|') {
+                        return;
+                    }
+
                     while (self.peek() != '\n' and !self.isEOF()) {
                         _ = self.advance();
                     }
@@ -159,6 +167,42 @@ pub const Scanner = struct {
 
     fn isLetter(char: u8) bool {
         return (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z');
+    }
+
+    fn docblock(self: *Self) !Token {
+        _ = self.advance(); // Skip second `|`
+
+        var block = std.ArrayList(u8).init(self.allocator);
+
+        while (!self.isEOF()) {
+            while (!self.isEOF()) {
+                var char: u8 = self.peek();
+
+                if (char == '\n') {
+                    self.current.line += 1;
+                    self.current.column = 0;
+                    _ = self.advance();
+
+                    try block.append(' ');
+                    break;
+                } else {
+                    try block.append(char);
+                }
+
+                _ = self.advance();
+            }
+
+            self.skipWhitespaces();
+
+            if (self.peek() != '|' or self.peekNext() != '|') {
+                break;
+            } else {
+                _ = self.advance();
+                _ = self.advance();
+            }
+        }
+
+        return self.makeToken(.Docblock, std.mem.trim(u8, block.items, " "), null);
     }
 
     fn identifier(self: *Self) !Token {
@@ -262,10 +306,14 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        return self.makeToken(.String, if (self.current.offset - self.current.start > 0)
-            self.source[(self.current.start + 1)..(self.current.offset - 1)]
-        else
-            null, null);
+        return self.makeToken(
+            .String,
+            if (self.current.offset - self.current.start > 0)
+                self.source[(self.current.start + 1)..(self.current.offset - 1)]
+            else
+                null,
+            null,
+        );
     }
 
     fn isEOF(self: *Self) bool {

@@ -94,6 +94,7 @@ pub const ParseNode = struct {
     location: Token = undefined,
     // Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
+    docblock: ?Token = null,
 
     // Does this node closes a scope
     ends_scope: ?std.ArrayList(OpCode) = null,
@@ -165,6 +166,10 @@ pub const ParseNode = struct {
                 if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
             },
         );
+
+        if (self.docblock != null) {
+            try out.print(", \"docblock\": \"{s}\"", .{self.docblock.?.literal_string});
+        }
     }
 
     fn endScope(self: *Self, codegen: *CodeGen) anyerror!void {
@@ -738,7 +743,7 @@ pub const MapNode = struct {
 
             try key.toJson(key, out);
 
-            try out.writeAll("\", value\": ");
+            try out.writeAll(", \"value\": ");
 
             try self.values[i].toJson(self.values[i], out);
 
@@ -1519,7 +1524,7 @@ pub const FunctionNode = struct {
 
             try body.toNode().toJson(body.toNode(), out);
         } else if (self.arrow_expr) |expr| {
-            try out.writeAll("}, \"arrow_expr\": ");
+            try out.writeAll("\"arrow_expr\": ");
 
             try expr.toJson(expr, out);
         }
@@ -3379,6 +3384,7 @@ pub const ObjectDeclarationNode = struct {
     slot: usize,
     methods: std.StringHashMap(*ParseNode),
     properties: std.StringHashMap(?*ParseNode),
+    docblocks: std.StringHashMap(?Token),
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
@@ -3505,6 +3511,26 @@ pub const ObjectDeclarationNode = struct {
                     try out.writeAll(",");
                 }
             }
+            i += 1;
+        }
+
+        try out.writeAll("}, \"docblocks\": {");
+
+        var it3 = self.docblocks.iterator();
+        i = 0;
+        while (it3.next()) |kv| {
+            try out.print("\"{s}\": ", .{kv.key_ptr.*});
+
+            if (kv.value_ptr.*) |doc| {
+                try out.print("\"{s}\"", .{doc.literal_string});
+            } else {
+                try out.writeAll("null");
+            }
+
+            if (i < self.docblocks.count() - 1) {
+                try out.writeAll(",");
+            }
+
             i += 1;
         }
 

@@ -117,6 +117,7 @@ pub const TokenType = enum {
     Eof, // EOF
     Error, // Error
     Void, // void
+    Docblock, // Docblock
 };
 
 pub const Keywords = [_]TokenType{

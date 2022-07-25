@@ -154,6 +154,7 @@ object JsonParser {
     }
 }
 
+|| Utility object to manage data from a JSON string
 object Json {
     str? string = null,
     bool? boolean = null,
@@ -167,6 +168,8 @@ object Json {
     fun mapValue() > {str, Json} -> this.map ?? <str, Json>{}
     fun listValue() > [Json] -> this.list ?? <Json>[]
 
+    || Encode to a JSON string
+    || @return str the JSON string
     fun encode() > str {
         if (this.string != null) {
             return "\"{this.string!}\"";
@@ -206,6 +209,9 @@ object Json {
         }
     }
 
+    || Decode string to a Json instance
+    || @param str json The JSON string
+    || @return Json
     static fun decode(str json) > Json {
         return JsonParser{ source = json }.next();
     }

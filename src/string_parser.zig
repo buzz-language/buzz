@@ -116,7 +116,7 @@ pub const StringParser = struct {
     fn interpolation(self: *Self) !void {
         var expr: []const u8 = self.source[self.offset..];
 
-        var expr_scanner = Scanner.init(expr);
+        var expr_scanner = Scanner.init(self.parser.allocator, expr);
 
         // Replace parser scanner with one that only looks at that substring
         var scanner = self.parser.scanner;
