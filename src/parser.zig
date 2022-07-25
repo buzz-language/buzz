@@ -876,15 +876,18 @@ pub const Parser = struct {
     }
 
     fn declarations(self: *Self) !?*ParseNode {
+        var docblock: ?Token = null;
+        if (self.current.?.scope_depth == 0 and try self.match(.Docblock)) {
+            docblock = self.parser.previous_token.?;
+        }
+
         if (try self.match(.Extern)) {
-            return try self.funDeclaration();
+            var node = try self.funDeclaration();
+            node.docblock = docblock;
+
+            return node;
         } else {
             const constant: bool = try self.match(.Const);
-
-            var docblock: ?Token = null;
-            if (self.current.?.scope_depth == 0 and try self.match(.Docblock)) {
-                docblock = self.parser.previous_token.?;
-            }
 
             const node = if (!constant and try self.match(.Object))
                 try self.objectDeclaration(false)

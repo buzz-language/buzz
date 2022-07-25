@@ -38,6 +38,12 @@ object JsonParser {
         return true;
     }
 
+    fun consume(str expected) > void {
+        if (!this.match(expected)) {
+            throw "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}";
+        }
+    }
+
     fun skipWhitespaces() > void {
         while (true) {
             const str? char = this.peek();
@@ -84,15 +90,21 @@ object JsonParser {
         [Json] array = <Json>[];
 
         while (true) {
+            this.skipWhitespaces();
+
+            if (this.match("]")) {
+                break;
+            }
+                
             array.append(this.next());
 
             this.skipWhitespaces();
 
             if (this.match("]")) {
                 break;
-            } else if (!this.match(",")) {
-                throw "Could not parse JSON: expected `,` at offset {this.offset}";
-            }
+            } 
+
+            this.consume(",");
         }
 
         return array;
@@ -102,13 +114,27 @@ object JsonParser {
         {str, Json} map = <str, Json>{};
 
         while (true) {
-            map[this.string()] = this.next();
+            this.skipWhitespaces();
 
             if (this.match("}")) {
                 break;
-            } else if (!this.match(",")) {
-                throw "Could not parse JSON: expected `,` at offset {this.offset}";
             }
+
+            this.consume("\"");
+            const str key = this.string();
+
+            this.skipWhitespaces();
+
+            this.consume(":");
+
+            this.skipWhitespaces();
+
+            map[key] = this.next();
+
+            if (this.match("}")) {
+                break;
+            }
+            this.consume(",");
         }
 
         return map;
@@ -198,7 +224,7 @@ object Json {
             foreach (num i, Json value in this.list!) {
                 json = json + value.encode();
 
-                if (i <= len - 1) {
+                if (i < len - 1) {
                     json = json + ",";
                 }
             }
