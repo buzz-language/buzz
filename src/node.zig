@@ -300,7 +300,7 @@ pub const NamedVariableNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",", .{ self.identifier.lexeme, self.slot, self.slot_type });
+        try out.print("{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",", .{ self.identifier.literal_string, self.slot, self.slot_type });
 
         try ParseNode.stringify(node, out);
 

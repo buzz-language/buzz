@@ -1,0 +1,39 @@
+import "lib/std";
+import "lib/debug";
+import "lib/json";
+import "lib/io";
+
+enum(str) GenDocError {
+    parse = "Could not parse buzz script",
+}
+
+fun gendoc(str path) > void {
+    File file = File.open(path, mode: FileMode.read);
+
+    str source = ast(file.readAll());
+    file.close();
+
+    {str, Json} root = Json.decode(source).mapValue();
+
+    | Root must be a function
+    assert(root["node"].string == "Function", message: "Expected root node to be a function");
+
+    [Json] statements = root["body"].mapValue()["statements"].listValue();
+
+    foreach (num index, Json statement in statements) {
+        {str, Json} statementMap = statement.mapValue();
+        str nodeType = statementMap["node"].stringValue();
+
+        if (nodeType == "Function") {
+            print("Function: {statementMap["function"].mapValue()["type_def"].stringValue()}");
+        }
+    }
+}
+
+fun main([str] args) > void {
+    if (args.len() != 1) {
+        print("Expected entry point buzz script");
+    }
+
+    gendoc(args[0]);
+}

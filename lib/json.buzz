@@ -131,9 +131,12 @@ object JsonParser {
 
             map[key] = this.next();
 
+            this.skipWhitespaces();
+
             if (this.match("}")) {
                 break;
             }
+
             this.consume(",");
         }
 
