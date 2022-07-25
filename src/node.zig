@@ -11,7 +11,9 @@ const _codegen = @import("./codegen.zig");
 const _parser = @import("./parser.zig");
 const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
+const Config = @import("./config.zig").Config;
 
+const disassembleChunk = disassembler.disassembleChunk;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjString = _obj.ObjString;
 const ObjNative = _obj.ObjNative;
@@ -1490,6 +1492,11 @@ pub const FunctionNode = struct {
         var frame = codegen.current.?;
         var current_function: *ObjFunction = frame.function.?;
         current_function.upvalue_count = @intCast(u8, self.upvalue_binding.count());
+
+        if (Config.debug) {
+            try disassembleChunk(&current_function.chunk, current_function.name.string);
+            std.debug.print("\n\n", .{});
+        }
 
         codegen.current = frame.enclosing;
 

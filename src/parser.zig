@@ -1439,7 +1439,9 @@ pub const Parser = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `for` definition.");
 
+        self.beginScope();
         var body = try self.block(.For);
+        body.ends_scope = try self.endScope();
 
         var node = try self.allocator.create(ForNode);
         node.* = ForNode{
@@ -1474,7 +1476,9 @@ pub const Parser = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
 
+        self.beginScope();
         var body = try self.block(.ForEach);
+        body.ends_scope = try self.endScope();
 
         // Only one variable: it's the value not the key
         if (value == null) {
@@ -1525,6 +1529,7 @@ pub const Parser = struct {
         self.beginScope();
 
         var body = try self.block(.Do);
+        body.ends_scope = try self.endScope();
 
         try self.consume(.Until, "Expected `until` after `do` block.");
 
@@ -1540,7 +1545,6 @@ pub const Parser = struct {
             .block = body,
         };
         node.node.location = self.parser.previous_token.?;
-        node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }

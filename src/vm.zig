@@ -955,11 +955,6 @@ pub const VM = struct {
         }
 
         self.frame_count += 1;
-
-        if (Config.debug) {
-            try disassembleChunk(&frame.closure.function.chunk, frame.closure.function.name.string);
-            std.debug.print("\n\n", .{});
-        }
     }
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
