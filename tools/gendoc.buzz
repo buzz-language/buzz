@@ -22,8 +22,6 @@ fun extractDeclarations([Json] statements) > [Declaration] {
         {str, Json} statementMap = statement.mapValue();
         str nodeType = statementMap["node"]?.stringValue() ?? "unknown";
 
-        print("{index}: {nodeType}");
-
         if (
             nodeType == "Function"
             or nodeType == "VarDeclaration"
@@ -38,10 +36,8 @@ fun extractDeclarations([Json] statements) > [Declaration] {
             };
 
             if (nodeType == "ObjectDeclaration") {
-                {str, Json} props = statementMap["properties_type"]?.mapValue() ?? <str, Json>{};
+                {str, Json} props = statementMap["members"]?.mapValue() ?? <str, Json>{};
                 foreach (str name, Json member in props) {
-                    print("\t{name}");
-
                     declaration.subDeclarations.append(
                         Declaration{
                             declarationType = "member",

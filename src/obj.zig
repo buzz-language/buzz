@@ -2362,15 +2362,20 @@ pub const ObjTypeDef = struct {
                 try writer.writeAll(function_def.name.string);
                 try writer.writeAll("(");
 
+                const size = function_def.parameters.count();
+                var i: usize = 0;
                 var it = function_def.parameters.iterator();
-                while (it.next()) |kv| {
+                while (it.next()) |kv| : (i = i + 1) {
                     var param_type = try kv.value_ptr.*.toString(allocator);
                     defer allocator.free(param_type);
 
                     try writer.writeAll(kv.key_ptr.*);
                     try writer.writeAll(" ");
                     try writer.writeAll(param_type);
-                    try writer.writeAll(",");
+
+                    if (i < size - 1) {
+                        try writer.writeAll(",");
+                    }
                 }
 
                 try writer.writeAll(")");
