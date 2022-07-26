@@ -1073,14 +1073,10 @@ pub const BinaryNode = struct {
 
         if (self.left.type_def == null or self.left.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.left.location, "Unknown type");
-
-            return null;
         }
 
         if (self.right.type_def == null or self.right.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.right.location, "Unknown type");
-
-            return null;
         }
 
         if (!left_type.eql(right_type)) {

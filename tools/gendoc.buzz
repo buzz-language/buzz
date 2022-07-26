@@ -70,7 +70,7 @@ fun gendoc(str path) > void {
     | Root must be a function
     assert(root["node"]?.string == "Function", message: "Expected root node to be a function");
 
-    [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Declaration>[]);
+    [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
 
     foreach (num i, Declaration decl in declarations) {
         print("{decl.declarationType} {decl.typeDef} {decl.docblock ?? ""}");

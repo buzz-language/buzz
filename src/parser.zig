@@ -2074,6 +2074,17 @@ pub const Parser = struct {
             node = try infixRule(self, canAssign, node);
         }
 
+        if (self.opt_jumps) |jumps| {
+            jumps.deinit();
+            self.opt_jumps = null;
+
+            node.patch_opt_jumps = true;
+
+            if (node.type_def != null) {
+                node.type_def = try node.type_def.?.cloneOptional(self.type_registry);
+            }
+        }
+
         if (canAssign and (try self.match(.Equal))) {
             try self.reportError("Invalid assignment target.");
         }
