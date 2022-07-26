@@ -63,13 +63,13 @@ object JsonParser {
             throw "Could not parse JSON: end of string";
         }
 
-        const str? char = this.advance();
+        const str char = this.advance() ?? "\00";
         if (char == "[") {
             return Json{ list = this.array() };
         } else if (char == "\{") {
             return Json{ map = this.map() };
         } else if (char.byte(0) >= "0".byte(0) and char.byte(0) <= "9".byte(0)) {
-            return Json{ number = this.number(char!) };
+            return Json{ number = this.number(char) };
         } else if (char == "\"") {
             return Json{ string = this.string() };
         } else if (this.source.sub(this.offset - 1, len: 4) == "true") {

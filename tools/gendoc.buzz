@@ -20,7 +20,7 @@ fun extractDeclarations([Json] statements) > [Declaration] {
 
     foreach (num index, Json statement in statements) {
         {str, Json} statementMap = statement.mapValue();
-        str nodeType = statementMap["node"].stringValue();
+        str nodeType = statementMap["node"]?.stringValue() ?? "unknown";
 
         print("{index}: {nodeType}");
 
@@ -33,17 +33,20 @@ fun extractDeclarations([Json] statements) > [Declaration] {
         ) {
             Declaration declaration = Declaration{
                 declarationType = nodeType,
-                typeDef = statementMap["type_def"].stringValue(),
-                docblock = statementMap["docblock"].string,
+                typeDef = statementMap["type_def"]?.stringValue() ?? "unknown",
+                docblock = statementMap["docblock"]?.string,
             };
 
             if (nodeType == "ObjectDeclaration") {
-                foreach (str name, Json member in statementMap["properties_type"].mapValue()) {
+                {str, Json} props = statementMap["properties_type"]?.mapValue() ?? <str, Json>{};
+                foreach (str name, Json member in props) {
+                    print("\t{name}");
+
                     declaration.subDeclarations.append(
                         Declaration{
                             declarationType = "member",
-                            typeDef = member.mapValue()["type_def"].stringValue(),
-                            docblock = member.mapValue()["docblock"].string,
+                            typeDef = member.mapValue()["type_def"]?.stringValue() ?? "unknown",
+                            docblock = member.mapValue()["docblock"]?.string,
                         }
                     );
                 }
@@ -61,13 +64,13 @@ fun gendoc(str path) > void {
 
     str source = ast(file.readAll());
     file.close();
-    
+
     {str, Json} root = Json.decode(source).mapValue();
 
     | Root must be a function
-    assert(root["node"].string == "Function", message: "Expected root node to be a function");
+    assert(root["node"]?.string == "Function", message: "Expected root node to be a function");
 
-    [Declaration] declarations = extractDeclarations(root["body"].mapValue()["statements"].listValue());
+    [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Declaration>[]);
 
     foreach (num i, Declaration decl in declarations) {
         print("{decl.declarationType} {decl.typeDef} {decl.docblock ?? ""}");

@@ -34,3 +34,24 @@ test "Null coalescing operator" {
 
     assert(hello ?? "world" == "world", message: "null coalescing");
 }
+
+test "Unwrap map subscript" {
+    {str, str} map = {
+        "yo": "lo",
+        "mo": "jo",
+    };
+
+    assert(map["yo"]?.len() == 2, message: "could unwrap map subscript");
+}
+
+object You {
+    str name = "joe"
+}
+
+test "Field access on map subscript" {
+    {str, You} map = {
+        "yo": You{}
+    };
+
+    assert(map["yo"]?.name == "joe", message: "could field access map subscript");
+}

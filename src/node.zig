@@ -3136,9 +3136,13 @@ pub const DotNode = struct {
             and callee_type.def_type != .List
             and callee_type.def_type != .Map
             and callee_type.def_type != .String) {
-            try codegen.reportErrorAt(node.location, "Doesn't have field access.");
+            try codegen.reportErrorAt(node.location, "Doesn't have field access");
         }
         // zig fmt: on
+
+        if (callee_type.optional) {
+            try codegen.reportErrorAt(node.location, "Optional doesn't have field access");
+        }
 
         switch (callee_type.def_type) {
             .String => {
