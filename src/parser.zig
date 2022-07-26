@@ -1214,7 +1214,7 @@ pub const Parser = struct {
             } else {
                 // TODO: constant object properties
                 // const constant = try self.match(.Const);
-                const property_type = try self.parseTypeDef();
+                const property_type = try (try self.parseTypeDef()).toInstance(self.allocator, self.type_registry);
 
                 try self.consume(.Identifier, "Expected property name.");
                 const property_name = self.parser.previous_token.?.clone();
