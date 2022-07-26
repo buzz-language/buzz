@@ -1419,6 +1419,8 @@ pub const Parser = struct {
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
             try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, true)).?);
 
+            self.markInitialized();
+
             if (!self.check(.Semicolon)) {
                 try self.consume(.Comma, "Expected `,` after for loop variable");
             }

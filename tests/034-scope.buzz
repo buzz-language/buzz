@@ -17,4 +17,12 @@ test "locals inside a foreach" {
             assert(oldold == "lolo", message: "locals are ok");
         }
     }
+
+    for (num i = 0; i < 3; i = i + 1) {
+        str new = "yo";
+        str old = "lo";
+
+        assert(new == "yo", message: "locals are ok");
+        assert(old == "lo", message: "locals are ok");
+    }
 }

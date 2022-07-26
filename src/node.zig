@@ -2486,7 +2486,7 @@ pub const ForNode = struct {
         _ = try self.condition.toByteCode(self.condition, codegen, _breaks);
 
         const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
-        try codegen.emitOpCode(self.node.location, .OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition
 
         // Jump over expressions which will be executed at end of loop
         // TODO: since we don't generate as we parse, we can get rid of this jump and just generate the post_loop later
@@ -2499,6 +2499,7 @@ pub const ForNode = struct {
             }
 
             _ = try expr.toByteCode(expr, codegen, _breaks);
+            try codegen.emitOpCode(expr.location, .OP_POP);
         }
 
         try codegen.emitLoop(self.node.location, loop_start);
@@ -2514,7 +2515,7 @@ pub const ForNode = struct {
 
         try codegen.patchJump(exit_jump);
 
-        try codegen.emitOpCode(self.node.location, .OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition
 
         // Patch breaks
         for (breaks.items) |jump| {
