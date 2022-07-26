@@ -2,6 +2,7 @@ import "lib/std";
 import "lib/debug";
 import "lib/json";
 import "lib/io";
+import "tools/html";
 
 enum(str) GenDocError {
     parse = "Could not parse buzz script",
@@ -13,6 +14,34 @@ object Declaration {
     str? docblock,
 
     [Declaration] subDeclarations = <Declaration>[],
+
+    fun gen() > Node {
+        print("current {this.declarationType} {this.typeDef}");
+
+        Node root = Node{
+            tag = "div",
+            children = [
+                Node{
+                    tag = "h2",
+                    children = [
+                        text(this.typeDef),
+                    ]
+                },
+                Node{
+                    tag = "p",
+                    children = [
+                        text(this.docblock ?? "Undocumented"),
+                    ]
+                }
+            ]
+        };
+
+        foreach (num index, Declaration decl in this.subDeclarations) {
+            root.children!.append(decl.gen());
+        }
+
+        return root;
+    }
 }
 
 fun extractDeclarations([Json] statements) > [Declaration] {
@@ -69,11 +98,7 @@ fun gendoc(str path) > void {
     [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
 
     foreach (num i, Declaration decl in declarations) {
-        print("{decl.declarationType} {decl.typeDef} {decl.docblock ?? ""}");
-
-        foreach (num j, Declaration subDecl in decl.subDeclarations) {
-            print("\t{subDecl.declarationType} {subDecl.typeDef} {subDecl.docblock ?? ""}");
-        }
+        print(decl.gen().gen());
     }
 }
 

@@ -1,0 +1,59 @@
+import "lib/std";
+
+object Node {
+    str tag,
+    {str, str} attributes = <str, str>{},
+    [Node]? children = null,
+    str? textContent = null,
+
+    fun gen() > str {
+        | Empty tag is the text node
+        if (this.tag == "") {
+            return this.textContent ?? "";
+        }
+
+        str out = "<{this.tag}";
+
+        foreach (str name, str value in this.attributes) {
+            out = "{out} \"{name}\"=\"{value}\"";
+        }
+
+        if (this.children != null and this.children!.len() > 0) {
+            out = "{out}>";
+
+            foreach (num i, Node node in this.children ?? <Node>[]) {
+                out = "{out}{node.gen()}";
+            }
+
+            return "{out}</{this.tag}>";
+        }
+
+        return "{out}/>";
+    }
+}
+
+fun text(str content) > Node -> Node{ tag = "", textContent = content };
+
+export Node;
+export text;
+
+test "html" {
+    assert(
+        Node{
+            tag = "div",
+            children = [
+                Node{
+                    tag = "",
+                    textContent = "hello world",
+                },
+                Node{
+                    tag = "br",
+                }
+            ],
+            attributes = {
+                "data-id": "012bfef"
+            },
+        }.gen() == "<div \"data-id\"=\"012bfef\">hello world<br/></div>",
+        message: "Could gen simple html"
+    );
+}
