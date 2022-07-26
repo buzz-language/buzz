@@ -16,11 +16,16 @@ test "mkDir/rm" {
 test "ls" {
     bool containsREADME = false;
     foreach (num i, str el in fs.list(fs.currentDirectory())) {
+        str randomLocal = "hello there!";
         if (el == "README.md") {
             containsREADME = true;
             break;
         }
     }
+
+    str anotherRandomLocal = "bye there!";
+
+    assert(anotherRandomLocal == "bye there!", message: "foreach break is wrong");
 
     assert(containsREADME, message: "Could list element in current directory");
 
