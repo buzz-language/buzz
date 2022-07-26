@@ -2358,7 +2358,7 @@ pub const ObjTypeDef = struct {
             .Function => {
                 var function_def = self.resolved_type.?.Function;
 
-                try writer.writeAll("Function(");
+                try writer.writeAll("fun ");
                 try writer.writeAll(function_def.name.string);
                 try writer.writeAll("(");
 
@@ -2367,11 +2367,12 @@ pub const ObjTypeDef = struct {
                     var param_type = try kv.value_ptr.*.toString(allocator);
                     defer allocator.free(param_type);
 
+                    try writer.writeAll(kv.key_ptr.*);
+                    try writer.writeAll(" ");
                     try writer.writeAll(param_type);
                     try writer.writeAll(",");
                 }
 
-                try writer.writeAll(")");
                 try writer.writeAll(")");
 
                 if (function_def.return_type.def_type != Type.Void) {

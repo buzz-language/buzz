@@ -1147,6 +1147,7 @@ pub const Parser = struct {
         defer fields.deinit();
         var methods = std.StringHashMap(*ParseNode).init(self.allocator);
         var properties = std.StringHashMap(?*ParseNode).init(self.allocator);
+        var properties_type = std.StringHashMap(*ObjTypeDef).init(self.allocator);
         var docblocks = std.StringHashMap(?Token).init(self.allocator);
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             const docblock: ?Token = if (try self.match(.Docblock)) self.parser.previous_token.? else null;
@@ -1208,6 +1209,7 @@ pub const Parser = struct {
 
                 try fields.put(method_name, {});
                 try methods.put(method_name, method_node);
+                try properties_type.put(method_name, method_node.type_def.?);
                 try docblocks.put(method_name, docblock);
             } else {
                 // TODO: constant object properties
@@ -1286,6 +1288,7 @@ pub const Parser = struct {
 
                 try fields.put(property_name.lexeme, {});
                 try properties.put(property_name.lexeme, default);
+                try properties_type.put(property_name.lexeme, property_type);
                 try docblocks.put(property_name.lexeme, docblock);
             }
         }
@@ -1311,6 +1314,7 @@ pub const Parser = struct {
             .methods = methods,
             .properties = properties,
             .docblocks = docblocks,
+            .properties_type = properties_type,
         };
         node.node.type_def = object_type;
         node.node.location = self.parser.previous_token.?;
@@ -1483,6 +1487,8 @@ pub const Parser = struct {
             iterable.type_def.?,
             true,
         );
+
+        self.markInitialized();
 
         try self.consume(.RightParen, "Expected `)` after `foreach`.");
 

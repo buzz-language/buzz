@@ -162,10 +162,9 @@ pub const ParseNode = struct {
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
         try out.print(
-            "\"type_def\": \"{s} @{}\"",
+            "\"type_def\": \"{s}\"",
             .{
                 if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
-                if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
             },
         );
 
@@ -2711,9 +2710,11 @@ pub const ForEachNode = struct {
             try codegen.patchJumpOrLoop(jump, loop_start);
         }
 
-        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop element being iterated on
+        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
 
         try node.patchOptJumps(codegen);
+        // Should have key, [value,] iterable to pop
+        assert(node.ends_scope != null and node.ends_scope.?.items.len >= 2);
         try node.endScope(codegen);
 
         return null;
@@ -3389,6 +3390,7 @@ pub const ObjectDeclarationNode = struct {
     slot: usize,
     methods: std.StringHashMap(*ParseNode),
     properties: std.StringHashMap(?*ParseNode),
+    properties_type: std.StringHashMap(*ObjTypeDef),
     docblocks: std.StringHashMap(?Token),
 
     pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3482,7 +3484,7 @@ pub const ObjectDeclarationNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"ObjectDeclaration\", \"members\": {");
+        try out.writeAll("{\"node\": \"ObjectDeclaration\", \"methods\": {");
 
         var it = self.methods.iterator();
         var i: usize = 0;
@@ -3500,39 +3502,21 @@ pub const ObjectDeclarationNode = struct {
             i += 1;
         }
 
-        if (self.methods.count() > 0 and self.properties.count() > 0) {
-            try out.writeAll(",");
-        }
+        try out.writeAll("}, \"members\": {");
 
-        var it2 = self.properties.iterator();
+        var it2 = self.properties_type.iterator();
         i = 0;
         while (it2.next()) |kv| {
-            if (kv.value_ptr.*) |member| {
-                try out.print("\"{s}\": ", .{kv.key_ptr.*});
+            try out.print(
+                "\"{s}\": {{\"type_def\": \"{s}\", \"docblock\": \"{s}\"}}",
+                .{
+                    kv.key_ptr.*,
+                    kv.value_ptr.*.toString(std.heap.c_allocator),
+                    if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string else "",
+                },
+            );
 
-                try member.toJson(member, out);
-
-                if (i < self.properties.count() - 1) {
-                    try out.writeAll(",");
-                }
-            }
-            i += 1;
-        }
-
-        try out.writeAll("}, \"docblocks\": {");
-
-        var it3 = self.docblocks.iterator();
-        i = 0;
-        while (it3.next()) |kv| {
-            try out.print("\"{s}\": ", .{kv.key_ptr.*});
-
-            if (kv.value_ptr.*) |doc| {
-                try out.print("\"{s}\"", .{doc.literal_string});
-            } else {
-                try out.writeAll("null");
-            }
-
-            if (i < self.docblocks.count() - 1) {
+            if (i < self.properties_type.count() - 1) {
                 try out.writeAll(",");
             }
 

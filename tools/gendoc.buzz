@@ -7,25 +7,73 @@ enum(str) GenDocError {
     parse = "Could not parse buzz script",
 }
 
-fun gendoc(str path) > void {
-    File file = File.open(path, mode: FileMode.read);
+object Declaration {
+    str declarationType,
+    str typeDef,
+    str? docblock,
 
-    str source = ast(file.readAll());
-    file.close();
+    [Declaration] subDeclarations = <Declaration>[],
+}
 
-    {str, Json} root = Json.decode(source).mapValue();
-
-    | Root must be a function
-    assert(root["node"].string == "Function", message: "Expected root node to be a function");
-
-    [Json] statements = root["body"].mapValue()["statements"].listValue();
+fun extractDeclarations([Json] statements) > [Declaration] {
+    [Declaration] declarations = <Declaration>[];
 
     foreach (num index, Json statement in statements) {
         {str, Json} statementMap = statement.mapValue();
         str nodeType = statementMap["node"].stringValue();
 
-        if (nodeType == "Function") {
-            print("Function: {statementMap["function"].mapValue()["type_def"].stringValue()}");
+        print("{index}: {nodeType}");
+
+        if (
+            nodeType == "Function"
+            or nodeType == "VarDeclaration"
+            or nodeType == "FunDeclaration"
+            or nodeType == "Enum"
+            or nodeType == "ObjectDeclaration"
+        ) {
+            Declaration declaration = Declaration{
+                declarationType = nodeType,
+                typeDef = statementMap["type_def"].stringValue(),
+                docblock = statementMap["docblock"].string,
+            };
+
+            if (nodeType == "ObjectDeclaration") {
+                foreach (str name, Json member in statementMap["properties_type"].mapValue()) {
+                    declaration.subDeclarations.append(
+                        Declaration{
+                            declarationType = "member",
+                            typeDef = member.mapValue()["type_def"].stringValue(),
+                            docblock = member.mapValue()["docblock"].string,
+                        }
+                    );
+                }
+            }
+
+            declarations.append(declaration);
+        }
+    }
+
+    return declarations;
+}
+
+fun gendoc(str path) > void {
+    File file = File.open(path, mode: FileMode.read);
+
+    str source = ast(file.readAll());
+    file.close();
+    
+    {str, Json} root = Json.decode(source).mapValue();
+
+    | Root must be a function
+    assert(root["node"].string == "Function", message: "Expected root node to be a function");
+
+    [Declaration] declarations = extractDeclarations(root["body"].mapValue()["statements"].listValue());
+
+    foreach (num i, Declaration decl in declarations) {
+        print("{decl.declarationType} {decl.typeDef} {decl.docblock ?? ""}");
+
+        foreach (num j, Declaration subDecl in decl.subDeclarations) {
+            print("\t{subDecl.declarationType} {subDecl.typeDef} {subDecl.docblock ?? ""}");
         }
     }
 }

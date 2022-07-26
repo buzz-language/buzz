@@ -1,0 +1,20 @@
+import "lib/std";
+
+test "locals inside a foreach" {
+    str hello = "";
+
+    foreach (num index, str char in "hello world") {
+        str new = "yo";
+        str old = "lo";
+
+        foreach (num jndex, str cchar in "goodbye world") {
+            str newnew = "yoyo";
+            str oldold = "lolo";
+
+            assert(new == "yo", message: "locals are ok");
+            assert(old == "lo", message: "locals are ok");
+            assert(newnew == "yoyo", message: "locals are ok");
+            assert(oldold == "lolo", message: "locals are ok");
+        }
+    }
+}
