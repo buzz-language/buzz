@@ -2583,7 +2583,15 @@ pub const ObjTypeDef = struct {
 // TODO: use ArrayList writer instead of std.fmt.bufPrint
 pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
     return switch (obj.obj_type) {
-        .String => try std.fmt.bufPrint(buf, "{s}", .{ObjString.cast(obj).?.string}),
+        .String => {
+            const str = ObjString.cast(obj).?.string;
+
+            if (str.len < 1000) {
+                return try std.fmt.bufPrint(buf, "{s}", .{str});
+            } else {
+                return try std.fmt.bufPrint(buf, "{s}", .{str[0..100]});
+            }
+        },
         .Type => {
             // TODO: no use for typedef.toString to allocate a buffer
             var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;

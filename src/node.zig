@@ -2706,8 +2706,6 @@ pub const ForEachNode = struct {
         // Patch condition jump
         try codegen.patchJump(exit_jump);
 
-        try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
-
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);

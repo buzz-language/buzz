@@ -1472,6 +1472,18 @@ pub const Parser = struct {
 
         var iterable = try self.expression(false);
 
+        // Local not usable by user but needed so that locals are correct
+        _ = try self.addLocal(
+            Token{
+                .token_type = .Identifier,
+                .line = 0,
+                .column = 0,
+                .lexeme = "$",
+            },
+            iterable.type_def.?,
+            true,
+        );
+
         try self.consume(.RightParen, "Expected `)` after `foreach`.");
 
         try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
