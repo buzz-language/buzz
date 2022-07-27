@@ -1260,6 +1260,10 @@ pub const Parser = struct {
 
                 if (try self.match(.Equal)) {
                     default = try self.expression(false);
+
+                    if (!default.?.isConstant()) {
+                        try self.reportErrorAt(default.?.location, "Default value must be constant");
+                    }
                 }
 
                 if (static) {
@@ -2610,7 +2614,9 @@ pub const Parser = struct {
                     node.node.type_def = placeholder;
                 }
             },
-            else => unreachable,
+            else => {
+                try self.reportErrorAt(node.node.location, "Not field accessible");
+            },
         }
 
         return &node.node;

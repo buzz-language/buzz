@@ -4,44 +4,49 @@ import "lib/json";
 import "lib/io";
 import "tools/html";
 
-enum(str) GenDocError {
-    parse = "Could not parse buzz script",
-}
-
 object Declaration {
     str declarationType,
     str typeDef,
     str? docblock,
 
-    [Declaration] subDeclarations = <Declaration>[],
+    {str, Declaration} subDeclarations,
 
-    fun gen() > Node {
-        print("current {this.declarationType} {this.typeDef}");
+    static fun init(str declarationType, str typeDef, str? docblock, {str, Declaration}? subDeclarations) > Declaration {
+        return Declaration{
+            declarationType = declarationType,
+            typeDef = typeDef,
+            docblock = docblock,
+            subDeclarations = subDeclarations ?? <str, Declaration>{},
+        };
+    }
 
-        Node root = Node{
-            tag = "div",
-            children = [
-                Node{
-                    tag = "h2",
-                    children = [
+    fun toNode() > Node {
+        Node root = Node.init(
+            "div",
+            children: [
+                Node.init(
+                    "h2",
+                    children: [
                         text(this.typeDef),
                     ]
-                },
-                Node{
-                    tag = "p",
-                    children = [
+                ),
+                Node.init(
+                    "p",
+                    children: [
                         text(this.docblock ?? "Undocumented"),
                     ]
-                }
+                )
             ]
-        };
+        );
 
-        foreach (num index, Declaration decl in this.subDeclarations) {
-            root.children!.append(decl.gen());
+        foreach (str key, Declaration decl in this.subDeclarations) {
+            root.children!.append(decl.toNode());
         }
 
         return root;
     }
+
+    fun gen() > str -> this.toNode().gen()
 }
 
 fun extractDeclarations([Json] statements) > [Declaration] {
@@ -58,22 +63,21 @@ fun extractDeclarations([Json] statements) > [Declaration] {
             or nodeType == "Enum"
             or nodeType == "ObjectDeclaration"
         ) {
-            Declaration declaration = Declaration{
-                declarationType = nodeType,
-                typeDef = statementMap["type_def"]?.stringValue() ?? "unknown",
-                docblock = statementMap["docblock"]?.string,
-            };
+            Declaration declaration = Declaration.init(
+                declarationType: nodeType,
+                typeDef: statementMap["type_def"]?.stringValue() ?? "unknown",
+                docblock: statementMap["docblock"]?.string,
+            );
 
             if (nodeType == "ObjectDeclaration") {
                 {str, Json} props = statementMap["members"]?.mapValue() ?? <str, Json>{};
                 foreach (str name, Json member in props) {
-                    declaration.subDeclarations.append(
-                        Declaration{
-                            declarationType = "member",
-                            typeDef = member.mapValue()["type_def"]?.stringValue() ?? "unknown",
-                            docblock = member.mapValue()["docblock"]?.string,
-                        }
-                    );
+                    declaration.subDeclarations[name] =
+                        Declaration.init(
+                            declarationType: "member",
+                            typeDef: member.mapValue()["type_def"]?.stringValue() ?? "unknown",
+                            docblock: member.mapValue()["docblock"]?.string,
+                        );
                 }
             }
 
@@ -97,9 +101,12 @@ fun gendoc(str path) > void {
 
     [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
 
+    str out = "<!DOCTYPE html><html><body>";
     foreach (num i, Declaration decl in declarations) {
-        print(decl.gen().gen());
+        out = "{out}{decl.gen()}";
     }
+
+    print("{out}</body></html>");
 }
 
 fun main([str] args) > void {

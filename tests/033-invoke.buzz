@@ -1,7 +1,7 @@
 import "lib/std";
 
 object A {
-    [A] list = <A>[],
+    [A] list,
 
     fun hello() > A {
         print("hello");
@@ -13,9 +13,11 @@ test "Chained invoke" {
     A a = A{
         list = [
             A{
-                list = [ A{} ]
+                list = [ A{ list = <A>[] } ]
             },
-            A{},
+            A{
+                list = <A>[]
+            },
         ]
     };
 

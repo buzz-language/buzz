@@ -16,11 +16,13 @@ test "Optional graceful unwrapping with `?`" {
 }
 
 object Me {
-    [num]? list = [1, 2, 3]
+    [num]? list
 }
 
 test "Optional chaining" {
-    Me? me = Me{};
+    Me? me = Me{
+        list = [1, 2, 3],
+    };
 
     assert(me?.list?.len() == 3, message: "chaining optionals work");
 

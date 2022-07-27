@@ -1,14 +1,17 @@
 import "lib/std";
 
 object Hey {
-    [num] ages = <num>[1, 2, 3],
-    {num, str} names = <num, str>{
-        1: "hello"
-    },
+    [num] ages,
+    {num, str} names,
 }
 
 test "List and Map as Object properties" {
-    Hey hey = Hey{};
+    Hey hey = Hey{
+        ages = <num>[1, 2, 3],
+        names = <num, str>{
+            1: "hello"
+        },
+    };
 
     assert(hey.ages[0] == 1, message: "list access");
     assert(hey.names[1] == "hello", message: "map access");

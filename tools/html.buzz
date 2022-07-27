@@ -2,9 +2,18 @@ import "lib/std";
 
 object Node {
     str tag,
-    {str, str} attributes = <str, str>{},
+    {str, str} attributes,
     [Node]? children = null,
     str? textContent = null,
+
+    static fun init(str? tag, {str, str}? attributes, [Node]? children, str? textContent) > Node {
+        return Node{
+            tag = tag ?? "",
+            attributes = attributes ?? <str, str>{},
+            children = children,
+            textContent = textContent
+        };
+    }
 
     fun gen() > str {
         | Empty tag is the text node
@@ -32,28 +41,28 @@ object Node {
     }
 }
 
-fun text(str content) > Node -> Node{ tag = "", textContent = content };
+fun text(str content) > Node -> Node.init(tag: "", textContent: content);
 
 export Node;
 export text;
 
 test "html" {
+    assert(text("hello world").gen() == "hello world", message: "text node");
+
     assert(
-        Node{
-            tag = "div",
-            children = [
-                Node{
-                    tag = "",
-                    textContent = "hello world",
-                },
-                Node{
-                    tag = "br",
-                }
+        Node.init(
+            "div",
+            children: [
+                Node.init(
+                    "",
+                    textContent: "hello world",
+                ),
+                Node.init("br"),
             ],
-            attributes = {
+            attributes: {
                 "data-id": "012bfef"
             },
-        }.gen() == "<div \"data-id\"=\"012bfef\">hello world<br/></div>",
+        ).gen() == "<div \"data-id\"=\"012bfef\">hello world<br/></div>",
         message: "Could gen simple html"
     );
 }

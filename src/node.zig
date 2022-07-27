@@ -115,7 +115,8 @@ pub const ParseNode = struct {
                 self.node_type == .String
                     and StringNode.cast(self).?.elements.len == 1
                     and StringNode.cast(self).?.elements[0].isConstant()
-                );
+                )
+            or (self.node_type == .Unary and UnaryNode.cast(self).?.left.isConstant() );
         // zig fmt: on
     }
 
