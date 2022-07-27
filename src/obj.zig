@@ -499,6 +499,22 @@ pub const ObjString = struct {
         }
     }
 
+    pub fn rawMember(method: []const u8) ?NativeFn {
+        if (mem.eql(u8, method, "len")) {
+            return len;
+        } else if (mem.eql(u8, method, "byte")) {
+            return byte;
+        } else if (mem.eql(u8, method, "indexOf")) {
+            return indexOf;
+        } else if (mem.eql(u8, method, "split")) {
+            return split;
+        } else if (mem.eql(u8, method, "sub")) {
+            return sub;
+        }
+
+        return null;
+    }
+
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
         if (Self.members) |umembers| {
@@ -509,18 +525,7 @@ pub const ObjString = struct {
 
         Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
 
-        var nativeFn: ?NativeFn = null;
-        if (mem.eql(u8, method, "len")) {
-            nativeFn = len;
-        } else if (mem.eql(u8, method, "byte")) {
-            nativeFn = byte;
-        } else if (mem.eql(u8, method, "indexOf")) {
-            nativeFn = indexOf;
-        } else if (mem.eql(u8, method, "split")) {
-            nativeFn = split;
-        } else if (mem.eql(u8, method, "sub")) {
-            nativeFn = sub;
-        }
+        var nativeFn: ?NativeFn = rawMember(method);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(

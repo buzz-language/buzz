@@ -12,6 +12,7 @@ const _parser = @import("./parser.zig");
 const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
 const Config = @import("./config.zig").Config;
+const VM = @import("./vm.zig").VM;
 
 const disassembleChunk = disassembler.disassembleChunk;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -19,6 +20,9 @@ const ObjString = _obj.ObjString;
 const ObjNative = _obj.ObjNative;
 const ObjFunction = _obj.ObjFunction;
 const ObjObject = _obj.ObjObject;
+const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
+const ObjBoundMethod = _obj.ObjBoundMethod;
 const FunctionType = ObjFunction.FunctionType;
 const copyStringRaw = _obj.copyStringRaw;
 const Value = _value.Value;
@@ -32,6 +36,8 @@ const Local = _parser.Local;
 const Global = _parser.Global;
 const UpValue = _parser.UpValue;
 const OpCode = _chunk.OpCode;
+
+pub const GenError = error{NotConstant};
 
 pub const ParsedArg = struct {
     name: ?Token,
@@ -103,39 +109,16 @@ pub const ParseNode = struct {
 
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
+    toValue: fn (*Self, Allocator, *std.StringHashMap(*ObjString)) anyerror!Value = val,
     isConstant: fn (*Self) bool,
 
     // TODO: constant expressions (https://github.com/giann/buzz/issues/46)
-    pub fn constant(self: *Self) bool {
-        // zig fmt: off
-        return self.node_type == .Number
-            or self.node_type == .StringLiteral
-            or self.node_type == .Boolean
-            or self.node_type == .Null
-            or (
-                self.node_type == .String
-                    and StringNode.cast(self).?.elements.len == 1
-                    and StringNode.cast(self).?.elements[0].isConstant()
-                )
-            or (self.node_type == .Unary and UnaryNode.cast(self).?.left.isConstant() );
-        // zig fmt: on
+    pub fn constant(_: *Self) bool {
+        return false;
     }
 
-    pub fn toValue(self: *Self, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!?Value {
-        return switch (self.node_type) {
-            .Number => Value{ .Number = NumberNode.cast(self).?.constant },
-            .String => string: {
-                const string_node = StringNode.cast(self).?;
-                const element = string_node.elements[0];
-                const element_value = (try element.toValue(allocator, strings)).?;
-
-                break :string (try copyStringRaw(strings, allocator, try valueToString(allocator, element_value), true)).toValue();
-            },
-            .StringLiteral => StringLiteralNode.cast(self).?.constant.toValue(),
-            .Boolean => Value{ .Boolean = BooleanNode.cast(self).?.constant },
-            .Null => Value{ .Null = null },
-            else => null,
-        };
+    fn val(_: *Self, _: Allocator, _: std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(_: *Self, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -197,6 +180,7 @@ pub const ExpressionNode = struct {
         .node_type = .Expression,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -206,6 +190,16 @@ pub const ExpressionNode = struct {
         const self = Self.cast(node).?;
 
         return self.expression.isConstant(self.expression);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            return self.expression.toValue(self.expression, allocator, strings);
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -263,6 +257,7 @@ pub const NamedVariableNode = struct {
         .node_type = .NamedVariable,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -272,9 +267,12 @@ pub const NamedVariableNode = struct {
     slot_type: SlotType,
     slot_constant: bool,
 
-    fn constant(node: *ParseNode) bool {
-        const self = Self.cast(node).?;
-        return self.slot_type == .Global and self.slot_constant and self.value != null and self.value.?.isConstant(self.value.?);
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -352,13 +350,18 @@ pub const NumberNode = struct {
         .node_type = .Number,
         .toJson = stringify,
         .toByteCode = generate,
-        .isConstant = constant,
+        .toValue = val,
+        .isConstant = cnst,
     },
 
     constant: f64,
 
-    fn constant(_: *ParseNode) bool {
+    fn cnst(_: *ParseNode) bool {
         return true;
+    }
+
+    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return Value{ .Number = Self.cast(node).?.constant };
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -404,13 +407,18 @@ pub const BooleanNode = struct {
         .node_type = .Boolean,
         .toJson = stringify,
         .toByteCode = generate,
-        .isConstant = constant,
+        .toValue = val,
+        .isConstant = cnts,
     },
 
     constant: bool,
 
-    fn constant(_: *ParseNode) bool {
+    fn cnts(_: *ParseNode) bool {
         return true;
+    }
+
+    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return Value{ .Boolean = Self.cast(node).?.constant };
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -456,13 +464,18 @@ pub const StringLiteralNode = struct {
         .node_type = .StringLiteral,
         .toJson = stringify,
         .toByteCode = generate,
-        .isConstant = constant,
+        .toValue = val,
+        .isConstant = cnst,
     },
 
     constant: *ObjString,
 
-    fn constant(_: *ParseNode) bool {
+    fn cnst(_: *ParseNode) bool {
         return true;
+    }
+
+    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return Self.cast(node).?.constant.toValue();
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -508,6 +521,7 @@ pub const StringNode = struct {
         .node_type = .String,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -524,6 +538,29 @@ pub const StringNode = struct {
         }
 
         return true;
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            var list = std.ArrayList(*ObjString).init(allocator);
+            defer list.deinit();
+
+            var str_value = std.ArrayList(u8).init(allocator);
+            for (self.elements) |element| {
+                assert(element.isConstant(element));
+
+                var str = try valueToString(allocator, try element.toValue(element, allocator, strings));
+                defer allocator.free(str);
+
+                try str_value.appendSlice(str);
+            }
+
+            return (try copyStringRaw(strings, allocator, str_value.items, true)).toValue();
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -613,11 +650,16 @@ pub const NullNode = struct {
         .node_type = .Null,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
     fn constant(_: *ParseNode) bool {
         return true;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return Value{ .Null = null };
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -659,6 +701,7 @@ pub const ListNode = struct {
         .node_type = .List,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -674,6 +717,24 @@ pub const ListNode = struct {
         }
 
         return true;
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
+
+            var list = _obj.ObjList.init(allocator, node.type_def.?);
+
+            for (self.items) |item| {
+                try list.items.append(try item.toValue(item, allocator, strings));
+            }
+
+            return list.toValue();
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -745,6 +806,7 @@ pub const MapNode = struct {
         .node_type = .Map,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -767,6 +829,30 @@ pub const MapNode = struct {
         }
 
         return false;
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
+
+            var map = _obj.ObjMap.init(allocator, node.type_def.?);
+
+            assert(self.keys.len == self.values.len);
+
+            for (self.keys) |key, index| {
+                const value = self.values[index];
+                try map.map.put(
+                    _value.valueToHashable(try key.toValue(key, allocator, strings)),
+                    try value.toValue(value, allocator, strings),
+                );
+            }
+
+            return map.toValue();
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -863,6 +949,7 @@ pub const UnwrapNode = struct {
         .node_type = .Unwrap,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -873,6 +960,16 @@ pub const UnwrapNode = struct {
         const self = Self.cast(node).?;
 
         return self.unwrapped.isConstant(self.unwrapped);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            return try self.unwrapped.toValue(self.unwrapped, allocator, strings);
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -943,6 +1040,7 @@ pub const ForceUnwrapNode = struct {
         .node_type = .ForceUnwrap,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -953,6 +1051,21 @@ pub const ForceUnwrapNode = struct {
         const self = Self.cast(node).?;
 
         return self.unwrapped.isConstant(self.unwrapped);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            const value = try self.unwrapped.toValue(self.unwrapped, allocator, strings);
+
+            if (value == .Null) {
+                return VM.Error.UnwrappedNull;
+            }
+
+            return value;
+        }
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1013,16 +1126,27 @@ pub const IsNode = struct {
         .node_type = .Is,
         .toJson = stringify,
         .toByteCode = generate,
-        .isConstant = constant,
+        .toValue = val,
+        .isConstant = cnts,
     },
 
     left: *ParseNode,
     constant: Value,
 
-    fn constant(node: *ParseNode) bool {
+    fn cnts(node: *ParseNode) bool {
         const self = Self.cast(node).?;
 
         return self.left.isConstant(self.left);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+            const left = try self.left.toValue(self.left, allocator, strings);
+
+            return Value{ .Boolean = _value.valueIs(left, self.constant) };
+        }
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1075,6 +1199,7 @@ pub const UnaryNode = struct {
         .node_type = .Unary,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -1085,6 +1210,22 @@ pub const UnaryNode = struct {
         const self = Self.cast(node).?;
 
         return self.left.isConstant(self.left);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            const value = try self.left.toValue(self.left, allocator, strings);
+
+            return switch (self.operator) {
+                .Bang => Value{ .Boolean = !value.Boolean },
+                .Minus => Value{ .Number = -value.Number },
+                else => unreachable,
+            };
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1166,6 +1307,7 @@ pub const BinaryNode = struct {
         .node_type = .Binary,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -1177,6 +1319,116 @@ pub const BinaryNode = struct {
         const self = Self.cast(node).?;
 
         return self.left.isConstant(self.left) and self.right.isConstant(self.right);
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            const left = try self.left.toValue(self.left, allocator, strings);
+            const right = try self.right.toValue(self.right, allocator, strings);
+
+            switch (self.operator) {
+                .QuestionQuestion => {
+                    if (left == .Null) {
+                        return right;
+                    }
+
+                    return left;
+                },
+                .Greater => {
+                    return Value{ .Boolean = left.Number > right.Number };
+                },
+                .Less => {
+                    return Value{ .Boolean = left.Number < right.Number };
+                },
+                .GreaterEqual => {
+                    return Value{ .Boolean = left.Number >= right.Number };
+                },
+                .LessEqual => {
+                    return Value{ .Boolean = left.Number <= right.Number };
+                },
+                .BangEqual => {
+                    return Value{ .Boolean = !_value.valueEql(left, right) };
+                },
+                .EqualEqual => {
+                    return Value{ .Boolean = _value.valueEql(left, right) };
+                },
+                .Plus => {
+                    const right_f: ?f64 = if (right == .Number) right.Number else null;
+                    const left_f: ?f64 = if (left == .Number) left.Number else null;
+
+                    const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
+                    const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
+
+                    const right_l: ?*ObjList = if (right == .Obj) ObjList.cast(right.Obj) else null;
+                    const left_l: ?*ObjList = if (left == .Obj) ObjList.cast(left.Obj) else null;
+
+                    const right_m: ?*ObjMap = if (right == .Obj) ObjMap.cast(right.Obj) else null;
+                    const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
+
+                    if (right_s != null) {
+                        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+                        try new_string.appendSlice(left_s.?.string);
+                        try new_string.appendSlice(right_s.?.string);
+
+                        return (try copyStringRaw(strings, allocator, new_string.items, true)).toValue();
+                    } else if (right_f != null) {
+                        return Value{ .Number = right_f.? + left_f.? };
+                    } else if (right_l != null) {
+                        var new_list = std.ArrayList(Value).init(allocator);
+                        try new_list.appendSlice(left_l.?.items.items);
+                        try new_list.appendSlice(right_l.?.items.items);
+
+                        var list = try allocator.create(ObjList);
+                        list.* = ObjList{
+                            .type_def = left_l.?.type_def,
+                            .methods = left_l.?.methods,
+                            .items = new_list,
+                        };
+
+                        return list.toValue();
+                    }
+
+                    // map
+                    var new_map = try right_m.?.map.clone();
+                    var it = left_m.?.map.iterator();
+                    while (it.next()) |entry| {
+                        try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+
+                    var map = try allocator.create(ObjMap);
+                    map.* = ObjMap{
+                        .type_def = left_m.?.type_def,
+                        .methods = left_m.?.methods,
+                        .map = new_map,
+                    };
+
+                    return map.toValue();
+                },
+                .Minus => {
+                    return Value{ .Number = left.Number - right.Number };
+                },
+                .Star => {
+                    return Value{ .Number = left.Number * right.Number };
+                },
+                .Slash => {
+                    return Value{ .Number = left.Number / right.Number };
+                },
+                .Percent => {
+                    return Value{ .Number = @mod(left.Number, right.Number) };
+                },
+                .And => {
+                    return Value{ .Boolean = left.Boolean and right.Boolean };
+                },
+                .Or => {
+                    return Value{ .Boolean = left.Boolean or right.Boolean };
+                },
+                else => unreachable,
+            }
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1384,6 +1636,7 @@ pub const SubscriptNode = struct {
         .node_type = .Subscript,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -1394,7 +1647,57 @@ pub const SubscriptNode = struct {
     fn constant(node: *ParseNode) bool {
         const self = Self.cast(node).?;
 
-        return self.subscripted.isConstant(self.subscripted) and self.index.isConstant(self.index) and (self.value == null or self.value.?.isConstant(self.value.?));
+        return self.subscripted.isConstant(self.subscripted) and self.index.isConstant(self.index) and self.value == null;
+    }
+
+    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            const subscriptable = (try self.subscripted.toValue(self.subscripted, allocator, strings)).Obj;
+            const index = try self.index.toValue(self.index, allocator, strings);
+
+            switch (subscriptable.obj_type) {
+                .List => {
+                    const list: *ObjList = ObjList.cast(subscriptable).?;
+
+                    const list_index: usize = @floatToInt(usize, index.Number);
+
+                    if (list_index < list.items.items.len) {
+                        return list.items.items[list_index];
+                    } else {
+                        return VM.Error.OutOfBound;
+                    }
+                },
+                .Map => {
+                    const map: *ObjMap = ObjMap.cast(subscriptable).?;
+
+                    if (map.map.get(_value.valueToHashable(index))) |value| {
+                        return value;
+                    } else {
+                        return Value{ .Null = null };
+                    }
+                },
+                .String => {
+                    const str: *ObjString = ObjString.cast(subscriptable).?;
+
+                    if (index.Number < 0) {
+                        return VM.Error.OutOfBound;
+                    }
+
+                    const str_index: usize = @floatToInt(usize, index.Number);
+
+                    if (str_index < str.string.len) {
+                        return (try _obj.copyStringRaw(strings, allocator, &([_]u8{str.string[str_index]}), true)).toValue();
+                    } else {
+                        return VM.Error.OutOfBound;
+                    }
+                },
+                else => unreachable,
+            }
+        }
+
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1509,6 +1812,7 @@ pub const FunctionNode = struct {
         .node_type = .Function,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -1526,7 +1830,12 @@ pub const FunctionNode = struct {
     exported_count: ?usize = null,
 
     fn constant(_: *ParseNode) bool {
-        return true;
+        // TODO: should be true but requires to codegen the node
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1737,6 +2046,7 @@ pub const CallNode = struct {
         .node_type = .Call,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -1747,6 +2057,10 @@ pub const CallNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2058,6 +2372,7 @@ pub const FunDeclarationNode = struct {
         .node_type = .FunDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2067,6 +2382,10 @@ pub const FunDeclarationNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2120,6 +2439,7 @@ pub const VarDeclarationNode = struct {
         .node_type = .VarDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2133,6 +2453,10 @@ pub const VarDeclarationNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2212,6 +2536,7 @@ pub const EnumNode = struct {
         .node_type = .Enum,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2220,6 +2545,10 @@ pub const EnumNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2305,6 +2634,7 @@ pub const ThrowNode = struct {
         .node_type = .Throw,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2312,6 +2642,10 @@ pub const ThrowNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2363,11 +2697,16 @@ pub const BreakNode = struct {
         .node_type = .Break,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2407,11 +2746,16 @@ pub const ContinueNode = struct {
         .node_type = .Continue,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2451,6 +2795,7 @@ pub const IfNode = struct {
         .node_type = .If,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2460,6 +2805,10 @@ pub const IfNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2542,6 +2891,7 @@ pub const ReturnNode = struct {
         .node_type = .Return,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2549,6 +2899,10 @@ pub const ReturnNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2626,6 +2980,7 @@ pub const ForNode = struct {
         .node_type = .For,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2636,6 +2991,10 @@ pub const ForNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2774,6 +3133,7 @@ pub const ForEachNode = struct {
         .node_type = .ForEach,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2784,6 +3144,10 @@ pub const ForEachNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2971,6 +3335,7 @@ pub const WhileNode = struct {
         .node_type = .While,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -2979,6 +3344,10 @@ pub const WhileNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3077,6 +3446,7 @@ pub const DoUntilNode = struct {
         .node_type = .DoUntil,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3085,6 +3455,10 @@ pub const DoUntilNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3184,6 +3558,7 @@ pub const BlockNode = struct {
         .node_type = .Block,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3191,6 +3566,10 @@ pub const BlockNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3258,6 +3637,7 @@ pub const SuperNode = struct {
         .node_type = .Super,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3270,6 +3650,10 @@ pub const SuperNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3325,6 +3709,7 @@ pub const DotNode = struct {
         .node_type = .Dot,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3335,10 +3720,13 @@ pub const DotNode = struct {
     call: ?*CallNode = null,
     enum_index: ?usize = null,
 
-    fn constant(node: *ParseNode) bool {
-        const self = Self.cast(node).?;
+    fn constant(_: *ParseNode) bool {
+        // TODO: should be true, but we have to evaluate a constant call
+        return false;
+    }
 
-        return self.callee.isConstant(self.callee) and self.call == null and (self.value == null or self.value.?.isConstant(self.value.?));
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3471,6 +3859,7 @@ pub const ObjectInitNode = struct {
         .node_type = .ObjectInit,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3504,6 +3893,10 @@ pub const ObjectInitNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3620,6 +4013,7 @@ pub const ObjectDeclarationNode = struct {
         .node_type = .ObjectDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3632,6 +4026,10 @@ pub const ObjectDeclarationNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3801,6 +4199,7 @@ pub const ExportNode = struct {
         .node_type = .Export,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3809,6 +4208,10 @@ pub const ExportNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -3852,6 +4255,7 @@ pub const ImportNode = struct {
         .node_type = .Import,
         .toJson = stringify,
         .toByteCode = generate,
+        .toValue = val,
         .isConstant = constant,
     },
 
@@ -3862,6 +4266,10 @@ pub const ImportNode = struct {
 
     fn constant(_: *ParseNode) bool {
         return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {

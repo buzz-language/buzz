@@ -3073,13 +3073,13 @@ pub const Parser = struct {
                                 try self.reportError("Default parameters must be constant values.");
                             }
 
-                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, (try expr.toValue(self.allocator, self.strings)).?);
+                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, try expr.toValue(expr, self.allocator, self.strings));
                         } else if (param_type.optional) {
                             var null_node: *NullNode = try self.allocator.create(NullNode);
                             null_node.* = .{};
                             null_node.node.type_def = try self.type_registry.getTypeDef(.{ .def_type = .Void });
 
-                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, (try null_node.node.toValue(self.allocator, self.strings)).?);
+                            try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(arg_name, try null_node.node.toValue(&null_node.node, self.allocator, self.strings));
                         }
                     }
 
