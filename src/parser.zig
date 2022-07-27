@@ -1261,7 +1261,7 @@ pub const Parser = struct {
                 if (try self.match(.Equal)) {
                     default = try self.expression(false);
 
-                    if (!default.?.isConstant()) {
+                    if (!default.?.isConstant(default.?)) {
                         try self.reportErrorAt(default.?.location, "Default value must be constant");
                     }
                 }
@@ -2098,18 +2098,22 @@ pub const Parser = struct {
         var var_def: ?*ObjTypeDef = null;
         var slot: usize = undefined;
         var slot_type: SlotType = undefined;
+        var slot_constant = false;
         if (try self.resolveLocal(self.current.?, name)) |uslot| {
             var_def = self.current.?.locals[uslot].type_def;
             slot = uslot;
             slot_type = .Local;
+            slot_constant = self.current.?.locals[uslot].constant;
         } else if (try self.resolveUpvalue(self.current.?, name)) |uslot| {
             var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
             slot = uslot;
             slot_type = .UpValue;
+            slot_constant = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].constant;
         } else if (try self.resolveGlobal(null, name)) |uslot| {
             var_def = self.globals.items[uslot].type_def;
             slot = uslot;
             slot_type = .Global;
+            slot_constant = self.globals.items[uslot].constant;
         } else {
             slot = try self.declarePlaceholder(name, null);
             var_def = self.globals.items[slot].type_def;
@@ -2124,6 +2128,7 @@ pub const Parser = struct {
             .value = value,
             .slot = slot,
             .slot_type = slot_type,
+            .slot_constant = slot_constant,
         };
         node.node.location = self.parser.previous_token.?;
         node.node.type_def = var_def;
@@ -3064,7 +3069,7 @@ pub const Parser = struct {
                                 try PlaceholderDef.link(param_type, expr.type_def.?, .Assignment);
                             }
 
-                            if (!expr.isConstant()) {
+                            if (!expr.isConstant(expr)) {
                                 try self.reportError("Default parameters must be constant values.");
                             }
 

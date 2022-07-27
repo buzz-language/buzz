@@ -103,9 +103,10 @@ pub const ParseNode = struct {
 
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
+    isConstant: fn (*Self) bool,
 
     // TODO: constant expressions (https://github.com/giann/buzz/issues/46)
-    pub fn isConstant(self: *Self) bool {
+    pub fn constant(self: *Self) bool {
         // zig fmt: off
         return self.node_type == .Number
             or self.node_type == .StringLiteral
@@ -196,11 +197,18 @@ pub const ExpressionNode = struct {
         .node_type = .Expression,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     expression: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.expression.isConstant(self.expression);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -255,14 +263,21 @@ pub const NamedVariableNode = struct {
         .node_type = .NamedVariable,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     identifier: Token,
     value: ?*ParseNode = null,
     slot: usize,
     slot_type: SlotType,
+    slot_constant: bool,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+        return self.slot_type == .Global and self.slot_constant and self.value != null and self.value.?.isConstant(self.value.?);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -337,11 +352,16 @@ pub const NumberNode = struct {
         .node_type = .Number,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     constant: f64,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -384,11 +404,16 @@ pub const BooleanNode = struct {
         .node_type = .Boolean,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     constant: bool,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -431,11 +456,16 @@ pub const StringLiteralNode = struct {
         .node_type = .StringLiteral,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     constant: *ObjString,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -478,12 +508,25 @@ pub const StringNode = struct {
         .node_type = .String,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     // List of nodes that will eventually be converted to strings concatened together
     elements: []*ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        for (self.elements) |element| {
+            if (!element.isConstant(element)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -570,9 +613,14 @@ pub const NullNode = struct {
         .node_type = .Null,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_NULL);
@@ -611,11 +659,24 @@ pub const ListNode = struct {
         .node_type = .List,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     items: []*ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        for (self.items) |item| {
+            if (!item.isConstant(item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -684,12 +745,31 @@ pub const MapNode = struct {
         .node_type = .Map,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     keys: []*ParseNode,
     values: []*ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        for (self.keys) |key| {
+            if (!key.isConstant(key)) {
+                return false;
+            }
+        }
+
+        for (self.values) |value| {
+            if (!value.isConstant(value)) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -783,12 +863,19 @@ pub const UnwrapNode = struct {
         .node_type = .Unwrap,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     unwrapped: *ParseNode,
     original_type: ?*ObjTypeDef,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.unwrapped.isConstant(self.unwrapped);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -856,12 +943,19 @@ pub const ForceUnwrapNode = struct {
         .node_type = .ForceUnwrap,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     unwrapped: *ParseNode,
     original_type: ?*ObjTypeDef,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.unwrapped.isConstant(self.unwrapped);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -919,12 +1013,19 @@ pub const IsNode = struct {
         .node_type = .Is,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     left: *ParseNode,
     constant: Value,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.left.isConstant(self.left);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -974,12 +1075,19 @@ pub const UnaryNode = struct {
         .node_type = .Unary,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     left: *ParseNode,
     operator: TokenType,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.left.isConstant(self.left);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1058,13 +1166,20 @@ pub const BinaryNode = struct {
         .node_type = .Binary,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     left: *ParseNode,
     right: *ParseNode,
     operator: TokenType,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.left.isConstant(self.left) and self.right.isConstant(self.right);
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1269,13 +1384,20 @@ pub const SubscriptNode = struct {
         .node_type = .Subscript,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     subscripted: *ParseNode,
     index: *ParseNode,
     value: ?*ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.subscripted.isConstant(self.subscripted) and self.index.isConstant(self.index) and (self.value == null or self.value.?.isConstant(self.value.?));
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1387,6 +1509,7 @@ pub const FunctionNode = struct {
         .node_type = .Function,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     body: ?*BlockNode = null,
@@ -1402,7 +1525,11 @@ pub const FunctionNode = struct {
     test_slots: ?[]usize = null,
     exported_count: ?usize = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1610,6 +1737,7 @@ pub const CallNode = struct {
         .node_type = .Call,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     callee: *ParseNode,
@@ -1617,7 +1745,11 @@ pub const CallNode = struct {
     catches: ?[]*ParseNode = null,
     super: ?*NamedVariableNode = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1926,13 +2058,18 @@ pub const FunDeclarationNode = struct {
         .node_type = .FunDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     function: *FunctionNode,
     slot: usize,
     slot_type: SlotType,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1983,6 +2120,7 @@ pub const VarDeclarationNode = struct {
         .node_type = .VarDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     name: Token,
@@ -1993,7 +2131,11 @@ pub const VarDeclarationNode = struct {
     slot: usize,
     slot_type: SlotType,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2070,12 +2212,17 @@ pub const EnumNode = struct {
         .node_type = .Enum,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     slot: usize,
     cases: std.ArrayList(*ParseNode),
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2158,11 +2305,16 @@ pub const ThrowNode = struct {
         .node_type = .Throw,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     error_value: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2211,9 +2363,14 @@ pub const BreakNode = struct {
         .node_type = .Break,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         assert(breaks != null);
@@ -2250,9 +2407,14 @@ pub const ContinueNode = struct {
         .node_type = .Continue,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         assert(breaks != null);
@@ -2289,13 +2451,18 @@ pub const IfNode = struct {
         .node_type = .If,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     condition: *ParseNode,
     body: *ParseNode,
     else_branch: ?*ParseNode = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2375,11 +2542,16 @@ pub const ReturnNode = struct {
         .node_type = .Return,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     value: ?*ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2454,6 +2626,7 @@ pub const ForNode = struct {
         .node_type = .For,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     init_declarations: std.ArrayList(*VarDeclarationNode),
@@ -2461,7 +2634,11 @@ pub const ForNode = struct {
     post_loop: std.ArrayList(*ParseNode),
     body: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -2597,6 +2774,7 @@ pub const ForEachNode = struct {
         .node_type = .ForEach,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     key: ?*VarDeclarationNode = null,
@@ -2604,7 +2782,11 @@ pub const ForEachNode = struct {
     iterable: *ParseNode,
     block: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -2789,12 +2971,17 @@ pub const WhileNode = struct {
         .node_type = .While,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     condition: *ParseNode,
     block: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -2890,12 +3077,17 @@ pub const DoUntilNode = struct {
         .node_type = .DoUntil,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     condition: *ParseNode,
     block: *ParseNode,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -2992,11 +3184,16 @@ pub const BlockNode = struct {
         .node_type = .Block,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     statements: std.ArrayList(*ParseNode),
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3061,6 +3258,7 @@ pub const SuperNode = struct {
         .node_type = .Super,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     identifier: Token,
@@ -3070,7 +3268,11 @@ pub const SuperNode = struct {
     this: *NamedVariableNode,
     call: ?*CallNode = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3123,6 +3325,7 @@ pub const DotNode = struct {
         .node_type = .Dot,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     callee: *ParseNode,
@@ -3132,7 +3335,13 @@ pub const DotNode = struct {
     call: ?*CallNode = null,
     enum_index: ?usize = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.callee.isConstant(self.callee) and self.call == null and (self.value == null or self.value.?.isConstant(self.value.?));
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3262,6 +3471,7 @@ pub const ObjectInitNode = struct {
         .node_type = .ObjectInit,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     object: *ParseNode, // Should mostly be a NamedVariableNode
@@ -3292,7 +3502,11 @@ pub const ObjectInitNode = struct {
         }
     }
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3406,6 +3620,7 @@ pub const ObjectDeclarationNode = struct {
         .node_type = .ObjectDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     parent_slot: ?usize = null,
@@ -3415,7 +3630,11 @@ pub const ObjectDeclarationNode = struct {
     properties_type: std.StringHashMap(*ObjTypeDef),
     docblocks: std.StringHashMap(?Token),
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3582,12 +3801,17 @@ pub const ExportNode = struct {
         .node_type = .Export,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     identifier: Token,
     alias: ?Token = null,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
@@ -3628,6 +3852,7 @@ pub const ImportNode = struct {
         .node_type = .Import,
         .toJson = stringify,
         .toByteCode = generate,
+        .isConstant = constant,
     },
 
     imported_symbols: ?std.StringHashMap(void) = null,
@@ -3635,7 +3860,11 @@ pub const ImportNode = struct {
     path: Token,
     import: ?Parser.ScriptImport,
 
-    pub fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
