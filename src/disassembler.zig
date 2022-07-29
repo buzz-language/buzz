@@ -169,6 +169,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_MAP,
         .OP_EXPORT,
         .OP_COPY,
+        .OP_CLONE,
         .OP_CLOSE_UPVALUE,
         .OP_RETURN,
         => byteInstruction(instruction, chunk, offset),

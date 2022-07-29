@@ -1,0 +1,37 @@
+import "lib/std";
+
+fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewhere street", "town": "New York" }) > void {
+    assert(name.len() == 2, message: "default arg is clone of the default value");
+    assert(address.size() == 2, message: "default arg is clone of the default value");
+
+    print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
+
+    name.append("Yolo");
+    address["country"] = "US";
+}
+
+class A {
+    [num] list = [1, 2, 3],
+    {str, [num]} map = { "yo": [1, 2, 3] },
+}
+
+test "Constant expression" {
+    hello();
+    hello();
+
+    A a = A{};
+    A b = A{};
+
+    assert(a.list != b.list, message: "object default value were cloned");
+    assert(a.map != b.map, message: "object default value were cloned");
+
+    a.list.append(4);
+
+    assert(a.list.len() == 4, message: "object default value were cloned");
+    assert(b.list.len() == 3, message: "object default value were cloned");
+
+    a.map["lo"] = [4, 5, 6];
+
+    assert(a.map.size() == 2, message: "object default value were cloned");
+    assert(b.map.size() == 1, message: "object default value were cloned");
+}

@@ -34,6 +34,7 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const allocateObject = _obj.allocateObject;
 const allocateString = _obj.allocateString;
+const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
 const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
@@ -189,6 +190,21 @@ pub const VM = struct {
         }
     }
 
+    fn cloneValue(self: *Self, value: Value) !Value {
+        return switch (value) {
+            .Boolean,
+            .Number,
+            .Null,
+            .Void,
+            => value,
+            .Obj => try cloneObject(value.Obj, self),
+        };
+    }
+
+    fn clone(self: *Self) !void {
+        self.push(try self.cloneValue(self.pop()));
+    }
+
     fn swap(self: *Self, from: u8, to: u8) void {
         var temp: Value = (self.stack_top - to - 1)[0];
         (self.stack_top - to - 1)[0] = (self.stack_top - from - 1)[0];
@@ -291,6 +307,7 @@ pub const VM = struct {
                 .OP_FALSE => self.push(Value{ .Boolean = false }),
                 .OP_POP => _ = self.pop(),
                 .OP_COPY => self.copy(arg),
+                .OP_CLONE => try self.clone(),
                 .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
                 .OP_DEFINE_GLOBAL => {
                     try self.globals.ensureTotalCapacity(arg + 1);
@@ -1046,7 +1063,7 @@ pub const VM = struct {
         // Set instance fields with default values
         var it = object.fields.iterator();
         while (it.next()) |kv| {
-            try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
+            try instance.fields.put(kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
         }
 
         self.push(instance.toValue());
@@ -1061,7 +1078,7 @@ pub const VM = struct {
 
         var it = super.fields.iterator();
         while (it.next()) |kv| {
-            try instance.fields.put(kv.key_ptr.*, kv.value_ptr.*);
+            try instance.fields.put(kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
         }
     }
 

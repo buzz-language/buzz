@@ -4,6 +4,7 @@ const StringHashMap = std.StringHashMap;
 const _obj = @import("./obj.zig");
 const Obj = _obj.Obj;
 const objToString = _obj.objToString;
+const copyObj = _obj.copyObj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
 pub const ValueType = enum { Boolean, Number, Null, Void, Obj };
@@ -17,7 +18,13 @@ pub const Value = union(ValueType) {
 };
 
 // We can't hash f64
-pub const HashableValue = union(ValueType) { Boolean: bool, Number: i64, Null: ?bool, Void: ?bool, Obj: *Obj };
+pub const HashableValue = union(ValueType) {
+    Boolean: bool,
+    Number: i64,
+    Null: ?bool,
+    Void: ?bool,
+    Obj: *Obj,
+};
 
 pub fn valueToHashable(value: Value) HashableValue {
     switch (value) {

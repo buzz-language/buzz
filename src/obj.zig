@@ -2591,6 +2591,54 @@ pub const ObjTypeDef = struct {
     }
 };
 
+pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
+    switch (obj.obj_type) {
+        .String,
+        .Type,
+        .UpValue,
+        .Closure,
+        .Function,
+        .Object,
+        .Enum,
+        .EnumInstance,
+        .Bound,
+        .Native,
+        .UserData,
+        => return Value{ .Obj = obj },
+
+        .List => {
+            const list = ObjList.cast(obj).?;
+
+            return (try allocateObject(
+                vm,
+                ObjList,
+                .{
+                    .type_def = list.type_def,
+                    .items = try list.items.clone(),
+                    .methods = list.methods,
+                },
+            )).toValue();
+        },
+
+        .Map => {
+            const map = ObjMap.cast(obj).?;
+
+            return (try allocateObject(
+                vm,
+                ObjMap,
+                .{
+                    .type_def = map.type_def,
+                    .map = try map.map.clone(),
+                    .methods = map.methods,
+                },
+            )).toValue();
+        },
+
+        // TODO
+        .ObjectInstance => unreachable,
+    }
+}
+
 // TODO: use ArrayList writer instead of std.fmt.bufPrint
 pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
     return switch (obj.obj_type) {

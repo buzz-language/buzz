@@ -25,6 +25,7 @@ const ObjMap = _obj.ObjMap;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const FunctionType = ObjFunction.FunctionType;
 const copyStringRaw = _obj.copyStringRaw;
+const copyObj = _obj.copyObj;
 const Value = _value.Value;
 const valueToString = _value.valueToString;
 const Token = _token.Token;
@@ -117,7 +118,7 @@ pub const ParseNode = struct {
         return false;
     }
 
-    fn val(_: *Self, _: Allocator, _: std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *Self, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -725,7 +726,8 @@ pub const ListNode = struct {
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var list = _obj.ObjList.init(allocator, node.type_def.?);
+            var list = try allocator.create(ObjList);
+            list.* = _obj.ObjList.init(allocator, node.type_def.?);
 
             for (self.items) |item| {
                 try list.items.append(try item.toValue(item, allocator, strings));
@@ -828,7 +830,7 @@ pub const MapNode = struct {
             }
         }
 
-        return false;
+        return true;
     }
 
     fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
@@ -837,7 +839,8 @@ pub const MapNode = struct {
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var map = _obj.ObjMap.init(allocator, node.type_def.?);
+            var map = try allocator.create(ObjMap);
+            map.* = _obj.ObjMap.init(allocator, node.type_def.?);
 
             assert(self.keys.len == self.values.len);
 
@@ -2170,6 +2173,7 @@ pub const CallNode = struct {
                 if (defaults.get(missing_key)) |default| {
                     // TODO: like ObjTypeDef, avoid generating constants multiple time for the same value
                     try codegen.emitConstant(node.location, default);
+                    try codegen.emitOpCode(node.location, .OP_CLONE);
 
                     try arguments_order_ref.append(missing_key);
                     _ = missing_arguments.orderedRemove(missing_key);
