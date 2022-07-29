@@ -4154,7 +4154,7 @@ pub const ObjectDeclarationNode = struct {
                 "\"{s}\": {{\"type_def\": \"{s}\", \"docblock\": \"{s}\"}}",
                 .{
                     kv.key_ptr.*,
-                    kv.value_ptr.*.toString(std.heap.c_allocator),
+                    try kv.value_ptr.*.toString(std.heap.c_allocator),
                     if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string else "",
                 },
             );
