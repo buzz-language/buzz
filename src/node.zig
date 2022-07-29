@@ -155,7 +155,7 @@ pub const ParseNode = struct {
         );
 
         if (self.docblock != null) {
-            try out.print(", \"docblock\": \"{s}\"", .{self.docblock.?.literal_string});
+            try out.print(", \"docblock\": \"{s}\"", .{self.docblock.?.literal_string.?});
         }
     }
 
@@ -316,7 +316,14 @@ pub const NamedVariableNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",", .{ self.identifier.literal_string, self.slot, self.slot_type });
+        try out.print(
+            "{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",",
+            .{
+                self.identifier.literal_string.?,
+                self.slot,
+                self.slot_type,
+            },
+        );
 
         try ParseNode.stringify(node, out);
 
@@ -4155,7 +4162,7 @@ pub const ObjectDeclarationNode = struct {
                 .{
                     kv.key_ptr.*,
                     try kv.value_ptr.*.toString(std.heap.c_allocator),
-                    if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string else "",
+                    if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string orelse "" else "",
                 },
             );
 
@@ -4295,7 +4302,7 @@ pub const ImportNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string});
+        try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string.?});
 
         if (self.prefix) |prefix| {
             try out.print(",\"prefix\": \"{s}\"", .{prefix.lexeme});

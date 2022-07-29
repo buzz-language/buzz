@@ -3224,7 +3224,7 @@ pub const Parser = struct {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
-            const buzz_path: ?[]const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
+            const buzz_path: []const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
 
             var lib_path = std.ArrayList(u8).init(self.allocator);
             defer lib_path.deinit();
