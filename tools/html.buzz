@@ -24,7 +24,7 @@ object Node {
         str out = "<{this.tag}";
 
         foreach (str name, str value in this.attributes) {
-            out = "{out} \"{name}\"=\"{value}\"";
+            out = "{out} {name}=\"{value}\"";
         }
 
         if (this.children != null and this.children!.len() > 0) {

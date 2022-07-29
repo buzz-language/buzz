@@ -9,7 +9,13 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const utils = @import("../src/utils.zig");
 
 export fn ast(vm: *api.VM) c_int {
-    const source: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
+    const source: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(1)) orelse {
+        vm.bz_throwString("Could not build AST");
+
+        return -1;
+    };
+
+    const script_name: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(0)) orelse {
         vm.bz_throwString("Could not build AST");
 
         return -1;
@@ -35,7 +41,7 @@ export fn ast(vm: *api.VM) c_int {
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    const root = parser.parse(utils.toSlice(source), "string") catch {
+    const root = parser.parse(utils.toSlice(source), utils.toSlice(script_name)) catch {
         vm.bz_throwString("Could not build AST");
 
         return -1;

@@ -319,7 +319,7 @@ pub const NamedVariableNode = struct {
         try out.print(
             "{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",",
             .{
-                self.identifier.literal_string.?,
+                if (self.identifier.literal_string) |literal| literal else "unknown",
                 self.slot,
                 self.slot_type,
             },

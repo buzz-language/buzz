@@ -1083,6 +1083,7 @@ pub const Parser = struct {
         var object_def = ObjObject.ObjectDef.init(
             self.allocator,
             try copyStringRaw(self.strings, self.allocator, object_name.lexeme, false),
+            is_class,
         );
 
         var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
@@ -1617,6 +1618,7 @@ pub const Parser = struct {
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
         };
         node.node.location = name;
+        node.node.type_def = node.type_def;
 
         switch (terminator) {
             .OptComma => _ = try self.match(.Comma),
@@ -1823,6 +1825,7 @@ pub const Parser = struct {
             .slot_type = if (self.current.?.scope_depth == 0) .Global else .Local,
             .function = FunctionNode.cast(function_node).?,
         };
+        node.node.type_def = node.function.node.type_def;
 
         return &node.node;
     }

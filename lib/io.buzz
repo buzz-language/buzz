@@ -8,54 +8,58 @@ extern fun getStdIn() > num;
 extern fun getStdOut() > num;
 extern fun getStdErr() > num;
 
-| IO & FS
+|| File mode with which you can open a file
 enum FileMode {
     read,
     write,
     update,
 }
 
+|| Object to manipulate an opened file
 object File {
+    || File descriptor
     num fd,
 
-    | Open file
+    || Open file
+    || @param filename Path of file to open
+    || @param mode Mode with which to open it
     static fun open(str filename, FileMode mode) > File {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
     }
 
-    | Close file
+    || Close file
     fun close() > void {
         FileClose(this.fd);
     }
 
-    | Reads all
+    || Reads all
     fun readAll() > str {
         return FileReadAll(this.fd);
     }
 
-    | Reads next line, returns null if nothing to read
+    || Reads next line, returns null if nothing to read
     fun readLine() > str? {
         return FileReadLine(this.fd);
     }
 
-    | Reads n bytes, returns null if nothing to read
+    || Reads n bytes, returns null if nothing to read
     fun read(num n) > str? {
         return FileRead(this.fd, n: n);
     }
 
-    | Write bytes
+    || Write bytes
     fun write(str bytes) > void {
         FileWrite(this.fd, bytes: bytes);
     }
 }
 
-| File opened in read mode
+|| File opened in read mode
 const File stdin = File { fd = getStdIn() };
-| File opened in write mode
+|| File opened in write mode
 const File stdout = File { fd = getStdOut() };
-| File opened in write mode (do we sometimes read stderr?)
+|| File opened in write mode
 const File stderr = File { fd = getStdErr() };
 
 export FileMode;

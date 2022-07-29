@@ -383,6 +383,48 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn startsWith(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        vm.push(Value{ .Boolean = std.mem.startsWith(u8, self.string, needle.string) });
+
+        return 1;
+    }
+
+    pub fn endsWith(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        vm.push(Value{ .Boolean = std.mem.endsWith(u8, self.string, needle.string) });
+
+        return 1;
+    }
+
+    pub fn replace(vm: *VM) c_int {
+        var self: *Self = Self.cast(vm.peek(2).Obj).?;
+        var needle: *Self = Self.cast(vm.peek(1).Obj).?;
+        var replacement: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        const new_string = std.mem.replaceOwned(u8, vm.allocator, self.string, needle.string, replacement.string) catch {
+            var err: ?*ObjString = copyString(vm, "Could not replace string") catch null;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        vm.push(
+            (copyString(vm, new_string) catch {
+                var err: ?*ObjString = copyString(vm, "Could not replace string") catch null;
+                vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            }).toValue(),
+        );
+
+        return 1;
+    }
+
     pub fn sub(vm: *VM) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var start: f64 = vm.peek(1).Number;
@@ -510,6 +552,12 @@ pub const ObjString = struct {
             return split;
         } else if (mem.eql(u8, method, "sub")) {
             return sub;
+        } else if (mem.eql(u8, method, "startsWith")) {
+            return startsWith;
+        } else if (mem.eql(u8, method, "endsWith")) {
+            return endsWith;
+        } else if (mem.eql(u8, method, "replace")) {
+            return replace;
         }
 
         return null;
@@ -633,6 +681,98 @@ pub const ObjString = struct {
             );
 
             try Self.memberDefs.?.put("indexOf", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "startsWith")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "startsWith", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Bool,
+                        .optional = false,
+                    },
+                ),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("startsWith", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "endsWith")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "endsWith", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Bool,
+                        .optional = false,
+                    },
+                ),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("endsWith", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "replace")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
+            try parameters.put("with", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "replace", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
@@ -1034,10 +1174,12 @@ pub const ObjObject = struct {
         static_placeholders: StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
         inheritable: bool = false,
+        is_class: bool,
 
-        pub fn init(allocator: Allocator, name: *ObjString) ObjectDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, is_class: bool) ObjectDefSelf {
             return ObjectDefSelf{
                 .name = name,
+                .is_class = is_class,
                 .fields = StringHashMap(*ObjTypeDef).init(allocator),
                 .static_fields = StringHashMap(*ObjTypeDef).init(allocator),
                 .fields_defaults = StringHashMap(void).init(allocator),
@@ -2329,11 +2471,13 @@ pub const ObjTypeDef = struct {
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
             .Object => {
-                try writer.writeAll("{ObjectDef}");
-                try writer.writeAll(self.resolved_type.?.Object.name.string);
+                const object_def = self.resolved_type.?.Object;
+
+                try writer.writeAll(if (object_def.is_class) "class " else "object ");
+                try writer.writeAll(object_def.name.string);
             },
             .Enum => {
-                try writer.writeAll("{EnumDef}");
+                try writer.writeAll("enum ");
                 try writer.writeAll(self.resolved_type.?.Enum.name.string);
             },
 
@@ -2356,12 +2500,12 @@ pub const ObjTypeDef = struct {
 
                 try writer.writeAll("{");
                 try writer.writeAll(key_type);
-                try writer.writeAll(",");
+                try writer.writeAll(", ");
                 try writer.writeAll(value_type);
                 try writer.writeAll("}");
             },
-            .Function => {
-                var function_def = self.resolved_type.?.Function;
+            .Native, .Function => {
+                var function_def = if (self.def_type == .Function) self.resolved_type.?.Function else self.resolved_type.?.Native;
 
                 try writer.writeAll("fun ");
                 try writer.writeAll(function_def.name.string);
@@ -2374,19 +2518,19 @@ pub const ObjTypeDef = struct {
                     var param_type = try kv.value_ptr.*.toString(allocator);
                     defer allocator.free(param_type);
 
-                    try writer.writeAll(kv.key_ptr.*);
-                    try writer.writeAll(" ");
                     try writer.writeAll(param_type);
+                    try writer.writeAll(" ");
+                    try writer.writeAll(kv.key_ptr.*);
 
                     if (i < size - 1) {
-                        try writer.writeAll(",");
+                        try writer.writeAll(", ");
                     }
                 }
 
                 try writer.writeAll(")");
 
                 if (function_def.return_type.def_type != Type.Void) {
-                    var return_type = try self.resolved_type.?.Function.return_type.toString(allocator);
+                    var return_type = try function_def.return_type.toString(allocator);
                     defer allocator.free(return_type);
 
                     try writer.writeAll(" > ");
@@ -2398,24 +2542,6 @@ pub const ObjTypeDef = struct {
 
             .Placeholder => {
                 try writer.print("{{PlaceholderDef @{}}}", .{@ptrToInt(self)});
-            },
-
-            .Native => {
-                try writer.writeAll("Native(");
-
-                var ref: []u8 = try allocator.alloc(u8, 30);
-                defer allocator.free(ref);
-                ref = try std.fmt.bufPrint(
-                    ref,
-                    "{s} @{x}",
-                    .{
-                        self.resolved_type.?.Native.name.string,
-                        @ptrToInt(&self),
-                    },
-                );
-
-                try writer.writeAll(ref);
-                try writer.writeAll(")");
             },
         }
 

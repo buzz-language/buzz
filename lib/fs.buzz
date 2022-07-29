@@ -1,6 +1,6 @@
 import "lib/os" as os;
 
-| Returns current directory absolute path
+|| Returns current directory absolute path
 fun currentDirectory() > str {
     str? dir = os.env("PWD");
 
@@ -14,16 +14,16 @@ fun currentDirectory() > str {
     return "";
 }
 
-| Creates directory path
+|| Creates directory path
 extern fun makeDirectory(str path) > void;
 
-| Deletes directory or file at path
+|| Deletes directory or file at path
 extern fun delete(str path) > void;
 
-| Moves/renames file
+|| Moves/renames file
 extern fun move(str source, str destination) > void;
 
-| List files under path
+|| List files under path
 extern fun list(str path) > [str];
 
 export currentDirectory;

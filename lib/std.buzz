@@ -1,8 +1,4 @@
-object Error {
-    str message
-}
-
-| If condition is false throw error with given message
+|| If condition is false throw error with given message
 fun assert(bool condition, str message) > void {
     if (!condition) {
         | throw Error {
@@ -13,16 +9,15 @@ fun assert(bool condition, str message) > void {
     }
 }
 
-| Prints value on stdout
+|| Prints value on stdout
 extern fun print(str value) > void;
 
-| Parse number, returns false if string does not represent a number
+|| Parse number, returns false if string does not represent a number
 extern fun parseNumber(str string) > num?;
 
-| Run a buzz file
+|| Run a buzz file
 extern fun runFile(str filename) > void;
 
-export Error;
 export assert;
 export print;
 export parseNumber;

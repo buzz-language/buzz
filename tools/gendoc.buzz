@@ -2,10 +2,12 @@ import "lib/std";
 import "lib/debug";
 import "lib/json";
 import "lib/io";
+import "lib/fs";
 import "tools/html";
 
 object Declaration {
     str declarationType,
+    str? name = null,
     str typeDef,
     str? docblock,
 
@@ -20,15 +22,29 @@ object Declaration {
         };
     }
 
+    fun toMarkdown() > str {
+        str out = "\n## `{this.name ?? ""} {this.typeDef}`\n"
+            + "{this.docblock ?? "Undocumented"}";
+
+        foreach (str key, Declaration decl in this.subDeclarations) {
+            out = "{out}\n{decl.toMarkdown()}";
+        }
+
+        return out;
+    }
+
     fun toNode() > Node {
         Node root = Node.init(
             "div",
+            attributes: {
+                "class": "decl",
+            },
             children: [
                 Node.init(
                     "h2",
                     children: [
-                        text(this.typeDef),
-                    ]
+                        text("{this.name ?? ""} {this.typeDef}"),
+                    ],
                 ),
                 Node.init(
                     "p",
@@ -69,13 +85,23 @@ fun extractDeclarations([Json] statements) > [Declaration] {
                 docblock: statementMap["docblock"]?.string,
             );
 
+            if (nodeType == "VarDeclaration") {
+                declaration.name = statementMap["name"]?.string;
+            }
+
             if (nodeType == "ObjectDeclaration") {
                 {str, Json} props = statementMap["members"]?.mapValue() ?? <str, Json>{};
                 foreach (str name, Json member in props) {
+                    str typeDef = member.mapValue()["type_def"]?.stringValue() ?? "unknown";
+                    str displayName = "{typeDef} {name}";
+                    if (typeDef.indexOf("fun") == 0) {
+                        displayName = typeDef;
+                    }
+
                     declaration.subDeclarations[name] =
                         Declaration.init(
                             declarationType: "member",
-                            typeDef: member.mapValue()["type_def"]?.stringValue() ?? "unknown",
+                            typeDef: displayName,
                             docblock: member.mapValue()["docblock"]?.string,
                         );
                 }
@@ -88,10 +114,10 @@ fun extractDeclarations([Json] statements) > [Declaration] {
     return declarations;
 }
 
-fun gendoc(str path) > void {
+fun getDeclarations(str path) > [Declaration] {
     File file = File.open(path, mode: FileMode.read);
 
-    str source = ast(file.readAll());
+    str source = ast(file.readAll(), scriptName: path.sub(0, len: path.indexOf(".buzz")!));
     file.close();
 
     {str, Json} root = Json.decode(source).mapValue();
@@ -99,20 +125,71 @@ fun gendoc(str path) > void {
     | Root must be a function
     assert(root["node"]?.string == "Function", message: "Expected root node to be a function");
 
-    [Declaration] declarations = extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
+    return extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
+}
 
-    str out = "<!DOCTYPE html><html><body>";
+fun genHtmlDoc([Declaration] declarations) > str {
+    str out = "";
     foreach (num i, Declaration decl in declarations) {
         out = "{out}{decl.gen()}";
     }
 
-    print("{out}</body></html>");
+    return out;
+}
+
+fun genMarkdownDoc([Declaration] declarations) > str {
+    str out = "";
+    foreach (num i, Declaration decl in declarations) {
+        out = "{out}{decl.toMarkdown()}";
+    }
+
+    return out;
 }
 
 fun main([str] args) > void {
-    if (args.len() != 1) {
-        print("Expected entry point buzz script");
+    {str, str} doc = <str, str>{};
+    {str, str} markdownDoc = <str, str>{};
+    foreach (num i, str file in list("lib")) {
+        if (file.endsWith(".buzz")) {
+            [Declaration] declarations = getDeclarations("lib/{file}");
+
+            doc[file] = genHtmlDoc(declarations);
+            markdownDoc[file] = genMarkdownDoc(declarations);
+        }
+    }
+    
+    File file = File.open("{currentDirectory()}/doc/index.html", mode: FileMode.write);
+
+    file.write(
+        "<!DOCTYPE html>"
+        + "<head>"
+        + "<link rel=\"stylesheet\" href=\"style.css\" />"
+        + "</head>"
+        + "<html><body>"
+    );
+
+    file.write("<ul id=\"content\">");
+    foreach (str lib, str libDoc in doc) {
+        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
+
+        file.write("<li><a href=\"#{libName}\">{libName}</a></lib>");
+    }
+    file.write("</ul>");
+
+    foreach (str lib, str libDoc in doc) {
+        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
+        file.write("<h1 id=\"{libName}\">{libName}</h1><a href=\"#content\">^</a>{libDoc}");
+    }
+    file.write("</body></html>");
+
+    file.close();
+
+    File mdFile = File.open("{currentDirectory()}/doc/index.md", mode: FileMode.write);
+
+    foreach (str lib, str libDoc in markdownDoc) {
+        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
+        mdFile.write("\n# {libName}\n{libDoc}");
     }
 
-    gendoc(args[0]);
+    mdFile.close();
 }
