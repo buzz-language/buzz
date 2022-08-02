@@ -118,6 +118,8 @@ pub const TokenType = enum {
     Error, // Error
     Void, // void
     Docblock, // Docblock
+    Pattern, // Pattern
+    Pat, // pat
 };
 
 pub const Keywords = [_]TokenType{
@@ -255,6 +257,10 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "bool")) {
         return .Bool;
+    }
+
+    if (mem.eql(u8, literal, "pat")) {
+        return .Pat;
     }
 
     if (mem.eql(u8, literal, "xor")) {

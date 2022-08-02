@@ -22,6 +22,9 @@
     },
     {
       "include": "#builtins"
+    },
+    {
+      "include": "#patterns"
     }
   ],
   "repository": {
@@ -65,7 +68,7 @@
         },
         {
           "name": "storage.type.built-in.primitive.buzz",
-          "match": "\\b(str|num|bool|type)\\b\\??"
+          "match": "\\b(str|num|bool|type|pat)\\b\\??"
         }
       ]
     },
@@ -90,8 +93,22 @@
             },
             {
               "include": "#strings"
+            },
+            {
+              "include": "#patterns"
             }
           ]
+        }
+      ]
+    },
+    "patterns": {
+      "name": "string.regexp.buzz",
+      "begin": "_",
+      "end": "_",
+      "patterns": [
+        {
+          "name": "constant.character.escape.buzz",
+          "match": "\\\\."
         }
       ]
     },

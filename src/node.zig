@@ -21,6 +21,7 @@ const ObjNative = _obj.ObjNative;
 const ObjFunction = _obj.ObjFunction;
 const ObjObject = _obj.ObjObject;
 const ObjList = _obj.ObjList;
+const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const FunctionType = ObjFunction.FunctionType;
@@ -68,6 +69,7 @@ pub const ParseNodeType = enum(u8) {
     Number,
     String,
     StringLiteral,
+    Pattern,
     Boolean,
     Null,
 
@@ -515,6 +517,63 @@ pub const StringLiteralNode = struct {
 
     pub fn cast(node: *ParseNode) ?*Self {
         if (node.node_type != .StringLiteral) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const PatternNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Pattern,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = cnst,
+    },
+
+    constant: *ObjPattern,
+
+    fn cnst(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return Self.cast(node).?.constant.toValue();
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?;
+
+        try codegen.emitConstant(self.node.location, self.constant.toValue());
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        // var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Pattern\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Pattern) {
             return null;
         }
 
@@ -3760,7 +3819,8 @@ pub const DotNode = struct {
             and callee_type.def_type != .EnumInstance
             and callee_type.def_type != .List
             and callee_type.def_type != .Map
-            and callee_type.def_type != .String) {
+            and callee_type.def_type != .String
+            and callee_type.def_type != .Pattern) {
             try codegen.reportErrorAt(node.location, "Doesn't have field access");
         }
         // zig fmt: on
@@ -3770,7 +3830,7 @@ pub const DotNode = struct {
         }
 
         switch (callee_type.def_type) {
-            .String => {
+            .Pattern, .String => {
                 if (self.call) |call_node| { // Call
                     try codegen.emitOpCode(self.node.location, .OP_COPY);
                     _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);

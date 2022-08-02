@@ -8,12 +8,16 @@ pub fn build(b: *Builder) void {
     var exe = b.addExecutable("buzz", "src/main.zig");
     exe.setTarget(target);
     exe.install();
+    exe.addIncludePath("/usr/local/include");
+    exe.linkSystemLibrary("pcre");
     exe.setBuildMode(build_mode);
     exe.setMainPkgPath(".");
 
     var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
     lib.setTarget(target);
     lib.install();
+    lib.addIncludePath("/usr/local/include");
+    lib.linkSystemLibrary("pcre");
     lib.setMainPkgPath(".");
     lib.setBuildMode(build_mode);
 
@@ -43,6 +47,8 @@ pub fn build(b: *Builder) void {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
         std_lib.setTarget(target);
         std_lib.install();
+        std_lib.addIncludePath("/usr/local/include");
+        std_lib.linkSystemLibrary("pcre");
         std_lib.setMainPkgPath(".");
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);

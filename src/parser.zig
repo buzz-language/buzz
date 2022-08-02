@@ -4,6 +4,8 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
+pub const pcre = @import("./pcre.zig").pcre;
+
 const _obj = @import("./obj.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");
@@ -36,6 +38,7 @@ const ObjMap = _obj.ObjMap;
 const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjTypeDef = _obj.ObjTypeDef;
+const ObjPattern = _obj.ObjPattern;
 const PlaceholderDef = _obj.PlaceholderDef;
 const allocateObject = _obj.allocateObject;
 const allocateString = _obj.allocateString;
@@ -55,6 +58,7 @@ const BooleanNode = _node.BooleanNode;
 const StringLiteralNode = _node.StringLiteralNode;
 const StringNode = _node.StringNode;
 const NullNode = _node.NullNode;
+const PatternNode = _node.PatternNode;
 const ListNode = _node.ListNode;
 const MapNode = _node.MapNode;
 const UnwrapNode = _node.UnwrapNode;
@@ -291,6 +295,8 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Error
         .{ .prefix = null, .infix = null, .precedence = .None }, // Void
         .{ .prefix = null, .infix = null, .precedence = .None }, // Docblock
+        .{ .prefix = pattern, .infix = null, .precedence = .None }, // Pattern
+        .{ .prefix = null, .infix = null, .precedence = .None }, // pat
     };
 
     pub const ScriptImport = struct {
@@ -897,6 +903,13 @@ pub const Parser = struct {
                 try self.enumDeclaration()
             else if (!constant and try self.match(.Fun))
                 try self.funDeclaration()
+            else if (try self.match(.Pat))
+                try self.varDeclaration(
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.Str))
                 try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
@@ -968,6 +981,13 @@ pub const Parser = struct {
         } else if (try self.match(.Str)) {
             return try self.varDeclaration(
                 try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Pat)) {
+            return try self.varDeclaration(
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
                 .Semicolon,
                 constant,
                 true,
@@ -2139,6 +2159,51 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    fn pattern(self: *Self, _: bool) anyerror!*ParseNode {
+        var node = try self.allocator.create(PatternNode);
+
+        const source = toNullTerminated(self.allocator, self.parser.previous_token.?.literal_string.?);
+
+        if (source == null) {
+            try self.reportError("Could not compile pattern");
+            return CompileError.Unrecoverable;
+        }
+
+        var err = try self.allocator.allocSentinel(u8, 1000, 0);
+        // defer self.allocator.free(err);
+        var err_offset: c_int = undefined;
+        // PCRE_EXP_DECL pcre *pcre_compile(const char *, int, const char **, int *,
+        //               const unsigned char *);
+        const reg: ?*pcre.struct_real_pcre8_or_16 = pcre.pcre_compile(
+            source.?,
+            0,
+            @ptrCast([*c][*c]const u8, &err),
+            &err_offset,
+            null,
+        );
+
+        if (reg == null) {
+            try self.reportErrorFmt("Could not compile pattern, error at {}: {s}", .{ err_offset, err });
+            return CompileError.Unrecoverable;
+        }
+
+        var constant = try self.allocator.create(ObjPattern);
+        constant.* = ObjPattern{
+            .source = self.parser.previous_token.?.literal_string.?,
+            .pattern = reg.?,
+        };
+
+        node.* = PatternNode{
+            .constant = constant,
+        };
+        node.node.type_def = try self.type_registry.getTypeDef(.{
+            .def_type = .Pattern,
+        });
+        node.node.location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
     fn number(self: *Self, _: bool) anyerror!*ParseNode {
         var node = try self.allocator.create(NumberNode);
 
@@ -2406,6 +2471,26 @@ pub const Parser = struct {
                     }
                 } else {
                     try self.reportError("String property doesn't exist.");
+                }
+            },
+            .Pattern => {
+                if (try ObjPattern.memberDef(self, member_name)) |member| {
+                    if (try self.match(.LeftParen)) {
+                        // `call` will look to the parent node for the function definition
+                        node.node.type_def = member;
+                        node.member_type_def = member;
+
+                        assert(member.def_type == .Native);
+                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                        // Node type is the return type of the call
+                        node.node.type_def = node.call.?.node.type_def;
+                    } else {
+                        // Pattern has only native functions members
+                        node.node.type_def = member;
+                    }
+                } else {
+                    try self.reportError("Pattern property doesn't exist.");
                 }
             },
             .Object => {
@@ -3482,6 +3567,8 @@ pub const Parser = struct {
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
         if (try self.match(.Str)) {
             return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
+        } else if (try self.match(.Pat)) {
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern });
         } else if (try self.match(.Type)) {
             return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.Void)) {

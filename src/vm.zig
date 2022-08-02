@@ -32,6 +32,7 @@ const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
+const ObjPattern = _obj.ObjPattern;
 const allocateObject = _obj.allocateObject;
 const allocateString = _obj.allocateString;
 const cloneObject = _obj.cloneObject;
@@ -564,6 +565,15 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             if (try ObjString.member(self, name.string)) |member| {
+                                try self.bindMethod(null, member);
+                            } else {
+                                unreachable;
+                            }
+                        },
+                        .Pattern => {
+                            const name: *ObjString = self.readString(arg);
+
+                            if (try ObjPattern.member(self, name.string)) |member| {
                                 try self.bindMethod(null, member);
                             } else {
                                 unreachable;
@@ -1120,6 +1130,16 @@ pub const VM = struct {
             },
             .String => {
                 if (try ObjString.member(self, name.string)) |member| {
+                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    (self.stack_top - arg_count - 1)[0] = member_value;
+
+                    return try self.callValue(member_value, arg_count, catch_values);
+                }
+
+                unreachable;
+            },
+            .Pattern => {
+                if (try ObjPattern.member(self, name.string)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.stack_top - arg_count - 1)[0] = member_value;
 

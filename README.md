@@ -31,6 +31,7 @@ You can also take a look at `tests/` for more examples.
 bool aBoolean = true;
 str aString = "hello world";
 num aNumber = 23;
+pat aPattern = _hello [a-z]+_;
 
 | A constant
 const num pi = 3.14;

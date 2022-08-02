@@ -12,6 +12,9 @@ const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
 const Config = @import("./config.zig").Config;
 const CodeGen = @import("./codegen.zig").CodeGen;
+const utils = @import("./utils.zig");
+
+pub const pcre = @import("./pcre.zig").pcre;
 
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
@@ -45,6 +48,7 @@ pub const ObjType = enum {
     Bound,
     Native,
     UserData,
+    Pattern,
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
@@ -68,6 +72,7 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         ObjBoundMethod => ObjBoundMethod.toObj(obj),
         ObjNative => ObjNative.toObj(obj),
         ObjUserData => ObjUserData.toObj(obj),
+        ObjPattern => ObjPattern.toObj(obj),
         else => {},
     };
 
@@ -139,6 +144,7 @@ pub const Obj = struct {
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
+            .Pattern => type_def.def_type == .Pattern,
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
@@ -173,6 +179,7 @@ pub const Obj = struct {
 
     pub fn typeEql(self: *Self, type_def: *ObjTypeDef) bool {
         return switch (self.obj_type) {
+            .Pattern => type_def.def_type == .Pattern,
             .String => type_def.def_type == .String,
             .Type => type_def.def_type == .Type,
             .UpValue => uv: {
@@ -207,6 +214,9 @@ pub const Obj = struct {
         }
 
         switch (self.obj_type) {
+            .Pattern => {
+                return mem.eql(u8, ObjPattern.cast(self).?.source, ObjPattern.cast(other).?.source);
+            },
             .String => {
                 // return mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string);
 
@@ -245,6 +255,215 @@ pub const Obj = struct {
                 return self == other;
             },
         }
+    }
+};
+
+/// Regex pattern
+pub const ObjPattern = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .Pattern },
+
+    source: []const u8,
+    pattern: *pcre.struct_real_pcre8_or_16,
+
+    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
+
+    pub fn mark(_: *Self, _: *VM) void {}
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
+    pub fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .Pattern) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
+    }
+
+    // TODO: until we have proper iterator interface, match all
+    pub fn match(vm: *VM) c_int {
+        var self = Self.cast(vm.peek(1).Obj).?;
+        var subject = utils.toNullTerminated(
+            vm.allocator,
+            ObjString.cast(vm.peek(0).Obj).?.string,
+        );
+
+        if (subject == null) {
+            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        }
+
+        var output_vector: [3000]c_int = undefined;
+
+        const rc = pcre.pcre_exec(
+            self.pattern, // the compiled pattern
+            null, // no extra data - we didn't study the pattern
+            @ptrCast([*c]const u8, subject.?), // the subject string
+            @intCast(c_int, subject.?.len), // the length of the subject
+            0, // start at offset 0 in the subject
+            0, // default options
+            @ptrCast([*c]c_int, &output_vector), // output vector for substring information
+            output_vector.len, // number of elements in the output vector
+        );
+
+        switch (rc) {
+            pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => vm.push(Value{ .Null = null }),
+            // TODO: handle ouptut_vector too small
+            0 => unreachable,
+            else => {
+                var results: *ObjList = allocateObject(
+                    vm,
+                    ObjList,
+                    ObjList.init(vm.allocator, allocateObject(
+                        vm,
+                        ObjTypeDef,
+                        ObjTypeDef{
+                            .def_type = .String,
+                        },
+                    ) catch {
+                        var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+                        vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                        return -1;
+                    }),
+                ) catch {
+                    var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+                    vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                };
+
+                var i: usize = 0;
+                while (i < rc) : (i += 1) {
+                    results.items.append(
+                        (copyString(vm, subject.?[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])]) catch {
+                            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+                            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                            return -1;
+                        }).toValue(),
+                    ) catch {
+                        var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+                        vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                        return -1;
+                    };
+                }
+
+                vm.push(results.toValue());
+            },
+        }
+
+        return 1;
+    }
+
+    pub fn rawMember(method: []const u8) ?NativeFn {
+        if (mem.eql(u8, method, "match")) {
+            return match;
+        }
+
+        return null;
+    }
+
+    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+        if (Self.members) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+
+        var nativeFn: ?NativeFn = rawMember(method);
+
+        if (nativeFn) |unativeFn| {
+            var native: *ObjNative = try allocateObject(
+                vm,
+                ObjNative,
+                .{
+                    .native = unativeFn,
+                },
+            );
+
+            try Self.members.?.put(method, native);
+
+            return native;
+        }
+
+        return null;
+    }
+
+    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
+        if (Self.memberDefs) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
+
+        if (mem.eql(u8, method, "match")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put(
+                "subject",
+                try parser.type_registry.getTypeDef(
+                    .{
+                        .def_type = .String,
+                    },
+                ),
+            );
+
+            var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                parser.allocator,
+                try parser.type_registry.getTypeDef(ObjTypeDef{
+                    .def_type = .String,
+                }),
+            );
+
+            var list_def_union: ObjTypeDef.TypeUnion = .{
+                .List = list_def,
+            };
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "match", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
+                    .def_type = .List,
+                    .optional = false,
+                    .resolved_type = list_def_union,
+                }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("match", native_type);
+
+            return native_type;
+        }
+
+        return null;
     }
 };
 
@@ -2338,6 +2557,7 @@ pub const ObjTypeDef = struct {
         Bool,
         Number,
         String,
+        Pattern,
         ObjectInstance,
         Object,
         Enum,
@@ -2357,6 +2577,7 @@ pub const ObjTypeDef = struct {
         Bool: bool,
         Number: bool,
         String: bool,
+        Pattern: bool,
         Type: bool,
         Void: bool,
 
@@ -2468,6 +2689,7 @@ pub const ObjTypeDef = struct {
             .Bool => try writer.writeAll("bool"),
             .Number => try writer.writeAll("num"),
             .String => try writer.writeAll("str"),
+            .Pattern => try writer.writeAll("pat"),
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
             .Object => {
@@ -2628,7 +2850,13 @@ pub const ObjTypeDef = struct {
         }
 
         return switch (a) {
-            .Bool, .Number, .String, .Type, .Void => return true,
+            .Bool,
+            .Number,
+            .String,
+            .Type,
+            .Void,
+            .Pattern,
+            => return true,
 
             .ObjectInstance => {
                 return a.ObjectInstance.eql(b.ObjectInstance) or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
@@ -2730,6 +2958,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .Bound,
         .Native,
         .UserData,
+        .Pattern,
         => return Value{ .Obj = obj },
 
         .List => {
@@ -2775,6 +3004,15 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
                 return try std.fmt.bufPrint(buf, "{s}", .{str});
             } else {
                 return try std.fmt.bufPrint(buf, "{s}", .{str[0..100]});
+            }
+        },
+        .Pattern => {
+            const pattern = ObjPattern.cast(obj).?.source;
+
+            if (pattern.len < 1000) {
+                return try std.fmt.bufPrint(buf, "{s}", .{pattern});
+            } else {
+                return try std.fmt.bufPrint(buf, "{s}", .{pattern[0..100]});
             }
         },
         .Type => {

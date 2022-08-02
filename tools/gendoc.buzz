@@ -13,13 +13,16 @@ object Declaration {
 
     {str, Declaration} subDeclarations,
 
-    static fun init(str declarationType, str typeDef, str? docblock, {str, Declaration}? subDeclarations) > Declaration {
-        return Declaration{
-            declarationType = declarationType,
-            typeDef = typeDef,
-            docblock = docblock,
-            subDeclarations = subDeclarations ?? <str, Declaration>{},
-        };
+    static fun init(
+        str declarationType,
+        str typeDef,
+        str? docblock,
+        {str, Declaration}? subDeclarations
+    ) > Declaration -> Declaration{
+        declarationType = declarationType,
+        typeDef = typeDef,
+        docblock = docblock,
+        subDeclarations = subDeclarations ?? <str, Declaration>{},
     }
 
     fun toMarkdown() > str {

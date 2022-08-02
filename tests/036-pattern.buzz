@@ -1,0 +1,11 @@
+import "lib/std";
+
+test "Declaring a pattern" {
+    pat pattern = _hello ([a-z]+)_;
+
+    [str]? results = pattern.match("All i want to say is hello joe! hello mundo!");
+
+    assert(results?.len() == 2, message: "1 match and 1 capture");
+    assert(results![0] == "hello joe", message: "first is match");
+    assert(results![1] == "joe", message: "second is capture");
+}

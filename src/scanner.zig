@@ -130,6 +130,7 @@ pub const Scanner = struct {
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null),
             '\"' => return self.string(),
             '|' => return try self.docblock(),
+            '_' => return try self.pattern(),
 
             else => return self.makeToken(.Error, "Unexpected character.", null),
         };
@@ -262,6 +263,34 @@ pub const Scanner = struct {
         }
 
         return self.makeToken(.Number, null, try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]));
+    }
+
+    fn pattern(self: *Self) !Token {
+        while (self.peek() != '_' and !self.isEOF()) {
+            if (self.peek() == '\n') {
+                return self.makeToken(.Error, "Unterminated pattern.", null);
+            } else if (self.peek() == '_' and self.peekNext() == '_') {
+                // Escaped pattern delimiter, go past it
+                _ = self.advance();
+            }
+
+            _ = self.advance();
+        }
+
+        if (self.isEOF()) {
+            return self.makeToken(.Error, "Unterminated pattern.", null);
+        } else {
+            _ = self.advance();
+        }
+
+        return self.makeToken(
+            .Pattern,
+            if (self.current.offset - self.current.start > 0)
+                self.source[(self.current.start + 1)..(self.current.offset - 1)]
+            else
+                null,
+            null,
+        );
     }
 
     fn string(self: *Self) !Token {

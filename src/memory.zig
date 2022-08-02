@@ -6,6 +6,8 @@ const _obj = @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
 const Config = @import("./config.zig").Config;
 
+pub const pcre = @import("./pcre.zig").pcre;
+
 const Value = _value.Value;
 const valueToString = _value.valueToString;
 const Obj = _obj.Obj;
@@ -23,6 +25,7 @@ const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjNative = _obj.ObjNative;
 const ObjUserData = _obj.ObjUserData;
+const ObjPattern = _obj.ObjPattern;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);
@@ -96,6 +99,7 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
         .Bound => ObjBoundMethod.cast(obj).?.mark(vm),
         .Native => ObjNative.cast(obj).?.mark(vm),
         .UserData => ObjUserData.cast(obj).?.mark(vm),
+        .Pattern => ObjPattern.cast(obj).?.mark(vm),
     };
 }
 
@@ -109,6 +113,11 @@ fn freeObj(vm: *VM, obj: *Obj) void {
             var obj_string = ObjString.cast(obj).?;
             freeMany(vm, u8, obj_string.string);
             free(vm, ObjString, obj_string);
+        },
+        .Pattern => {
+            var obj_pattern = ObjPattern.cast(obj).?;
+            pcre.pcre_free.?(obj_pattern.pattern);
+            free(vm, ObjPattern, obj_pattern);
         },
         .Type => {
             var obj_typedef = ObjTypeDef.cast(obj).?;
