@@ -2162,7 +2162,10 @@ pub const Parser = struct {
     fn pattern(self: *Self, _: bool) anyerror!*ParseNode {
         var node = try self.allocator.create(PatternNode);
 
-        const source = toNullTerminated(self.allocator, self.parser.previous_token.?.literal_string.?);
+        const source_slice = self.parser.previous_token.?.literal_string.?;
+        // Replace escaped pattern delimiter with delimiter
+        const source_slice_clean = try std.mem.replaceOwned(u8, self.allocator, source_slice, "__", "_");
+        const source = toNullTerminated(self.allocator, source_slice_clean);
 
         if (source == null) {
             try self.reportError("Could not compile pattern");
@@ -2173,14 +2176,12 @@ pub const Parser = struct {
         // FIXME: crashes i don't know why
         // defer self.allocator.free(err);
         var err_offset: c_int = undefined;
-        // PCRE_EXP_DECL pcre *pcre_compile(const char *, int, const char **, int *,
-        //               const unsigned char *);
         const reg: ?*pcre.struct_real_pcre8_or_16 = pcre.pcre_compile(
-            source.?,
-            0,
-            @ptrCast([*c][*c]const u8, &err),
-            &err_offset,
-            null,
+            source.?, // pattern
+            0, // options
+            @ptrCast([*c][*c]const u8, &err), // error message buffer
+            &err_offset, // offset at which error occured
+            null, // extra ?
         );
 
         if (reg == null) {
@@ -2190,7 +2191,7 @@ pub const Parser = struct {
 
         var constant = try self.allocator.create(ObjPattern);
         constant.* = ObjPattern{
-            .source = self.parser.previous_token.?.literal_string.?,
+            .source = source_slice_clean,
             .pattern = reg.?,
         };
 

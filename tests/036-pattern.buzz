@@ -19,3 +19,9 @@ test "pattern.matchAll" {
     assert(results![2].len() == 2, message: "1 match and 1 capture");
     assert(results![2][1] == "neighbor", message: "capture is correct");
 }
+
+test "Escaped pattern delimiter" {
+    pat pattern = _hello __ world_;
+
+    assert("{pattern}" == "hello _ world", message: "delimiter was properly escaped");
+}

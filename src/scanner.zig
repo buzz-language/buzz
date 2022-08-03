@@ -266,7 +266,7 @@ pub const Scanner = struct {
     }
 
     fn pattern(self: *Self) !Token {
-        while (self.peek() != '_' and !self.isEOF()) {
+        while ((self.peek() != '_' or self.peekNext() == '_') and !self.isEOF()) {
             if (self.peek() == '\n') {
                 return self.makeToken(.Error, "Unterminated pattern.", null);
             } else if (self.peek() == '_' and self.peekNext() == '_') {
