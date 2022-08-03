@@ -21,6 +21,7 @@ const ObjNative = _obj.ObjNative;
 const ObjFunction = _obj.ObjFunction;
 const ObjObject = _obj.ObjObject;
 const ObjList = _obj.ObjList;
+const ObjEnum = _obj.ObjEnum;
 const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
 const ObjBoundMethod = _obj.ObjBoundMethod;
@@ -2894,6 +2895,22 @@ pub const IfNode = struct {
             try codegen.reportErrorAt(self.condition.location, "`if` condition must be bool");
         }
 
+        // If condition is a constant expression, no need to generate branches
+        if (self.condition.isConstant(self.condition)) {
+            const condition = try self.condition.toValue(self.condition, codegen.allocator, codegen.strings);
+
+            if (condition.Boolean) {
+                _ = try self.body.toByteCode(self.body, codegen, breaks);
+            } else if (self.else_branch) |else_branch| {
+                _ = try else_branch.toByteCode(else_branch, codegen, breaks);
+            }
+
+            try node.patchOptJumps(codegen);
+            try node.endScope(codegen);
+
+            return null;
+        }
+
         _ = try self.condition.toByteCode(self.condition, codegen, breaks);
 
         const then_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
@@ -3071,6 +3088,12 @@ pub const ForNode = struct {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
+
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.allocator, codegen.strings)).Boolean) {
+            try node.patchOptJumps(codegen);
+
+            return null;
+        }
 
         for (self.init_declarations.items) |var_declaration| {
             _ = try var_declaration.node.toByteCode(&var_declaration.node, codegen, _breaks);
@@ -3295,6 +3318,22 @@ pub const ForEachNode = struct {
             }
         }
 
+        // If iterable constant and empty, skip the node
+        if (self.iterable.isConstant(self.iterable)) {
+            const iterable = (try self.iterable.toValue(self.iterable, codegen.allocator, codegen.strings)).Obj;
+
+            if (switch (iterable.obj_type) {
+                .List => ObjList.cast(iterable).?.items.items.len == 0,
+                .Map => ObjMap.cast(iterable).?.map.count() == 0,
+                .String => ObjString.cast(iterable).?.string.len == 0,
+                .Enum => ObjEnum.cast(iterable).?.cases.items.len == 0,
+                else => unreachable,
+            }) {
+                try node.patchOptJumps(codegen);
+                return null;
+            }
+        }
+
         if (self.key) |key| {
             _ = try key.node.toByteCode(&key.node, codegen, _breaks);
         }
@@ -3424,6 +3463,14 @@ pub const WhileNode = struct {
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
+
+        // If condition constant and false, skip the node
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.allocator, codegen.strings)).Boolean) {
+            try node.patchOptJumps(codegen);
+            try node.endScope(codegen);
+
+            return null;
+        }
 
         const loop_start: usize = codegen.currentCode();
 
