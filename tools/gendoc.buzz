@@ -3,7 +3,6 @@ import "lib/debug";
 import "lib/json";
 import "lib/io";
 import "lib/fs";
-import "tools/html";
 
 object Declaration {
     str declarationType,
@@ -25,9 +24,60 @@ object Declaration {
         subDeclarations = subDeclarations ?? <str, Declaration>{},
     }
 
+    | Split docblock by @ instructions
+    static fun handleDocblock(str docblock) > {str, str} {
+        const pat atPattern = _@([^@ ]+)(\s[^\n@]+)?_;
+        {str, str} out = <str, str>{};
+
+        foreach (num i, str line in docblock.split("\n")) {
+            [str]? at = atPattern.match(line);
+
+            if (at != null) {
+                if (at!.len() > 2) {
+                    out[at![1]] = at![2];
+                } else {
+                    out[at![1]] = "";
+                }
+            } else {
+                out["unspecified"] = (out["unspecified"] ?? "") + line;
+            }
+        }
+
+        return out;
+    }
+
     fun toMarkdown() > str {
-        str out = "\n## `{this.name ?? ""} {this.typeDef}`\n"
-            + "{this.docblock ?? "Undocumented"}";
+        const pat atParamPattern = _([^\s]+) (.+)_;
+
+        str out = "\n## `{this.name ?? ""} {this.typeDef}`\n";
+
+        if (this.docblock == null) {
+            return out;
+        }
+
+        {str, str} processed = Declaration.handleDocblock(this.docblock!);
+
+        | Ignore things marked with @private
+        if (processed["private"] != null) {
+            return "";
+        }
+
+        out = out + (processed["unspecified"] ?? "");
+
+        foreach (str instruction, str content in processed) {
+            if (instruction == "param") {
+                [str]? param = atParamPattern.match(content);
+
+                out = out + "\n- ";
+                if (param != null) {
+                    out = "{out}**`{param![1]}`:** {param![2]}\n";
+                } else {
+                    out = "{out}{content}\n";
+                }
+            } else if (instruction == "return") {
+                out = "{out}\n\n**Returns:** {content}";
+            }
+        }
 
         foreach (str key, Declaration decl in this.subDeclarations) {
             out = "{out}\n{decl.toMarkdown()}";
@@ -35,37 +85,6 @@ object Declaration {
 
         return out;
     }
-
-    fun toNode() > Node {
-        Node root = Node.init(
-            "div",
-            attributes: {
-                "class": "decl",
-            },
-            children: [
-                Node.init(
-                    "h2",
-                    children: [
-                        text("{this.name ?? ""} {this.typeDef}"),
-                    ],
-                ),
-                Node.init(
-                    "p",
-                    children: [
-                        text(this.docblock ?? "Undocumented"),
-                    ]
-                )
-            ]
-        );
-
-        foreach (str key, Declaration decl in this.subDeclarations) {
-            root.children!.append(decl.toNode());
-        }
-
-        return root;
-    }
-
-    fun gen() > str -> this.toNode().gen()
 }
 
 fun extractDeclarations([Json] statements) > [Declaration] {
@@ -131,15 +150,6 @@ fun getDeclarations(str path) > [Declaration] {
     return extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
 }
 
-fun genHtmlDoc([Declaration] declarations) > str {
-    str out = "";
-    foreach (num i, Declaration decl in declarations) {
-        out = "{out}{decl.gen()}";
-    }
-
-    return out;
-}
-
 fun genMarkdownDoc([Declaration] declarations) > str {
     str out = "";
     foreach (num i, Declaration decl in declarations) {
@@ -150,42 +160,14 @@ fun genMarkdownDoc([Declaration] declarations) > str {
 }
 
 fun main([str] args) > void {
-    {str, str} doc = <str, str>{};
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {
             [Declaration] declarations = getDeclarations("lib/{file}");
 
-            doc[file] = genHtmlDoc(declarations);
             markdownDoc[file] = genMarkdownDoc(declarations);
         }
     }
-    
-    File file = File.open("{currentDirectory()}/doc/index.html", mode: FileMode.write);
-
-    file.write(
-        "<!DOCTYPE html>"
-        + "<head>"
-        + "<link rel=\"stylesheet\" href=\"style.css\" />"
-        + "</head>"
-        + "<html><body>"
-    );
-
-    file.write("<ul id=\"content\">");
-    foreach (str lib, str libDoc in doc) {
-        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
-
-        file.write("<li><a href=\"#{libName}\">{libName}</a></lib>");
-    }
-    file.write("</ul>");
-
-    foreach (str lib, str libDoc in doc) {
-        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
-        file.write("<h1 id=\"{libName}\">{libName}</h1><a href=\"#content\">^</a>{libDoc}");
-    }
-    file.write("</body></html>");
-
-    file.close();
 
     File mdFile = File.open("{currentDirectory()}/doc/index.md", mode: FileMode.write);
 

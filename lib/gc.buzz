@@ -1,4 +1,5 @@
 || Returns the number of allocated bytes
+|| @return allocated bytes
 extern fun allocated() > num;
 
 || Triggers a GC sweep

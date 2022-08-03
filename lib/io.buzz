@@ -1,11 +1,20 @@
+|| @private
 extern fun FileOpen(str filename, num mode) > num;
+|| @private
 extern fun FileClose(num fd) > void;
+|| @private
 extern fun FileReadAll(num fd) > str;
+|| @private
 extern fun FileReadLine(num fd) > str?;
+|| @private
 extern fun FileRead(num fd, num n) > str?;
+|| @private
 extern fun FileWrite(num fd, str bytes) > void;
+|| @private
 extern fun getStdIn() > num;
+|| @private
 extern fun getStdOut() > num;
+|| @private
 extern fun getStdErr() > num;
 
 || File mode with which you can open a file
@@ -23,6 +32,7 @@ object File {
     || Open file
     || @param filename Path of file to open
     || @param mode Mode with which to open it
+    || @return opened file
     static fun open(str filename, FileMode mode) > File {
         return File {
             fd = FileOpen(filename, mode: mode.value),
@@ -44,22 +54,24 @@ object File {
         return FileReadLine(this.fd);
     }
 
-    || Reads n bytes, returns null if nothing to read
+    || Reads `n` bytes, returns null if nothing to read
+    || @param n how many bytes to read
     fun read(num n) > str? {
         return FileRead(this.fd, n: n);
     }
 
     || Write bytes
+    || @param bytes string to write
     fun write(str bytes) > void {
         FileWrite(this.fd, bytes: bytes);
     }
 }
 
-|| File opened in read mode
+|| stdin
 const File stdin = File { fd = getStdIn() };
-|| File opened in write mode
+|| stdout
 const File stdout = File { fd = getStdOut() };
-|| File opened in write mode
+|| stderr
 const File stderr = File { fd = getStdErr() };
 
 export FileMode;

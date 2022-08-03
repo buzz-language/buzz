@@ -184,7 +184,7 @@ pub const Scanner = struct {
                     self.current.column = 0;
                     _ = self.advance();
 
-                    try block.append(' ');
+                    try block.append('\n');
                     break;
                 } else {
                     try block.append(char);

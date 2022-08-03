@@ -1,19 +1,19 @@
-|| Returns absolute value of n
+|| @return absolute value of n
 extern fun abs(num n) > num;
 
-|| Return acos of n
+|| @return acos of n
 extern fun acos(num n) > num;
 
-|| Return asin of n
+|| @return asin of n
 extern fun asin(num n) > num;
 
-|| Return atan of n
+|| @return atan of n
 extern fun atan(num n) > num;
 
-|| Return ceiled n
+|| @return ceiled n
 extern fun bzceil(num n) > num;
 
-|| Return cos of n
+|| @return cos of n
 extern fun bzcos(num n) > num;
 
 || π constant
@@ -24,19 +24,19 @@ fun deg(num n) > num {
     return n * 180 / pi;
 }
 
-|| Return exp of n
+|| @return exp of n
 extern fun bzexp(num n) > num;
 
-|| Returned floored n
+|| @returned floored n
 extern fun bzfloor(num n) > num;
 
-|| Return log(base) of n
+|| @return log(base) of n
 extern fun bzlog(num base, num n) > num;
 
-|| Return max of a and b
+|| @return max of a and b
 extern fun max(num a, num b) > num;
 
-|| Return min of a and b
+|| @return min of a and b
 extern fun min(num a, num b) > num;
 
 || Convert degree to radian
@@ -44,16 +44,16 @@ fun rad(num n) > num {
     return n * pi / 180;
 }
 
-|| Returns random number between 0 and 1
+|| @return random number between 0 and 1
 extern fun random() > num;
 
-|| Return sin of n
+|| @return sin of n
 extern fun bzsin(num n) > num;
 
-|| Return square root of n
+|| @return square root of n
 extern fun bzsqrt(num n) > num;
 
-|| Return tan of n
+|| @return tan of n
 extern fun bztan(num n) > num;
 
 export abs;

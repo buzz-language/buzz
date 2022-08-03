@@ -198,15 +198,15 @@ object Json {
     || When wrapped data is a list, list elements are themselves warpped in a `Json`
     [Json]? list = null,
 
-    || Returns wrapped data string value or empty string if not a string
+    || @return wrapped data string value or empty string if not a string
     fun stringValue() > str -> this.string ?? ""
-    || Returns wrapped data boolean value or `false` if not a boolean
+    || @return wrapped data boolean value or `false` if not a boolean
     fun booleanValue() > bool -> this.boolean ?? false
-    || Returns wrapped data number value or `0` if not a number
+    || @return wrapped data number value or `0` if not a number
     fun numberValue() > num -> this.number ?? 0
-    || Returns wrapped data map value or empty map if not a map
+    || @return wrapped data map value or empty map if not a map
     fun mapValue() > {str, Json} -> this.map ?? <str, Json>{}
-    || Returns wrapped data list value or empty list if not a list
+    || @return wrapped data list value or empty list if not a list
     fun listValue() > [Json] -> this.list ?? <Json>[]
 
     || Encode to a JSON string
