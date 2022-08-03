@@ -258,7 +258,7 @@ pub const Obj = struct {
     }
 };
 
-/// Regex pattern
+// Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
 pub const ObjPattern = struct {
     const Self = @This();
 

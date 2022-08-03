@@ -19,7 +19,7 @@ jobs:
       - name: Build
         run: zig build
       - name: Run tests
-        run: zig test src/main.zig --main-pkg-path src
+        run: zig test -lpcre -I/usr/local/include src/main.zig --main-pkg-path src
   lint:
     runs-on: macos-latest
     steps:
