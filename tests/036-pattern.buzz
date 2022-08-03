@@ -1,6 +1,6 @@
 import "lib/std";
 
-test "Declaring a pattern" {
+test "pattern.match" {
     pat pattern = _hello ([a-z]+)_;
 
     [str]? results = pattern.match("All i want to say is hello joe! hello mundo!");
@@ -8,4 +8,14 @@ test "Declaring a pattern" {
     assert(results?.len() == 2, message: "1 match and 1 capture");
     assert(results![0] == "hello joe", message: "first is match");
     assert(results![1] == "joe", message: "second is capture");
+}
+
+test "pattern.matchAll" {
+    pat pattern = _hello ([a-z]+)_;
+
+    [[str]]? results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
+
+    assert(results?.len() == 3, message: "found 3 matches");
+    assert(results![2].len() == 2, message: "1 match and 1 capture");
+    assert(results![2][1] == "neighbor", message: "capture is correct");
 }

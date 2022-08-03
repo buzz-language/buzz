@@ -288,7 +288,76 @@ pub const ObjPattern = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    // TODO: until we have proper iterator interface, match all
+    fn rawMatch(self: *Self, vm: *VM, subject: [:0]const u8, offset: *usize) !?*ObjList {
+        var results: ?*ObjList = null;
+
+        var output_vector: [3000]c_int = undefined;
+
+        const rc = pcre.pcre_exec(
+            self.pattern, // the compiled pattern
+            null, // no extra data - we didn't study the pattern
+            @ptrCast([*c]const u8, subject), // the subject string
+            @intCast(c_int, subject.len), // the length of the subject
+            @intCast(c_int, offset.*), // start offset
+            0, // default options
+            @ptrCast([*c]c_int, &output_vector), // output vector for substring information
+            output_vector.len, // number of elements in the output vector
+        );
+
+        switch (rc) {
+            pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => return null,
+            // TODO: handle ouptut_vector too small
+            0 => unreachable,
+            else => {
+                offset.* = @intCast(usize, output_vector[1]);
+
+                results = try allocateObject(
+                    vm,
+                    ObjList,
+                    ObjList.init(vm.allocator, try allocateObject(
+                        vm,
+                        ObjTypeDef,
+                        ObjTypeDef{
+                            .def_type = .String,
+                        },
+                    )),
+                );
+
+                var i: usize = 0;
+                while (i < rc) : (i += 1) {
+                    try results.?.items.append(
+                        (try copyString(
+                            vm,
+                            subject[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])],
+                        )).toValue(),
+                    );
+                }
+            },
+        }
+
+        return results;
+    }
+
+    fn rawMatchAll(self: *Self, vm: *VM, subject: [:0]const u8) !?*ObjList {
+        var results: ?*ObjList = null;
+        var offset: usize = 0;
+        while (true) {
+            if (try self.rawMatch(vm, subject, &offset)) |matches| {
+                results = results orelse try allocateObject(
+                    vm,
+                    ObjList,
+                    ObjList.init(vm.allocator, matches.type_def),
+                );
+
+                try results.?.items.append(matches.toValue());
+            } else {
+                return results;
+            }
+        }
+
+        return results;
+    }
+
     pub fn match(vm: *VM) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
         var subject = utils.toNullTerminated(
@@ -303,65 +372,44 @@ pub const ObjPattern = struct {
             return -1;
         }
 
-        var output_vector: [3000]c_int = undefined;
+        var offset: usize = 0;
+        if (self.rawMatch(vm, subject.?, &offset) catch {
+            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
-        const rc = pcre.pcre_exec(
-            self.pattern, // the compiled pattern
-            null, // no extra data - we didn't study the pattern
-            @ptrCast([*c]const u8, subject.?), // the subject string
-            @intCast(c_int, subject.?.len), // the length of the subject
-            0, // start at offset 0 in the subject
-            0, // default options
-            @ptrCast([*c]c_int, &output_vector), // output vector for substring information
-            output_vector.len, // number of elements in the output vector
+            return -1;
+        }) |results| {
+            vm.push(results.toValue());
+        } else {
+            vm.push(Value{ .Null = null });
+        }
+
+        return 1;
+    }
+
+    pub fn matchAll(vm: *VM) c_int {
+        var self = Self.cast(vm.peek(1).Obj).?;
+        var subject = utils.toNullTerminated(
+            vm.allocator,
+            ObjString.cast(vm.peek(0).Obj).?.string,
         );
 
-        switch (rc) {
-            pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => vm.push(Value{ .Null = null }),
-            // TODO: handle ouptut_vector too small
-            0 => unreachable,
-            else => {
-                var results: *ObjList = allocateObject(
-                    vm,
-                    ObjList,
-                    ObjList.init(vm.allocator, allocateObject(
-                        vm,
-                        ObjTypeDef,
-                        ObjTypeDef{
-                            .def_type = .String,
-                        },
-                    ) catch {
-                        var err: ?*ObjString = copyString(vm, "Could not match") catch null;
-                        vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+        if (subject == null) {
+            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
-                        return -1;
-                    }),
-                ) catch {
-                    var err: ?*ObjString = copyString(vm, "Could not match") catch null;
-                    vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            return -1;
+        }
 
-                    return -1;
-                };
+        if (self.rawMatchAll(vm, subject.?) catch {
+            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
-                var i: usize = 0;
-                while (i < rc) : (i += 1) {
-                    results.items.append(
-                        (copyString(vm, subject.?[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])]) catch {
-                            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
-                            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
-
-                            return -1;
-                        }).toValue(),
-                    ) catch {
-                        var err: ?*ObjString = copyString(vm, "Could not match") catch null;
-                        vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
-
-                        return -1;
-                    };
-                }
-
-                vm.push(results.toValue());
-            },
+            return -1;
+        }) |results| {
+            vm.push(results.toValue());
+        } else {
+            vm.push(Value{ .Null = null });
         }
 
         return 1;
@@ -370,6 +418,8 @@ pub const ObjPattern = struct {
     pub fn rawMember(method: []const u8) ?NativeFn {
         if (mem.eql(u8, method, "match")) {
             return match;
+        } else if (mem.eql(u8, method, "matchAll")) {
+            return matchAll;
         }
 
         return null;
@@ -412,6 +462,7 @@ pub const ObjPattern = struct {
 
         Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
+        // match(str subject) > [str]?
         if (mem.eql(u8, method, "match")) {
             var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
 
@@ -444,7 +495,7 @@ pub const ObjPattern = struct {
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                     .def_type = .List,
-                    .optional = false,
+                    .optional = true,
                     .resolved_type = list_def_union,
                 }),
             };
@@ -459,6 +510,70 @@ pub const ObjPattern = struct {
             );
 
             try Self.memberDefs.?.put("match", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "matchAll")) { // match(str subject) > [[str]]?
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the string.
+
+            try parameters.put(
+                "subject",
+                try parser.type_registry.getTypeDef(
+                    .{
+                        .def_type = .String,
+                    },
+                ),
+            );
+
+            var sub_list_def: ObjList.ListDef = ObjList.ListDef.init(
+                parser.allocator,
+                try parser.type_registry.getTypeDef(ObjTypeDef{
+                    .def_type = .String,
+                }),
+            );
+
+            var sub_list_def_union: ObjTypeDef.TypeUnion = .{
+                .List = sub_list_def,
+            };
+
+            var sub_list_type = try parser.type_registry.getTypeDef(ObjTypeDef{
+                .def_type = .List,
+                .optional = false,
+                .resolved_type = sub_list_def_union,
+            });
+
+            var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                parser.allocator,
+                sub_list_type,
+            );
+
+            var list_def_union: ObjTypeDef.TypeUnion = .{
+                .List = list_def,
+            };
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "matchAll", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
+                    .def_type = .List,
+                    .optional = true,
+                    .resolved_type = list_def_union,
+                }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("matchAll", native_type);
 
             return native_type;
         }

@@ -2170,6 +2170,7 @@ pub const Parser = struct {
         }
 
         var err = try self.allocator.allocSentinel(u8, 1000, 0);
+        // FIXME: crashes i don't know why
         // defer self.allocator.free(err);
         var err_offset: c_int = undefined;
         // PCRE_EXP_DECL pcre *pcre_compile(const char *, int, const char **, int *,
