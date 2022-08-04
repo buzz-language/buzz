@@ -646,7 +646,7 @@ pub const StringNode = struct {
 
         for (self.elements) |element, index| {
             if (element.type_def == null or element.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(element.location, "Unknown type");
+                try codegen.reportPlaceholder(element.type_def.?.resolved_type.?.Placeholder);
 
                 continue;
             }
@@ -815,7 +815,7 @@ pub const ListNode = struct {
 
         for (self.items) |item| {
             if (item.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(item.location, "Unknown type");
+                try codegen.reportPlaceholder(item.type_def.?.resolved_type.?.Placeholder);
             } else if (!item_type.eql(item.type_def.?)) {
                 try codegen.reportTypeCheckAt(item_type, item.type_def.?, "Bad list type", item.location);
             } else {
@@ -945,11 +945,11 @@ pub const MapNode = struct {
             try codegen.emitOpCode(self.node.location, .OP_SET_MAP);
 
             if (key.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(key.location, "Unknown type");
+                try codegen.reportPlaceholder(key.type_def.?.resolved_type.?.Placeholder);
             }
 
             if (value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(value.location, "Unknown type");
+                try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             }
 
             if (!key_type.eql(key.type_def.?)) {
@@ -1047,7 +1047,7 @@ pub const UnwrapNode = struct {
         var self = Self.cast(node).?;
 
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.unwrapped.location, "Unknown type");
+            try codegen.reportPlaceholder(self.original_type.?.resolved_type.?.Placeholder);
         }
 
         if (!self.original_type.?.optional) {
@@ -1143,7 +1143,7 @@ pub const ForceUnwrapNode = struct {
         var self = Self.cast(node).?;
 
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.unwrapped.location, "Unknown type");
+            try codegen.reportPlaceholder(self.original_type.?.resolved_type.?.Placeholder);
 
             return null;
         }
@@ -1303,7 +1303,7 @@ pub const UnaryNode = struct {
         var self = Self.cast(node).?;
 
         if (self.left.type_def == null or self.left.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Unknown type");
+            try codegen.reportPlaceholder(self.left.type_def.?.resolved_type.?.Placeholder);
 
             return null;
         }
@@ -1509,11 +1509,11 @@ pub const BinaryNode = struct {
         const right_type = self.right.type_def.?;
 
         if (self.left.type_def == null or self.left.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.left.location, "Unknown type");
+            try codegen.reportPlaceholder(self.left.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.right.type_def == null or self.right.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.right.location, "Unknown type");
+            try codegen.reportPlaceholder(self.right.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (!left_type.eql(right_type)) {
@@ -1777,15 +1777,15 @@ pub const SubscriptNode = struct {
         _ = try self.subscripted.toByteCode(self.subscripted, codegen, breaks);
 
         if (self.subscripted.type_def == null or self.subscripted.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.subscripted.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.subscripted.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.index.type_def == null or self.index.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.index.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.index.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.value != null and (self.value.?.type_def == null or self.value.?.type_def.?.def_type == .Placeholder)) {
-            try codegen.reportErrorAt(self.value.?.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.value.?.type_def.?.resolved_type.?.Placeholder);
         }
 
         switch (self.subscripted.type_def.?.def_type) {
@@ -2138,7 +2138,7 @@ pub const CallNode = struct {
         var self = Self.cast(node).?;
 
         if (self.callee.type_def == null or self.callee.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Called element is of unkown type");
+            try codegen.reportPlaceholder(self.callee.type_def.?.resolved_type.?.Placeholder);
         }
 
         var invoked = false;
@@ -2149,7 +2149,7 @@ pub const CallNode = struct {
             const field_accessed = dot.callee.type_def;
 
             if (field_accessed == null or field_accessed.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(dot.node.location, "Unknown field type");
+                try codegen.reportPlaceholder(field_accessed.?.resolved_type.?.Placeholder);
             }
 
             invoked = field_accessed.?.def_type != .Object;
@@ -2167,7 +2167,7 @@ pub const CallNode = struct {
         };
 
         if (callee_type == null or callee_type.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.callee.location, "Unknown type");
+            try codegen.reportPlaceholder(callee_type.?.resolved_type.?.Placeholder);
         }
 
         const args: std.StringArrayHashMap(*ObjTypeDef) = if (callee_type.?.def_type == .Function)
@@ -2207,7 +2207,7 @@ pub const CallNode = struct {
             // Type check the argument
             if (def_arg_type) |arg_type| {
                 if (argument.type_def == null or argument.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(argument.location, "Unknown type");
+                    try codegen.reportPlaceholder(argument.type_def.?.resolved_type.?.Placeholder);
                 } else if (!arg_type.eql(argument.type_def.?)) {
                     try codegen.reportTypeCheckAt(
                         arg_type,
@@ -2310,7 +2310,7 @@ pub const CallNode = struct {
         if (self.catches) |catches| {
             for (catches) |catch_clause| {
                 if (catch_clause.type_def == null or catch_clause.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(catch_clause.location, "Unknown type.");
+                    try codegen.reportPlaceholder(catch_clause.type_def.?.resolved_type.?.Placeholder);
                 } else {
                     switch (catch_clause.type_def.?.def_type) {
                         .Function => {
@@ -2536,9 +2536,9 @@ pub const VarDeclarationNode = struct {
 
         if (self.value) |value| {
             if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(value.location, "Unknown type.");
+                try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(node.location, "Unknown type.");
+                try codegen.reportPlaceholder(self.type_def.?.resolved_type.?.Placeholder);
             } else if (!(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
                     try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry),
@@ -2632,7 +2632,7 @@ pub const EnumNode = struct {
         var self = Self.cast(node).?;
 
         if (node.type_def.?.resolved_type.?.Enum.enum_type.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Unknwon enum type.");
+            try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Enum.enum_type.resolved_type.?.Placeholder);
         }
 
         try codegen.emitCodeArg(self.node.location, .OP_ENUM, try codegen.makeConstant(node.type_def.?.toValue()));
@@ -2642,7 +2642,7 @@ pub const EnumNode = struct {
 
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(case.location, "Unknown type.");
+                try codegen.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
             } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry))).eql(case.type_def.?)) {
                 try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
             }
@@ -2892,7 +2892,7 @@ pub const IfNode = struct {
         var self = Self.cast(node).?;
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.condition.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
@@ -3005,14 +3005,7 @@ pub const ReturnNode = struct {
             if (value.type_def == null) {
                 try codegen.reportErrorAt(value.location, "Unknown type.");
             } else if (value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorFmt(
-                    value.type_def.?.resolved_type.?.Placeholder.where,
-                    "Unresolved placeholder @{} ({s})",
-                    .{
-                        @ptrToInt(value.type_def.?),
-                        if (value.type_def.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-                    },
-                );
+                try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
                     codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type,
@@ -3106,7 +3099,7 @@ pub const ForNode = struct {
         const loop_start: usize = codegen.currentCode();
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.condition.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
@@ -3125,7 +3118,7 @@ pub const ForNode = struct {
         const expr_loop: usize = codegen.currentCode();
         for (self.post_loop.items) |expr| {
             if (expr.type_def == null or expr.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(expr.location, "Unknown type");
+                try codegen.reportPlaceholder(expr.type_def.?.resolved_type.?.Placeholder);
             }
 
             _ = try expr.toByteCode(expr, codegen, _breaks);
@@ -3255,10 +3248,11 @@ pub const ForEachNode = struct {
         // Type checking
         if (self.iterable.type_def == null or self.iterable.type_def.?.def_type == .Placeholder) {
             try codegen.reportErrorAt(self.iterable.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.iterable.type_def.?.resolved_type.?.Placeholder);
         } else {
             if (self.key) |key| {
                 if (key.type_def == null or key.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(key.node.location, "Unknown type.");
+                    try codegen.reportPlaceholder(key.type_def.?.resolved_type.?.Placeholder);
                 }
 
                 switch (self.iterable.type_def.?.def_type) {
@@ -3278,7 +3272,7 @@ pub const ForEachNode = struct {
             }
 
             if (self.value.type_def == null or self.value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(self.value.node.location, "Unknown type.");
+                try codegen.reportPlaceholder(self.value.type_def.?.resolved_type.?.Placeholder);
             }
 
             switch (self.iterable.type_def.?.def_type) {
@@ -3479,7 +3473,7 @@ pub const WhileNode = struct {
         const loop_start: usize = codegen.currentCode();
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(self.condition.location, "Unknown type.");
+            try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
@@ -3860,7 +3854,7 @@ pub const DotNode = struct {
         const callee_type = self.callee.type_def.?;
 
         if (callee_type.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Unknown type");
+            try codegen.reportPlaceholder(callee_type.resolved_type.?.Placeholder);
         }
 
         // zig fmt: off
@@ -3892,7 +3886,7 @@ pub const DotNode = struct {
             .ObjectInstance, .Object => {
                 if (self.value) |value| {
                     if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
-                        try codegen.reportErrorAt(value.location, "Unknown type");
+                        try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
                     }
 
                     _ = try value.toByteCode(value, codegen, breaks);
@@ -4031,7 +4025,7 @@ pub const ObjectInitNode = struct {
         try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
-            try codegen.reportErrorAt(node.location, "Unknown type.");
+            try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
         } else if (node.type_def.?.def_type != .ObjectInstance) {
             try codegen.reportErrorAt(node.location, "Expected an object or a class.");
         }
@@ -4053,7 +4047,7 @@ pub const ObjectInitNode = struct {
                 try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(value.location, "Unknown type.");
+                    try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
                 } else if (!prop.eql(value.type_def.?)) {
                     try codegen.reportTypeCheckAt(prop, value.type_def.?, "Wrong property type", value.location);
                 }
@@ -4189,7 +4183,7 @@ pub const ObjectDeclarationNode = struct {
             const member_name_constant: u24 = try codegen.identifierConstant(member_name);
 
             if (member.type_def == null or member.type_def.?.def_type == .Placeholder) {
-                try codegen.reportErrorAt(member.location, "Unknown type");
+                try codegen.reportPlaceholder(member.type_def.?.resolved_type.?.Placeholder);
             }
 
             const is_static = object_type.resolved_type.?.Object.static_fields.get(member_name) != null;
@@ -4212,7 +4206,7 @@ pub const ObjectDeclarationNode = struct {
             // Create property default value
             if (member) |default| {
                 if (default.type_def == null or default.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportErrorAt(default.location, "Unknown type");
+                    try codegen.reportPlaceholder(default.type_def.?.resolved_type.?.Placeholder);
                 } else if (!property_type.?.eql(default.type_def.?)) {
                     try codegen.reportTypeCheckAt(property_type.?, default.type_def.?, "Wrong property default value type", default.location);
                 }

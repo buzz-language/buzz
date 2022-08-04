@@ -1,0 +1,5 @@
+import "lib/std";
+
+test "Unknown string interpolated expression" {
+    str hello = "hello {world}";
+}

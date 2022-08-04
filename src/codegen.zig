@@ -26,6 +26,7 @@ const Value = _value.Value;
 const Chunk = _chunk.Chunk;
 const Token = _token.Token;
 const ObjTypeDef = _obj.ObjTypeDef;
+const PlaceholderDef = _obj.PlaceholderDef;
 const TypeRegistry = _obj.TypeRegistry;
 
 pub const Frame = struct {
@@ -302,5 +303,16 @@ pub const CodeGen = struct {
         error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
 
         try self.reportErrorAt(at, error_message);
+    }
+
+    // Got to the root placeholder and report it
+    pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) anyerror!void {
+        if (placeholder.parent) |parent| {
+            try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
+        } else {
+            // Should be a root placeholder with a name
+            assert(placeholder.name != null);
+            try self.reportErrorFmt(placeholder.where, "`{s}` is not defined", .{placeholder.name.?.string});
+        }
     }
 };
