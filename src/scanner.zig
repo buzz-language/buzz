@@ -7,6 +7,8 @@ const TokenType = tk.TokenType;
 
 pub const SourceLocation = struct {
     start: usize,
+    start_line: usize,
+    start_column: usize,
     line: usize,
     column: usize,
     offset: usize,
@@ -20,10 +22,15 @@ pub const Scanner = struct {
     source: []const u8,
     current: SourceLocation = .{
         .start = 0,
+        .start_line = 0,
+        .start_column = 0,
         .line = 0,
         .column = 0,
         .offset = 0,
     },
+    // When scanning an interpolation, we want to remember the scanned string line
+    line_offset: usize = 0,
+    column_offset: usize = 0,
 
     pub fn init(allocator: Allocator, source: []const u8) Self {
         return Self{
@@ -54,6 +61,8 @@ pub const Scanner = struct {
         self.skipWhitespaces();
 
         self.current.start = self.current.offset;
+        self.current.start_line = self.current.line;
+        self.current.start_column = self.current.column;
 
         if (self.isEOF()) {
             return self.makeToken(.Eof, null, null);
@@ -394,8 +403,8 @@ pub const Scanner = struct {
             .literal_string = literal_string,
             .literal_number = literal_number,
             .offset = self.current.start,
-            .line = self.current.line,
-            .column = self.current.column,
+            .line = self.line_offset + self.current.start_line,
+            .column = self.column_offset + self.current.start_column,
         };
     }
 };

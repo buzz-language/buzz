@@ -235,7 +235,7 @@ pub const CodeGen = struct {
             try writer.print(" {s}\n\u{001b}[0m", .{line});
 
             if (l == location.line) {
-                try writer.writeByteNTimes(' ', (if (location.column > 0) location.column - 1 else 0) + prefix_len);
+                try writer.writeByteNTimes(' ', location.column + prefix_len);
                 try writer.print("^\n", .{});
             }
 

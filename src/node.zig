@@ -116,7 +116,6 @@ pub const ParseNode = struct {
     toValue: fn (*Self, Allocator, *std.StringHashMap(*ObjString)) anyerror!Value = val,
     isConstant: fn (*Self) bool,
 
-    // TODO: constant expressions (https://github.com/giann/buzz/issues/46)
     pub fn constant(_: *Self) bool {
         return false;
     }
@@ -2541,7 +2540,12 @@ pub const VarDeclarationNode = struct {
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportErrorAt(node.location, "Unknown type.");
             } else if (!(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
-                try codegen.reportTypeCheckAt(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry), value.type_def.?, "Wrong variable type", value.location);
+                try codegen.reportTypeCheckAt(
+                    try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry),
+                    value.type_def.?,
+                    "Wrong variable type",
+                    value.location,
+                );
             }
 
             _ = try value.toByteCode(value, codegen, breaks);

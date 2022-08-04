@@ -2153,7 +2153,7 @@ pub const Parser = struct {
             .slot_type = slot_type,
             .slot_constant = slot_constant,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = name;
         node.node.type_def = var_def;
 
         return &node.node;
@@ -2221,7 +2221,16 @@ pub const Parser = struct {
     }
 
     fn string(self: *Self, _: bool) anyerror!*ParseNode {
-        return &(try StringParser.init(self, self.parser.previous_token.?.literal_string.?).parse()).node;
+        const string_token = self.parser.previous_token.?;
+        const string_node = (try StringParser.init(
+            self,
+            string_token.literal_string.?,
+            string_token.line,
+            string_token.column,
+        ).parse());
+        string_node.node.location = string_token;
+
+        return &string_node.node;
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ParseNode {

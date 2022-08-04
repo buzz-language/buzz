@@ -30,13 +30,17 @@ pub const StringParser = struct {
     previous_interp: ?usize = null,
     chunk_count: usize = 0,
     elements: std.ArrayList(*ParseNode),
+    line_offset: usize,
+    column_offset: usize,
 
-    pub fn init(parser: *Parser, source: []const u8) Self {
+    pub fn init(parser: *Parser, source: []const u8, line_offset: usize, column_offset: usize) Self {
         return Self{
             .parser = parser,
             .source = source,
             .current_chunk = std.ArrayList(u8).init(parser.allocator),
             .elements = std.ArrayList(*ParseNode).init(parser.allocator),
+            .line_offset = line_offset,
+            .column_offset = column_offset,
         };
     }
 
@@ -47,6 +51,13 @@ pub const StringParser = struct {
 
         self.current = self.source[self.offset];
         self.offset += 1;
+
+        if (self.current != null and self.current.? == '\n') {
+            self.line_offset += 1;
+            self.column_offset += 0;
+        } else {
+            self.column_offset += 1;
+        }
 
         return self.current;
     }
@@ -105,6 +116,7 @@ pub const StringParser = struct {
             ),
         };
         node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
+        node.node.location = self.parser.parser.previous_token.?;
 
         try self.elements.append(node.toNode());
     }
@@ -117,6 +129,8 @@ pub const StringParser = struct {
         var expr: []const u8 = self.source[self.offset..];
 
         var expr_scanner = Scanner.init(self.parser.allocator, expr);
+        expr_scanner.line_offset = self.line_offset;
+        expr_scanner.column_offset = self.column_offset;
 
         // Replace parser scanner with one that only looks at that substring
         var scanner = self.parser.scanner;
