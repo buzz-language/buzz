@@ -2272,6 +2272,9 @@ pub const CallNode = struct {
 
         if (callee_type == null or callee_type.?.def_type == .Placeholder) {
             try codegen.reportPlaceholder(callee_type.?.resolved_type.?.Placeholder);
+
+            // We know nothing about the function being called, no need to go any further
+            return null;
         }
 
         const args: std.StringArrayHashMap(*ObjTypeDef) = if (callee_type.?.def_type == .Function)
