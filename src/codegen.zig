@@ -52,7 +52,13 @@ pub const CodeGen = struct {
     // Used to generate error messages
     parser: *Parser,
 
-    pub fn init(allocator: Allocator, parser: *Parser, strings: *std.StringHashMap(*ObjString), type_registry: *TypeRegistry, testing: bool) Self {
+    pub fn init(
+        allocator: Allocator,
+        parser: *Parser,
+        strings: *std.StringHashMap(*ObjString),
+        type_registry: *TypeRegistry,
+        testing: bool,
+    ) Self {
         return .{
             .allocator = allocator,
             .parser = parser,
@@ -217,7 +223,7 @@ pub const CodeGen = struct {
     }
 
     pub fn report(self: *Self, location: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try self.parser.scanner.?.getLines(self.allocator, if (location.line > 0) location.line - 1 else 0, 3);
+        const lines: std.ArrayList([]const u8) = try location.getLines(self.allocator, 3);
         defer lines.deinit();
         var report_line = std.ArrayList(u8).init(self.allocator);
         defer report_line.deinit();
@@ -242,7 +248,13 @@ pub const CodeGen = struct {
 
             l += 1;
         }
-        std.debug.print("{s}{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{ report_line.items, location.line + 1, location.column + 1, message });
+        std.debug.print("{s}{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{
+            report_line.items,
+            location.script_name,
+            location.line + 1,
+            location.column + 1,
+            message,
+        });
 
         if (Config.debug_stop_on_report) {
             unreachable;
@@ -261,6 +273,8 @@ pub const CodeGen = struct {
         try self.report(
             Token{
                 .token_type = .Error,
+                .source = "",
+                .script_name = "",
                 .lexeme = "",
                 .line = 0,
                 .column = 0,

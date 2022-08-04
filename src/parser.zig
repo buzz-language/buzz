@@ -343,7 +343,7 @@ pub const Parser = struct {
             self.scanner = null;
         }
 
-        self.scanner = Scanner.init(self.allocator, source);
+        self.scanner = Scanner.init(self.allocator, file_name, source);
 
         const function_type: FunctionType = if (self.imported) .Script else .ScriptEntryPoint;
         var function_node = try self.allocator.create(FunctionNode);
@@ -557,7 +557,7 @@ pub const Parser = struct {
     }
 
     fn report(self: *Self, token: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try self.scanner.?.getLines(self.allocator, if (token.line > 0) token.line - 1 else 0, 3);
+        const lines: std.ArrayList([]const u8) = try token.getLines(self.allocator, 3);
         defer lines.deinit();
         var report_line = std.ArrayList(u8).init(self.allocator);
         defer report_line.deinit();
@@ -582,7 +582,13 @@ pub const Parser = struct {
 
             l += 1;
         }
-        std.debug.print("{s}{}:{}: \u{001b}[31mError: {s}\n", .{ report_line.items, token.line + 1, token.column + 1, message });
+        std.debug.print("{s}{s}:{}:{}: \u{001b}[31mError: {s}\n", .{
+            report_line.items,
+            token.script_name,
+            token.line + 1,
+            token.column + 1,
+            message,
+        });
 
         if (Config.debug_stop_on_report) {
             unreachable;
@@ -1152,6 +1158,8 @@ pub const Parser = struct {
                         Token{
                             .token_type = .Identifier,
                             .lexeme = "super",
+                            .source = "",
+                            .script_name = "",
                             .line = 0,
                             .column = 0,
                         },
@@ -1515,7 +1523,9 @@ pub const Parser = struct {
                 .token_type = .Identifier,
                 .line = 0,
                 .column = 0,
+                .source = "",
                 .lexeme = "$",
+                .script_name = "",
             },
             iterable.type_def.?,
             true,
@@ -2231,6 +2241,7 @@ pub const Parser = struct {
         const string_node = (try StringParser.init(
             self,
             string_token.literal_string.?,
+            self.script_name,
             string_token.line,
             string_token.column,
         ).parse());
@@ -3005,6 +3016,8 @@ pub const Parser = struct {
                     .lexeme = "this",
                     .line = 0,
                     .column = 0,
+                    .source = "",
+                    .script_name = "",
                 },
                 false,
             )).?,
@@ -3024,6 +3037,8 @@ pub const Parser = struct {
                     .lexeme = "super",
                     .line = 0,
                     .column = 0,
+                    .source = "",
+                    .script_name = "",
                 },
                 false,
             )).?;
@@ -3040,6 +3055,8 @@ pub const Parser = struct {
                     .lexeme = "super",
                     .line = 0,
                     .column = 0,
+                    .source = "",
+                    .script_name = "",
                 },
                 false,
             )).?;
@@ -3302,6 +3319,8 @@ pub const Parser = struct {
             .lexeme = test_id.items,
             .line = 0,
             .column = 0,
+            .source = "",
+            .script_name = "",
         };
 
         const slot = try self.declareVariable(&function_def_placeholder, name_token, true);

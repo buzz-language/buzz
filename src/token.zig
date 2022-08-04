@@ -4,6 +4,9 @@ const mem = std.mem;
 pub const Token = struct {
     const Self = @This();
 
+    // Since we can parse multiple file, we have to keep a reference to the source in which this token occured
+    source: []const u8,
+    script_name: []const u8,
     token_type: TokenType,
     lexeme: []const u8,
     // Literal is either a string or a number
@@ -19,6 +22,8 @@ pub const Token = struct {
             .lexeme = name,
             .line = 0,
             .column = 0,
+            .source = "",
+            .script_name = "",
         };
     }
 
@@ -26,11 +31,33 @@ pub const Token = struct {
         return .{
             .token_type = self.token_type,
             .lexeme = self.lexeme,
+            .source = self.source,
+            .script_name = self.script_name,
             .literal_string = self.literal_string,
             .literal_number = self.literal_number,
             .line = self.line,
             .column = self.column,
         };
+    }
+
+    // Return `n` lines around the token line in its source
+    pub fn getLines(self: Self, allocator: mem.Allocator, n: usize) !std.ArrayList([]const u8) {
+        var lines = std.ArrayList([]const u8).init(allocator);
+        const index = if (self.line > 0) self.line - 1 else 0;
+
+        var it = std.mem.split(u8, self.source, "\n");
+        var count: usize = 0;
+        while (it.next()) |line| : (count += 1) {
+            if (count >= index and count < index + n) {
+                try lines.append(line);
+            }
+
+            if (count > index + n) {
+                break;
+            }
+        }
+
+        return lines;
     }
 };
 

@@ -1,9 +1,12 @@
 import "lib/std";
+import "tests/compile_errors/bad-import";
 
 test "Unknown string interpolated expression" {
     num hello = 12 + world;
 
     num by = hello + shey;
+
+    print(by);
 }
 
 num shey = 42 + joe;

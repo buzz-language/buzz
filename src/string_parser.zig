@@ -18,6 +18,7 @@ const copyStringRaw = _obj.copyStringRaw;
 pub const StringParser = struct {
     const Self = @This();
 
+    script_name: []const u8,
     source: []const u8,
 
     parser: *Parser,
@@ -33,7 +34,7 @@ pub const StringParser = struct {
     line_offset: usize,
     column_offset: usize,
 
-    pub fn init(parser: *Parser, source: []const u8, line_offset: usize, column_offset: usize) Self {
+    pub fn init(parser: *Parser, source: []const u8, script_name: []const u8, line_offset: usize, column_offset: usize) Self {
         return Self{
             .parser = parser,
             .source = source,
@@ -41,6 +42,7 @@ pub const StringParser = struct {
             .elements = std.ArrayList(*ParseNode).init(parser.allocator),
             .line_offset = line_offset,
             .column_offset = column_offset,
+            .script_name = script_name,
         };
     }
 
@@ -128,7 +130,7 @@ pub const StringParser = struct {
     fn interpolation(self: *Self) !void {
         var expr: []const u8 = self.source[self.offset..];
 
-        var expr_scanner = Scanner.init(self.parser.allocator, expr);
+        var expr_scanner = Scanner.init(self.parser.allocator, self.parser.script_name, expr);
         expr_scanner.line_offset = self.line_offset;
         expr_scanner.column_offset = self.column_offset;
 

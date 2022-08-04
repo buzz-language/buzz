@@ -31,30 +31,14 @@ pub const Scanner = struct {
     // When scanning an interpolation, we want to remember the scanned string line
     line_offset: usize = 0,
     column_offset: usize = 0,
+    script_name: []const u8,
 
-    pub fn init(allocator: Allocator, source: []const u8) Self {
+    pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) Self {
         return Self{
             .allocator = allocator,
             .source = source,
+            .script_name = script_name,
         };
-    }
-
-    pub fn getLines(self: *Self, allocator: Allocator, index: usize, n: usize) !std.ArrayList([]const u8) {
-        var lines = std.ArrayList([]const u8).init(allocator);
-
-        var it = std.mem.split(u8, self.source, "\n");
-        var count: usize = 0;
-        while (it.next()) |line| : (count += 1) {
-            if (count >= index and count < index + n) {
-                try lines.append(line);
-            }
-
-            if (count > index + n) {
-                break;
-            }
-        }
-
-        return lines;
     }
 
     pub fn scanToken(self: *Self) !Token {
@@ -405,6 +389,8 @@ pub const Scanner = struct {
             .offset = self.current.start,
             .line = self.line_offset + self.current.start_line,
             .column = self.column_offset + self.current.start_column,
+            .source = self.source,
+            .script_name = self.script_name,
         };
     }
 };

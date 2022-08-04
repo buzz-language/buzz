@@ -1,0 +1,3 @@
+fun yeah() > void {
+    print(hello);
+}
