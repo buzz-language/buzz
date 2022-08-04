@@ -128,6 +128,38 @@ pub const ParseNode = struct {
         return null;
     }
 
+    // If returns true, node must be skipped
+    pub fn synchronize(self: *Self, codegen: *CodeGen) bool {
+        if (codegen.panic_mode) {
+            switch (self.node_type) {
+                .ObjectDeclaration,
+                .Enum,
+                .FunDeclaration,
+                .If,
+                .While,
+                .DoUntil,
+                .For,
+                .ForEach,
+                .Return,
+                .VarDeclaration,
+                .Throw,
+                .Break,
+                .Continue,
+                .Export,
+                .Import,
+                => {
+                    codegen.panic_mode = false;
+                    return false;
+                },
+                else => {},
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     fn patchOptJumps(self: *Self, codegen: *CodeGen) !void {
         if (self.patch_opt_jumps) {
             assert(codegen.opt_jumps != null);
@@ -206,6 +238,10 @@ pub const ExpressionNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -279,6 +315,10 @@ pub const NamedVariableNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -375,6 +415,10 @@ pub const NumberNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -432,6 +476,10 @@ pub const BooleanNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -489,6 +537,10 @@ pub const StringLiteralNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -546,6 +598,10 @@ pub const PatternNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -631,6 +687,10 @@ pub const StringNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -730,6 +790,10 @@ pub const NullNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_NULL);
@@ -806,6 +870,10 @@ pub const ListNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -925,6 +993,10 @@ pub const MapNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1042,6 +1114,10 @@ pub const UnwrapNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1138,6 +1214,10 @@ pub const ForceUnwrapNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1219,6 +1299,10 @@ pub const IsNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1298,6 +1382,10 @@ pub const UnaryNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1501,6 +1589,10 @@ pub const BinaryNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1770,6 +1862,10 @@ pub const SubscriptNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -1908,6 +2004,10 @@ pub const FunctionNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2133,6 +2233,10 @@ pub const CallNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2459,6 +2563,10 @@ pub const FunDeclarationNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2530,6 +2638,10 @@ pub const VarDeclarationNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2627,6 +2739,10 @@ pub const EnumNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2724,6 +2840,10 @@ pub const ThrowNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2785,6 +2905,10 @@ pub const BreakNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         assert(breaks != null);
@@ -2834,6 +2958,10 @@ pub const ContinueNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         assert(breaks != null);
@@ -2887,6 +3015,10 @@ pub const IfNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -2997,6 +3129,10 @@ pub const ReturnNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3688,6 +3824,10 @@ pub const BlockNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3772,6 +3912,10 @@ pub const SuperNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -3845,6 +3989,10 @@ pub const DotNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -4016,6 +4164,10 @@ pub const ObjectInitNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -4149,6 +4301,10 @@ pub const ObjectDeclarationNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
@@ -4389,6 +4545,10 @@ pub const ImportNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;

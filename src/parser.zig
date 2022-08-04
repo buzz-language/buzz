@@ -861,6 +861,7 @@ pub const Parser = struct {
                 return;
             }
 
+            // FIXME: update this
             switch (self.parser.current_token.?.token_type) {
                 .Class,
                 .Object,
@@ -875,6 +876,11 @@ pub const Parser = struct {
                 .ForEach,
                 .Return,
                 .Switch,
+                .Throw,
+                .Break,
+                .Continue,
+                .Export,
+                .Import,
                 => return,
                 else => {},
             }

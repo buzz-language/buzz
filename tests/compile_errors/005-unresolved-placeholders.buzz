@@ -1,5 +1,9 @@
 import "lib/std";
 
 test "Unknown string interpolated expression" {
-    str hello = "hello {world}";
+    num hello = 12 + world;
+
+    num by = hello + shey;
 }
+
+num shey = 42 + joe;
