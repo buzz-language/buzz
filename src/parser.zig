@@ -573,20 +573,20 @@ pub const Parser = struct {
             var prefix_len: usize = report_line.items.len;
             try writer.print(" {: >5} |", .{l + 1});
             prefix_len = report_line.items.len - prefix_len;
-            try writer.print(" {s}\n", .{line});
+            try writer.print(" {s}\n\u{001b}[0m", .{line});
 
             if (l == token.line) {
                 try writer.writeByteNTimes(' ', token.column - 1 + prefix_len);
-                try writer.print("^\n", .{});
+                try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
             }
 
             l += 1;
         }
-        std.debug.print("{s}{s}:{}:{}: \u{001b}[31mError: {s}\n", .{
-            report_line.items,
+        std.debug.print("{s}:{}:{}:\n{s}\u{001b}[31mSyntax error:\u{001b}[0m {s}\n\n", .{
             token.script_name,
             token.line + 1,
             token.column + 1,
+            report_line.items,
             message,
         });
 

@@ -229,7 +229,7 @@ pub const CodeGen = struct {
         defer report_line.deinit();
         var writer = report_line.writer();
 
-        try writer.print("\n", .{});
+        try writer.print("", .{});
         var l: usize = if (location.line > 0) location.line - 1 else 0;
         for (lines.items) |line| {
             if (l != location.line) {
@@ -243,16 +243,16 @@ pub const CodeGen = struct {
 
             if (l == location.line) {
                 try writer.writeByteNTimes(' ', location.column + prefix_len);
-                try writer.print("^\n", .{});
+                try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
             }
 
             l += 1;
         }
-        std.debug.print("{s}{s}:{}:{}: \u{001b}[31mError:\u{001b}[0m {s}\n", .{
-            report_line.items,
+        std.debug.print("{s}:{}:{}:\n{s}\u{001b}[31mError:\u{001b}[0m {s}\n\n", .{
             location.script_name,
             location.line + 1,
             location.column + 1,
+            report_line.items,
             message,
         });
 
