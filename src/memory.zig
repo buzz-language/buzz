@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const VM = @import("./vm.zig").VM;
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
+const Fiber = _vm.Fiber;
 const _value = @import("./value.zig");
 const _obj = @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
@@ -26,6 +28,7 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjNative = _obj.ObjNative;
 const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
+const ObjFiber = _obj.ObjFiber;
 
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);
@@ -100,6 +103,7 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
         .Native => ObjNative.cast(obj).?.mark(vm),
         .UserData => ObjUserData.cast(obj).?.mark(vm),
         .Pattern => ObjPattern.cast(obj).?.mark(vm),
+        .Fiber => try ObjFiber.cast(obj).?.mark(vm),
     };
 }
 
@@ -164,6 +168,11 @@ fn freeObj(vm: *VM, obj: *Obj) void {
         .Bound => free(vm, ObjBoundMethod, ObjBoundMethod.cast(obj).?),
         .Native => free(vm, ObjNative, ObjNative.cast(obj).?),
         .UserData => free(vm, ObjUserData, ObjUserData.cast(obj).?),
+        .Fiber => {
+            var obj_fiber = ObjFiber.cast(obj).?;
+            obj_fiber.fiber.deinit();
+            free(vm, ObjFiber, obj_fiber);
+        },
     }
 }
 
@@ -173,25 +182,30 @@ pub fn markValue(vm: *VM, value: Value) !void {
     }
 }
 
-fn markRoots(vm: *VM) !void {
-    // Mark stack values
-    var i = @ptrCast([*]Value, vm.stack);
-    while (@ptrToInt(i) < @ptrToInt(vm.stack_top)) : (i += 1) {
+pub fn markFiber(vm: *VM, fiber: *Fiber) !void {
+    // Mark main fiber
+    var i = @ptrCast([*]Value, fiber.stack);
+    while (@ptrToInt(i) < @ptrToInt(fiber.stack_top)) : (i += 1) {
         try markValue(vm, i[0]);
     }
 
     // Mark closure
-    for (vm.frames.items) |frame| {
+    for (fiber.frames.items) |frame| {
         try markObj(vm, frame.closure.toObj());
     }
 
     // Mark opened upvalues
-    if (vm.open_upvalues) |open_upvalues| {
+    if (fiber.open_upvalues) |open_upvalues| {
         var upvalue: ?*ObjUpValue = open_upvalues;
         while (upvalue) |unwrapped| : (upvalue = unwrapped.next) {
             try markObj(vm, unwrapped.toObj());
         }
     }
+}
+
+fn markRoots(vm: *VM) !void {
+    // Mark main fiber
+    try markFiber(vm, vm.current_fiber);
 
     // Mark globals
     for (vm.globals.items) |global| {

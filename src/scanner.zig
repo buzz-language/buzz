@@ -114,6 +114,7 @@ pub const Scanner = struct {
                     return self.makeToken(.Minus, null, null);
                 }
             },
+            '&' => return self.makeToken(.Ampersand, null, null),
             '*' => return self.makeToken(if (self.match('=')) .StarEqual else .Star, null, null),
             '/' => return self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null),
             '%' => return self.makeToken(.Percent, null, null),

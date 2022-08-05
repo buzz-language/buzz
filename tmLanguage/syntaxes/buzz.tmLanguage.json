@@ -32,7 +32,7 @@
       "patterns": [
         {
           "name": "keyword.control.buzz",
-          "match": "\\b(void|static|const|extern|import|export|from|test|as|in|while|if|else|fun|try|catch|throw|constructor|return|switch|default|break|for|foreach|do|until|continue)\\b"
+          "match": "\\b(void|static|const|extern|import|export|from|test|as|in|while|if|else|fun|try|catch|throw|constructor|return|switch|default|break|for|foreach|do|until|continue|resolve|resume|yield)\\b"
         },
         {
           "name": "keyword.operator.assignment.buzz",
@@ -52,7 +52,7 @@
         },
         {
           "name": "keyword.operator.comparison.buzz",
-          "match": "(==|!=|<=?|>=?|\\bis|\\?\\?)"
+          "match": "(==|!=|<=?|>=?|\\bis|\\?\\?|&)"
         },
         {
           "name": "keyword.declaration.dart",
@@ -68,7 +68,7 @@
         },
         {
           "name": "storage.type.built-in.primitive.buzz",
-          "match": "\\b(str|num|bool|type|pat)\\b\\??"
+          "match": "\\b(str|num|fib|bool|type|pat)\\b\\??"
         }
       ]
     },

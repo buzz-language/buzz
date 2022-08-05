@@ -85,6 +85,10 @@ pub const ParseNodeType = enum(u8) {
     Break,
     Continue,
     Call,
+    AsyncCall,
+    Resume,
+    Resolve,
+    Yield,
     If,
     Block, // For semantic purposes only
     Return,
@@ -2173,6 +2177,7 @@ pub const FunctionNode = struct {
         const function_def = ObjFunction.FunctionDef{
             .name = try copyStringRaw(parser.strings, parser.allocator, function_name, false),
             .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
+            .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
             .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
             .function_type = function_type,
@@ -2208,6 +2213,277 @@ pub const FunctionNode = struct {
     }
 };
 
+pub const YieldNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Yield,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    expression: *ParseNode,
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?; // self
+
+        _ = try self.expression.toByteCode(self.expression, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_YIELD);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        const self = Self.cast(node).?; // self
+
+        try out.writeAll("{\"node\": \"Yield\", \"expression\": ");
+
+        try self.expression.toJson(self.expression, out);
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Yield) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const ResolveNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Resolve,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    fiber: *ParseNode,
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?; // self
+
+        _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_RESOLVE);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        const self = Self.cast(node).?; // self
+
+        try out.writeAll("{\"node\": \"Resolve\", \"fiber\": ");
+
+        try self.fiber.toJson(self.fiber, out);
+
+        try out.writeAll(",");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Resolve) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const ResumeNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Resume,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    fiber: *ParseNode,
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?; // self
+
+        _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_RESUME);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        const self = Self.cast(node).?; // self
+
+        try out.writeAll("{\"node\": \"Resume\", \"fiber\": ");
+
+        try self.fiber.toJson(self.fiber, out);
+
+        try out.writeAll(",");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Resume) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const AsyncCallNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .AsyncCall,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    call: *ParseNode,
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        var self = Self.cast(node).?; // self
+
+        // Push fiber type as constant (we only need it if the fiber is printed out)
+        // Should not interfere with local counts since OP_ROUTINE will consume it right away
+        try codegen.emitConstant(
+            node.location,
+            node.type_def.?.toValue(),
+        );
+
+        _ = try self.call.toByteCode(self.call, codegen, breaks);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+        const self = Self.cast(node).?; // self
+
+        try out.writeAll("{\"node\": \"AsyncCall\", \"call\": ");
+
+        try self.call.toJson(self.call, out);
+
+        try out.writeAll(",");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .AsyncCall) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
 pub const CallNode = struct {
     const Self = @This();
 
@@ -2219,7 +2495,9 @@ pub const CallNode = struct {
         .isConstant = constant,
     },
 
+    async_call: bool = false,
     callee: *ParseNode,
+    callable_type: ?*ObjTypeDef,
     arguments: std.StringArrayHashMap(*ParseNode),
     catches: ?[]*ParseNode = null,
     super: ?*NamedVariableNode = null,
@@ -2393,26 +2671,6 @@ pub const CallNode = struct {
             }
         }
 
-        // If super call, push super as a new local
-        if (self.super) |super| {
-            _ = try super.node.toByteCode(&super.node, codegen, breaks);
-        }
-
-        if (invoked) {
-            // TODO: can it be invoked without callee being a DotNode?
-            try codegen.emitCodeArg(
-                self.node.location,
-                .OP_INVOKE,
-                try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
-            );
-        } else if (self.super != null) {
-            try codegen.emitCodeArg(
-                self.node.location,
-                .OP_SUPER_INVOKE,
-                try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
-            );
-        }
-
         // Catch clauses
         if (self.catches) |catches| {
             for (catches) |catch_clause| {
@@ -2448,6 +2706,77 @@ pub const CallNode = struct {
 
                 _ = try catch_clause.toByteCode(catch_clause, codegen, breaks);
             }
+        }
+
+        // This is an async call, create a fiber
+        if (self.async_call) {
+            if (!invoked and self.super == null) {
+                // zig fmt: off
+                const call_arg_count = if (!invoked and self.super == null) @intCast(u8, arguments_order_ref.items.len)
+                    else
+                        if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 
+                        else @intCast(u8, self.arguments.count());
+                // zig fmt: on
+
+                try codegen.emitCodeArgs(
+                    self.node.location,
+                    .OP_ROUTINE,
+                    call_arg_count,
+                    @intCast(u16, if (self.catches) |catches| catches.len else 0),
+                );
+
+                try node.patchOptJumps(codegen);
+                try node.endScope(codegen);
+
+                return null;
+            } else {
+                if (invoked) {
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        .OP_INVOKE_ROUTINE,
+                        try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
+                    );
+                } else if (self.super) |super| {
+                    // Push super as a new local
+                    _ = try super.node.toByteCode(&super.node, codegen, breaks);
+
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        .OP_SUPER_INVOKE_ROUTINE,
+                        try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
+                    );
+                }
+
+                try codegen.emitTwo(
+                    self.node.location,
+                    if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                    if (self.catches) |catches| @intCast(u16, catches.len) else 0,
+                );
+
+                try node.patchOptJumps(codegen);
+                try node.endScope(codegen);
+
+                return null;
+            }
+        }
+
+        // Normal call/invoke
+        if (invoked) {
+            // TODO: can it be invoked without callee being a DotNode?
+            try codegen.emitCodeArg(
+                self.node.location,
+                .OP_INVOKE,
+                try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
+            );
+        } else if (self.super) |super| {
+            // Push super as a new local
+            _ = try super.node.toByteCode(&super.node, codegen, breaks);
+
+            try codegen.emitCodeArg(
+                self.node.location,
+                .OP_SUPER_INVOKE,
+                try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
+            );
         }
 
         if (!invoked and self.super == null) {
@@ -3944,7 +4273,22 @@ pub const SuperNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", ", .{self.identifier.lexeme});
+        try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", \"this\": ", .{self.identifier.lexeme});
+
+        try self.this.node.toJson(&self.this.node, out);
+        try out.writeAll(",");
+
+        if (self.super) |super| {
+            try out.writeAll("\"super\": ");
+            try super.node.toJson(&super.node, out);
+            try out.writeAll(",");
+        }
+
+        if (self.call) |call| {
+            try out.writeAll("\"call\": ");
+            try call.node.toJson(&call.node, out);
+            try out.writeAll(",");
+        }
 
         try ParseNode.stringify(node, out);
 
@@ -4016,7 +4360,8 @@ pub const DotNode = struct {
             and callee_type.def_type != .List
             and callee_type.def_type != .Map
             and callee_type.def_type != .String
-            and callee_type.def_type != .Pattern) {
+            and callee_type.def_type != .Pattern
+            and callee_type.def_type != .Fiber) {
             try codegen.reportErrorAt(node.location, "Doesn't have field access");
         }
         // zig fmt: on
@@ -4026,7 +4371,7 @@ pub const DotNode = struct {
         }
 
         switch (callee_type.def_type) {
-            .Pattern, .String => {
+            .Fiber, .Pattern, .String => {
                 if (self.call) |call_node| { // Call
                     try codegen.emitOpCode(self.node.location, .OP_COPY);
                     _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);

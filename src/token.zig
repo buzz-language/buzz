@@ -147,6 +147,11 @@ pub const TokenType = enum {
     Docblock, // Docblock
     Pattern, // Pattern
     Pat, // pat
+    Fib, // fib
+    Ampersand, // async
+    Resume, // resume
+    Resolve, // resolve
+    Yield, // yield
 };
 
 pub const Keywords = [_]TokenType{
@@ -182,6 +187,11 @@ pub const Keywords = [_]TokenType{
     .Continue,
     .Extern,
     .Void,
+    .Pat,
+    .Fib,
+    .Resume,
+    .Resolve,
+    .Yield,
 };
 
 // TODO: must be a way to write that more elegantly
@@ -352,6 +362,20 @@ pub fn isKeyword(literal: []const u8) ?TokenType {
 
     if (mem.eql(u8, literal, "from")) {
         return .From;
+    }
+
+    if (mem.eql(u8, literal, "fib")) {
+        return .Fib;
+    }
+
+    if (mem.eql(u8, literal, "resume")) {
+        return .Resume;
+    }
+    if (mem.eql(u8, literal, "resolve")) {
+        return .Resolve;
+    }
+    if (mem.eql(u8, literal, "yield")) {
+        return .Yield;
     }
 
     return null;

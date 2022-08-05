@@ -42,8 +42,6 @@ pub const ObjTypeDef = opaque {
     pub extern fn bz_boolType() ?*ObjTypeDef;
     pub extern fn bz_stringType() ?*ObjTypeDef;
     pub extern fn bz_voidType() ?*ObjTypeDef;
-    pub extern fn bz_newFunctionType(name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*ObjTypeDef;
-    pub extern fn bz_addFunctionArgument(function_type: *ObjTypeDef, name: [*:0]const u8, arg_type: *ObjTypeDef) bool;
 };
 
 pub const ObjString = opaque {

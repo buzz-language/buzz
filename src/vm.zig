@@ -29,6 +29,7 @@ const ObjectDef = _obj.ObjectDef;
 const ObjList = _obj.ObjList;
 const ObjMap = _obj.ObjMap;
 const ObjEnum = _obj.ObjEnum;
+const ObjFiber = _obj.ObjFiber;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -60,6 +61,183 @@ pub const CallFrame = struct {
     call_site: ?usize,
 };
 
+pub const Fiber = struct {
+    const Self = @This();
+
+    pub const Status = enum {
+        // Just created, never started
+        Instanciated,
+        // Currently running
+        Running,
+        // Yielded an expected value
+        Yielded,
+        // Reached return statement
+        Over,
+    };
+
+    allocator: Allocator,
+
+    parent_fiber: ?*Fiber,
+
+    call_type: OpCode,
+    arg_count: u8,
+    catch_count: u8,
+    method: ?*ObjString,
+
+    frames: std.ArrayList(CallFrame),
+    frame_count: u64 = 0,
+
+    stack: []Value,
+    stack_top: [*]Value,
+    open_upvalues: ?*ObjUpValue,
+
+    status: Status = .Instanciated,
+    // true: we did `resolve fiber`, false: we did `resume fiber`
+    resolved: bool = false,
+
+    pub fn init(
+        allocator: Allocator,
+        parent_fiber: ?*Fiber,
+        stack_slice: ?[]Value,
+        call_type: OpCode,
+        arg_count: u8,
+        catch_count: u8,
+        method: ?*ObjString,
+    ) !Self {
+        var self: Self = .{
+            .allocator = allocator,
+            .parent_fiber = parent_fiber,
+            .stack = try allocator.alloc(Value, 100000),
+            .stack_top = undefined,
+            .frames = std.ArrayList(CallFrame).init(allocator),
+            .open_upvalues = null,
+            .call_type = call_type,
+            .arg_count = arg_count,
+            .catch_count = catch_count,
+            .method = method,
+        };
+
+        if (stack_slice != null) {
+            std.mem.copy(Value, self.stack, stack_slice.?);
+
+            self.stack_top = @ptrCast([*]Value, self.stack[stack_slice.?.len..]);
+        } else {
+            self.stack_top = @ptrCast([*]Value, self.stack[0..]);
+        }
+
+        return self;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.stack);
+
+        self.frames.deinit();
+    }
+
+    pub fn start(self: *Self, vm: *VM) !void {
+        assert(self.status == .Instanciated);
+
+        vm.current_fiber = self;
+
+        switch (self.call_type) {
+            .OP_ROUTINE => { // | closure | ...args | ...catch |
+                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                defer catch_values.deinit();
+                var i: u16 = 0;
+                while (i < self.catch_count) : (i += 1) {
+                    try catch_values.append(vm.pop());
+                }
+
+                try vm.callValue(vm.peek(self.arg_count), self.arg_count, catch_values);
+            },
+            .OP_INVOKE_ROUTINE => { // | receiver | ...args | ...catch |
+                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                defer catch_values.deinit();
+                var i: u16 = 0;
+                while (i < self.catch_count) : (i += 1) {
+                    try catch_values.append(vm.pop());
+                }
+
+                try vm.invoke(self.method.?, self.arg_count, catch_values);
+            },
+            .OP_SUPER_INVOKE_ROUTINE => { // | receiver | super | ...args | ...catch |
+                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                defer catch_values.deinit();
+                var i: u16 = 0;
+                while (i < self.catch_count) : (i += 1) {
+                    try catch_values.append(vm.pop());
+                }
+
+                const super_class: *ObjObject = ObjObject.cast(vm.pop().Obj).?;
+                try vm.invokeFromObject(super_class, self.method.?, self.arg_count, catch_values);
+            },
+            else => unreachable,
+        }
+
+        self.status = .Running;
+    }
+
+    pub fn yield(self: *Self, vm: *VM) void {
+        assert(self.status == .Running);
+
+        // If resolved or not run in a fiber, dismiss yielded value and keep running
+        if (self.resolved or self.parent_fiber == null) {
+            return;
+        }
+
+        // Was resumed, so push the yielded value on the parent fiber and give control back to parent fiber
+        const top = vm.peek(0);
+
+        vm.current_fiber = self.parent_fiber.?;
+        vm.push(top);
+
+        self.status = .Yielded;
+    }
+
+    pub fn resume_(self: *Self, vm: *VM) !void {
+        switch (self.status) {
+            .Instanciated => {
+                // No yet started, do so
+                try self.start(vm);
+            },
+            .Yielded => {
+                // Give control to fiber
+                self.parent_fiber = vm.current_fiber;
+                vm.current_fiber = self;
+
+                self.status = .Running;
+            },
+            .Over => {
+                // User should check fiber.over() before doing `resume`
+                try vm.throw(VM.Error.FiberOver, (try _obj.copyString(vm, "Fiber is over")).toValue());
+            },
+            .Running => unreachable,
+        }
+    }
+
+    pub fn resolve_(self: *Self, vm: *VM) !void {
+        self.resolved = true;
+
+        switch (self.status) {
+            .Instanciated => try self.start(vm),
+            .Yielded => try self.resume_(vm),
+            .Over => {
+                // Already over, just take the top value
+                const parent_fiber = vm.current_fiber;
+                vm.current_fiber = self;
+
+                const top = vm.peek(0);
+
+                vm.current_fiber = parent_fiber;
+                vm.push(top);
+
+                // FIXME: but this means we can do several `resolve fiber`
+            },
+            .Running => unreachable,
+        }
+    }
+};
+
 pub const VM = struct {
     const Self = @This();
 
@@ -67,21 +245,18 @@ pub const VM = struct {
         UnwrappedNull,
         OutOfBound,
         NumberOverflow,
+        NotInFiber,
+        FiberOver,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
     allocator: Allocator,
 
-    frames: std.ArrayList(CallFrame),
-    frame_count: u64 = 0,
+    current_fiber: *Fiber,
 
-    // TODO: put ta limit somewhere
-    stack: []Value,
-    stack_top: [*]Value,
     globals: std.ArrayList(Value),
     // Interned strings
     strings: *std.StringHashMap(*ObjString),
-    open_upvalues: ?*ObjUpValue,
 
     bytes_allocated: usize = 0,
     next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 1024,
@@ -92,25 +267,16 @@ pub const VM = struct {
     pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString)) !Self {
         var self: Self = .{
             .allocator = allocator,
-            .stack = try allocator.alloc(Value, 1000000),
-            .stack_top = undefined,
             .globals = std.ArrayList(Value).init(allocator),
-            .frames = std.ArrayList(CallFrame).init(allocator),
             .strings = strings,
-            .open_upvalues = null,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
+            .current_fiber = try allocator.create(Fiber),
         };
-
-        self.stack_top = @ptrCast([*]Value, self.stack[0..]);
 
         return self;
     }
 
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.stack);
-
-        self.frames.deinit();
-
         // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
 
         self.gray_stack.deinit();
@@ -118,8 +284,7 @@ pub const VM = struct {
         // self.globals.deinit();
     }
 
-    pub fn pushArgs(self: *Self, args: ?[][:0]u8) !void {
-        // TODO: 3 steps to do this is horrible -> helper functions please
+    pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
             self.allocator,
             try allocateObject(
@@ -139,40 +304,47 @@ pub const VM = struct {
             .resolved_type = list_def_union,
         });
 
-        var list: *ObjList = try allocateObject(
+        var arg_list = try allocateObject(
             self,
             ObjList,
-            ObjList.init(self.allocator,
-            // TODO: get instance that already exists
-            list_def_type),
+            ObjList.init(
+                self.allocator,
+                // TODO: get instance that already exists
+                list_def_type,
+            ),
         );
 
-        // Args is the first local like `this` which replace the closure itself in the stack
-        (self.stack_top - 1)[0] = list.toValue();
-
         if (args) |uargs| {
-            for (uargs) |arg| {
-                try list.items.append(
+            for (uargs) |arg, index| {
+                // We can't have more than 255 arguments to a function
+                // TODO: should we silently ignore them or should we raise an error?
+                if (index >= 255) {
+                    break;
+                }
+
+                try arg_list.items.append(
                     Value{
                         .Obj = (try _obj.copyString(self, std.mem.sliceTo(arg, 0))).toObj(),
                     },
                 );
             }
         }
+
+        return arg_list;
     }
 
     pub fn push(self: *Self, value: Value) void {
-        self.stack_top[0] = value;
-        self.stack_top += 1;
+        self.current_fiber.stack_top[0] = value;
+        self.current_fiber.stack_top += 1;
     }
 
     pub fn pop(self: *Self) Value {
-        self.stack_top -= 1;
-        return self.stack_top[0];
+        self.current_fiber.stack_top -= 1;
+        return self.current_fiber.stack_top[0];
     }
 
     pub fn peek(self: *Self, distance: u32) Value {
-        return (self.stack_top - 1 - distance)[0];
+        return (self.current_fiber.stack_top - 1 - distance)[0];
     }
 
     pub fn copy(self: *Self, n: u24) void {
@@ -207,17 +379,17 @@ pub const VM = struct {
     }
 
     fn swap(self: *Self, from: u8, to: u8) void {
-        var temp: Value = (self.stack_top - to - 1)[0];
-        (self.stack_top - to - 1)[0] = (self.stack_top - from - 1)[0];
-        (self.stack_top - from - 1)[0] = temp;
+        var temp: Value = (self.current_fiber.stack_top - to - 1)[0];
+        (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
+        (self.current_fiber.stack_top - from - 1)[0] = temp;
     }
 
     pub inline fn currentFrame(self: *Self) ?*CallFrame {
-        if (self.frame_count == 0) {
+        if (self.current_fiber.frame_count == 0) {
             return null;
         }
 
-        return &self.frames.items[self.frame_count - 1];
+        return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
     pub inline fn currentGlobals(self: *Self) *std.ArrayList(Value) {
@@ -225,22 +397,27 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {
-        self.push(.{ .Obj = function.toObj() });
+        self.current_fiber.* = try Fiber.init(
+            self.allocator,
+            null, // parent fiber
+            null, // stack_slice
+            .OP_CALL, // call_type
+            1, // arg_count
+            0, // catch_count
+            null, // method/member
+        );
 
-        var closure: *ObjClosure = try allocateObject(
+        self.push((try allocateObject(
             self,
             ObjClosure,
             try ObjClosure.init(self.allocator, self, function),
-        );
+        )).toValue());
 
-        _ = self.pop();
+        self.push((try self.cliArgs(args)).toValue());
 
-        self.push(.{ .Obj = closure.toObj() });
+        try self.callValue(self.peek(1), 0, null);
 
-        // Command line arguments are the first local
-        try self.pushArgs(args);
-
-        _ = try self.call(closure, 0, null);
+        self.current_fiber.status = .Running;
 
         return try self.run();
     }
@@ -356,9 +533,98 @@ pub const VM = struct {
                     }
                 },
                 .OP_CLOSE_UPVALUE => {
-                    self.closeUpValues(@ptrCast(*Value, self.stack_top - 1));
+                    self.closeUpValues(@ptrCast(*Value, self.current_fiber.stack_top - 1));
                     _ = self.pop();
                 },
+
+                .OP_ROUTINE => {
+                    const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
+                    const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+
+                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
+                    const stack_len = arg_count + catch_count + 1;
+                    const stack_slice = stack_ptr[0..stack_len];
+
+                    var fiber = try self.allocator.create(Fiber);
+                    fiber.* = try Fiber.init(
+                        self.allocator,
+                        self.current_fiber,
+                        stack_slice,
+                        instruction,
+                        arg_count,
+                        @intCast(u8, catch_count),
+                        null,
+                    );
+
+                    // Pop arguments and catch clauses
+                    self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
+
+                    const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+
+                    // Put new fiber on the stack
+                    var obj_fiber = try allocateObject(self, ObjFiber, ObjFiber{
+                        .fiber = fiber,
+                        .type_def = type_def,
+                    });
+
+                    self.push(obj_fiber.toValue());
+                },
+
+                .OP_INVOKE_ROUTINE,
+                .OP_SUPER_INVOKE_ROUTINE,
+                => {
+                    const method: *ObjString = self.readString(arg);
+                    const arg_instruction: u32 = self.readInstruction();
+                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+
+                    // - 2 because of super
+                    const extra: usize = if (instruction == .OP_SUPER_INVOKE_ROUTINE) 1 else 0;
+                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1 - extra;
+                    const stack_len = arg_count + catch_count + 1 + extra;
+                    const stack_slice = stack_ptr[0..stack_len];
+
+                    var fiber = try self.allocator.create(Fiber);
+                    fiber.* = try Fiber.init(
+                        self.allocator,
+                        self.current_fiber,
+                        stack_slice,
+                        instruction,
+                        arg_count,
+                        @intCast(u8, catch_count),
+                        method,
+                    );
+
+                    // Pop arguments and catch clauses
+                    self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
+
+                    const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+
+                    // Push new fiber on the stack
+                    var obj_fiber = try allocateObject(self, ObjFiber, ObjFiber{
+                        .fiber = fiber,
+                        .type_def = type_def,
+                    });
+
+                    self.push(obj_fiber.toValue());
+                },
+
+                .OP_RESUME => {
+                    const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+
+                    try obj_fiber.fiber.resume_(self);
+                },
+
+                .OP_RESOLVE => {
+                    const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+
+                    try obj_fiber.fiber.resolve_(self);
+                },
+
+                .OP_YIELD => {
+                    self.current_fiber.yield(self);
+                },
+
                 .OP_CALL => {
                     const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
                     const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
@@ -615,14 +881,6 @@ pub const VM = struct {
                     }
                 },
 
-                // TODO: remove
-                .OP_PRINT => {
-                    var value_str: []const u8 = try valueToString(self.allocator, self.pop());
-                    defer self.allocator.free(value_str);
-
-                    std.debug.print("{s}\n", .{value_str});
-                },
-
                 .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
 
                 .OP_GREATER => {
@@ -709,8 +967,8 @@ pub const VM = struct {
         var iterable: *Obj = iterable_value.Obj;
         switch (iterable.obj_type) {
             .String => {
-                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var str: *ObjString = ObjString.cast(iterable).?;
 
                 key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
@@ -724,8 +982,8 @@ pub const VM = struct {
                 }
             },
             .List => {
-                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var list: *ObjList = ObjList.cast(iterable).?;
 
                 // Get next index
@@ -740,7 +998,7 @@ pub const VM = struct {
                 }
             },
             .Enum => {
-                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var enum_case: ?*ObjEnumInstance = if (value_slot.* == .Null) null else ObjEnumInstance.cast(value_slot.Obj).?;
                 var enum_: *ObjEnum = ObjEnum.cast(iterable).?;
 
@@ -749,8 +1007,8 @@ pub const VM = struct {
                 value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = null });
             },
             .Map => {
-                var key_slot: *Value = @ptrCast(*Value, self.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.stack_top - 2);
+                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var map: *ObjMap = ObjMap.cast(iterable).?;
                 var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
 
@@ -773,14 +1031,42 @@ pub const VM = struct {
 
         self.closeUpValues(&frame.slots[0]);
 
-        self.frame_count -= 1;
-        _ = self.frames.pop();
-        if (self.frame_count == 0) {
+        self.current_fiber.frame_count -= 1;
+        _ = self.current_fiber.frames.pop();
+
+        // We popped the last frame
+        if (self.current_fiber.frame_count == 0) {
+            // We're in a fiber
+            if (self.current_fiber.parent_fiber) |parent_fiber| {
+                // Fiber is now over
+                self.current_fiber.status = .Over;
+                const resolved = self.current_fiber.resolved;
+
+                // Put the result back stack so `resolve` can pick it up
+                self.push(result);
+
+                self.current_fiber = parent_fiber;
+
+                if (resolved) {
+                    // We did `resolve fiber` we want the returned value
+                    self.push(result);
+                } else {
+                    // We did `resume fiber` and hit return
+                    // We don't yet care about that value;
+                    self.push(Value{ .Null = null });
+                }
+
+                // Don't stop the VM
+                return false;
+            }
+
+            // We're not in a fiber, the program is over
             _ = self.pop();
             return true;
         }
 
-        self.stack_top = frame.slots;
+        // Normal return, set the stack back and push the result
+        self.current_fiber.stack_top = frame.slots;
 
         self.push(result);
 
@@ -814,15 +1100,15 @@ pub const VM = struct {
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
         var stack = std.ArrayList(CallFrame).init(self.allocator);
 
-        while (self.frame_count > 0) {
+        while (self.current_fiber.frame_count > 0) {
             var frame: *CallFrame = self.currentFrame().?;
             try stack.append(frame.*);
 
             // Pop frame
             self.closeUpValues(&frame.slots[0]);
-            self.frame_count -= 1;
-            _ = self.frames.pop();
-            if (self.frame_count == 0) {
+            self.current_fiber.frame_count -= 1;
+            _ = self.current_fiber.frames.pop();
+            if (self.current_fiber.frame_count == 0 and self.current_fiber.parent_fiber == null) {
                 // No more frames, the error is uncaught.
                 _ = self.pop();
 
@@ -839,9 +1125,16 @@ pub const VM = struct {
                 }
 
                 return code;
+            } else if (self.current_fiber.frame_count == 0) {
+                // Error raised inside a fiber, forward it to parent fiber
+                self.current_fiber = self.current_fiber.parent_fiber.?;
+
+                try self.throw(code, payload);
+
+                return;
             }
 
-            self.stack_top = frame.slots;
+            self.current_fiber.stack_top = frame.slots;
 
             if (frame.error_value) |error_value| {
                 // Push error_value as failed function return value
@@ -949,13 +1242,14 @@ pub const VM = struct {
         }
     }
 
+    // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         // TODO: check for stack overflow
         var frame = CallFrame{
             .closure = closure,
             .ip = 0,
             // -1 is because we reserve slot 0 for this
-            .slots = self.stack_top - arg_count - 1,
+            .slots = self.current_fiber.stack_top - arg_count - 1,
             .call_site = if (self.currentFrame()) |current_frame|
                 current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
             else
@@ -975,13 +1269,13 @@ pub const VM = struct {
             }
         }
 
-        if (self.frames.items.len <= self.frame_count) {
-            try self.frames.append(frame);
+        if (self.current_fiber.frames.items.len <= self.current_fiber.frame_count) {
+            try self.current_fiber.frames.append(frame);
         } else {
-            self.frames.items[self.frame_count] = frame;
+            self.current_fiber.frames.items[self.current_fiber.frame_count] = frame;
         }
 
-        self.frame_count += 1;
+        self.current_fiber.frame_count += 1;
     }
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
@@ -993,7 +1287,7 @@ pub const VM = struct {
                 result = self.pop();
             }
 
-            self.stack_top = self.stack_top - arg_count - 1;
+            self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
             self.push(result);
         } else {
             // An error occured within the native function -> call error handlers
@@ -1010,7 +1304,7 @@ pub const VM = struct {
                         _ = self.pop();
 
                         // Default value in case of error
-                        self.stack_top = self.stack_top - arg_count - 1;
+                        self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
                         self.push(catch_value);
                         return;
                     }
@@ -1043,7 +1337,7 @@ pub const VM = struct {
         switch (obj.obj_type) {
             .Bound => {
                 var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
-                (self.stack_top - arg_count - 1)[0] = bound.receiver;
+                (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
                     return try self.call(closure, arg_count, catch_values);
@@ -1121,7 +1415,7 @@ pub const VM = struct {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
 
                 if (instance.fields.get(name.string)) |field| {
-                    (self.stack_top - arg_count - 1)[0] = field;
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
                     return try self.callValue(field, arg_count, catch_values);
                 }
@@ -1131,7 +1425,7 @@ pub const VM = struct {
             .String => {
                 if (try ObjString.member(self, name.string)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
-                    (self.stack_top - arg_count - 1)[0] = member_value;
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_values);
                 }
@@ -1141,7 +1435,17 @@ pub const VM = struct {
             .Pattern => {
                 if (try ObjPattern.member(self, name.string)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
-                    (self.stack_top - arg_count - 1)[0] = member_value;
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+
+                    return try self.callValue(member_value, arg_count, catch_values);
+                }
+
+                unreachable;
+            },
+            .Fiber => {
+                if (try ObjFiber.member(self, name.string)) |member| {
+                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_values);
                 }
@@ -1153,7 +1457,7 @@ pub const VM = struct {
 
                 if (try list.member(self, name.string)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
-                    (self.stack_top - arg_count - 1)[0] = member_value;
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_values);
                 }
@@ -1165,7 +1469,7 @@ pub const VM = struct {
 
                 if (try map.member(self, name.string)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
-                    (self.stack_top - arg_count - 1)[0] = member_value;
+                    (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_values);
                 }
@@ -1177,17 +1481,17 @@ pub const VM = struct {
     }
 
     fn closeUpValues(self: *Self, last: *Value) void {
-        while (self.open_upvalues != null and @ptrToInt(self.open_upvalues.?.location) >= @ptrToInt(last)) {
-            var upvalue: *ObjUpValue = self.open_upvalues.?;
+        while (self.current_fiber.open_upvalues != null and @ptrToInt(self.current_fiber.open_upvalues.?.location) >= @ptrToInt(last)) {
+            var upvalue: *ObjUpValue = self.current_fiber.open_upvalues.?;
             upvalue.closed = upvalue.location.*;
             upvalue.location = &upvalue.closed.?;
-            self.open_upvalues = upvalue.next;
+            self.current_fiber.open_upvalues = upvalue.next;
         }
     }
 
     fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
         var prev_upvalue: ?*ObjUpValue = null;
-        var upvalue: ?*ObjUpValue = self.open_upvalues;
+        var upvalue: ?*ObjUpValue = self.current_fiber.open_upvalues;
         while (upvalue != null and @ptrToInt(upvalue.?.location) > @ptrToInt(local)) {
             prev_upvalue = upvalue;
             upvalue = upvalue.?.next;
@@ -1203,7 +1507,7 @@ pub const VM = struct {
         if (prev_upvalue) |uprev_upvalue| {
             uprev_upvalue.next = created_upvalue;
         } else {
-            self.open_upvalues = created_upvalue;
+            self.current_fiber.open_upvalues = created_upvalue;
         }
 
         return created_upvalue;

@@ -1,0 +1,123 @@
+import "lib/std";
+
+test "fiber" {
+    | Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
+    fib<str, num?> counter = &count(10);
+
+    | A fiber is over when a OP_RETURN as been executed
+    num sum = 0;
+    while (!counter.over()) {
+        | resume returns null if nothing was yielded and/or fiber is over
+        sum = sum + resume counter ?? 0;
+    }
+    
+    assert(counter.over(), message: "Fiber should be over now");
+    
+    | resolve runs fiber until it's over and dismiss any yielded value along the way
+    assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
+    assert(sum == 45, message: "Sum is good");
+
+    assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
+}
+
+| returns str, yields num
+fun count(num n) > str > num? {
+    | TODO: how to do this? types prevent use from having a generic currentFiber function
+    |       do we need `any` type? do we need first citizen/generic types to do currentRoute<str, num>()?
+    | assert(currentFiber() is fib<str, num>, message: "Can get current fiber")
+
+    for (num i = 0; i < n; i = i + 1) {
+        | error or yield is ignored if not called with a async call?
+        yield i;
+    }
+
+    return "Counting is done!";
+}
+
+fun fail() > bool {
+    throw "This fiber failed";
+
+    return false;
+}
+
+fun caughFiberFail() > bool {
+    fib<bool, void> fiber = &fail();
+
+    return resolve fiber;
+}
+
+test "Throw inside a fiber" {
+    assert(caughFiberFail() catch true, message: "Caught an error from a fiber");
+}
+
+fun closedUpvalue() > Function() > str {
+    str upvalue = "joe";
+
+    return fun () > str -> "hello {upvalue}";
+}
+
+test "Opened upvalue in fiber" {
+    str upvalue = "world";
+
+    Function() > str fiberFn = fun () > str -> "hello {upvalue}";
+
+    assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
+}
+
+test "Closed upvalue in fiber" {
+    assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
+}
+
+class Parent {
+    fun say(str wat) > str -> wat
+}
+
+class FiberObj < Parent {
+    str name = "Joe",
+
+    fun sayHello() > str {
+        return "Hello {this.name}";
+    }
+
+    fun saySuperHello() > str {
+        return resolve &super.say("Hello {this.name}");
+    }
+
+    fun countUpTo(num n) > str > num? {
+        for (num i = 0; i < n; i = i + 1) {
+            yield i;
+        }
+
+        return "Counting is done Mr {this.name}";
+    }
+}
+
+test "Invoke in a routine" {
+    FiberObj obj = FiberObj{};
+
+    assert(resolve &obj.sayHello() == "Hello Joe", message: "Could invoke inside a routine");
+
+    fib<str, num?> counter = &obj.countUpTo(10);
+
+    num sum = 0;
+    while (!counter.over()) {
+        sum = sum + resume counter ?? 0;
+    }
+    assert(counter.over(), message: "Fiber should be over now");
+    assert(resolve counter == "Counting is done Mr Joe", message: "Fiber is over we get its return value");
+    assert(sum == 45, message: "Sum is good");
+}
+
+test "Super invoke in a routine" {
+    FiberObj obj = FiberObj{};
+
+    assert(obj.saySuperHello() == "Hello Joe", message: "Could invoke inside a routine");
+}
+
+test "Wrapping call inside complex expressions" {
+    {str, Function() > str} map = {
+        "hello": fun () > str -> "hello world",
+    };
+
+    assert(resolve &map["hello"]() == "hello world", message:"Could warp function call in a complex expression");
+}

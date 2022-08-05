@@ -38,8 +38,8 @@ pub const OpCode = enum(u8) {
     // OP_BAND,
     // OP_BOR,
     // OP_XOR,
-    OP_SHL,
-    OP_SHR,
+    // OP_SHL,
+    // OP_SHR,
     OP_NULL_OR,
 
     OP_UNWRAP,
@@ -59,6 +59,13 @@ pub const OpCode = enum(u8) {
 
     OP_CLOSURE,
     OP_CLOSE_UPVALUE,
+
+    OP_ROUTINE,
+    OP_INVOKE_ROUTINE,
+    OP_SUPER_INVOKE_ROUTINE,
+    OP_RESUME,
+    OP_RESOLVE,
+    OP_YIELD,
 
     OP_THROW,
 
@@ -88,8 +95,6 @@ pub const OpCode = enum(u8) {
     OP_IMPORT,
 
     OP_TO_STRING,
-
-    OP_PRINT,
 };
 
 /// A chunk of code to execute

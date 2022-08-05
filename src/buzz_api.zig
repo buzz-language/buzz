@@ -29,13 +29,13 @@ export fn bz_push(self: *VM, value: *Value) void {
 
 /// Pop a Value from the stack and returns it
 export fn bz_pop(self: *VM) *Value {
-    self.stack_top -= 1;
-    return @ptrCast(*Value, self.stack_top);
+    self.current_fiber.stack_top -= 1;
+    return @ptrCast(*Value, self.current_fiber.stack_top);
 }
 
 /// Peeks at the stack at [distance] from the stack top
 export fn bz_peek(self: *VM, distance: u32) *Value {
-    return @ptrCast(*Value, self.stack_top - 1 - distance);
+    return @ptrCast(*Value, self.current_fiber.stack_top - 1 - distance);
 }
 
 // Value manipulations
@@ -138,39 +138,6 @@ export fn bz_voidType() ?*ObjTypeDef {
     void_type.?.* = ObjTypeDef{ .def_type = .Void, .optional = false };
 
     return void_type;
-}
-
-/// Creates a function type with no argument. Argument should be added with [bz_addFunctionArgument]
-export fn bz_newFunctionType(vm: *VM, name: [*:0]const u8, return_type: ?*ObjTypeDef) ?*ObjTypeDef {
-    // TODO: this obj is not in the GC
-    var function_type: ?*ObjTypeDef = std.heap.c_allocator.create(ObjTypeDef) catch null;
-
-    if (function_type == null) {
-        return null;
-    }
-
-    var function_def = ObjFunction.FunctionDef{
-        // If oom, empty string should not fail
-        .name = (bz_string(vm, name) orelse bz_string(vm, @ptrCast([*:0]const u8, ""))).?,
-        .return_type = return_type orelse bz_voidType().?,
-        .parameters = std.StringArrayHashMap(*ObjTypeDef).init(std.heap.c_allocator),
-        .defaults = std.StringArrayHashMap(Value).init(std.heap.c_allocator),
-    };
-
-    var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
-
-    function_type.?.* = .{ .def_type = .Function, .resolved_type = resolved_type };
-
-    return function_type;
-}
-
-/// Adds a argument to a function definition. Returns false if could not add it.
-export fn bz_addFunctionArgument(function_type: *ObjTypeDef, name: [*:0]const u8, arg_type: *ObjTypeDef) bool {
-    function_type.resolved_type.?.Function.parameters.put(utils.toSlice(name), arg_type) catch {
-        return false;
-    };
-
-    return true;
 }
 
 export fn bz_allocated(self: *VM) usize {

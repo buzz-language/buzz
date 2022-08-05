@@ -5,7 +5,9 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const Chunk = @import("./chunk.zig").Chunk;
-const VM = @import("./vm.zig").VM;
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
+const Fiber = _vm.Fiber;
 const Parser = @import("./parser.zig").Parser;
 const _memory = @import("./memory.zig");
 const _value = @import("./value.zig");
@@ -49,6 +51,7 @@ pub const ObjType = enum {
     Native,
     UserData,
     Pattern,
+    Fiber,
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
@@ -73,6 +76,7 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         ObjNative => ObjNative.toObj(obj),
         ObjUserData => ObjUserData.toObj(obj),
         ObjPattern => ObjPattern.toObj(obj),
+        ObjFiber => ObjFiber.toObj(obj),
         else => {},
     };
 
@@ -145,6 +149,7 @@ pub const Obj = struct {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
             .Pattern => type_def.def_type == .Pattern,
+            .Fiber => type_def.def_type == .Fiber,
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
@@ -204,6 +209,7 @@ pub const Obj = struct {
             },
             .List => ObjList.cast(self).?.type_def.eql(type_def),
             .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .Fiber => ObjFiber.cast(self).?.type_def.eql(type_def),
             .UserData, .Native => unreachable, // TODO
         };
     }
@@ -251,11 +257,137 @@ pub const Obj = struct {
             .Enum,
             .Native,
             .UserData,
+            .Fiber,
             => {
                 return self == other;
             },
         }
     }
+};
+
+pub const ObjFiber = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .Fiber },
+
+    fiber: *Fiber,
+
+    type_def: *ObjTypeDef,
+
+    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
+
+    pub fn mark(self: *Self, vm: *VM) !void {
+        try _memory.markFiber(vm, self.fiber);
+    }
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
+    pub fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .Fiber) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
+    }
+
+    pub fn over(vm: *VM) c_int {
+        var self = Self.cast(vm.peek(0).Obj).?;
+
+        vm.push(Value{ .Boolean = self.fiber.status == .Over });
+
+        return 1;
+    }
+
+    pub fn rawMember(method: []const u8) ?NativeFn {
+        if (mem.eql(u8, method, "over")) {
+            return over;
+        }
+
+        return null;
+    }
+
+    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+        if (Self.members) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+
+        var nativeFn: ?NativeFn = rawMember(method);
+
+        if (nativeFn) |unativeFn| {
+            var native: *ObjNative = try allocateObject(
+                vm,
+                ObjNative,
+                .{
+                    .native = unativeFn,
+                },
+            );
+
+            try Self.members.?.put(method, native);
+
+            return native;
+        }
+
+        return null;
+    }
+
+    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
+        if (Self.memberDefs) |umembers| {
+            if (umembers.get(method)) |umethod| {
+                return umethod;
+            }
+        }
+
+        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
+
+        // over() > bool
+        if (mem.eql(u8, method, "over")) {
+            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+
+            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+            // It's always the fiber.
+
+            var method_def = ObjFunction.FunctionDef{
+                .name = try copyStringRaw(parser.strings, parser.allocator, "over", false),
+                .parameters = parameters,
+                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
+                    .def_type = .Bool,
+                }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
+            };
+
+            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+
+            var native_type = try parser.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Native,
+                    .resolved_type = resolved_type,
+                },
+            );
+
+            try Self.memberDefs.?.put("over", native_type);
+
+            return native_type;
+        }
+
+        return null;
+    }
+
+    pub const FiberDef = struct {
+        return_type: *ObjTypeDef,
+        yield_type: *ObjTypeDef,
+    };
 };
 
 // Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
@@ -498,6 +630,7 @@ pub const ObjPattern = struct {
                     .optional = true,
                     .resolved_type = list_def_union,
                 }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -562,6 +695,7 @@ pub const ObjPattern = struct {
                     .optional = true,
                     .resolved_type = list_def_union,
                 }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -944,6 +1078,7 @@ pub const ObjString = struct {
                 .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -971,6 +1106,7 @@ pub const ObjString = struct {
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1003,6 +1139,7 @@ pub const ObjString = struct {
                         .optional = true,
                     },
                 ),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1035,6 +1172,7 @@ pub const ObjString = struct {
                         .optional = false,
                     },
                 ),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1067,6 +1205,7 @@ pub const ObjString = struct {
                         .optional = false,
                     },
                 ),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1095,6 +1234,7 @@ pub const ObjString = struct {
                 .parameters = parameters,
                 .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                 .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1137,6 +1277,7 @@ pub const ObjString = struct {
                     .optional = false,
                     .resolved_type = list_def_union,
                 }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1185,6 +1326,7 @@ pub const ObjString = struct {
                 .parameters = parameters,
                 .defaults = defaults,
                 .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
+                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             };
 
             var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1353,6 +1495,7 @@ pub const ObjFunction = struct {
     pub const FunctionDef = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
+        yield_type: *ObjTypeDef,
         parameters: std.StringArrayHashMap(*ObjTypeDef),
         // Storing here the defaults means they can only be non-Obj values
         defaults: std.StringArrayHashMap(Value),
@@ -1863,6 +2006,7 @@ pub const ObjList = struct {
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = obj_list,
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1896,6 +2040,7 @@ pub const ObjList = struct {
                         .def_type = self.item_type.def_type,
                         .resolved_type = self.item_type.resolved_type,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1922,6 +2067,7 @@ pub const ObjList = struct {
                             .def_type = .Number,
                         },
                     ),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -1964,6 +2110,7 @@ pub const ObjList = struct {
                             .optional = true,
                         },
                     ),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2007,6 +2154,7 @@ pub const ObjList = struct {
                     .parameters = parameters,
                     .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
                     .return_type = obj_list,
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2040,6 +2188,7 @@ pub const ObjList = struct {
                             .resolved_type = self.item_type.resolved_type,
                         },
                     ),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2069,6 +2218,7 @@ pub const ObjList = struct {
                     .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2351,6 +2501,7 @@ pub const ObjMap = struct {
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .Number,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2382,6 +2533,7 @@ pub const ObjMap = struct {
                         .def_type = self.value_type.def_type,
                         .resolved_type = self.value_type.resolved_type,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2415,6 +2567,7 @@ pub const ObjMap = struct {
                         .optional = false,
                         .resolved_type = list_def_union,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2448,6 +2601,7 @@ pub const ObjMap = struct {
                         .optional = false,
                         .resolved_type = list_def_union,
                     }),
+                    .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
@@ -2683,6 +2837,7 @@ pub const ObjTypeDef = struct {
         Type, // Something that holds a type, not an actual type
         Void,
         Native,
+        Fiber,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
@@ -2695,6 +2850,7 @@ pub const ObjTypeDef = struct {
         Pattern: bool,
         Type: bool,
         Void: bool,
+        Fiber: ObjFiber.FiberDef,
 
         // For those we check that the value is an instance of, because those are user defined types
         ObjectInstance: *ObjTypeDef,
@@ -2805,6 +2961,18 @@ pub const ObjTypeDef = struct {
             .Number => try writer.writeAll("num"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
+            .Fiber => {
+                const return_type = try self.resolved_type.?.Fiber.return_type.toString(allocator);
+                defer allocator.free(return_type);
+                const yield_type = try self.resolved_type.?.Fiber.yield_type.toString(allocator);
+                defer allocator.free(yield_type);
+
+                try writer.writeAll("fib<");
+                try writer.writeAll(return_type);
+                try writer.writeAll(", ");
+                try writer.writeAll(yield_type);
+                try writer.writeAll(">");
+            },
 
             // TODO: Find a key for vm.getTypeDef which is unique for each class even with the same name
             .Object => {
@@ -2973,6 +3141,10 @@ pub const ObjTypeDef = struct {
             .Pattern,
             => return true,
 
+            .Fiber => {
+                return a.Fiber.return_type.eql(b.Fiber.return_type) and a.Fiber.yield_type.eql(b.Fiber.yield_type);
+            },
+
             .ObjectInstance => {
                 return a.ObjectInstance.eql(b.ObjectInstance) or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
             },
@@ -2983,8 +3155,13 @@ pub const ObjTypeDef = struct {
             .List => return a.List.item_type.eql(b.List.item_type),
             .Map => return a.Map.key_type.eql(b.Map.key_type) and a.Map.value_type.eql(b.Map.value_type),
             .Function => {
-                // Compare return types
+                // Compare return type
                 if (!a.Function.return_type.eql(b.Function.return_type)) {
+                    return false;
+                }
+
+                // Compare yield type
+                if (!a.Function.yield_type.eql(b.Function.yield_type)) {
                     return false;
                 }
 
@@ -3074,6 +3251,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .Native,
         .UserData,
         .Pattern,
+        .Fiber,
         => return Value{ .Obj = obj },
 
         .List => {
@@ -3129,6 +3307,11 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             } else {
                 return try std.fmt.bufPrint(buf, "{s}", .{pattern[0..100]});
             }
+        },
+        .Fiber => {
+            const fiber = ObjFiber.cast(obj).?.fiber;
+
+            return try std.fmt.bufPrint(buf, "fiber: 0x{x}", .{@ptrToInt(fiber)});
         },
         .Type => {
             // TODO: no use for typedef.toString to allocate a buffer
@@ -3232,6 +3415,7 @@ pub const PlaceholderDef = struct {
     // TODO: are relations enough and booleans useless?
     const PlaceholderRelation = enum {
         Call,
+        Yield,
         Subscript,
         Key,
         FieldAccess,

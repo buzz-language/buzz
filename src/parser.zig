@@ -30,6 +30,7 @@ const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjClosure = _obj.ObjClosure;
 const ObjFunction = _obj.ObjFunction;
+const ObjFiber = _obj.ObjFiber;
 const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjObject = _obj.ObjObject;
 const ObjectDef = _obj.ObjectDef;
@@ -69,6 +70,10 @@ const BinaryNode = _node.BinaryNode;
 const SubscriptNode = _node.SubscriptNode;
 const FunctionNode = _node.FunctionNode;
 const CallNode = _node.CallNode;
+const AsyncCallNode = _node.AsyncCallNode;
+const ResumeNode = _node.ResumeNode;
+const ResolveNode = _node.ResolveNode;
+const YieldNode = _node.YieldNode;
 const SuperCallNode = _node.SuperCallNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const ExpressionNode = _node.ExpressionNode;
@@ -194,8 +199,8 @@ pub const Parser = struct {
         Xor, // xor
         Equality, // ==, !=
         Comparison, // >=, <=, >, <
-        NullCoalescing, // ??
         Term, // +, -
+        NullCoalescing, // ??
         Shift, // >>, <<
         Factor, // /, *, %
         Unary, // +, ++, -, --, !
@@ -297,6 +302,11 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Docblock
         .{ .prefix = pattern, .infix = null, .precedence = .None }, // Pattern
         .{ .prefix = null, .infix = null, .precedence = .None }, // pat
+        .{ .prefix = null, .infix = null, .precedence = .None }, // fib
+        .{ .prefix = asyncCall, .infix = null, .precedence = .Primary }, // &
+        .{ .prefix = resumeFiber, .infix = null, .precedence = .Primary }, // resume
+        .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
+        .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
     };
 
     pub const ScriptImport = struct {
@@ -714,7 +724,7 @@ pub const Parser = struct {
                 },
                 .Call => {
                     // Can we call the parent?
-                    if (resolved_type.def_type != .Function) {
+                    if (resolved_type.def_type != .Function and resolved_type.def_type != .Native) {
                         try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
@@ -722,6 +732,32 @@ pub const Parser = struct {
                     // Is the child types resolvable with parent return type
                     if (resolved_type.def_type == .Function) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type, false);
+                    } else if (resolved_type.def_type == .Native) {
+                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Native.return_type, false);
+                    }
+                },
+                .Yield => {
+                    // Can we call the parent?
+                    if (resolved_type.def_type != .Function and resolved_type.def_type != .Native) {
+                        try self.reportErrorAt(placeholder_def.where, "Can't be called");
+                        return;
+                    }
+
+                    // Is the child types resolvable with parent return type
+                    if (resolved_type.def_type == .Function) {
+                        std.debug.print("resolving yield type with: {s}\n", .{try resolved_type.resolved_type.?.Function.yield_type.toString(self.allocator)});
+
+                        try self.resolvePlaceholder(
+                            child,
+                            resolved_type.resolved_type.?.Function.yield_type,
+                            false,
+                        );
+                    } else if (resolved_type.def_type == .Native) {
+                        try self.resolvePlaceholder(
+                            child,
+                            resolved_type.resolved_type.?.Native.yield_type,
+                            false,
+                        );
                     }
                 },
                 .Subscript => {
@@ -950,6 +986,13 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
+            else if (try self.match(.Fib))
+                try self.varDeclaration(
+                    try self.parseFiberType(),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.LeftBracket))
                 try self.listDeclaration(constant)
             else if (try self.match(.LeftBrace))
@@ -1021,6 +1064,13 @@ pub const Parser = struct {
         } else if (try self.match(.Type)) {
             return try self.varDeclaration(
                 try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Fib)) {
+            return try self.varDeclaration(
+                try self.parseFiberType(),
                 .Semicolon,
                 constant,
                 true,
@@ -1866,6 +1916,34 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    fn parseFiberType(self: *Self) !*ObjTypeDef {
+        try self.consume(.Less, "Expected `<` after `fib`");
+        const return_type = try self.parseTypeDef();
+        try self.consume(.Comma, "Expected `,` after fiber return type");
+        const yield_type = try self.parseTypeDef();
+
+        if (!yield_type.optional and yield_type.def_type != .Void) {
+            try self.reportError("Expected optional type");
+        }
+
+        try self.consume(.Greater, "Expected `>` after fiber yield type");
+
+        const fiber_def = ObjFiber.FiberDef{
+            .return_type = return_type,
+            .yield_type = yield_type,
+        };
+
+        const resolved_type = ObjTypeDef.TypeUnion{
+            .Fiber = fiber_def,
+        };
+
+        return try self.type_registry.getTypeDef(ObjTypeDef{
+            .optional = try self.match(.Question),
+            .def_type = .Fiber,
+            .resolved_type = resolved_type,
+        });
+    }
+
     fn parseListType(self: *Self) !*ObjTypeDef {
         var list_item_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.allocator, self.type_registry);
 
@@ -2084,6 +2162,7 @@ pub const Parser = struct {
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
+            std.debug.print("Last token is {}\n", .{self.parser.previous_token.?.token_type});
             try self.reportError("Expected expression.");
 
             // TODO: find a way to continue or catch that error
@@ -2171,6 +2250,197 @@ pub const Parser = struct {
         };
         node.node.location = name;
         node.node.type_def = var_def;
+
+        return &node.node;
+    }
+
+    fn yield(self: *Self, _: bool) anyerror!*ParseNode {
+        const location = self.parser.previous_token.?;
+        var node = try self.allocator.create(YieldNode);
+        node.* = YieldNode{
+            .expression = try self.parsePrecedence(.Primary, false),
+        };
+        node.node.location = location;
+        node.node.type_def = node.expression.type_def;
+
+        return &node.node;
+    }
+
+    fn resolveFiber(self: *Self, _: bool) anyerror!*ParseNode {
+        const location = self.parser.previous_token.?;
+        var node = try self.allocator.create(ResolveNode);
+        node.* = ResolveNode{
+            .fiber = try self.parsePrecedence(.Primary, false),
+        };
+        node.node.location = location;
+
+        const fiber_type = node.fiber.type_def;
+
+        if (fiber_type == null) {
+            unreachable;
+        } else if (fiber_type.?.def_type == .Placeholder) {
+            const return_placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+            };
+            const return_placeholder = try self.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = return_placeholder_resolved_type,
+                },
+            );
+
+            try PlaceholderDef.link(fiber_type.?, return_placeholder, .Yield);
+
+            node.node.type_def = return_placeholder;
+        } else {
+            if (fiber_type.?.def_type != .Fiber) {
+                try self.reportErrorAt(node.fiber.location, "Can't be resolveed");
+            } else {
+                const fiber = fiber_type.?.resolved_type.?.Fiber;
+
+                node.node.type_def = fiber.return_type;
+            }
+        }
+
+        return &node.node;
+    }
+
+    fn resumeFiber(self: *Self, _: bool) anyerror!*ParseNode {
+        const location = self.parser.previous_token.?;
+        var node = try self.allocator.create(ResumeNode);
+        node.* = ResumeNode{
+            .fiber = try self.parsePrecedence(.Primary, false),
+        };
+        node.node.location = location;
+
+        const fiber_type = node.fiber.type_def;
+
+        if (fiber_type == null) {
+            unreachable;
+        } else if (fiber_type.?.def_type == .Placeholder) {
+            const yield_placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+            };
+            var yield_placeholder = try self.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = yield_placeholder_resolved_type,
+                },
+            );
+
+            yield_placeholder = try yield_placeholder.cloneOptional(self.type_registry);
+
+            try PlaceholderDef.link(fiber_type.?, yield_placeholder, .Yield);
+
+            node.node.type_def = yield_placeholder;
+        } else {
+            if (fiber_type.?.def_type != .Fiber) {
+                try self.reportErrorAt(node.fiber.location, "Can't be resumed");
+            } else {
+                const fiber = fiber_type.?.resolved_type.?.Fiber;
+
+                // Resume returns null if nothing was yielded and/or fiber reached its return statement
+                assert(fiber.yield_type.optional);
+                node.node.type_def = fiber.yield_type;
+            }
+        }
+
+        return &node.node;
+    }
+
+    fn asyncCall(self: *Self, _: bool) anyerror!*ParseNode {
+        const location = self.parser.previous_token.?;
+        const callable = try self.parsePrecedence(.Call, false);
+
+        var node = try self.allocator.create(AsyncCallNode);
+        node.* = AsyncCallNode{
+            .call = callable,
+        };
+        node.node.location = location;
+
+        // Expression after `&` must either be a call or a dot call
+        if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null) and (callable.node_type != .Super or SuperNode.cast(callable).?.call == null)) {
+            try self.reportErrorAt(callable.location, "Expected function call after `async`");
+
+            return &node.node;
+        }
+
+        var call_node = switch (callable.node_type) {
+            .Call => CallNode.cast(callable).?,
+            .Dot => DotNode.cast(callable).?.call.?,
+            .Super => SuperNode.cast(callable).?.call.?,
+            else => unreachable,
+        };
+        call_node.async_call = true;
+        const function_type = call_node.callable_type;
+
+        if (function_type == null) {
+            unreachable;
+        } else if (function_type.?.def_type == .Placeholder) {
+            // create placeholders for return and yield types and link them with .Call and .Yield
+            const return_placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+            };
+            const return_placeholder = try self.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = return_placeholder_resolved_type,
+                },
+            );
+
+            try PlaceholderDef.link(function_type.?, return_placeholder, .Call);
+
+            const yield_placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                .Placeholder = PlaceholderDef.init(self.allocator, self.parser.previous_token.?),
+            };
+            var yield_placeholder = try self.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = yield_placeholder_resolved_type,
+                },
+            );
+
+            yield_placeholder = try yield_placeholder.cloneOptional(self.type_registry);
+
+            try PlaceholderDef.link(function_type.?, yield_placeholder, .Yield);
+
+            const fiber_def = ObjFiber.FiberDef{
+                .return_type = return_placeholder,
+                .yield_type = yield_placeholder,
+            };
+
+            const resolved_type = ObjTypeDef.TypeUnion{
+                .Fiber = fiber_def,
+            };
+
+            node.node.type_def = try self.type_registry.getTypeDef(ObjTypeDef{
+                .optional = try self.match(.Question),
+                .def_type = .Fiber,
+                .resolved_type = resolved_type,
+            });
+        } else {
+            if (function_type.?.def_type != .Function and function_type.?.def_type != .Native) {
+                try self.reportErrorAt(call_node.callee.location, "Can't be called");
+            } else {
+                const return_type = if (function_type.?.def_type == .Function) function_type.?.resolved_type.?.Function.return_type else function_type.?.resolved_type.?.Native.return_type;
+                const yield_type = if (function_type.?.def_type == .Function) function_type.?.resolved_type.?.Function.yield_type else function_type.?.resolved_type.?.Native.yield_type;
+
+                const fiber_def = ObjFiber.FiberDef{
+                    .return_type = return_type,
+                    .yield_type = yield_type,
+                };
+
+                const resolved_type = ObjTypeDef.TypeUnion{
+                    .Fiber = fiber_def,
+                };
+
+                node.node.type_def = try self.type_registry.getTypeDef(ObjTypeDef{
+                    .optional = try self.match(.Question),
+                    .def_type = .Fiber,
+                    .resolved_type = resolved_type,
+                });
+            }
+        }
 
         return &node.node;
     }
@@ -2371,6 +2641,9 @@ pub const Parser = struct {
         var node = try self.allocator.create(CallNode);
         node.* = CallNode{
             .callee = callee,
+            // In the case of a dot call, callee's type will change to the function return type
+            // so we keep a reference to it here
+            .callable_type = callee.type_def,
             .arguments = try self.argumentList(),
             .catches = try self.inlineCatch(),
         };
@@ -2519,6 +2792,26 @@ pub const Parser = struct {
                     }
                 } else {
                     try self.reportError("Pattern property doesn't exist.");
+                }
+            },
+            .Fiber => {
+                if (try ObjFiber.memberDef(self, member_name)) |member| {
+                    if (try self.match(.LeftParen)) {
+                        // `call` will look to the parent node for the function definition
+                        node.node.type_def = member;
+                        node.member_type_def = member;
+
+                        assert(member.def_type == .Native);
+                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                        // Node type is the return type of the call
+                        node.node.type_def = node.call.?.node.type_def;
+                    } else {
+                        // Fiber has only native functions members
+                        node.node.type_def = member;
+                    }
+                } else {
+                    try self.reportError("Fiber property doesn't exist.");
                 }
             },
             .Object => {
@@ -3104,6 +3397,7 @@ pub const Parser = struct {
                     false,
                 ),
             .return_type = undefined,
+            .yield_type = undefined,
             .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator),
             .defaults = std.StringArrayHashMap(Value).init(self.allocator),
             .function_type = function_type,
@@ -3222,6 +3516,19 @@ pub const Parser = struct {
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try return_type.toInstance(self.allocator, self.type_registry);
 
             parsed_return_type = true;
+        }
+
+        // Parse yield type
+        if (parsed_return_type and (function_type == .Method or function_type == .Function or function_type == .Anonymous) and (try self.match(.Greater))) {
+            const yield_type = try self.parseTypeDef();
+
+            if (!yield_type.optional and yield_type.def_type != .Void) {
+                try self.reportError("Expected optional type");
+            }
+
+            function_node.node.type_def.?.resolved_type.?.Function.yield_type = try yield_type.toInstance(self.allocator, self.type_registry);
+        } else {
+            function_node.node.type_def.?.resolved_type.?.Function.yield_type = try self.type_registry.getTypeDef(.{ .def_type = .Void });
         }
 
         // Parse body
@@ -3536,12 +3843,9 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after function parameters.");
 
-        var return_type: *ObjTypeDef = undefined;
-        if (try self.match(.Greater)) {
-            return_type = try self.parseTypeDef();
-        } else {
-            return_type = try self.type_registry.getTypeDef(.{ .def_type = .Void });
-        }
+        var return_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef() else try self.type_registry.getTypeDef(.{ .def_type = .Void });
+
+        var yield_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef() else try self.type_registry.getTypeDef(.{ .def_type = .Void });
 
         var function_typedef: ObjTypeDef = .{
             .def_type = .Function,
@@ -3551,6 +3855,7 @@ pub const Parser = struct {
         var function_def: ObjFunction.FunctionDef = .{
             .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = try return_type.toInstance(self.allocator, self.type_registry),
+            .yield_type = try yield_type.toInstance(self.allocator, self.type_registry),
             .parameters = parameters,
             .defaults = std.StringArrayHashMap(Value).init(self.allocator),
             .function_type = .Anonymous,
@@ -3621,6 +3926,8 @@ pub const Parser = struct {
             return self.parseMapType();
         } else if (try self.match(.Function)) {
             return try self.parseFunctionType();
+        } else if (try self.match(.Fib)) {
+            return try self.parseFiberType();
         } else if ((try self.match(.Identifier))) {
             const user_type = self.globals.items[try self.parseUserType()].type_def;
 

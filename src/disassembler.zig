@@ -90,8 +90,8 @@ pub fn dumpStack(vm: *VM) !void {
     print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
-    var value = @ptrCast([*]_value.Value, vm.stack[0..]);
-    while (@ptrToInt(value) < @ptrToInt(vm.stack_top)) {
+    var value = @ptrCast([*]_value.Value, vm.current_fiber.stack[0..]);
+    while (@ptrToInt(value) < @ptrToInt(vm.current_fiber.stack_top)) {
         var value_str: []const u8 = try _value.valueToString(std.heap.c_allocator, value[0]);
         defer std.heap.c_allocator.free(value_str);
 
@@ -103,7 +103,7 @@ pub fn dumpStack(vm: *VM) !void {
 
         value += 1;
     }
-    print("{*} top\n", .{vm.stack_top});
+    print("{*} top\n", .{vm.current_fiber.stack_top});
 
     print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
     print("\u{001b}[0m", .{});
@@ -138,8 +138,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_NOT,
         .OP_NEGATE,
         .OP_MOD,
-        .OP_SHL,
-        .OP_SHR,
         .OP_UNWRAP,
         .OP_NULL_OR,
         .OP_ENUM_CASE,
@@ -154,6 +152,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_INSTANCE,
         .OP_FOREACH,
         .OP_GET_SUPER,
+        .OP_RESUME,
+        .OP_YIELD,
+        .OP_RESOLVE,
         => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
@@ -190,8 +191,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
-        .OP_SUPER_INVOKE, .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
-        .OP_CALL => triInstruction(instruction, chunk, offset),
+        .OP_SUPER_INVOKE,
+        .OP_INVOKE,
+        => try invokeInstruction(instruction, chunk, offset),
+        .OP_CALL,
+        .OP_ROUTINE,
+        .OP_INVOKE_ROUTINE,
+        .OP_SUPER_INVOKE_ROUTINE,
+        => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {
             var constant: u24 = arg;
@@ -214,7 +221,5 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
             break :closure off_offset;
         },
-
-        .OP_PRINT => simpleInstruction(instruction, offset),
     };
 }
