@@ -3293,20 +3293,12 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
         .String => {
             const str = ObjString.cast(obj).?.string;
 
-            if (str.len < 1000) {
-                return try std.fmt.bufPrint(buf, "{s}", .{str});
-            } else {
-                return try std.fmt.bufPrint(buf, "{s}", .{str[0..100]});
-            }
+            return try std.fmt.bufPrint(buf, "{s}", .{str});
         },
         .Pattern => {
             const pattern = ObjPattern.cast(obj).?.source;
 
-            if (pattern.len < 1000) {
-                return try std.fmt.bufPrint(buf, "{s}", .{pattern});
-            } else {
-                return try std.fmt.bufPrint(buf, "{s}", .{pattern[0..100]});
-            }
+            return try std.fmt.bufPrint(buf, "{s}", .{pattern});
         },
         .Fiber => {
             const fiber = ObjFiber.cast(obj).?.fiber;

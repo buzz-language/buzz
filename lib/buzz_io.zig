@@ -99,32 +99,17 @@ export fn FileReadLine(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = std.ArrayList(u8).init(api.VM.allocator);
+    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch {
+        vm.bz_throwString("Could not read file");
 
-    var i: usize = 0;
-    while (i < 16 * 8 * 64) : (i += 1) {
-        const read: ?u8 = reader.readByte() catch null;
-
-        if (read == null) {
-            break;
-        }
-
-        buffer.append(read.?) catch {
-            vm.bz_throwString("Could not read file");
-
-            return -1;
-        };
-
-        if (read.? == '\n') {
-            break;
-        }
-    }
+        return -1;
+    };
 
     // EOF?
-    if (buffer.items.len == 0) {
+    if (buffer.len == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer.items) orelse {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
             vm.bz_throwString("Could not read file");
 
             return -1;
@@ -153,10 +138,11 @@ export fn FileRead(vm: *api.VM) c_int {
 
         return -1;
     };
+
     // bz_string will copy it
     defer api.VM.allocator.free(buffer);
 
-    const read = reader.read(buffer) catch {
+    const read = reader.readAll(buffer) catch {
         vm.bz_throwString("Could not read file");
 
         return -1;
