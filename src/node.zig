@@ -4476,7 +4476,7 @@ pub const ObjectInitNode = struct {
     },
 
     object: *ParseNode, // Should mostly be a NamedVariableNode
-    properties: std.StringHashMap(*ParseNode),
+    properties: std.StringArrayHashMap(*ParseNode),
 
     fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
         const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
@@ -4537,11 +4537,9 @@ pub const ObjectInitNode = struct {
         var init_properties = std.StringHashMap(void).init(codegen.allocator);
         defer init_properties.deinit();
 
-        var it = self.properties.iterator();
-        while (it.next()) |kv| {
-            const property_name = kv.key_ptr.*;
+        for (self.properties.keys()) |property_name| {
             const property_name_constant: u24 = try codegen.identifierConstant(property_name);
-            const value = kv.value_ptr.*;
+            const value = self.properties.get(property_name).?;
 
             if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
                 try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
@@ -4601,7 +4599,7 @@ pub const ObjectInitNode = struct {
     pub fn init(allocator: Allocator, object: *ParseNode) Self {
         return Self{
             .object = object,
-            .properties = std.StringHashMap(*ParseNode).init(allocator),
+            .properties = std.StringArrayHashMap(*ParseNode).init(allocator),
         };
     }
 
