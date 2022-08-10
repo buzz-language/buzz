@@ -1,0 +1,98 @@
+import "lib/std";
+import "lib/io" as io;
+import "lib/json";
+
+fun readContentLength() > num? {
+    while (true) {
+        str? header = io.stdin.readLine();
+
+        if (header == null) {
+            throw "Could not parse request header";
+        }
+
+        | Consume \r\n
+        io.stdin.read(2);
+        | Strip \r
+        header = header!.sub(0, len: header!.len() - 1);
+        const num? colon = header!.indexOf(": ");
+        
+        if (colon == null) {
+            throw "Could not parse request header";
+        }
+
+        const str name = header!.sub(0, len: colon!);
+        const str value = header!.sub(colon! + 2, len: null);
+        
+        if (name == "Content-Length") {
+            io.stderr.write("`{value}`\n");
+            return parseNumber(value);
+        }
+    }
+
+    return null;
+}
+
+fun respond(str? strId, num? numId, Json result) > void {
+    const Json response = Json{
+        map = {
+            "jsonrpc": Json{ string = "2.0" },
+            "id": Json{ string = strId, number = numId },
+            "result": result
+        }
+    };
+
+    const str stringResponse = response.encode();
+
+    io.stderr.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
+    io.stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
+}
+
+fun main([str] args) > void {
+    while (true) {
+        num? contentLength = readContentLength();
+
+        if (contentLength == null or contentLength! <= 0) {
+            throw "Request is empty";
+        }
+
+        str? requestRaw = io.stdin.read(contentLength ?? 0);
+
+        io.stderr.write("Request is: `{requestRaw!}`\n");
+
+        if (requestRaw == null) {
+            throw "Could not read request";
+        }
+
+        {str, Json} request = Json.decode(requestRaw!).mapValue();
+        const str? method = request["method"]?.string;
+
+        io.stderr.write("Method is: `{method ?? "none"}`\n");
+
+        Json result = Json{};
+
+        if (method == "initialize") {
+            result = Json{
+                map = {
+                    "capabilities": Json{
+                        "declarationProvider": Json{ boolean = true },
+                        "definitionProvider": Json{ boolean = true },
+                    },
+                    "serverInfo": Json{
+                        map = {
+                            "name": Json{ string = "buzz-lsp" },
+                            "version": Json{ string= "0.0.1" },
+                        },
+                    },
+                },
+            };
+        }
+
+        respond(
+            strId: request["id"]?.string,
+            numId: request["id"]?.number,
+            result: result,
+        );
+
+        | throw "debug";
+    }
+}

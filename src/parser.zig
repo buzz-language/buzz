@@ -2664,6 +2664,10 @@ pub const Parser = struct {
 
         // If null, create placeholder
         if (node.node.type_def == null) {
+            if (callee.type_def.?.def_type != .Placeholder) {
+                try self.reportErrorAt(callee.location, "Can't be called");
+            }
+
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                 .Placeholder = PlaceholderDef.init(self.allocator, node.node.location),
             };
@@ -2674,8 +2678,6 @@ pub const Parser = struct {
                     .resolved_type = placeholder_resolved_type,
                 },
             );
-
-            assert(callee.type_def.?.def_type == .Placeholder);
 
             try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
         }
