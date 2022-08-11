@@ -1,8 +1,7 @@
 import "lib/std";
-import "lib/io" as io;
+import "lib/io";
 import "lib/json";
 import "lib/os" as os;
-import "lib/fs";
 import "lib/debug" as debug;
 
 object LspState {
@@ -13,14 +12,14 @@ object LspState {
 
 fun readContentLength() > num? {
     while (true) {
-        str? header = io.stdin.readLine();
+        str? header = stdin.readLine();
 
         if (header == null) {
             throw "Could not parse request header";
         }
 
         | Consume \r\n
-        io.stdin.read(2);
+        stdin.read(2);
         | Strip \r
         header = header!.sub(0, len: header!.len() - 1);
         const num? colon = header!.indexOf(": ");
@@ -51,8 +50,8 @@ fun respond(str? strId, num? numId, Json result) > void {
 
     const str stringResponse = response.encode();
 
-    io.stderr.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
-    io.stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
+    stderr.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
+    stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
 }
 
 fun toOffset(str source, num line, num column) > num {
@@ -73,7 +72,7 @@ fun toTokenStart(str source, num offset) > num {
     return offset;
 }
 
-const {str, Function(LspState state, {str, Json}) > Json} handlers = {
+const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     "exit": fun (LspState state, {str, Json} request) > Json{
         os.exit(0);
 
@@ -96,14 +95,15 @@ const {str, Function(LspState state, {str, Json}) > Json} handlers = {
                 },
             },
         },
-    "textDocument/definition": fun ({str, Json} request) > Json{
+    "textDocument/definition": fun (LspState state, {str, Json} request) > Json {
         const {str, Json} textDocument = request["params"]?.mapValue()["textDocument"]?.mapValue() ?? <str, Json>{};
-        str uri = textDocument["uri"]?.stringValue();
-        const num line = textDocument["position"]?.mapValue()["line"].numberValue();
-        const num column = textDocument["position"]?.mapValue()["column"].numberValue();
+        str uri = textDocument["uri"]?.stringValue() ?? "";
+        const {str, Json} position = textDocument["position"]?.mapValue() ?? <str, Json>{};
+        const num line = position["line"]?.numberValue() ?? 0;
+        const num column = position["column"]?.numberValue() ?? 0;
 
         if (!uri.startsWith("file://")) {
-            io.stderr.write("Could not handle uri: {uri}\n");
+            stderr.write("Could not handle uri: {uri}\n");
             return Json{};    
         }
 
@@ -115,7 +115,7 @@ const {str, Function(LspState state, {str, Json}) > Json} handlers = {
             File file = File.open(uri, mode: FileMode.read);
 
             source = file.readAll();
-            state.sources[uri] = source;
+            state.sources[uri] = source!;
 
             file.close();
         }
@@ -125,6 +125,7 @@ const {str, Function(LspState state, {str, Json}) > Json} handlers = {
         Json? ast = state.ast[uri] ?? Json.decode(debug.ast(source!, scriptName: uri));
 
         | Explore ast...
+        stderr.write(ast?.encode() ?? "nothing");
 
         return Json{};
     }
@@ -140,9 +141,9 @@ fun main([str] args) > void {
             throw "Request is empty";
         }
 
-        str? requestRaw = io.stdin.read(contentLength ?? 0);
+        str? requestRaw = stdin.read(contentLength ?? 0);
 
-        io.stderr.write("Request is: `{requestRaw!}`\n");
+        stderr.write("Request is: `{requestRaw!}`\n");
 
         if (requestRaw == null) {
             throw "Could not read request";
@@ -151,11 +152,11 @@ fun main([str] args) > void {
         {str, Json} request = Json.decode(requestRaw!).mapValue();
         const str? method = request["method"]?.string;
 
-        io.stderr.write("Method is: `{method ?? "none"}`\n");
+        stderr.write("Method is: `{method ?? "none"}`\n");
 
         Json result = Json{};
         if (method != null and handlers[method!] != null) {
-            result = handlers[method!]!(state, request);
+            result = handlers[method!]!(state, request: request);
         }
 
         respond(
