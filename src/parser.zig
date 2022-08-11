@@ -3809,7 +3809,8 @@ pub const Parser = struct {
                 }
 
                 var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.allocator, self.type_registry);
-                var param_name: []const u8 = if (try self.match(.Identifier)) self.parser.previous_token.?.lexeme else "_";
+                try self.consume(.Identifier, "Expected argument name");
+                var param_name: []const u8 = self.parser.previous_token.?.lexeme;
 
                 try parameters.put(param_name, param_type);
 
@@ -4114,7 +4115,7 @@ pub const Parser = struct {
             var global: *Global = &self.globals.items[i];
             if (((prefix == null and global.prefix == null) or (prefix != null and global.prefix != null and mem.eql(u8, prefix.?, global.prefix.?))) and mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                 if (!global.initialized) {
-                    try self.reportError("Can't read global variable in its own initializer.");
+                    try self.reportErrorFmt("Can't read global `{s}` variable in its own initializer.", .{global.name.string});
                 }
 
                 return i;

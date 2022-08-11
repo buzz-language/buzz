@@ -1,12 +1,12 @@
 import "lib/std";
 
 test "Lambda/Anonymous functions" {
-    Function(num) > num mul = fun (num n) > num -> n * 2;
+    Function(num n) > num mul = fun (num n) > num -> n * 2;
 
     assert(mul(1) == 2, message: "called a lambda function");
 }
 
-fun callThis(Function(num) > num fn, num arg) > num {
+fun callThis(Function(num n) > num fn, num arg) > num {
     return fn(arg);
 }
 

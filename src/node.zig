@@ -186,9 +186,12 @@ pub const ParseNode = struct {
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
         try out.print(
-            "\"type_def\": \"{s}\"",
+            "\"type_def\": \"{s}\", \"location\": {{ \"line\": {}, \"column\": {}, \"script\": \"{s}\" }}",
             .{
                 if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
+                self.location.line,
+                self.location.column,
+                self.location.script_name,
             },
         );
 
@@ -2581,7 +2584,7 @@ pub const CallNode = struct {
         var needs_reorder = false;
         for (self.arguments.keys()) |arg_key, index| {
             const argument = self.arguments.get(arg_key).?;
-            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
+            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) arg_keys[0] else arg_key;
             const def_arg_type = args.get(actual_arg_key);
 
             const ref_index = args.getIndex(actual_arg_key);
