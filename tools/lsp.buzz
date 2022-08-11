@@ -1,6 +1,15 @@
 import "lib/std";
 import "lib/io" as io;
 import "lib/json";
+import "lib/os" as os;
+import "lib/fs";
+import "lib/debug" as debug;
+
+object LspState {
+    | TODO: Maybe bad to keep this in memory
+    {str, str} sources = <str, str>{},
+    {str, Json} ast = <str, Json>{},
+}
 
 fun readContentLength() > num? {
     while (true) {
@@ -24,7 +33,6 @@ fun readContentLength() > num? {
         const str value = header!.sub(colon! + 2, len: null);
         
         if (name == "Content-Length") {
-            io.stderr.write("`{value}`\n");
             return parseNumber(value);
         }
     }
@@ -47,7 +55,84 @@ fun respond(str? strId, num? numId, Json result) > void {
     io.stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
 }
 
+fun toOffset(str source, num line, num column) > num {
+    [str] lines = source.split("\n");
+    num offset = 0;
+
+    | Advance offset to start of line
+    for (num i = 0; i < line - 1 and i < lines.len(); i = i + 1) {
+        offset = offset + lines[i].len() + 1; | +1 for the \n char
+    }
+
+    return offset + column;
+}
+
+fun toTokenStart(str source, num offset) > num {
+    | Tokenize source, and find out the start of the token under `offset`
+    
+    return offset;
+}
+
+const {str, Function(LspState state, {str, Json}) > Json} handlers = {
+    "exit": fun (LspState state, {str, Json} request) > Json{
+        os.exit(0);
+
+        return Json{};
+    },
+    "initialize": fun (LspState state, {str, Json} request) > Json
+        -> Json{
+            map = {
+                "capabilities": Json{
+                    map = {
+                        "declarationProvider": Json{ boolean = true },
+                        "definitionProvider": Json{ boolean = true },
+                    }
+                },
+                "serverInfo": Json{
+                    map = {
+                        "name": Json{ string = "buzz-lsp" },
+                        "version": Json{ string= "0.0.1" },
+                    },
+                },
+            },
+        },
+    "textDocument/definition": fun ({str, Json} request) > Json{
+        const {str, Json} textDocument = request["params"]?.mapValue()["textDocument"]?.mapValue() ?? <str, Json>{};
+        str uri = textDocument["uri"]?.stringValue();
+        const num line = textDocument["position"]?.mapValue()["line"].numberValue();
+        const num column = textDocument["position"]?.mapValue()["column"].numberValue();
+
+        if (!uri.startsWith("file://")) {
+            io.stderr.write("Could not handle uri: {uri}\n");
+            return Json{};    
+        }
+
+        | Dismiss "file://" prefix
+        uri = uri.sub(7, len: null);
+
+        str? source = state.sources[uri];
+        if (source == null) {
+            File file = File.open(uri, mode: FileMode.read);
+
+            source = file.readAll();
+            state.sources[uri] = source;
+
+            file.close();
+        }
+
+        num position = toOffset(source!, line: line, column: column);
+        num tokenPosition = toTokenStart(source!, offset: position);
+        Json? ast = state.ast[uri] ?? Json.decode(debug.ast(source!, scriptName: uri));
+
+        | Explore ast...
+
+        return Json{};
+    }
+};
+
 fun main([str] args) > void {
+    LspState state = LspState{};
+
     while (true) {
         num? contentLength = readContentLength();
 
@@ -69,22 +154,8 @@ fun main([str] args) > void {
         io.stderr.write("Method is: `{method ?? "none"}`\n");
 
         Json result = Json{};
-
-        if (method == "initialize") {
-            result = Json{
-                map = {
-                    "capabilities": Json{
-                        "declarationProvider": Json{ boolean = true },
-                        "definitionProvider": Json{ boolean = true },
-                    },
-                    "serverInfo": Json{
-                        map = {
-                            "name": Json{ string = "buzz-lsp" },
-                            "version": Json{ string= "0.0.1" },
-                        },
-                    },
-                },
-            };
+        if (method != null and handlers[method!] != null) {
+            result = handlers[method!]!(state, request);
         }
 
         respond(
@@ -92,7 +163,5 @@ fun main([str] args) > void {
             numId: request["id"]?.number,
             result: result,
         );
-
-        | throw "debug";
     }
 }
