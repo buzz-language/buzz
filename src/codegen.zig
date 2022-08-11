@@ -305,18 +305,16 @@ pub const CodeGen = struct {
     }
 
     pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var expected_str: []const u8 = try expected_type.toString(self.allocator);
-        var actual_str: []const u8 = try actual_type.toString(self.allocator);
-        var error_message: []u8 = try self.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
-        defer {
-            self.allocator.free(error_message);
-            self.allocator.free(expected_str);
-            self.allocator.free(actual_str);
-        }
+        var error_message = std.ArrayList(u8).init(self.allocator);
+        var writer = error_message.writer();
 
-        error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
+        try writer.print("{s}: expected type `", .{message});
+        try expected_type.toString(writer);
+        try writer.writeAll("`, got `");
+        try actual_type.toString(writer);
+        try writer.writeAll("`");
 
-        try self.reportErrorAt(at, error_message);
+        try self.reportErrorAt(at, error_message.items);
     }
 
     // Got to the root placeholder and report it

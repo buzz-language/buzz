@@ -185,10 +185,16 @@ pub const ParseNode = struct {
     }
 
     fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
+        try out.writeAll("\"type_def\": \"");
+        if (self.type_def) |type_def| {
+            try type_def.toString(out);
+        } else {
+            try out.writeAll("N/A");
+        }
+
         try out.print(
-            "\"type_def\": \"{s}\", \"location\": {{ \"line\": {}, \"column\": {}, \"script\": \"{s}\" }}",
+            "\", \"location\": {{ \"line\": {}, \"column\": {}, \"script\": \"{s}\" }}",
             .{
-                if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "N/A",
                 self.location.line,
                 self.location.column,
                 self.location.script_name,
@@ -678,13 +684,11 @@ pub const StringNode = struct {
             defer list.deinit();
 
             var str_value = std.ArrayList(u8).init(allocator);
+            var writer = str_value.writer();
             for (self.elements) |element| {
                 assert(element.isConstant(element));
 
-                var str = try valueToString(allocator, try element.toValue(element, allocator, strings));
-                defer allocator.free(str);
-
-                try str_value.appendSlice(str);
+                try valueToString(writer, try element.toValue(element, allocator, strings));
             }
 
             return (try copyStringRaw(strings, allocator, str_value.items, true)).toValue();
@@ -1332,7 +1336,10 @@ pub const IsNode = struct {
         try out.writeAll("{\"node\": \"Is\", \"left\": ");
 
         try self.left.toJson(self.left, out);
-        try out.print(", \"constant\": \"{s}\", ", .{try valueToString(std.heap.c_allocator, self.constant)});
+
+        try out.writeAll(", \"constant\": \"");
+        try valueToString(out, self.constant);
+        try out.writeAll("\", ");
 
         try ParseNode.stringify(node, out);
 
@@ -1412,7 +1419,7 @@ pub const UnaryNode = struct {
                     try codegen.reportErrorFmt(
                         self.left.location,
                         "Expected type `bool`, got `{s}`",
-                        .{try left_type.toString(codegen.allocator)},
+                        .{try left_type.toStringAlloc(codegen.allocator)},
                     );
                 }
 
@@ -1423,7 +1430,7 @@ pub const UnaryNode = struct {
                     try codegen.reportErrorFmt(
                         self.left.location,
                         "Expected type `num`, got `{s}`",
-                        .{try left_type.toString(codegen.allocator)},
+                        .{try left_type.toStringAlloc(codegen.allocator)},
                     );
                 }
 
@@ -2147,7 +2154,11 @@ pub const FunctionNode = struct {
         try out.writeAll(", ");
 
         if (self.native) |native| {
-            try out.print("\"native\": \"{s}\",", .{try valueToString(std.heap.c_allocator, native.toValue())});
+            try out.writeAll("\"native\": \"");
+
+            try valueToString(out, native.toValue());
+
+            try out.writeAll("\",");
         }
 
         if (self.test_message) |test_message| {
@@ -3013,14 +3024,21 @@ pub const VarDeclarationNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        const var_type = if (self.type_def) |type_def| try type_def.toString(std.heap.c_allocator) else "";
-
         try out.print(
-            "{{\"node\": \"VarDeclaration\", \"name\": \"{s}\", \"constant\": {}, \"var_type\": \"{s} @{}\", ",
+            "{{\"node\": \"VarDeclaration\", \"name\": \"{s}\", \"constant\": {}, \"var_type\": \"",
             .{
                 self.name.lexeme,
                 self.constant,
-                var_type,
+            },
+        );
+
+        if (self.type_def) |type_def| {
+            try type_def.toString(out);
+        }
+
+        try out.print(
+            " @{}\", ",
+            .{
                 if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
             },
         );
@@ -4768,10 +4786,17 @@ pub const ObjectDeclarationNode = struct {
         i = 0;
         while (it2.next()) |kv| {
             try out.print(
-                "\"{s}\": {{\"type_def\": \"{s}\", \"docblock\": \"{s}\"}}",
+                "\"{s}\": {{\"type_def\": \"",
                 .{
                     kv.key_ptr.*,
-                    try kv.value_ptr.*.toString(std.heap.c_allocator),
+                },
+            );
+
+            try kv.value_ptr.*.toString(out);
+
+            try out.print(
+                "\", \"docblock\": \"{s}\"}}",
+                .{
                     if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string orelse "" else "",
                 },
             );

@@ -57,18 +57,23 @@ pub fn hashableToValue(hashable: HashableValue) Value {
     }
 }
 
-pub fn valueToString(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-    // TODO: use arraylist writer
-    var buf: []u8 = try allocator.alloc(u8, 1000);
+pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    var str = std.ArrayList(u8).init(allocator);
 
-    return switch (value) {
-        .Boolean => try std.fmt.bufPrint(buf, "{}", .{value.Boolean}),
-        .Number => try std.fmt.bufPrint(buf, "{d}", .{value.Number}),
-        .Null => try std.fmt.bufPrint(buf, "null", .{}),
-        .Void => try std.fmt.bufPrint(buf, "void", .{}),
+    try valueToString(str.writer(), value);
 
-        .Obj => try objToString(allocator, buf, value.Obj),
-    };
+    return str.items;
+}
+
+pub fn valueToString(writer: std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
+    switch (value) {
+        .Boolean => try writer.print("{}", .{value.Boolean}),
+        .Number => try writer.print("{d}", .{value.Number}),
+        .Null => try writer.print("null", .{}),
+        .Void => try writer.print("void", .{}),
+
+        .Obj => try objToString(writer, value.Obj),
+    }
 }
 
 pub fn valueEql(a: Value, b: Value) bool {

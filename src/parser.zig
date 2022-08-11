@@ -745,8 +745,6 @@ pub const Parser = struct {
 
                     // Is the child types resolvable with parent return type
                     if (resolved_type.def_type == .Function) {
-                        std.debug.print("resolving yield type with: {s}\n", .{try resolved_type.resolved_type.?.Function.yield_type.toString(self.allocator)});
-
                         try self.resolvePlaceholder(
                             child,
                             resolved_type.resolved_type.?.Function.yield_type,
@@ -3165,7 +3163,7 @@ pub const Parser = struct {
                     .Placeholder, .String => subscripted_type_def = type_def,
                     .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
                     .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(self.type_registry),
-                    else => try self.reportErrorFmt("Type `{s}` is not subscriptable", .{try type_def.toString(self.allocator)}),
+                    else => try self.reportErrorFmt("Type `{s}` is not subscriptable", .{try type_def.toStringAlloc(self.allocator)}),
                 }
             } else {
                 try self.reportError("Optional type is not subscriptable");

@@ -14,6 +14,7 @@ const ValueType = _value.ValueType;
 const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
 const valueToString = _value.valueToString;
+const valueToStringAlloc = _value.valueToStringAlloc;
 const valueEql = _value.valueEql;
 const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
@@ -501,7 +502,7 @@ pub const VM = struct {
                 .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => {
-                    var str = try valueToString(self.allocator, self.pop());
+                    var str = try valueToStringAlloc(self.allocator, self.pop());
                     defer self.allocator.free(str);
                     self.push(
                         Value{
@@ -1113,7 +1114,7 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Raise the runtime error
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToString(self.allocator, payload)});
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToStringAlloc(self.allocator, payload)});
 
                 for (stack.items) |stack_frame| {
                     std.debug.print("\tat {s}", .{stack_frame.closure.function.name.string});

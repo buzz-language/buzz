@@ -1845,25 +1845,18 @@ pub const ObjList = struct {
         var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
 
         var result = std.ArrayList(u8).init(vm.allocator);
+        var writer = result.writer();
         defer result.deinit();
         for (self.items.items) |item, i| {
-            var el_str = valueToString(vm.allocator, item) catch {
-                var err: ?*ObjString = copyString(vm, "could not stringify element") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
-
-                return -1;
-            };
-            defer vm.allocator.free(el_str);
-
-            result.appendSlice(el_str) catch {
-                var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+            valueToString(writer, item) catch {
+                var err: ?*ObjString = copyString(vm, "could not stringify item") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
             };
 
             if (i + 1 < self.items.items.len) {
-                result.appendSlice(separator.string) catch {
+                writer.writeAll(separator.string) catch {
                     var err: ?*ObjString = copyString(vm, "could not join list") catch null;
                     vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -2786,7 +2779,9 @@ pub const TypeRegistry = struct {
     registry: std.StringHashMap(*ObjTypeDef),
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        const type_def_str: []const u8 = try type_def.toString(self.allocator);
+        var type_def_buf = std.ArrayList(u8).init(self.allocator);
+        try type_def.toString(type_def_buf.writer());
+        const type_def_str: []const u8 = type_def_buf.items;
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
@@ -2951,26 +2946,25 @@ pub const ObjTypeDef = struct {
         }
     }
 
-    /// Beware: allocates a string, caller owns it
-    pub fn toString(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var type_str: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
-        var writer = type_str.writer();
+    pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+        var str = std.ArrayList(u8).init(allocator);
 
+        try self.toString(str.writer());
+
+        return str.items;
+    }
+
+    pub fn toString(self: *const Self, writer: std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
             .Bool => try writer.writeAll("bool"),
             .Number => try writer.writeAll("num"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
             .Fiber => {
-                const return_type = try self.resolved_type.?.Fiber.return_type.toString(allocator);
-                defer allocator.free(return_type);
-                const yield_type = try self.resolved_type.?.Fiber.yield_type.toString(allocator);
-                defer allocator.free(yield_type);
-
                 try writer.writeAll("fib<");
-                try writer.writeAll(return_type);
+                try self.resolved_type.?.Fiber.return_type.toString(writer);
                 try writer.writeAll(", ");
-                try writer.writeAll(yield_type);
+                try self.resolved_type.?.Fiber.yield_type.toString(writer);
                 try writer.writeAll(">");
             },
 
@@ -2990,23 +2984,15 @@ pub const ObjTypeDef = struct {
             .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
 
             .List => {
-                var list_type = try self.resolved_type.?.List.item_type.toString(allocator);
-                defer allocator.free(list_type);
-
                 try writer.writeAll("[");
-                try writer.writeAll(list_type);
+                try self.resolved_type.?.List.item_type.toString(writer);
                 try writer.writeAll("]");
             },
             .Map => {
-                var key_type = try self.resolved_type.?.Map.key_type.toString(allocator);
-                defer allocator.free(key_type);
-                var value_type = try self.resolved_type.?.Map.value_type.toString(allocator);
-                defer allocator.free(value_type);
-
                 try writer.writeAll("{");
-                try writer.writeAll(key_type);
+                try self.resolved_type.?.Map.key_type.toString(writer);
                 try writer.writeAll(", ");
-                try writer.writeAll(value_type);
+                try self.resolved_type.?.Map.value_type.toString(writer);
                 try writer.writeAll("}");
             },
             .Native, .Function => {
@@ -3020,10 +3006,7 @@ pub const ObjTypeDef = struct {
                 var i: usize = 0;
                 var it = function_def.parameters.iterator();
                 while (it.next()) |kv| : (i = i + 1) {
-                    var param_type = try kv.value_ptr.*.toString(allocator);
-                    defer allocator.free(param_type);
-
-                    try writer.writeAll(param_type);
+                    try kv.value_ptr.*.toString(writer);
                     try writer.writeAll(" ");
                     try writer.writeAll(kv.key_ptr.*);
 
@@ -3035,11 +3018,8 @@ pub const ObjTypeDef = struct {
                 try writer.writeAll(")");
 
                 if (function_def.return_type.def_type != Type.Void) {
-                    var return_type = try function_def.return_type.toString(allocator);
-                    defer allocator.free(return_type);
-
                     try writer.writeAll(" > ");
-                    try writer.writeAll(return_type);
+                    try function_def.return_type.toString(writer);
                 }
             },
             .Type => try writer.writeAll("type"),
@@ -3053,8 +3033,6 @@ pub const ObjTypeDef = struct {
         if (self.optional) {
             try writer.writeAll("?");
         }
-
-        return type_str.items;
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -3287,82 +3265,80 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
     }
 }
 
-// TODO: use ArrayList writer instead of std.fmt.bufPrint
-pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)![]u8 {
+pub fn objToString(writer: std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
     return switch (obj.obj_type) {
         .String => {
             const str = ObjString.cast(obj).?.string;
 
-            return try std.fmt.bufPrint(buf, "{s}", .{str});
+            try writer.print("{s}", .{str});
         },
         .Pattern => {
             const pattern = ObjPattern.cast(obj).?.source;
 
-            return try std.fmt.bufPrint(buf, "{s}", .{pattern});
+            try writer.print("{s}", .{pattern});
         },
         .Fiber => {
             const fiber = ObjFiber.cast(obj).?.fiber;
 
-            return try std.fmt.bufPrint(buf, "fiber: 0x{x}", .{@ptrToInt(fiber)});
+            try writer.print("fiber: 0x{x}", .{@ptrToInt(fiber)});
         },
         .Type => {
-            // TODO: no use for typedef.toString to allocate a buffer
-            var type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
-            var type_str: []const u8 = try type_def.toString(allocator);
-            defer allocator.free(type_str);
+            const type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "type: 0x{x} `{s}`", .{
+            try writer.print("type: 0x{x} `", .{
                 @ptrToInt(type_def),
-                type_str,
             });
+
+            try type_def.toString(writer);
+
+            try writer.writeAll("`");
         },
         .UpValue => {
-            var upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
-            var upvalue_str: []const u8 = try valueToString(allocator, upvalue.closed orelse upvalue.location.*);
-            defer allocator.free(upvalue_str);
+            const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "upvalue: 0x{x} `{s}`", .{
-                @ptrToInt(upvalue),
-                upvalue_str,
-            });
+            try valueToString(writer, upvalue.closed orelse upvalue.location.*);
         },
-        .Closure => try std.fmt.bufPrint(buf, "closure: 0x{x} `{s}`", .{
+        .Closure => try writer.print("closure: 0x{x} `{s}`", .{
             @ptrToInt(ObjClosure.cast(obj).?),
             ObjClosure.cast(obj).?.function.name.string,
         }),
-        .Function => try std.fmt.bufPrint(buf, "function: 0x{x} `{s}`", .{
+        .Function => try writer.print("function: 0x{x} `{s}`", .{
             @ptrToInt(ObjFunction.cast(obj).?),
             ObjFunction.cast(obj).?.name.string,
         }),
-        .ObjectInstance => try std.fmt.bufPrint(buf, "object instance: 0x{x} `{s}`", .{
+        .ObjectInstance => try writer.print("object instance: 0x{x} `{s}`", .{
             @ptrToInt(ObjObjectInstance.cast(obj).?),
             ObjObjectInstance.cast(obj).?.object.name.string,
         }),
-        .Object => try std.fmt.bufPrint(buf, "object: 0x{x} `{s}`", .{
+        .Object => try writer.print("object: 0x{x} `{s}`", .{
             @ptrToInt(ObjObject.cast(obj).?),
             ObjObject.cast(obj).?.name.string,
         }),
         .List => {
-            var list: *ObjList = ObjList.cast(obj).?;
-            var type_str: []const u8 = try list.type_def.resolved_type.?.List.item_type.toString(allocator);
-            defer allocator.free(type_str);
+            const list: *ObjList = ObjList.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "list: 0x{x} [{s}]", .{ @ptrToInt(list), type_str });
+            try writer.print("list: 0x{x} [", .{@ptrToInt(list)});
+
+            try list.type_def.resolved_type.?.List.item_type.toString(writer);
+
+            try writer.writeAll("]");
         },
         .Map => {
-            var map: *ObjMap = ObjMap.cast(obj).?;
-            var key_type_str: []const u8 = try map.type_def.resolved_type.?.Map.key_type.toString(allocator);
-            defer allocator.free(key_type_str);
-            var value_type_str: []const u8 = try map.type_def.resolved_type.?.Map.value_type.toString(allocator);
-            defer allocator.free(value_type_str);
+            const map: *ObjMap = ObjMap.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "map: 0x{x} {{{s}, {s}}}", .{
+            try writer.print("map: 0x{x} {{", .{
                 @ptrToInt(map),
-                key_type_str,
-                value_type_str,
             });
+
+            try map.type_def.resolved_type.?.Map.key_type.toString(writer);
+
+            try writer.writeAll(", ");
+
+            try map.type_def.resolved_type.?.Map.value_type.toString(writer);
+
+            try writer.writeAll("}");
         },
-        .Enum => try std.fmt.bufPrint(buf, "enum: 0x{x} `{s}`", .{
+        .Enum => try writer.print("enum: 0x{x} `{s}`", .{
             @ptrToInt(ObjEnum.cast(obj).?),
             ObjEnum.cast(obj).?.name.string,
         }),
@@ -3370,33 +3346,39 @@ pub fn objToString(allocator: Allocator, buf: []u8, obj: *Obj) (Allocator.Error 
             var instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
             var enum_: *ObjEnum = instance.enum_ref;
 
-            break :enum_instance try std.fmt.bufPrint(buf, "{s}.{s}", .{
+            break :enum_instance try writer.print("{s}.{s}", .{
                 enum_.name.string,
                 enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
             });
         },
         .Bound => {
-            var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
-            var receiver_str: []const u8 = try valueToString(allocator, bound.receiver);
-            defer allocator.free(receiver_str);
+            const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
 
             if (bound.closure) |closure| {
                 var closure_name: []const u8 = closure.function.name.string;
-                return try std.fmt.bufPrint(buf, "bound method: {s} to {s}", .{ receiver_str, closure_name });
+                try writer.writeAll("bound method: ");
+
+                try valueToString(writer, bound.receiver);
+
+                try writer.print(" to {s}", .{closure_name});
             } else {
                 assert(bound.native != null);
-                return try std.fmt.bufPrint(buf, "bound method: {s} to native 0x{}", .{ receiver_str, @ptrToInt(bound.native.?) });
+                try writer.writeAll("bound method: ");
+
+                try valueToString(writer, bound.receiver);
+
+                try writer.print(" to native 0x{}", .{@ptrToInt(bound.native.?)});
             }
         },
         .Native => {
             var native: *ObjNative = ObjNative.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "native: 0x{x}", .{@ptrToInt(native)});
+            try writer.print("native: 0x{x}", .{@ptrToInt(native)});
         },
         .UserData => {
             var userdata: *ObjUserData = ObjUserData.cast(obj).?;
 
-            return try std.fmt.bufPrint(buf, "userdata: 0x{x}", .{@ptrToInt(userdata)});
+            try writer.print("userdata: 0x{x}", .{@ptrToInt(userdata)});
         },
     };
 }
