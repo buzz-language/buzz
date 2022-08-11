@@ -162,7 +162,10 @@ pub fn main() !void {
         positionals.deinit();
     }
 
-    try runFile(allocator, res.positionals[0], positionals.items[1..], res.args.@"test");
+    runFile(allocator, res.positionals[0], positionals.items[1..], res.args.@"test") catch {
+        // TODO: should probably choses appropriate error code
+        std.os.exit(1);
+    };
 
     std.os.exit(0);
 }

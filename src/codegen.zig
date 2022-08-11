@@ -248,12 +248,12 @@ pub const CodeGen = struct {
 
             l += 1;
         }
-        std.debug.print("{s}:{}:{}:\n{s}\u{001b}[31mError:\u{001b}[0m {s}\n\n", .{
+        std.debug.print("{s}:{}:{}: \u{001b}[31mCompile error:\u{001b}[0m {s}\n{s}", .{
             location.script_name,
             location.line + 1,
             location.column + 1,
-            report_line.items,
             message,
+            report_line.items,
         });
 
         if (Config.debug_stop_on_report) {

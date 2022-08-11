@@ -592,12 +592,12 @@ pub const Parser = struct {
 
             l += 1;
         }
-        std.debug.print("{s}:{}:{}:\n{s}\u{001b}[31mSyntax error:\u{001b}[0m {s}\n\n", .{
+        std.debug.print("{s}:{}:{}: \u{001b}[31mSyntax error:\u{001b}[0m {s}{s}", .{
             token.script_name,
             token.line + 1,
             token.column + 1,
-            report_line.items,
             message,
+            report_line.items,
         });
 
         if (Config.debug_stop_on_report) {
