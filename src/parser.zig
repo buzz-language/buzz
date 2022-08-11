@@ -2202,7 +2202,9 @@ pub const Parser = struct {
 
             node.patch_opt_jumps = true;
 
-            // This is the leaf, no need to cloneOptional
+            if (node.type_def != null) {
+                node.type_def = try node.type_def.?.cloneOptional(self.type_registry);
+            }
         }
 
         if (canAssign and (try self.match(.Equal))) {
