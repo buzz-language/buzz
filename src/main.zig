@@ -18,7 +18,13 @@ fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
 }
 
-fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing: bool) !void {
+const RunFlavor = enum {
+    Run,
+    Test,
+    Check,
+};
+
+fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor: RunFlavor) !void {
     var strings = std.StringHashMap(*ObjString).init(allocator);
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var type_registry = TypeRegistry{
@@ -27,7 +33,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
     };
     var vm = try VM.init(allocator, &strings);
     var parser = Parser.init(allocator, &strings, &imports, &type_registry, false);
-    var codegen = CodeGen.init(allocator, &parser, &strings, &type_registry, testing);
+    var codegen = CodeGen.init(allocator, &parser, &strings, &type_registry, flavor == .Test);
     defer {
         codegen.deinit();
         vm.deinit();
@@ -65,10 +71,12 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, testing
             codegen_time = timer.read();
             timer.reset();
 
-            _ = try vm.interpret(
-                function,
-                args,
-            );
+            if (flavor != .Check) {
+                _ = try vm.interpret(
+                    function,
+                    args,
+                );
+            }
 
             running_time = timer.read();
         }
@@ -99,6 +107,7 @@ pub fn main() !void {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help    Show help and exit
         \\-t, --test    Run test blocks in provided script
+        \\-c, --check   Check script for error without running it
         \\-v, --version Print version and exit
         \\<str>...
         \\
@@ -162,7 +171,9 @@ pub fn main() !void {
         positionals.deinit();
     }
 
-    runFile(allocator, res.positionals[0], positionals.items[1..], res.args.@"test") catch {
+    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else RunFlavor.Run;
+
+    runFile(allocator, res.positionals[0], positionals.items[1..], flavor) catch {
         // TODO: should probably choses appropriate error code
         std.os.exit(1);
     };
@@ -191,7 +202,7 @@ test "Testing buzz" {
             defer allocator.free(file_name);
 
             var had_error: bool = false;
-            runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, true) catch {
+            runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, .Test) catch {
                 std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
                 had_error = true;
                 success = false;
