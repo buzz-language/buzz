@@ -3431,33 +3431,7 @@ pub const Parser = struct {
                         try self.reportErrorAtCurrent("`catch` clause can't have more than one parameter.");
                     }
 
-                    var param_type: *ObjTypeDef = try self.parseTypeDef();
-                    // Convert to instance if revelant
-                    param_type = switch (param_type.def_type) {
-                        .Object => object: {
-                            var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = param_type };
-
-                            break :object try self.type_registry.getTypeDef(
-                                .{
-                                    .optional = try self.match(.Question),
-                                    .def_type = .ObjectInstance,
-                                    .resolved_type = resolved_type,
-                                },
-                            );
-                        },
-                        .Enum => enum_instance: {
-                            var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = param_type };
-
-                            break :enum_instance try self.type_registry.getTypeDef(
-                                .{
-                                    .optional = try self.match(.Question),
-                                    .def_type = .EnumInstance,
-                                    .resolved_type = resolved_type,
-                                },
-                            );
-                        },
-                        else => param_type,
-                    };
+                    var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.allocator, self.type_registry);
 
                     var slot: usize = try self.parseVariable(
                         param_type,
@@ -3834,7 +3808,7 @@ pub const Parser = struct {
                     try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
                 }
 
-                var param_type: *ObjTypeDef = try self.parseTypeDef();
+                var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.allocator, self.type_registry);
                 var param_name: []const u8 = if (try self.match(.Identifier)) self.parser.previous_token.?.lexeme else "_";
 
                 try parameters.put(param_name, param_type);
