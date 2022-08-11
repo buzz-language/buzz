@@ -18,11 +18,25 @@ A small/lightweight typed scripting language written in Zig
 - Strict typing
 - Unambiguous
 - No nonsense coercion
-- Fibers
+- [Fibers](#fibers)
+- Tooling
+    - Generate doc from docblocks (in progress)
+    - LSP (in progress)
+    - [TextMate syntax](https://github.com/giann/buzz/tree/main/tmLanguage)
 
 # Quick tour
 
-You can also take a look at `tests/` for more examples.
+**Note:** You can also take a look at `tests/` for more examples.
+
+- [Types and variables](#types-and-variables)
+- [Functions](#functions)
+- [Enums](#enums)
+- [Control flow](#control-flow)
+- [Objects and Classes](#objects-and-classes)
+- [Errors](#errors)
+- [Import/Export](#import/export)
+- [Fibers](#fibers)
+- [Call C/Zig code](#call-c/zig-code)
 
 ## Types and variables
 
@@ -265,7 +279,7 @@ fun main() > void {
 }
 ```
 
-# Fibers
+## Fibers
 
 Similar to Lua's coroutines. Buzz's fibers have their own state and stack and can be switched in and out from.
 Fibers can yield from within any call depth. Any function can be wrapped in a fiber. Unlike Lua, `yield` are evaluated and dismissed
