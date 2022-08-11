@@ -2155,6 +2155,11 @@ pub const Parser = struct {
     }
 
     fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) !*ParseNode {
+        // In case we are already parsing an expression, the current unwrap chain should not impact deeper expressions
+        // Exemple: canBeNull?.aMap[expression] <- here `expression` should not be transformed into an optional
+        const previous_opt_jumps = self.opt_jumps;
+        self.opt_jumps = null;
+
         // If hanging is true, that means we already read the start of the expression
         if (!hanging) {
             _ = try self.advance();
@@ -2210,6 +2215,8 @@ pub const Parser = struct {
         if (canAssign and (try self.match(.Equal))) {
             try self.reportError("Invalid assignment target.");
         }
+
+        self.opt_jumps = previous_opt_jumps;
 
         return node;
     }
