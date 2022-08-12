@@ -1376,7 +1376,7 @@ pub const VM = struct {
 
     // TODO: superDefaults and getSuperField could be replaced by specialized opcodes to avoid having to walk up the chain of inheritance
 
-    fn superDefaults(self: *Self, instance: *ObjObjectInstance, super: *ObjObject) Allocator.Error!void {
+    fn superDefaults(self: *Self, instance: *ObjObjectInstance, super: *ObjObject) VM.Error!void {
         if (super.super) |super_super| {
             try self.superDefaults(instance, super_super);
         }
@@ -1387,7 +1387,7 @@ pub const VM = struct {
         }
     }
 
-    fn getSuperField(self: *Self, name: []const u8, super: *ObjObject) Allocator.Error!void {
+    fn getSuperField(self: *Self, name: []const u8, super: *ObjObject) VM.Error!void {
         if (super.static_fields.get(name)) |static| {
             _ = self.pop(); // Pop instance
             self.push(static);

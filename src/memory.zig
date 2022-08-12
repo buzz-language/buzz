@@ -11,7 +11,7 @@ const Config = @import("./config.zig").Config;
 pub const pcre = @import("./pcre.zig").pcre;
 
 const Value = _value.Value;
-const valueToString = _value.valueToString;
+const valueToStringAlloc = _value.valueToStringAlloc;
 const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -71,15 +71,15 @@ pub fn freeMany(vm: *VM, comptime T: type, pointer: []const T) void {
 
 pub fn markObj(vm: *VM, obj: *Obj) !void {
     if (obj.is_marked) {
-        if (Config.debug_gc) {
-            std.debug.print("{*} already marked\n", .{obj});
-        }
+        // if (Config.debug_gc) {
+        //     std.debug.print("{*} already marked\n", .{obj});
+        // }
         return;
     }
 
-    if (Config.debug_gc) {
-        std.debug.print("marking {*}: {s}\n", .{ obj, try valueToString(vm.allocator, Value{ .Obj = obj }) });
-    }
+    // if (Config.debug_gc) {
+    //     std.debug.print("marking {*}: {s}\n", .{ obj, try valueToStringAlloc(vm.allocator, Value{ .Obj = obj }) });
+    // }
 
     obj.is_marked = true;
 
@@ -107,9 +107,9 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
     };
 }
 
-fn freeObj(vm: *VM, obj: *Obj) void {
+fn freeObj(vm: *VM, obj: *Obj) !void {
     if (Config.debug_gc) {
-        std.debug.print("freeing {*}: {}\n", .{ obj, obj.obj_type });
+        std.debug.print(">> freeing {*}: {s}\n", .{ obj, try valueToStringAlloc(vm.allocator, Value{ .Obj = obj }) });
     }
 
     switch (obj.obj_type) {
@@ -219,7 +219,7 @@ fn traceReference(vm: *VM) !void {
     }
 }
 
-fn sweep(vm: *VM) void {
+fn sweep(vm: *VM) !void {
     var swept: usize = vm.bytes_allocated;
 
     var previous: ?*Obj = null;
@@ -240,17 +240,12 @@ fn sweep(vm: *VM) void {
                 vm.objects = obj;
             }
 
-            freeObj(vm, unreached);
+            try freeObj(vm, unreached);
         }
     }
 
     if (Config.debug_gc) {
-        std.debug.print("Swept {} bytes, now {} bytes, remaining are:\n", .{ swept - vm.bytes_allocated, vm.bytes_allocated });
-        obj = vm.objects;
-        while (obj) |uobj| {
-            std.debug.print("\t{*}: {s}\n", .{ uobj, uobj });
-            obj = uobj.next;
-        }
+        std.debug.print("Swept {} bytes, now {} bytes\n", .{ swept - vm.bytes_allocated, vm.bytes_allocated });
     }
 }
 
@@ -270,7 +265,7 @@ pub fn collectGarbage(vm: *VM) !void {
         try markObj(vm, kv.value_ptr.*.toObj());
     }
 
-    sweep(vm);
+    try sweep(vm);
 
     vm.next_gc = vm.bytes_allocated * 2;
 

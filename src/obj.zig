@@ -402,7 +402,21 @@ pub const ObjPattern = struct {
     var members: ?std.StringArrayHashMap(*ObjNative) = null;
     var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
 
-    pub fn mark(_: *Self, _: *VM) void {}
+    pub fn mark(_: *Self, vm: *VM) !void {
+        if (Self.members) |umembers| {
+            var it = umembers.iterator();
+            while (it.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+        }
+
+        if (Self.memberDefs) |umemberDefs| {
+            var it = umemberDefs.iterator();
+            while (it.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+        }
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -790,7 +804,21 @@ pub const ObjString = struct {
     /// The actual string
     string: []const u8,
 
-    pub fn mark(_: *Self, _: *VM) void {}
+    pub fn mark(_: *Self, vm: *VM) !void {
+        if (Self.members) |umembers| {
+            var it = umembers.iterator();
+            while (it.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+        }
+
+        if (Self.memberDefs) |umemberDefs| {
+            var it = umemberDefs.iterator();
+            while (it.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+        }
+    }
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -1394,7 +1422,6 @@ pub const ObjClosure = struct {
     function: *ObjFunction,
     upvalues: std.ArrayList(*ObjUpValue),
     // Pointer to the global with which the function was declared
-    // TODO: can those be collected by gc?
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
@@ -1409,6 +1436,9 @@ pub const ObjClosure = struct {
         try markObj(vm, self.function.toObj());
         for (self.upvalues.items) |upvalue| {
             try markObj(vm, upvalue.toObj());
+        }
+        for (self.globals.items) |global| {
+            try markValue(vm, global);
         }
     }
 
@@ -1591,6 +1621,7 @@ pub const ObjObject = struct {
     }
 
     pub fn mark(self: *Self, vm: *VM) !void {
+        try markObj(vm, self.type_def.toObj());
         try markObj(vm, self.name.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
@@ -1604,8 +1635,8 @@ pub const ObjObject = struct {
         while (it3.next()) |kv| {
             try markValue(vm, kv.value_ptr.*);
         }
-        if (self.super) |super| {
-            try markObj(vm, super.toObj());
+        if (self.super) |usuper| {
+            try markObj(vm, usuper.toObj());
         }
     }
 
@@ -2639,7 +2670,6 @@ pub const ObjEnum = struct {
     pub fn mark(self: *Self, vm: *VM) !void {
         try markObj(vm, self.name.toObj());
         try markObj(vm, self.type_def.toObj());
-        try markObj(vm, self.name.toObj());
         for (self.cases.items) |case| {
             try markValue(vm, case);
         }
@@ -2872,6 +2902,16 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
+    pub fn mark(self: *Self, vm: *VM) !void {
+        if (self.resolved_type) |resolved| {
+            if (resolved == .ObjectInstance) {
+                try markObj(vm, resolved.ObjectInstance.toObj());
+            } else if (resolved == .EnumInstance) {
+                try markObj(vm, resolved.EnumInstance.toObj());
+            }
+        }
+    }
+
     pub fn rawCloneOptional(self: *Self) ObjTypeDef {
         return .{
             .obj = .{ .obj_type = self.obj.obj_type },
@@ -2932,19 +2972,7 @@ pub const ObjTypeDef = struct {
         return non_optional;
     }
 
-    pub fn deinit(_: *Self) void {
-        std.debug.print("ObjTypeDef.deinit not implemented\n", .{});
-    }
-
-    pub fn mark(self: *Self, vm: *VM) !void {
-        if (self.resolved_type) |resolved| {
-            if (resolved == .ObjectInstance) {
-                try markObj(vm, resolved.ObjectInstance.toObj());
-            } else if (resolved == .EnumInstance) {
-                try markObj(vm, resolved.EnumInstance.toObj());
-            }
-        }
-    }
+    pub fn deinit(_: *Self) void {}
 
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var str = std.ArrayList(u8).init(allocator);
