@@ -54,22 +54,292 @@ fun respond(str? strId, num? numId, Json result) > void {
     stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
 }
 
-fun toOffset(str source, num line, num column) > num {
-    [str] lines = source.split("\n");
-    num offset = 0;
+fun withinNode(Json node, str uri, num line, num column) > bool {
+    const {str, Json} location = (node.mapValue()["location"] ?? Json{}).mapValue();
+    const str script = location["script"]?.string ?? "*";
+    const num startLine = location["start_line"]?.number ?? -1;
+    const num endLine = location["end_line"]?.number ?? -1;
+    const num startColumn = location["start_column"]?.number ?? -1;
+    const num endColumn = location["end_column"]?.number ?? -1;
 
-    | Advance offset to start of line
-    for (num i = 0; i < line - 1 and i < lines.len(); i = i + 1) {
-        offset = offset + lines[i].len() + 1; | +1 for the \n char
-    }
-
-    return offset + column;
+    | TODO: maybe put absolute path in location
+    return uri.endsWith(script)
+        and line >= startLine and line <= endLine
+        and (endLine != startLine or (column >= startColumn and column <= endColumn));
 }
 
-fun toTokenStart(str source, num offset) > num {
-    | Tokenize source, and find out the start of the token under `offset`
-    
-    return offset;
+fun findNodeUnder(Json root, str uri, num line, num column) > Json? {
+    if (!withinNode(root, uri: uri, line: line, column: column)) {
+        return null;
+    }
+
+    const str node = root.mapValue()["node"]?.string ?? "-";
+
+    if (node == "Function") {
+        const {str, Json} body = root.mapValue()["body"]!.mapValue();
+
+        if (withinNode(root.mapValue()["body"]!, uri: uri, line: line, column: column)) {
+            const [Json] statements = body["statements"]!.listValue();
+
+            foreach (num i, Json statement in statements) {
+                if (withinNode(statement, uri: uri, line: line, column: column)) {
+                    return findNodeUnder(statement, uri: uri, line: line, column: column);
+                }
+            }
+        }
+
+        return node;
+    } else if (node == "Enum") {
+        const [Json] cases = root.mapValue()["cases"]!.listValue();
+
+        foreach (num i, Json case in cases) {
+            if (withinNode(case, uri: uri, line: line, column: column)) {
+                return findNodeUnder(case, uri: uri, line: line, column: column);
+            }
+        }
+
+        return node;
+    } else if (node == "VarDeclaration") {
+        const Json value = root.mapValue()["value"]!;
+
+        if (withinNode(value, uri: uri, line: line, column: column)) {
+            return findNodeUnder(value, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "FunDeclaration") {
+        const Json function = root.mapValue()["function"]!;
+
+        if (withinNode(function, uri: uri, line: line, column: column)) {
+            return findNodeUnder(function, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "ObjectDeclaration") {
+        const {str, Json} methods = root.mapValue()["methods"]!.mapValue();
+        const {str, Json} members = root.mapValue()["members"]!.mapValue();
+
+        foreach (str name, Json method in methods) {
+            if (withinNode(method, uri: uri, line: line, column: column)) {
+                return findNodeUnder(method, uri: uri, line: line, column: column);
+            }   
+        }
+
+        foreach (str name, Json member in members) {
+            if (withinNode(member, uri: uri, line: line, column: column)) {
+                return findNodeUnder(member, uri: uri, line: line, column: column);
+            }   
+        }
+
+        return node;
+    } else if (node == "Binary") {
+        const Json left = root.mapValue()["left"]!;
+        const Json right = root.mapValue()["right"]!;
+
+        if (withinNode(left, uri: uri, line: line, column: column)) {
+            return findNodeUnder(left, uri: uri, line: line, column: column);
+        }
+
+        if (withinNode(right, uri: uri, line: line, column: column)) {
+            return findNodeUnder(right, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Unary") {
+        const Json left = root.mapValue()["left"]!;
+        
+        if (withinNode(left, uri: uri, line: line, column: column)) {
+            return findNodeUnder(left, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Subscript") {
+        const Json subscripted = root.mapValue()["subscripted"]!;
+        const Json index = root.mapValue()["index"]!;
+        const Json value = root.mapValue()["value"]!;
+
+        if (withinNode(subscripted, uri: uri, line: line, column: column)) {
+            return findNodeUnder(subscripted, uri: uri, line: line, column: column);
+        }
+
+        if (withinNode(index, uri: uri, line: line, column: column)) {
+            return findNodeUnder(index, uri: uri, line: line, column: column);
+        }
+
+        if (withinNode(value, uri: uri, line: line, column: column)) {
+            return findNodeUnder(value, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Unwrap") {
+        const Json unwrapped = root.mapValue()["unwrapped"]!;
+
+        if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
+            return findNodeUnder(unwrapped, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "ForceUnwrap") {
+        const Json unwrapped = root.mapValue()["unwrapped"]!;
+
+        if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
+            return findNodeUnder(unwrapped, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Is") {
+        const Json left = root.mapValue()["left"]!;
+        
+        if (withinNode(left, uri: uri, line: line, column: column)) {
+            return findNodeUnder(left, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Expression") {
+        const Json expression = root.mapValue()["expression"]!;
+
+        if (withinNode(expression, uri: uri, line: line, column: column)) {
+            return findNodeUnder(expression, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "NamedVariable") {
+        const Json value = root.mapValue()["value"]!;
+
+        if (value.map != null and withinNode(value, uri: uri, line: line, column: column)) {
+            return findNodeUnder(value, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Number") {
+        return node;
+    } else if (node == "String") {
+        const [Json] elements = root.mapValue()["elements"]!;
+
+        foreach (num i, Json element in elements) {
+            if (withinNode(element, uri: uri, line: line, column: column)) {
+                return findNodeUnder(element, uri: uri, line: line, column: column);
+            }
+        }
+
+        return node;
+    } else if (node == "StringLiteral") {
+        return node;
+    } else if (node == "Pattern") {
+        return node;
+    } else if (node == "Boolean") {
+        return node;
+    } else if (node == "Null") {
+        return node;
+    } else if (node == "List") {
+        const [Json] items = root.mapValue()["items"]!;
+
+        foreach (num i, Json item in items) {
+            if (withinNode(item, uri: uri, line: line, column: column)) {
+                return findNodeUnder(item, uri: uri, line: line, column: column);
+            }
+        }
+
+        return node;
+    } else if (node == "Map") {
+        const {str, Json} map = root.mapValue()["items"]!.mapValue();
+
+        foreach (str key, Json value in map) {
+            if (withinNode(value, uri: uri, line: line, column: column)) {
+                return findNodeUnder(value, uri: uri, line: line, column: column);
+            }
+        }
+
+        return node;
+    } else if (node == "Super") {
+        const Json nthis = root.mapValue()["this"]!;
+        const Json? nsuper = root.mapValue()["super"];
+        const Json? call = root.mapValue()["call"];
+
+        if (withinNode(nthis, uri: uri, line: line, column: column)) {
+            return findNodeUnder(nthis, uri: uri, line: line, column: column);
+        }
+
+        if (nsuper != null and withinNode(nsuper, uri: uri, line: line, column: column)) {
+            return findNodeUnder(nsuper, uri: uri, line: line, column: column);
+        }
+
+        if (call != null and withinNode(call, uri: uri, line: line, column: column)) {
+            return findNodeUnder(call, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Dot") {
+        const Json callee = root.mapValue()["callee"]!;
+        const Json? value = root.mapValue()["value"];
+        const Json? call = root.mapValue()["call"];
+
+        if (withinNode(callee, uri: uri, line: line, column: column)) {
+            return findNodeUnder(callee, uri: uri, line: line, column: column);
+        }
+
+        if (value != null and withinNode(value, uri: uri, line: line, column: column)) {
+            return findNodeUnder(value, uri: uri, line: line, column: column);
+        }
+
+        if (call != null and withinNode(call, uri: uri, line: line, column: column)) {
+            return findNodeUnder(call, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "ObjectInit") {
+        const [Json] properties = root.mapValue()["properties"]!.listValue();
+        
+        foreach (num i, Json property in properties) {
+            if (withinNode(property, uri: uri, line: line, column: column)) {
+                return findNodeUnder(property, uri: uri, line: line, column: column);
+            }
+        }
+
+        return node;
+    } else if (node == "Throw") {
+        const Json errorValue = root.mapValue()["error_value"]!;
+        
+        if (withinNode(errorValue, uri: uri, line: line, column: column)) {
+            return findNodeUnder(errorValue, uri: uri, line: line, column: column);
+        }
+
+        return node;
+    } else if (node == "Break") {
+        return node;
+    } else if (node == "Continue") {
+        return node;
+    } else if (node == "Call") {
+        return node;
+    } else if (node == "AsyncCall") {
+        return node;
+    } else if (node == "Resume") {
+        return node;
+    } else if (node == "Resolve") {
+        return node;
+    } else if (node == "Yield") {
+        return node;
+    } else if (node == "If") {
+        return node;
+    } else if (node == "Block") {
+        return node;
+    } else if (node == "Return") {
+        return node;
+    } else if (node == "For") {
+        return node;
+    } else if (node == "ForEach") {
+        return node;
+    } else if (node == "DoUntil") {
+        return node;
+    } else if (node == "While") {
+        return node;
+    } else if (node == "Export") {
+        return node;
+    } else if (node == "Import") {
+        return node;
+    } else if (node == "Catch") {
+        return node;
+    }
 }
 
 const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
@@ -120,12 +390,20 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
             file.close();
         }
 
-        num position = toOffset(source!, line: line, column: column);
-        num tokenPosition = toTokenStart(source!, offset: position);
-        Json? ast = state.ast[uri] ?? Json.decode(debug.ast(source!, scriptName: uri));
+        Json ast = state.ast[uri] ?? Json.decode(debug.ast(source!, scriptName: uri));
 
         | Explore ast...
-        stderr.write(ast?.encode() ?? "nothing");
+        stderr.write(ast.encode());
+
+        | Skip entry point
+        [Json] roots = ast.mapValue()["body"]?.mapValue()["statements"]?.list ?? <Json>[];
+        foreach (num i, Json root in roots) {
+            Json? node = findNodeUnder(ast, uri: uri, line: line, column: column);
+
+            if (node != null) {
+
+            }
+        }
 
         return Json{};
     }

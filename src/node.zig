@@ -53,34 +53,25 @@ pub const ParseNodeType = enum(u8) {
     VarDeclaration,
     FunDeclaration,
     ObjectDeclaration,
-
     Binary,
     Unary,
     Subscript,
     Unwrap,
     ForceUnwrap,
     Is,
-
-    And,
-    Or,
-
     Expression,
     NamedVariable,
-
     Number,
     String,
     StringLiteral,
     Pattern,
     Boolean,
     Null,
-
     List,
     Map,
-
     Super,
     Dot,
     ObjectInit,
-
     Throw,
     Break,
     Continue,
@@ -90,7 +81,7 @@ pub const ParseNodeType = enum(u8) {
     Resolve,
     Yield,
     If,
-    Block, // For semantic purposes only
+    Block,
     Return,
     For,
     ForEach,
@@ -108,6 +99,7 @@ pub const ParseNode = struct {
     // If null, either its a statement or its a reference to something unkown that should ultimately raise a compile error
     type_def: ?*ObjTypeDef = null,
     location: Token = undefined,
+    end_location: Token = undefined,
     // Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
     docblock: ?Token = null,
@@ -193,10 +185,12 @@ pub const ParseNode = struct {
         }
 
         try out.print(
-            "\", \"location\": {{ \"line\": {}, \"column\": {}, \"script\": \"{s}\" }}",
+            "\", \"location\": {{ \"start_line\": {}, \"start_column\": {}, \"end_line\": {}, \"end_column\": {}, \"script\": \"{s}\"}}",
             .{
-                self.location.line,
+                self.location.line + 1,
                 self.location.column,
+                self.end_location.line + 1,
+                self.end_location.column,
                 self.location.script_name,
             },
         );
@@ -1056,25 +1050,23 @@ pub const MapNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"Map\", \"items\": [");
+        try out.writeAll("{\"node\": \"Map\", \"items\": {");
 
         for (self.keys) |key, i| {
-            try out.writeAll("{\"key\": ");
+            try out.writeAll("\"");
 
             try key.toJson(key, out);
 
-            try out.writeAll(", \"value\": ");
+            try out.writeAll("\": ");
 
             try self.values[i].toJson(self.values[i], out);
-
-            try out.writeAll("}");
 
             if (i < self.keys.len - 1) {
                 try out.writeAll(",");
             }
         }
 
-        try out.writeAll("], ");
+        try out.writeAll("}, ");
 
         try ParseNode.stringify(node, out);
 
@@ -4462,7 +4454,7 @@ pub const DotNode = struct {
         }
 
         if (self.call) |call| {
-            try out.writeAll("\"value\": ");
+            try out.writeAll("\"call\": ");
             try call.toNode().toJson(call.toNode(), out);
             try out.writeAll(", ");
         }

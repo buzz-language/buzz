@@ -1156,6 +1156,8 @@ pub const Parser = struct {
             try self.reportError("Object must be defined at top-level.");
         }
 
+        const start_location = self.parser.previous_token.?;
+
         // Get object name
         try self.consume(.Identifier, "Expected object name.");
         var object_name: Token = self.parser.previous_token.?.clone();
@@ -1404,7 +1406,8 @@ pub const Parser = struct {
             .properties_type = properties_type,
         };
         node.node.type_def = object_type;
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         assert(object_type.resolved_type.?.Object.placeholders.count() == 0 or object_type.resolved_type.?.Object.static_placeholders.count() == 0);
 
@@ -1424,11 +1427,13 @@ pub const Parser = struct {
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
         var node = try self.allocator.create(ExpressionNode);
         node.* = ExpressionNode{
             .expression = try self.expression(hanging),
         };
-        node.node.location = node.expression.location;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         try self.consume(.Semicolon, "Expected `;` after expression.");
 
@@ -1436,6 +1441,8 @@ pub const Parser = struct {
     }
 
     fn breakStatement(self: *Self, block_type: BlockType) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         if (block_type == .Function) {
             try self.reportError("break is not allowed here.");
         }
@@ -1444,11 +1451,15 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(BreakNode);
         node.* = .{};
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn continueStatement(self: *Self, block_type: BlockType) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         if (block_type == .Function) {
             try self.reportError("continue is not allowed here.");
         }
@@ -1457,11 +1468,15 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ContinueNode);
         node.* = .{};
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn ifStatement(self: *Self, block_type: BlockType) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.LeftParen, "Expected `(` after `if`.");
 
         var condition: *ParseNode = try self.expression(false);
@@ -1492,12 +1507,15 @@ pub const Parser = struct {
             .body = body,
             .else_branch = else_branch,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn forStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.LeftParen, "Expected `(` after `for`.");
 
         self.beginScope();
@@ -1543,13 +1561,16 @@ pub const Parser = struct {
             .post_loop = post_loop,
             .body = body,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
 
     fn forEachStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.LeftParen, "Expected `(` after `foreach`.");
 
         self.beginScope();
@@ -1602,13 +1623,16 @@ pub const Parser = struct {
             .iterable = iterable,
             .block = body,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.ends_scope = try self.endScope();
 
         return &node.node;
     }
 
     fn whileStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.LeftParen, "Expected `(` after `while`.");
 
         var condition = try self.expression(false);
@@ -1627,12 +1651,15 @@ pub const Parser = struct {
             .condition = condition,
             .block = body,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn doUntilStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.LeftBrace, "Expected `{` after `do`.");
 
         self.beginScope();
@@ -1653,12 +1680,15 @@ pub const Parser = struct {
             .condition = condition,
             .block = body,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn returnStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         if (self.current.?.scope_depth == 0) {
             try self.reportError("Can't use `return` at top-level.");
         }
@@ -1674,12 +1704,15 @@ pub const Parser = struct {
         node.* = ReturnNode{
             .value = value,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var var_type = try parsed_type.toInstance(self.allocator, self.type_registry);
 
         const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
@@ -1701,7 +1734,8 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
         };
-        node.node.location = name;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = node.type_def;
 
         switch (terminator) {
@@ -1757,6 +1791,8 @@ pub const Parser = struct {
     }
 
     fn importStatement(self: *Self) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var imported_symbols = std.StringHashMap(void).init(self.allocator);
 
         while ((try self.match(.Identifier)) and !self.check(.Eof)) {
@@ -1800,12 +1836,15 @@ pub const Parser = struct {
             .path = path,
             .import = import,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn exportStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.Identifier, "Expected identifier after `export`.");
         var identifier = self.parser.previous_token.?;
 
@@ -1842,12 +1881,15 @@ pub const Parser = struct {
             .identifier = identifier,
             .alias = identifier,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn funDeclaration(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var function_type: FunctionType = .Function;
 
         if (self.parser.previous_token.?.token_type == .Extern) {
@@ -1910,6 +1952,8 @@ pub const Parser = struct {
             .function = FunctionNode.cast(function_node).?,
         };
         node.node.type_def = node.function.node.type_def;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
@@ -1993,6 +2037,8 @@ pub const Parser = struct {
     }
 
     fn enumDeclaration(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         if (self.current.?.scope_depth > 0) {
             try self.reportError("Enum must be defined at top-level.");
         }
@@ -2076,15 +2122,18 @@ pub const Parser = struct {
             .cases = cases,
         };
         node.node.type_def = enum_type;
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(ObjectInitNode);
         node.* = ObjectInitNode.init(self.allocator, object);
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             try self.consume(.Identifier, "Expected property name");
@@ -2124,6 +2173,7 @@ pub const Parser = struct {
         try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
         node.node.type_def = if (object.type_def) |type_def| try type_def.toInstance(self.allocator, self.type_registry) else null;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
@@ -2134,6 +2184,8 @@ pub const Parser = struct {
 
     // Returns a list of break jumps to patch
     fn block(self: *Self, block_type: BlockType) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(BlockNode);
         node.* = BlockNode.init(self.allocator);
 
@@ -2144,6 +2196,9 @@ pub const Parser = struct {
         }
 
         try self.consume(.RightBrace, "Expected `}}` after block.");
+
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
@@ -2220,6 +2275,8 @@ pub const Parser = struct {
     }
 
     fn namedVariable(self: *Self, name: Token, can_assign: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var var_def: ?*ObjTypeDef = null;
         var slot: usize = undefined;
         var slot_type: SlotType = undefined;
@@ -2255,31 +2312,34 @@ pub const Parser = struct {
             .slot_type = slot_type,
             .slot_constant = slot_constant,
         };
-        node.node.location = name;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = var_def;
 
         return &node.node;
     }
 
     fn yield(self: *Self, _: bool) anyerror!*ParseNode {
-        const location = self.parser.previous_token.?;
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(YieldNode);
         node.* = YieldNode{
             .expression = try self.parsePrecedence(.Primary, false),
         };
-        node.node.location = location;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = node.expression.type_def;
 
         return &node.node;
     }
 
     fn resolveFiber(self: *Self, _: bool) anyerror!*ParseNode {
-        const location = self.parser.previous_token.?;
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(ResolveNode);
         node.* = ResolveNode{
             .fiber = try self.parsePrecedence(.Primary, false),
         };
-        node.node.location = location;
 
         const fiber_type = node.fiber.type_def;
 
@@ -2309,16 +2369,19 @@ pub const Parser = struct {
             }
         }
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn resumeFiber(self: *Self, _: bool) anyerror!*ParseNode {
-        const location = self.parser.previous_token.?;
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(ResumeNode);
         node.* = ResumeNode{
             .fiber = try self.parsePrecedence(.Primary, false),
         };
-        node.node.location = location;
 
         const fiber_type = node.fiber.type_def;
 
@@ -2352,18 +2415,21 @@ pub const Parser = struct {
             }
         }
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn asyncCall(self: *Self, _: bool) anyerror!*ParseNode {
-        const location = self.parser.previous_token.?;
+        const start_location = self.parser.previous_token.?;
+
         const callable = try self.parsePrecedence(.Call, false);
 
         var node = try self.allocator.create(AsyncCallNode);
         node.* = AsyncCallNode{
             .call = callable,
         };
-        node.node.location = location;
 
         // Expression after `&` must either be a call or a dot call
         if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null) and (callable.node_type != .Super or SuperNode.cast(callable).?.call == null)) {
@@ -2449,10 +2515,15 @@ pub const Parser = struct {
             }
         }
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn pattern(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(PatternNode);
 
         const source_slice = self.parser.previous_token.?.literal_string.?;
@@ -2494,12 +2565,15 @@ pub const Parser = struct {
         node.node.type_def = try self.type_registry.getTypeDef(.{
             .def_type = .Pattern,
         });
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn number(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(NumberNode);
 
         node.* = NumberNode{
@@ -2508,12 +2582,15 @@ pub const Parser = struct {
         node.node.type_def = try self.type_registry.getTypeDef(.{
             .def_type = .Number,
         });
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
 
     fn string(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         const string_token = self.parser.previous_token.?;
         const string_node = (try StringParser.init(
             self,
@@ -2522,7 +2599,8 @@ pub const Parser = struct {
             string_token.line,
             string_token.column,
         ).parse());
-        string_node.node.location = string_token;
+        string_node.node.location = start_location;
+        string_node.node.end_location = self.parser.previous_token.?;
 
         return &string_node.node;
     }
@@ -2535,6 +2613,8 @@ pub const Parser = struct {
     }
 
     fn literal(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         switch (self.parser.previous_token.?.token_type) {
             .False => {
                 var node = try self.allocator.create(BooleanNode);
@@ -2545,7 +2625,8 @@ pub const Parser = struct {
                     .def_type = .Bool,
                 });
 
-                node.node.location = self.parser.previous_token.?;
+                node.node.location = start_location;
+                node.node.end_location = self.parser.previous_token.?;
 
                 return &node.node;
             },
@@ -2558,7 +2639,8 @@ pub const Parser = struct {
                     .def_type = .Bool,
                 });
 
-                node.node.location = self.parser.previous_token.?;
+                node.node.location = start_location;
+                node.node.end_location = self.parser.previous_token.?;
 
                 return &node.node;
             },
@@ -2571,7 +2653,8 @@ pub const Parser = struct {
                     .def_type = .Void,
                 });
 
-                node.node.location = self.parser.previous_token.?;
+                node.node.location = start_location;
+                node.node.end_location = self.parser.previous_token.?;
 
                 return &node.node;
             },
@@ -2580,6 +2663,8 @@ pub const Parser = struct {
     }
 
     fn unary(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var operator: TokenType = self.parser.previous_token.?.token_type;
 
         var left: *ParseNode = try self.parsePrecedence(.Unary, false);
@@ -2590,7 +2675,8 @@ pub const Parser = struct {
             .operator = operator,
         };
         node.node.type_def = left.type_def;
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
     }
@@ -2645,6 +2731,8 @@ pub const Parser = struct {
     }
 
     fn call(self: *Self, _: bool, callee: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(CallNode);
         node.* = CallNode{
             .callee = callee,
@@ -2654,8 +2742,6 @@ pub const Parser = struct {
             .arguments = try self.argumentList(),
             .catches = try self.inlineCatch(),
         };
-
-        node.node.location = self.parser.previous_token.?;
 
         // Note: callee.node.type_def has been populated with the member being referenced
 
@@ -2689,16 +2775,20 @@ pub const Parser = struct {
             try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
         }
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn unwrap(self: *Self, _: bool, unwrapped: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(UnwrapNode);
         node.* = UnwrapNode{
             .unwrapped = unwrapped,
             .original_type = unwrapped.type_def,
         };
-        node.node.location = self.parser.previous_token.?;
 
         node.node.type_def = if (unwrapped.type_def) |type_def| try type_def.cloneNonOptional(self.type_registry) else null;
 
@@ -2707,16 +2797,22 @@ pub const Parser = struct {
         }
         try self.opt_jumps.?.append(getRule(self.parser.current_token.?.token_type).precedence);
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn forceUnwrap(self: *Self, _: bool, unwrapped: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var node = try self.allocator.create(ForceUnwrapNode);
         node.* = ForceUnwrapNode{
             .unwrapped = unwrapped,
             .original_type = unwrapped.type_def,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         node.node.type_def = if (unwrapped.type_def) |type_def| try type_def.cloneNonOptional(self.type_registry) else null;
 
@@ -2750,6 +2846,8 @@ pub const Parser = struct {
     }
 
     fn dot(self: *Self, can_assign: bool, callee: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.Identifier, "Expected property name after `.`");
         var member_name_token: Token = self.parser.previous_token.?;
         var member_name: []const u8 = member_name_token.lexeme;
@@ -2759,7 +2857,6 @@ pub const Parser = struct {
             .callee = callee,
             .identifier = self.parser.previous_token.?,
         };
-        node.node.location = self.parser.previous_token.?;
         // Check that name is a property
         const callee_def_type = if (callee.type_def) |type_def| type_def.def_type else .Placeholder;
         switch (callee_def_type) {
@@ -3042,10 +3139,15 @@ pub const Parser = struct {
             },
         }
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn and_(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
+        const start_location = left.location;
+
         var right: *ParseNode = try self.parsePrecedence(.And, false);
 
         var node = try self.allocator.create(BinaryNode);
@@ -3054,7 +3156,8 @@ pub const Parser = struct {
             .right = right,
             .operator = .And,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
@@ -3065,6 +3168,8 @@ pub const Parser = struct {
     }
 
     fn or_(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
+        const start_location = left.location;
+
         var right: *ParseNode = try self.parsePrecedence(.And, false);
 
         var node = try self.allocator.create(BinaryNode);
@@ -3073,7 +3178,8 @@ pub const Parser = struct {
             .right = right,
             .operator = .Or,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
@@ -3084,6 +3190,8 @@ pub const Parser = struct {
     }
 
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
+        const start_location = left.location;
+
         const constant = Value{ .Obj = (try self.parseTypeDef()).toObj() };
 
         var node = try self.allocator.create(IsNode);
@@ -3091,7 +3199,8 @@ pub const Parser = struct {
             .left = left,
             .constant = constant,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = try self.type_registry.getTypeDef(
             .{
                 .def_type = .Bool,
@@ -3102,6 +3211,8 @@ pub const Parser = struct {
     }
 
     fn binary(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
+        const start_location = left.location;
+
         const operator: TokenType = self.parser.previous_token.?.token_type;
         const rule: ParseRule = getRule(operator);
 
@@ -3116,8 +3227,6 @@ pub const Parser = struct {
             .right = right,
             .operator = operator,
         };
-
-        node.node.location = self.parser.previous_token.?;
 
         node.node.type_def = switch (operator) {
             .QuestionQuestion => if (right.type_def orelse left.type_def) |type_def| try type_def.cloneNonOptional(self.type_registry) else null,
@@ -3145,10 +3254,15 @@ pub const Parser = struct {
             else => null,
         };
 
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         return &node.node;
     }
 
     fn subscript(self: *Self, can_assign: bool, subscripted: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         const index: *ParseNode = try self.expression(false);
 
         if (subscripted.type_def.?.def_type == .Placeholder and index.type_def.?.def_type == .Placeholder) {
@@ -3187,13 +3301,16 @@ pub const Parser = struct {
             .index = index,
             .value = value,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = subscripted_type_def;
 
         return &node.node;
     }
 
     fn list(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var items = std.ArrayList(*ParseNode).init(self.allocator);
         var item_type: ?*ObjTypeDef = null;
 
@@ -3236,7 +3353,8 @@ pub const Parser = struct {
 
         var node = try self.allocator.create(ListNode);
         node.* = ListNode{ .items = items.items };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = list_type;
 
         return &node.node;
@@ -3247,6 +3365,8 @@ pub const Parser = struct {
     }
 
     fn mapFinalise(self: *Self, parsed_key_type: ?*ObjTypeDef) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var value_type: ?*ObjTypeDef = null;
         var key_type: ?*ObjTypeDef = parsed_key_type;
 
@@ -3298,13 +3418,16 @@ pub const Parser = struct {
             .keys = keys.items,
             .values = values.items,
         };
-        node.node.location = self.parser.previous_token.?;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = map_type;
 
         return &node.node;
     }
 
     fn super(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         try self.consume(.Dot, "Expected `.` after `super`.");
         try self.consume(.Identifier, "Expected superclass method name.");
         var member_name = self.parser.previous_token.?;
@@ -3348,6 +3471,8 @@ pub const Parser = struct {
             node.node.type_def = if (super_method) |umethod| umethod.resolved_type.?.Function.return_type else null;
 
             node.member_type_def = super_method;
+            node.node.location = start_location;
+            node.node.end_location = self.parser.previous_token.?;
 
             return &node.node;
         } else {
@@ -3365,6 +3490,8 @@ pub const Parser = struct {
 
             node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, member_name.lexeme);
             node.member_type_def = node.node.type_def;
+            node.node.location = start_location;
+            node.node.end_location = self.parser.previous_token.?;
 
             return &node.node;
         }
@@ -3375,6 +3502,8 @@ pub const Parser = struct {
     }
 
     fn function(self: *Self, name: ?Token, function_type: FunctionType, this: ?*ObjTypeDef) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var function_node = try self.allocator.create(FunctionNode);
         function_node.* = try FunctionNode.init(
             self,
@@ -3557,6 +3686,8 @@ pub const Parser = struct {
         }
 
         function_node.node.type_def = try self.type_registry.getTypeDef(function_typedef);
+        function_node.node.location = start_location;
+        function_node.node.end_location = self.parser.previous_token.?;
 
         return &self.endFrame().node;
     }
@@ -3594,6 +3725,8 @@ pub const Parser = struct {
 
     // `test` is just like a function but we don't parse arguments and we don't care about its return type
     fn testStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
         var function_def_placeholder: ObjTypeDef = .{
             .def_type = .Function,
         };
@@ -3629,7 +3762,8 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = .Global,
         };
-        node.node.location = function_node.location;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
 
         return node.toNode();
     }
