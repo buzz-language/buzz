@@ -89,7 +89,6 @@ pub const ParseNodeType = enum(u8) {
     While,
     Export,
     Import,
-    Catch,
 };
 
 pub const ParseNode = struct {
@@ -2811,10 +2810,20 @@ pub const CallNode = struct {
 
         try out.writeAll("{\"node\": \"Call\"");
 
-        // if (!invoked and invoked_on == null) {
-        //     try out.writeAll(", \"callee\": ");
-        //     try self.callee.toJson(self.callee, out);
-        // }
+        var invoked = false;
+        var invoked_on = false;
+        if (self.callee.node_type == .Dot) {
+            const dot = DotNode.cast(self.callee).?;
+            const field_accessed = dot.callee.type_def;
+
+            invoked = field_accessed.?.def_type != .Object;
+            invoked_on = true;
+        }
+
+        if (!invoked and self.super == null and !invoked_on) {
+            try out.writeAll(", \"callee\": ");
+            try self.callee.toJson(self.callee, out);
+        }
 
         try out.writeAll(", \"arguments\": [");
 

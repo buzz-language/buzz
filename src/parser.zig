@@ -1898,17 +1898,8 @@ pub const Parser = struct {
             function_type = .Extern;
         }
 
-        // Placeholder until `function()` provides all the necessary bits
-        var function_def_placeholder: ObjTypeDef = .{
-            .def_type = .Function,
-        };
-
         try self.consume(.Identifier, "Expected function name.");
         var name_token: Token = self.parser.previous_token.?;
-
-        var slot: usize = try self.declareVariable(&function_def_placeholder, name_token, true);
-
-        self.markInitialized();
 
         const is_main = std.mem.eql(u8, name_token.lexeme, "main") and self.current.?.function_node.node.type_def != null and self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
 
@@ -1930,18 +1921,7 @@ pub const Parser = struct {
             try self.consume(.Semicolon, "Expected `;` after `extern` function declaration.");
         }
 
-        // Now that we have the full function type, get the local and update its type_def
-        var function_def = function_node.type_def;
-        if (self.current.?.scope_depth > 0) {
-            self.current.?.locals[slot].type_def = function_def.?;
-        } else {
-            if (self.globals.items[slot].type_def.def_type == .Placeholder) {
-                // Now that the function definition is complete, resolve the eventual placeholder
-                try self.resolvePlaceholder(self.globals.items[slot].type_def, function_def.?, true);
-            } else {
-                self.globals.items[slot].type_def = function_def.?;
-            }
-        }
+        var slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true);
 
         self.markInitialized();
 
@@ -3658,6 +3638,11 @@ pub const Parser = struct {
                 parsed_return_type = true;
             }
         } else if (function_type != .Extern) {
+            if (!parsed_return_type) {
+                function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.type_registry.getTypeDef(.{ .def_type = .Void });
+                parsed_return_type = true;
+            }
+
             try self.consume(.LeftBrace, "Expected `{` before function body.");
             function_node.body = BlockNode.cast(try self.block(.Function)).?;
         }
