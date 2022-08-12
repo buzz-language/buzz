@@ -21,3 +21,22 @@ test "Json.decode" {
         message: "could decode simple JSON"
     );
 }
+
+test "Json.q" {
+    Json json = Json {
+        map = {
+            "submap": Json{
+                map = {
+                    "subsubmap": Json{
+                        map = {
+                            "one": Json{ number = 1 },
+                            "two": Json{ number = 2 },
+                        }
+                    }
+                }
+            }
+        },
+    };
+
+    assert(json.q(["submap", "subsubmap", "one"]).number == 1, message: "Json.q");
+}

@@ -55,18 +55,18 @@ fun respond(str? strId, num? numId, Json result) > void {
 }
 
 fun withinNode(Json node, str uri, num line, num column) > bool {
-    const {str, Json} location = (node.mapValue()["location"] ?? Json{}).mapValue();
-    const str script = location["script"]?.string ?? "*";
-    const num startLine = location["start_line"]?.number ?? -1;
-    const num endLine = location["end_line"]?.number ?? -1;
-    const num startColumn = location["start_column"]?.number ?? -1;
-    const num endColumn = location["end_column"]?.number ?? -1;
+    const str script = node.q(["location", "script"]).stringValue();
+    const num startLine = node.q(["location", "start_line"]).number ?? -1;
+    const num startColumn = node.q(["location", "start_column"]).number ?? -1;
+    const num endLine = node.q(["location", "end_line"]).number ?? -1;
+    const num endColumn = node.q(["location", "end_column"]).number ?? -1;
 
     return uri.endsWith(script)
         and line >= startLine and line <= endLine
         and (endLine != startLine or ((column - 1) >= startColumn and (column - 1) <= endColumn));
 }
 
+| Go down the ast tree to find the smallest node under `line`:`column`
 fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void {
     if (!withinNode(root, uri: uri, line: line, column: column)) {
         return;
@@ -74,10 +74,10 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
     trail.append(root);
 
-    const str node = root.mapValue()["node"]?.string ?? "-";
+    const str node = root.q(["node"]).string ?? "-";
 
     if (node == "Function") {
-        const Json body = root.mapValue()["body"]!;
+        const Json body = root.q(["body"]);
 
         if (withinNode(body, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: body, uri: uri, line: line, column: column);
@@ -87,7 +87,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Enum") {
-        const [Json] cases = root.mapValue()["cases"]!.listValue();
+        const [Json] cases = root.q(["cases"]).listValue();
 
         foreach (num i, Json case in cases) {
             if (withinNode(case, uri: uri, line: line, column: column)) {
@@ -99,7 +99,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "VarDeclaration") {
-        const Json value = root.mapValue()["value"]!;
+        const Json value = root.q(["value"]);
 
         if (withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -109,7 +109,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "FunDeclaration") {
-        const Json function = root.mapValue()["function"]!;
+        const Json function = root.q(["function"]);
 
         if (withinNode(function, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: function, uri: uri, line: line, column: column);
@@ -119,8 +119,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "ObjectDeclaration") {
-        const {str, Json} methods = root.mapValue()["methods"]!.mapValue();
-        const {str, Json} members = root.mapValue()["members"]!.mapValue();
+        const {str, Json} methods = root.q(["methods"]).mapValue();
+        const {str, Json} members = root.q(["members"]).mapValue();
 
         foreach (str name, Json method in methods) {
             if (withinNode(method, uri: uri, line: line, column: column)) {
@@ -140,8 +140,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Binary") {
-        const Json left = root.mapValue()["left"]!;
-        const Json right = root.mapValue()["right"]!;
+        const Json left = root.q(["left"]);
+        const Json right = root.q(["right"]);
 
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -157,7 +157,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Unary") {
-        const Json left = root.mapValue()["left"]!;
+        const Json left = root.q(["left"]);
         
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -167,9 +167,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Subscript") {
-        const Json subscripted = root.mapValue()["subscripted"]!;
-        const Json index = root.mapValue()["index"]!;
-        const Json value = root.mapValue()["value"]!;
+        const Json subscripted = root.q(["subscripted"]);
+        const Json index = root.q(["index"]);
+        const Json value = root.q(["value"]);
 
         if (withinNode(subscripted, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: subscripted, uri: uri, line: line, column: column);
@@ -191,7 +191,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Unwrap") {
-        const Json unwrapped = root.mapValue()["unwrapped"]!;
+        const Json unwrapped = root.q(["unwrapped"]);
 
         if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: unwrapped, uri: uri, line: line, column: column);
@@ -201,7 +201,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "ForceUnwrap") {
-        const Json unwrapped = root.mapValue()["unwrapped"]!;
+        const Json unwrapped = root.q(["unwrapped"]);
 
         if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: unwrapped, uri: uri, line: line, column: column);
@@ -211,7 +211,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Is") {
-        const Json left = root.mapValue()["left"]!;
+        const Json left = root.q(["left"]);
         
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -221,7 +221,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Expression") {
-        const Json expression = root.mapValue()["expression"]!;
+        const Json expression = root.q(["expression"]);
 
         if (withinNode(expression, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: expression, uri: uri, line: line, column: column);
@@ -231,7 +231,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "NamedVariable") {
-        const Json value = root.mapValue()["value"]!;
+        const Json value = root.q(["value"]);
 
         if (value.map != null and withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -243,7 +243,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
     } else if (node == "Number") {
         return;
     } else if (node == "String") {
-        const [Json] elements = root.mapValue()["elements"]!.listValue();
+        const [Json] elements = root.q(["elements"]).listValue();
 
         foreach (num i, Json element in elements) {
             if (withinNode(element, uri: uri, line: line, column: column)) {
@@ -263,7 +263,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
     } else if (node == "Null") {
         return;
     } else if (node == "List") {
-        const [Json] items = root.mapValue()["items"]!.listValue();
+        const [Json] items = root.q(["items"]).listValue();
 
         foreach (num i, Json item in items) {
             if (withinNode(item, uri: uri, line: line, column: column)) {
@@ -275,7 +275,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Map") {
-        const {str, Json} map = root.mapValue()["items"]!.mapValue();
+        const {str, Json} map = root.q(["items"]).mapValue();
 
         foreach (str key, Json value in map) {
             if (withinNode(value, uri: uri, line: line, column: column)) {
@@ -287,7 +287,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Super") {
-        const Json nthis = root.mapValue()["this"]!;
+        const Json nthis = root.q(["this"]);
         const Json? nsuper = root.mapValue()["super"];
         const Json? call = root.mapValue()["call"];
 
@@ -311,7 +311,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Dot") {
-        const Json callee = root.mapValue()["callee"]!;
+        const Json callee = root.q(["callee"]);
         const Json? value = root.mapValue()["value"];
         const Json? call = root.mapValue()["call"];
 
@@ -335,7 +335,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "ObjectInit") {
-        const [Json] properties = root.mapValue()["properties"]!.listValue();
+        const [Json] properties = root.q(["properties"]).listValue();
         
         foreach (num i, Json property in properties) {
             if (withinNode(property, uri: uri, line: line, column: column)) {
@@ -347,7 +347,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Throw") {
-        const Json errorValue = root.mapValue()["error_value"]!;
+        const Json errorValue = root.q(["error_value"]);
         
         if (withinNode(errorValue, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: errorValue, uri: uri, line: line, column: column);
@@ -362,8 +362,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
         return;
     } else if (node == "Call") {
         const Json? callee = root.mapValue()["callee"];
-        const [Json] arguments = root.mapValue()["arguments"]!.listValue();
-        const [Json] catches = root.mapValue()["catches"]!.listValue();
+        const [Json] arguments = root.q(["arguments"]).listValue();
+        const [Json] catches = root.q(["catches"]).listValue();
 
         if (callee != null and withinNode(callee!, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: callee!, uri: uri, line: line, column: column);
@@ -389,7 +389,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "AsyncCall") {
-        const Json call = root.mapValue()["call"]!;
+        const Json call = root.q(["call"]);
 
         if (withinNode(call, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: call, uri: uri, line: line, column: column);
@@ -399,7 +399,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Resume") {
-        const Json fiber = root.mapValue()["fiber"]!;
+        const Json fiber = root.q(["fiber"]);
 
         if (withinNode(fiber, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: fiber, uri: uri, line: line, column: column);
@@ -409,7 +409,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Resolve") {
-        const Json fiber = root.mapValue()["fiber"]!;
+        const Json fiber = root.q(["fiber"]);
 
         if (withinNode(fiber, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: fiber, uri: uri, line: line, column: column);
@@ -419,7 +419,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Yield") {
-        const Json expression = root.mapValue()["expression"]!;
+        const Json expression = root.q(["expression"]);
 
         if (withinNode(expression, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: expression, uri: uri, line: line, column: column);
@@ -429,8 +429,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "If") {
-        const Json condition = root.mapValue()["condition"]!;
-        const Json body = root.mapValue()["body"]!;
+        const Json condition = root.q(["condition"]);
+        const Json body = root.q(["body"]);
         const Json? elseBranch = root.mapValue()["elseBranch"];
         
         if (withinNode(condition, uri: uri, line: line, column: column)) {
@@ -453,7 +453,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Block") {
-        const [Json] statements = root.mapValue()["statements"]!.listValue();
+        const [Json] statements = root.q(["statements"]).listValue();
 
         foreach (num i, Json statement in statements) {
             if (withinNode(statement, uri: uri, line: line, column: column)) {
@@ -465,7 +465,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "Return") {
-        const Json value = root.mapValue()["value"]!;
+        const Json value = root.q(["value"]);
 
         if (withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -475,10 +475,10 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "For") {
-        const [Json] initDeclarations = root.mapValue()["init_declarations"]!.listValue();
-        const Json condition = root.mapValue()["condition"]!;
-        const [Json] postLoops = root.mapValue()["postLoop"]!.listValue();
-        const Json body = root.mapValue()["body"]!;
+        const [Json] initDeclarations = root.q(["init_declarations"]).listValue();
+        const Json condition = root.q(["condition"]);
+        const [Json] postLoops = root.q(["postLoop"]).listValue();
+        const Json body = root.q(["body"]);
 
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -511,9 +511,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
         return;
     } else if (node == "ForEach") {
         const Json? key = root.mapValue()["key"];
-        const Json value = root.mapValue()["value"]!;
-        const Json iterable = root.mapValue()["iterable"]!;
-        const Json block = root.mapValue()["block"]!;
+        const Json value = root.q(["value"]);
+        const Json iterable = root.q(["iterable"]);
+        const Json block = root.q(["block"]);
 
         if (key != null and withinNode(key!, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: key!, uri: uri, line: line, column: column);
@@ -541,8 +541,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "DoUntil") {
-        const Json condition = root.mapValue()["condition"]!;
-        const Json block = root.mapValue()["block"]!;
+        const Json condition = root.q(["condition"]);
+        const Json block = root.q(["block"]);
 
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -558,8 +558,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 
         return;
     } else if (node == "While") {
-        const Json condition = root.mapValue()["condition"]!;
-        const Json block = root.mapValue()["block"]!;
+        const Json condition = root.q(["condition"]);
+        const Json block = root.q(["block"]);
         
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -584,14 +584,14 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 | Search symbol with a list of statements without going into a deeper scope
 fun findSymbolInScope([Json] statements, str symbol) > Json? {
     foreach (num i, Json statement in statements) {
-        const str statementType = statement.mapValue()["node"]!.stringValue();
+        const str statementType = statement.q(["node"]).stringValue();
 
         if (statementType == "VarDeclaration") {
-            if (symbol == statement.mapValue()["name"]!.stringValue()) {
+            if (symbol == statement.q(["name"]).stringValue()) {
                 return statement;
             }
         } else if (statementType == "FunDeclaration") {
-            if (symbol == statement.mapValue()["function"]!.mapValue()["name"]!.stringValue()) {
+            if (symbol == statement.q(["function", "name"]).stringValue()) {
                 return statement;
             }
         }
@@ -602,16 +602,16 @@ fun findSymbolInScope([Json] statements, str symbol) > Json? {
 fun findSymbol([Json] trail, str symbol) > Json? {
     for (num i = trail.len() - 1; i >= 0; i = i - 1) {
         Json node = trail[i];
-        const str nodeType = node.mapValue()["node"]!.stringValue();
+        const str nodeType = node.q(["node"]).stringValue();
 
         if (nodeType == "Block") {
-            Json? declaration = findSymbolInScope(node.mapValue()["statements"]!.listValue(), symbol: symbol);
+            Json? declaration = findSymbolInScope(node.q(["statements"]).listValue(), symbol: symbol);
 
             if (declaration != null) {
                 return declaration;
             }
         } else if (nodeType == "Function") {
-            Json? declaration = findSymbolInScope(node.mapValue()["body"]!.mapValue()["statements"]!.listValue(), symbol: symbol);
+            Json? declaration = findSymbolInScope(node.q(["body", "statements"]).listValue(), symbol: symbol);
 
             if (declaration != null) {
                 return declaration;
@@ -628,16 +628,16 @@ fun findDeclaration([Json] trail) > Json? {
 
     stderr.write("Searching in trail: ");
     foreach (num i, Json e in trail) {
-        stderr.write("{e.mapValue()["node"]!.stringValue()} > ");
+        stderr.write("{e.q(["node"]).stringValue()} > ");
     }
     stderr.write("\n");
 
     Json leaf = trail[trail.len() - 1];
-    str leafType = leaf.mapValue()["node"]!.stringValue();
+    str leafType = leaf.q(["node"]).stringValue();
 
     if (leafType == "NamedVariable") {
-        const str symbol = leaf.mapValue()["identifier"]!.stringValue();
-        const bool global = leaf.mapValue()["slot_type"]!.stringValue().endsWith("Global");
+        const str symbol = leaf.q(["identifier"]).stringValue();
+        const bool global = leaf.q(["slot_type"]).stringValue().endsWith("Global");
 
         if (global) {
             | Its a global we can search from the root directly
@@ -655,9 +655,9 @@ fun findDeclaration([Json] trail) > Json? {
 }
 
 fun gotoDefinition(LspState state, {str, Json} request) > Json {
-    const {str, Json} textDocument = request["params"]?.mapValue()["textDocument"]?.mapValue() ?? <str, Json>{};
+    const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? <str, Json>{};
     str uri = textDocument["uri"]?.stringValue() ?? "";
-    const {str, Json} position = request["params"]?.mapValue()["position"]?.mapValue() ?? <str, Json>{};
+    const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? <str, Json>{};
     const num line = position["line"]?.numberValue() ?? 0;
     const num column = position["character"]?.numberValue() ?? 0;
 
@@ -684,7 +684,7 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json {
     Json ast = state.ast[uri] ?? Json.decode(astString);
 
     | Skip entry point
-    [Json] roots = ast.mapValue()["body"]?.mapValue()["statements"]?.list ?? <Json>[];
+    [Json] roots = ast.q(["body", "statements"]).list ?? <Json>[];
     foreach (num i, Json root in roots) {
         [Json] trail = <Json>[ast];
         
@@ -694,11 +694,10 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json {
             Json? declaration = findDeclaration(trail);
 
             if (declaration != null) {
-                const {str, Json} location = (declaration!.mapValue()["location"] ?? Json{}).mapValue();
-                const num startLine = location["start_line"]?.number ?? -1;
-                const num startColumn = location["start_column"]?.number ?? -1;
-                const num endLine = location["end_line"]?.number ?? -1;
-                const num endColumn = location["end_column"]?.number ?? -1;
+                const num startLine = declaration?.q(["location", "start_line"]).number ?? -1;
+                const num startColumn = declaration?.q(["location", "start_column"]).number ?? -1;
+                const num endLine = declaration?.q(["location", "end_line"]).number ?? -1;
+                const num endColumn = declaration?.q(["location", "end_column"]).number ?? -1;
 
                 return Json{
                     map = {

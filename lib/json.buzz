@@ -209,6 +209,21 @@ object Json {
     || @return wrapped data list value or empty list if not a list
     fun listValue() > [Json] -> this.list ?? <Json>[]
 
+    || Query the json element at `path`, if nothing matches return `Json{}`
+    fun q([str] path) > Json {
+        if (this.map != null) {
+            if (path.len() > 1) {
+                return (this.map![path[0]] ?? Json{}).q(path.sub(1, len: null));
+            } else if (path.len() > 0) {
+                return this.map![path[0]] ?? Json{};
+            } else {
+                return this;
+            }
+        }
+
+        return Json{};
+    }
+
     || Encode to a JSON string
     || @return str the JSON string
     fun encode() > str {
