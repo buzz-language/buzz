@@ -2826,7 +2826,7 @@ pub const Parser = struct {
     }
 
     fn dot(self: *Self, can_assign: bool, callee: *ParseNode) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
+        const start_location = callee.location;
 
         try self.consume(.Identifier, "Expected property name after `.`");
         var member_name_token: Token = self.parser.previous_token.?;

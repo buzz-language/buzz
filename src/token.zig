@@ -16,6 +16,17 @@ pub const Token = struct {
     column: usize,
     offset: usize = 0,
 
+    pub fn eql(self: Self, other: Self) bool {
+        // zig fmt: off
+        return self.token_type == other.token_type
+            and self.line == other.line
+            and self.column == other.column
+            and self.offset == other.offset
+            and std.mem.eql(u8, self.source, other.source)
+            and std.mem.eql(u8, self.script_name, other.script_name);
+        // zig fmt: on
+    }
+
     pub fn identifier(name: []const u8) Self {
         return .{
             .token_type = .Identifier,

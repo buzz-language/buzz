@@ -183,13 +183,16 @@ pub const ParseNode = struct {
             try out.writeAll("N/A");
         }
 
+        // TODO: assumes a token is on one line, right now it's completely true except for a .Docblock token
+        const end_col: usize = if (self.location.eql(self.end_location)) self.location.column + self.location.lexeme.len else self.end_location.column;
+
         try out.print(
             "\", \"location\": {{ \"start_line\": {}, \"start_column\": {}, \"end_line\": {}, \"end_column\": {}, \"script\": \"{s}\"}}",
             .{
-                self.location.line + 1,
+                self.location.line,
                 self.location.column,
-                self.end_location.line + 1,
-                self.end_location.column,
+                self.end_location.line,
+                end_col,
                 self.location.script_name,
             },
         );
@@ -2130,7 +2133,13 @@ pub const FunctionNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Function\", \"type\": \"{}\", ", .{self.node.type_def.?.resolved_type.?.Function.function_type});
+        try out.print(
+            "{{\"node\": \"Function\", \"type\": \"{}\", \"name\": \"{s}\", ",
+            .{
+                self.node.type_def.?.resolved_type.?.Function.function_type,
+                self.node.type_def.?.resolved_type.?.Function.name.string,
+            },
+        );
 
         if (self.body) |body| {
             try out.writeAll("\"body\": ");
