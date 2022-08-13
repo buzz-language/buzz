@@ -199,11 +199,6 @@ stderr
 ## ` object Json`
 Utility object to manage data from a JSON string
 
-## ` fun listValue() > [Json]`
-
-
-**Returns:**  wrapped data list value or empty list if not a list
-
 ## ` num? number`
 When wrapped data is a number
 
@@ -216,6 +211,28 @@ When wrapped data is an object, object property values are themselves wrapped in
 ## ` [Json]? list`
 When wrapped data is a list, list elements are themselves warpped in a `Json`
 
+## ` fun encode() > str`
+Encode to a JSON string
+
+**Returns:**  str the JSON string
+
+## ` fun numberValue() > num`
+
+
+**Returns:**  wrapped data number value or `0` if not a number
+
+## ` fun decode(str json) > Json`
+Decode string to a Json instance
+- **`str`:** json The JSON string
+
+
+**Returns:**  Json
+
+## ` fun listValue() > [Json]`
+
+
+**Returns:**  wrapped data list value or empty list if not a list
+
 ## ` fun booleanValue() > bool`
 
 
@@ -226,27 +243,17 @@ When wrapped data is a list, list elements are themselves warpped in a `Json`
 
 **Returns:**  wrapped data string value or empty string if not a string
 
-## ` fun numberValue() > num`
-
-
-**Returns:**  wrapped data number value or `0` if not a number
-
 ## ` fun mapValue() > {str, Json}`
 
 
 **Returns:**  wrapped data map value or empty map if not a map
 
-## ` fun encode() > str`
-Encode to a JSON string
-
-**Returns:**  str the JSON string
-
-## ` fun decode(str json) > Json`
-Decode string to a Json instance
-- **`str`:** json The JSON string
+## ` fun q([str] path) > Json`
+Query the json element at `path`, if nothing matches return `Json{}`
+- **`path`:** Path to query
 
 
-**Returns:**  Json
+**Returns:**  Found `Json` or `Json{}` (which is `null`)
 
 ## ` bool? boolean`
 When wrapped data is a boolean

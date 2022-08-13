@@ -253,7 +253,7 @@ pub fn collectGarbage(vm: *VM) !void {
     if (Config.debug_gc) {
         std.debug.print("-- gc starts\n", .{});
 
-        try dumpStack(vm);
+        // try dumpStack(vm);
     }
 
     try markRoots(vm);

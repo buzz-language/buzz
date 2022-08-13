@@ -139,6 +139,8 @@ export fn list(vm: *api.VM) c_int {
         return -1;
     };
 
+    vm.bz_pushList(file_list);
+
     var it = dir.iterate();
     while (it.next() catch {
         vm.bz_throwString("Could not list directory");
@@ -161,8 +163,6 @@ export fn list(vm: *api.VM) c_int {
             return -1;
         }
     }
-
-    vm.bz_pushList(file_list);
 
     return 1;
 }

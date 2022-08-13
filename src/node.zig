@@ -4939,6 +4939,7 @@ pub const ImportNode = struct {
 
         if (self.import) |import| {
             _ = try import.function.toByteCode(import.function, codegen, breaks);
+            // FIXME: avoid generating the same import function more than once!
             try codegen.emitOpCode(self.node.location, .OP_IMPORT);
         }
 
