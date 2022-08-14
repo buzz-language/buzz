@@ -75,7 +75,7 @@ export fn FileReadAll(vm: *api.VM) c_int {
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
-    const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, 10240, null, @alignOf(u8), 0) catch {
+    const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, std.math.maxInt(u64), null, @alignOf(u8), 0) catch {
         vm.bz_throwString("Could not read file");
 
         return -1;

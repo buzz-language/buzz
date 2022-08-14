@@ -55,7 +55,7 @@ pub const ObjType = enum {
 };
 
 pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
-    var before: usize = vm.bytes_allocated;
+    // var before: usize = vm.bytes_allocated;
 
     var obj: *T = try allocate(vm, T);
     obj.* = data;
@@ -80,10 +80,10 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
         else => {},
     };
 
-    if (Config.debug_gc) {
-        std.debug.print("allocated {*} {*}\n", .{ obj, object });
-        std.debug.print("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
-    }
+    // if (Config.debug_gc) {
+    //     std.debug.print("allocated {*} {*}\n", .{ obj, object });
+    //     std.debug.print("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
+    // }
 
     // Add new object at start of vm.objects linked list
     object.next = vm.objects;
