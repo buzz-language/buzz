@@ -4054,7 +4054,7 @@ pub const Parser = struct {
 
     inline fn markInitialized(self: *Self) void {
         if (self.current.?.scope_depth == 0) {
-            assert(!self.globals.items[self.globals.items.len - 1].initialized);
+            // assert(!self.globals.items[self.globals.items.len - 1].initialized);
             self.globals.items[self.globals.items.len - 1].initialized = true;
         } else {
             self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);

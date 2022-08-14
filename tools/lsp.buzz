@@ -771,24 +771,47 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         declarations.append(Json{
             map = {
                 "name": Json{ string = name },
-                "kind": Json{ number = kind },
+                "kind": Json{ number = kind.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
         });
 
+        foreach (str methodName, Json method in node.q(["methods"]).mapValue()) {
+            declarations.append(Json{
+                map = {
+                    "name": Json{ string = methodName },
+                    "kind": Json{ number = SymbolKind.Method.value },
+                    "range": locationToRange(method.q(["location"])),
+                    "selectionRange": locationToRange(method.q(["location"])),
+                }
+            });
+        }
+
+        foreach (str propertyName, Json def in node.q(["members"]).mapValue()) {
+            declarations.append(Json{
+                map = {
+                    "name": Json{ string = propertyName },
+                    "kind": Json{ number = SymbolKind.Property.value },
+                    | TODO: add property location
+                    "range": locationToRange(node.q(["location"])),
+                    "selectionRange": locationToRange(node.q(["location"])),
+                }
+            });
+        }
+
         return;
     }
     
     if (ndType == "Expression") {
-        getSymbolsAt(node.q(["expression"], declarations: declarations));
+        getSymbolsAt(node.q(["expression"]), declarations: declarations);
 
         return;
     }
     
     if (ndType == "If") {
-        getSymbolsAt(node.q(["body"], declarations: declarations));
-        getSymbolsAt(node.q(["else_branch"], declarations: declarations));
+        getSymbolsAt(node.q(["body"]), declarations: declarations);
+        getSymbolsAt(node.q(["else_branch"]), declarations: declarations);
 
         return;
     }
@@ -800,31 +823,25 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
     
     if (ndType == "For") {
-        getSymbolsAt(node.q(["body"], declarations: declarations));
+        getSymbolsAt(node.q(["body"]), declarations: declarations);
 
         return;
     }
     
     if (ndType == "ForEach") {
-        getSymbolsAt(node.q(["block"], declarations: declarations));
+        getSymbolsAt(node.q(["block"]), declarations: declarations);
 
         return;
     }
     
     if (ndType == "DoUntil") {
-        getSymbolsAt(node.q(["block"], declarations: declarations));
+        getSymbolsAt(node.q(["block"]), declarations: declarations);
 
         return;
     }
     
     if (ndType == "While") {
-        getSymbolsAt(node.q(["block"], declarations: declarations));
-
-        return;
-    }
-    
-    if (ndType == "Import") {
-        getSymbolsAt(node.q(["import"], declarations: declarations));
+        getSymbolsAt(node.q(["block"]), declarations: declarations);
 
         return;
     }
