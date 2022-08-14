@@ -1052,23 +1052,25 @@ pub const MapNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.writeAll("{\"node\": \"Map\", \"items\": {");
+        try out.writeAll("{\"node\": \"Map\", \"items\": [");
 
         for (self.keys) |key, i| {
-            try out.writeAll("\"");
+            try out.writeAll("{\"key\":");
 
             try key.toJson(key, out);
 
-            try out.writeAll("\": ");
+            try out.writeAll(", \"value\": ");
 
             try self.values[i].toJson(self.values[i], out);
+
+            try out.writeAll("}");
 
             if (i < self.keys.len - 1) {
                 try out.writeAll(",");
             }
         }
 
-        try out.writeAll("}, ");
+        try out.writeAll("], ");
 
         try ParseNode.stringify(node, out);
 

@@ -10,6 +10,35 @@ object LspState {
     {str, Json} ast = <str, Json>{},
 }
 
+enum(num) SymbolKind {
+    KFile = 1,
+    Module = 2,
+    Namespace = 3,
+    Package = 4,
+    Class = 5,
+    Method = 6,
+    Property = 7,
+    Field = 8,
+    Constructor = 9,
+    Enum = 10,
+    Interface = 11,
+    KFunction = 12,
+    Variable = 13,
+    Constant = 14,
+    String = 15,
+    Number = 16,
+    Boolean = 17,
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    EnumMember = 22,
+    Struct = 23,
+    Event = 24,
+    Operator = 25,
+    TypeParameter = 26,
+}
+
 fun readContentLength() > num? {
     while (true) {
         str? header = stdin.readLine();
@@ -654,6 +683,187 @@ fun findDeclaration([Json] trail) > Json? {
     return null;
 }
 
+fun getAst(LspState state, str filename) > Json {
+    if (!filename.startsWith("file://")) {
+        stderr.write("Could not handle filename: {filename}\n");
+        return Json{};
+    }
+
+    | Dismiss "file://" prefix
+    filename = filename.sub(7, len: null);
+
+    str? source = state.sources[filename];
+    if (source == null) {
+        File file = File.open(filename, mode: FileMode.read);
+
+        source = file.readAll();
+        state.sources[filename] = source!;
+
+        file.close();
+    }
+
+    str astString = debug.ast(source!, scriptName: filename);
+    stderr.write("{astString}\n");
+
+    return state.ast[filename] ?? Json.decode(astString);
+}
+
+fun getSymbolsAt(Json node, [Json] declarations) > void {
+    const str ndType = node.q(["node"]).stringValue();
+
+    if (ndType == "Function") {
+        getSymbolsAt(node.q(["body"]), declarations: declarations);
+
+        return;
+    }
+    
+    if (ndType == "Enum") {
+        declarations.append(Json{
+            map = {
+                "name": Json{ string = node.q(["type_def"]).stringValue().sub(5, len: null) },
+                "kind": Json{ number = SymbolKind.Enum.value },
+                "range": locationToRange(node.q(["location"])),
+                "selectionRange": locationToRange(node.q(["location"])),
+            }
+        });
+
+        return;
+    }
+    
+    if (ndType == "VarDeclaration") {
+        declarations.append(Json{
+            map = {
+                "name": Json{ string = node.q(["name"]).stringValue() },
+                "kind": Json{ number = SymbolKind.Variable.value },
+                "range": locationToRange(node.q(["location"])),
+                "selectionRange": locationToRange(node.q(["location"])),
+            }
+        });
+
+        return;
+    }
+    
+    if (ndType == "FunDeclaration") {
+        pat namePattern = _fun (.+)\(_;
+        str name = namePattern.match(node.q(["type_def"]).stringValue())![1];
+
+        declarations.append(Json{
+            map = {
+                "name": Json{ string = name },
+                "kind": Json{ number = SymbolKind.KFunction.value },
+                "range": locationToRange(node.q(["location"])),
+                "selectionRange": locationToRange(node.q(["location"])),
+            }
+        });
+
+        return;
+    }
+    
+    if (ndType == "ObjectDeclaration") {
+        pat namePattern = _(object|class) (.+)_;
+        [str] match = namePattern.match(node.q(["type_def"]).stringValue())!;
+        SymbolKind kind = SymbolKind.Object;
+        if (match[1] == "class") {
+            kind = SymbolKind.Class;
+        }
+        str name = match[2];
+
+        declarations.append(Json{
+            map = {
+                "name": Json{ string = name },
+                "kind": Json{ number = kind },
+                "range": locationToRange(node.q(["location"])),
+                "selectionRange": locationToRange(node.q(["location"])),
+            }
+        });
+
+        return;
+    }
+    
+    if (ndType == "Expression") {
+        getSymbolsAt(node.q(["expression"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "If") {
+        getSymbolsAt(node.q(["body"], declarations: declarations));
+        getSymbolsAt(node.q(["else_branch"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "Block") {
+        foreach (num i, Json statement in node.q(["statements"]).listValue()) {
+            getSymbolsAt(statement, declarations: declarations);
+        }
+    }
+    
+    if (ndType == "For") {
+        getSymbolsAt(node.q(["body"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "ForEach") {
+        getSymbolsAt(node.q(["block"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "DoUntil") {
+        getSymbolsAt(node.q(["block"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "While") {
+        getSymbolsAt(node.q(["block"], declarations: declarations));
+
+        return;
+    }
+    
+    if (ndType == "Import") {
+        getSymbolsAt(node.q(["import"], declarations: declarations));
+
+        return;
+    }
+}
+
+fun getSymbols(LspState state, {str, Json} request) > Json {
+    const Json ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "");
+
+    [Json] declarations = <Json>[];
+    
+    getSymbolsAt(ast, declarations: declarations);
+
+    return Json{ list = declarations };
+}
+
+fun locationToRange(Json location) > Json {
+    const num startLine = location.q(["start_line"]).number ?? -1;
+    const num startColumn = location.q(["start_column"]).number ?? -1;
+    const num endLine = location.q(["end_line"]).number ?? -1;
+    const num endColumn = location.q(["end_column"]).number ?? -1;
+
+    return Json{
+        map = {
+            "start": Json{
+                map = {
+                    "line": Json{ number = startLine },
+                    "character": Json{ number = startColumn - 1 },
+                }
+            },
+            "end": Json{
+                map = {
+                    "line": Json{ number = endLine },
+                    "character": Json{ number = endColumn - 1 },
+                }
+            }
+        }
+    };
+}
+
 fun gotoDefinition(LspState state, {str, Json} request) > Json {
     const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? <str, Json>{};
     str uri = textDocument["uri"]?.stringValue() ?? "";
@@ -661,27 +871,7 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json {
     const num line = position["line"]?.numberValue() ?? 0;
     const num column = position["character"]?.numberValue() ?? 0;
 
-    if (!uri.startsWith("file://")) {
-        stderr.write("Could not handle uri: {uri}\n");
-        return Json{};    
-    }
-
-    | Dismiss "file://" prefix
-    uri = uri.sub(7, len: null);
-
-    str? source = state.sources[uri];
-    if (source == null) {
-        File file = File.open(uri, mode: FileMode.read);
-
-        source = file.readAll();
-        state.sources[uri] = source!;
-
-        file.close();
-    }
-
-    str astString = debug.ast(source!, scriptName: uri);
-    stderr.write("{astString}\n");
-    Json ast = state.ast[uri] ?? Json.decode(astString);
+    Json ast = getAst(state, filename: uri);
 
     | Skip entry point
     [Json] roots = ast.q(["body", "statements"]).list ?? <Json>[];
@@ -694,30 +884,10 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json {
             Json? declaration = findDeclaration(trail);
 
             if (declaration != null) {
-                const num startLine = declaration?.q(["location", "start_line"]).number ?? -1;
-                const num startColumn = declaration?.q(["location", "start_column"]).number ?? -1;
-                const num endLine = declaration?.q(["location", "end_line"]).number ?? -1;
-                const num endColumn = declaration?.q(["location", "end_column"]).number ?? -1;
-
                 return Json{
                     map = {
                         "uri": Json{ string = uri },
-                        "range": Json{
-                            map = {
-                                "start": Json{
-                                    map = {
-                                        "line": Json{ number = startLine },
-                                        "character": Json{ number = startColumn - 1 },
-                                    }
-                                },
-                                "end": Json{
-                                    map = {
-                                        "line": Json{ number = endLine },
-                                        "character": Json{ number = endColumn - 1 },
-                                    }
-                                }
-                            }
-                        }
+                        "range": locationToRange(declaration!.q(["location"])),
                     }
                 };
             }
@@ -745,6 +915,7 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
                     map = {
                         "declarationProvider": Json{ boolean = true },
                         "definitionProvider": Json{ boolean = true },
+                        "documentSymbolProvider": Json{ boolean = true },
                     }
                 },
                 "serverInfo": Json{
@@ -758,6 +929,7 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     | There's not really a difference between declaration and definition in buzz
     "textDocument/declaration": gotoDefinition,
     "textDocument/definition": gotoDefinition,
+    "textDocument/documentSymbol": getSymbols,
 };
 
 fun main([str] args) > void {
