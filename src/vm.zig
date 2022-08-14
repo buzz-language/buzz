@@ -36,7 +36,6 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
 const allocateObject = _obj.allocateObject;
-const allocateString = _obj.allocateString;
 const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
 const Chunk = _chunk.Chunk;
@@ -315,6 +314,9 @@ pub const VM = struct {
             ),
         );
 
+        // Prevent gc
+        self.push(arg_list.toValue());
+
         if (args) |uargs| {
             for (uargs) |arg, index| {
                 // We can't have more than 255 arguments to a function
@@ -330,6 +332,8 @@ pub const VM = struct {
                 );
             }
         }
+
+        _ = self.pop();
 
         return arg_list;
     }

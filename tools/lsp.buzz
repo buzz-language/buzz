@@ -703,7 +703,6 @@ fun getAst(LspState state, str filename) > Json {
     }
 
     str astString = debug.ast(source!, scriptName: filename);
-    stderr.write("{astString}\n");
 
     return state.ast[filename] ?? Json.decode(astString);
 }

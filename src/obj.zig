@@ -469,6 +469,9 @@ pub const ObjPattern = struct {
                     )),
                 );
 
+                // Prevent gc collection
+                vm.push(results.?.toValue());
+
                 var i: usize = 0;
                 while (i < rc) : (i += 1) {
                     try results.?.items.append(
@@ -478,6 +481,8 @@ pub const ObjPattern = struct {
                         )).toValue(),
                     );
                 }
+
+                _ = vm.pop();
             },
         }
 
@@ -489,16 +494,29 @@ pub const ObjPattern = struct {
         var offset: usize = 0;
         while (true) {
             if (try self.rawMatch(vm, subject, &offset)) |matches| {
+                var was_null = results == null;
                 results = results orelse try allocateObject(
                     vm,
                     ObjList,
                     ObjList.init(vm.allocator, matches.type_def),
                 );
 
+                if (was_null) {
+                    vm.push(results.?.toValue());
+                }
+
                 try results.?.items.append(matches.toValue());
             } else {
+                if (results != null) {
+                    _ = vm.pop();
+                }
+
                 return results;
             }
+        }
+
+        if (results != null) {
+            _ = vm.pop();
         }
 
         return results;
@@ -1000,6 +1018,9 @@ pub const ObjString = struct {
             return -1;
         };
 
+        // Prevent gc & is result
+        vm.push(list.toValue());
+
         var it = std.mem.split(u8, self.string, separator.string);
         while (it.next()) |fragment| {
             var fragment_str: ?*ObjString = copyString(vm, fragment) catch {
@@ -1016,8 +1037,6 @@ pub const ObjString = struct {
                 return -1;
             };
         }
-
-        vm.push(list.toValue());
 
         return 1;
     }
@@ -1949,14 +1968,14 @@ pub const ObjList = struct {
             return -1;
         };
 
+        vm.push(list.toValue());
+
         list.items.appendSlice(substr) catch {
             var err: ?*ObjString = copyString(vm, "Could not get sub list") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
-
-        vm.push(list.toValue());
 
         return 1;
     }
