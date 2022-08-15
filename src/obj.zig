@@ -1562,12 +1562,12 @@ pub const ObjObjectInstance = struct {
     /// Object
     object: *ObjObject,
     /// Fields value
-    fields: StringHashMap(Value),
+    fields: std.AutoHashMap(*ObjString, Value),
 
     pub fn init(allocator: Allocator, object: *ObjObject) Self {
         return Self{
             .object = object,
-            .fields = StringHashMap(Value).init(allocator),
+            .fields = std.AutoHashMap(*ObjString, Value).init(allocator),
         };
     }
 
@@ -1575,6 +1575,7 @@ pub const ObjObjectInstance = struct {
         try markObj(vm, self.object.toObj());
         var it = self.fields.iterator();
         while (it.next()) |kv| {
+            try markObj(vm, kv.key_ptr.*.toObj());
             try markValue(vm, kv.value_ptr.*);
         }
     }
@@ -1621,20 +1622,20 @@ pub const ObjObject = struct {
     /// Object name
     name: *ObjString,
     /// Object methods
-    methods: StringHashMap(*ObjClosure),
+    methods: std.AutoHashMap(*ObjString, *ObjClosure),
     /// Object fields default values
-    fields: StringHashMap(Value),
+    fields: std.AutoHashMap(*ObjString, Value),
     /// Object static fields
-    static_fields: StringHashMap(Value),
+    static_fields: std.AutoHashMap(*ObjString, Value),
     /// Optional super class
     super: ?*ObjObject = null,
 
     pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
         return Self{
             .name = name,
-            .methods = StringHashMap(*ObjClosure).init(allocator),
-            .fields = StringHashMap(Value).init(allocator),
-            .static_fields = StringHashMap(Value).init(allocator),
+            .methods = std.AutoHashMap(*ObjString, *ObjClosure).init(allocator),
+            .fields = std.AutoHashMap(*ObjString, Value).init(allocator),
+            .static_fields = std.AutoHashMap(*ObjString, Value).init(allocator),
             .type_def = type_def,
         };
     }
@@ -1644,14 +1645,17 @@ pub const ObjObject = struct {
         try markObj(vm, self.name.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
+            try markObj(vm, kv.key_ptr.*.toObj());
             try markObj(vm, kv.value_ptr.*.toObj());
         }
         var it2 = self.fields.iterator();
         while (it2.next()) |kv| {
+            try markObj(vm, kv.key_ptr.*.toObj());
             try markValue(vm, kv.value_ptr.*);
         }
         var it3 = self.static_fields.iterator();
         while (it3.next()) |kv| {
+            try markObj(vm, kv.key_ptr.*.toObj());
             try markValue(vm, kv.value_ptr.*);
         }
         if (self.super) |usuper| {
@@ -1686,19 +1690,14 @@ pub const ObjObject = struct {
 
         name: *ObjString,
         // TODO: Do i need to have two maps ?
-        fields: StringHashMap(*ObjTypeDef),
-        fields_defaults: StringHashMap(void),
-        static_fields: StringHashMap(*ObjTypeDef),
-        methods: StringHashMap(*ObjTypeDef),
+        fields: std.StringHashMap(*ObjTypeDef),
+        fields_defaults: std.StringHashMap(void),
+        static_fields: std.StringHashMap(*ObjTypeDef),
+        methods: std.StringHashMap(*ObjTypeDef),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        // It's not an issue since:
-        //   - we use OP_GET_PROPERTY for both
-        //   - OP_SET_PROPERTY for a method will ultimately fail
-        //   - OP_INVOKE on a field will ultimately fail
-        // TODO: but we can have field which are functions and then we don't know what's what
-        placeholders: StringHashMap(*ObjTypeDef),
-        static_placeholders: StringHashMap(*ObjTypeDef),
+        placeholders: std.StringHashMap(*ObjTypeDef),
+        static_placeholders: std.StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
         inheritable: bool = false,
         is_class: bool,
@@ -1707,12 +1706,12 @@ pub const ObjObject = struct {
             return ObjectDefSelf{
                 .name = name,
                 .is_class = is_class,
-                .fields = StringHashMap(*ObjTypeDef).init(allocator),
-                .static_fields = StringHashMap(*ObjTypeDef).init(allocator),
-                .fields_defaults = StringHashMap(void).init(allocator),
-                .methods = StringHashMap(*ObjTypeDef).init(allocator),
-                .placeholders = StringHashMap(*ObjTypeDef).init(allocator),
-                .static_placeholders = StringHashMap(*ObjTypeDef).init(allocator),
+                .fields = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .static_fields = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .fields_defaults = std.StringHashMap(void).init(allocator),
+                .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
             };
         }
 
@@ -1723,6 +1722,37 @@ pub const ObjObject = struct {
             self.methods.deinit();
             self.placeholders.deinit();
             self.static_placeholders.deinit();
+        }
+
+        pub fn mark(self: *ObjectDefSelf, vm: *VM) !void {
+            var it = self.fields.iterator();
+            while (it.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+
+            var it3 = self.static_fields.iterator();
+            while (it3.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+
+            var it4 = self.methods.iterator();
+            while (it4.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+
+            var it5 = self.placeholders.iterator();
+            while (it5.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+
+            var it6 = self.static_placeholders.iterator();
+            while (it6.next()) |kv| {
+                try markObj(vm, kv.value_ptr.*.toObj());
+            }
+
+            if (self.super) |super| {
+                try markObj(vm, super.toObj());
+            }
         }
     };
 };
@@ -2922,11 +2952,13 @@ pub const ObjTypeDef = struct {
     resolved_type: ?TypeUnion = null,
 
     pub fn mark(self: *Self, vm: *VM) !void {
-        if (self.resolved_type) |resolved| {
-            if (resolved == .ObjectInstance) {
+        if (self.resolved_type) |*resolved| {
+            if (resolved.* == .ObjectInstance) {
                 try markObj(vm, resolved.ObjectInstance.toObj());
-            } else if (resolved == .EnumInstance) {
+            } else if (resolved.* == .EnumInstance) {
                 try markObj(vm, resolved.EnumInstance.toObj());
+            } else if (resolved.* == .Object) {
+                try resolved.Object.mark(vm);
             }
         }
     }

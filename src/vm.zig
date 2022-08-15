@@ -783,7 +783,7 @@ pub const VM = struct {
                     const name: *ObjString = self.readString(arg);
                     const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
 
-                    try self.bindMethod(super_class.methods.get(name.string).?, null);
+                    try self.bindMethod(super_class.methods.get(name).?, null);
                 },
 
                 .OP_INSTANCE => try self.instanciateObject(ObjObject.cast(self.pop().Obj).?),
@@ -802,19 +802,19 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             _ = self.pop(); // Pop instance
-                            self.push(object.static_fields.get(name.string).?);
+                            self.push(object.static_fields.get(name).?);
                         },
                         .ObjectInstance => {
                             const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
                             const name: *ObjString = self.readString(arg);
 
-                            if (instance.fields.get(name.string)) |field| {
+                            if (instance.fields.get(name)) |field| {
                                 _ = self.pop(); // Pop instance
                                 self.push(field);
-                            } else if (instance.object.methods.get(name.string)) |method| {
+                            } else if (instance.object.methods.get(name)) |method| {
                                 try self.bindMethod(method, null);
                             } else if (instance.object.super) |super| {
-                                try self.getSuperField(name.string, super);
+                                try self.getSuperField(name, super);
                             } else {
                                 unreachable;
                             }
@@ -863,7 +863,7 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             // Set new value
-                            try instance.fields.put(name.string, self.peek(0));
+                            try instance.fields.put(name, self.peek(0));
 
                             // Get the new value from stack, pop the instance and push value again
                             const value: Value = self.pop();
@@ -875,7 +875,7 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             // Set new value
-                            try object.static_fields.put(name.string, self.peek(0));
+                            try object.static_fields.put(name, self.peek(0));
 
                             // Get the new value from stack, pop the object and push value again
                             const value: Value = self.pop();
@@ -1391,7 +1391,7 @@ pub const VM = struct {
         }
     }
 
-    fn getSuperField(self: *Self, name: []const u8, super: *ObjObject) VM.Error!void {
+    fn getSuperField(self: *Self, name: *ObjString, super: *ObjObject) VM.Error!void {
         if (super.static_fields.get(name)) |static| {
             _ = self.pop(); // Pop instance
             self.push(static);
@@ -1404,7 +1404,7 @@ pub const VM = struct {
     }
 
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
-        if (object.methods.get(name.string)) |method| {
+        if (object.methods.get(name)) |method| {
             return self.call(method, arg_count, catch_values);
         } else {
             unreachable;
@@ -1419,7 +1419,7 @@ pub const VM = struct {
             .ObjectInstance => {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
 
-                if (instance.fields.get(name.string)) |field| {
+                if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
                     return try self.callValue(field, arg_count, catch_values);
@@ -1540,7 +1540,7 @@ pub const VM = struct {
         var method: Value = self.peek(0);
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
-        try object.methods.put(name.string, ObjClosure.cast(method.Obj).?);
+        try object.methods.put(name, ObjClosure.cast(method.Obj).?);
 
         _ = self.pop();
     }
@@ -1550,10 +1550,10 @@ pub const VM = struct {
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
-            try object.fields.put(name.string, property);
+            try object.fields.put(name, property);
         } else {
             assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
-            try object.static_fields.put(name.string, property);
+            try object.static_fields.put(name, property);
         }
 
         _ = self.pop();

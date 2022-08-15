@@ -274,9 +274,17 @@ pub fn collectGarbage(vm: *VM) !void {
 
     try traceReference(vm);
 
+    // Remove unmarked strings for the interned strings
     var it = vm.strings.iterator();
+    var toDelete = std.ArrayList([]const u8).init(vm.allocator);
+    defer toDelete.deinit();
     while (it.next()) |kv| {
-        try markObj(vm, kv.value_ptr.*.toObj());
+        if (kv.value_ptr.*.toObj().is_marked) {
+            try toDelete.append(kv.key_ptr.*);
+        }
+    }
+    for (toDelete.items) |key| {
+        _ = vm.strings.remove(key);
     }
 
     try sweep(vm);
