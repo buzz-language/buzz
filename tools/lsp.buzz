@@ -6,8 +6,8 @@ import "lib/debug" as debug;
 
 object LspState {
     | TODO: Maybe bad to keep this in memory
-    {str, str} sources = <str, str>{},
-    {str, Json} ast = <str, Json>{},
+    {str, str} sources,
+    {str, Json} ast,
 }
 
 enum(num) SymbolKind {
@@ -702,9 +702,15 @@ fun getAst(LspState state, str filename) > Json {
         file.close();
     }
 
-    str astString = debug.ast(source!, scriptName: filename);
+    if (state.ast[filename] == null) {
+        stderr.write("Getting ast for {filename}\n");
 
-    return state.ast[filename] ?? Json.decode(astString);
+        str astString = debug.ast(source!, scriptName: filename);
+
+        state.ast[filename] = Json.decode(astString);
+    }
+
+    return state.ast[filename]!;
 }
 
 fun getSymbolsAt(Json node, [Json] declarations) > void {
@@ -949,7 +955,10 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
 };
 
 fun main([str] args) > void {
-    LspState state = LspState{};
+    LspState state = LspState{
+        sources = <str, str>{},
+        ast = <str, Json>{},
+    };
 
     while (true) {
         num? contentLength = readContentLength();

@@ -33,7 +33,7 @@ const ObjFiber = _obj.ObjFiber;
 pub fn allocate(vm: *VM, comptime T: type) !*T {
     vm.bytes_allocated += @sizeOf(T);
 
-    if (vm.bytes_allocated > vm.next_gc) {
+    if (vm.bytes_allocated > vm.next_gc and !Config.debug_turn_off_gc) {
         try collectGarbage(vm);
     }
 
@@ -43,7 +43,7 @@ pub fn allocate(vm: *VM, comptime T: type) !*T {
 pub fn allocateMany(vm: *VM, comptime T: type, count: usize) ![]T {
     vm.bytes_allocated += @sizeOf(T);
 
-    if (vm.bytes_allocated > vm.next_gc) {
+    if (vm.bytes_allocated > vm.next_gc and !Config.debug_turn_off_gc) {
         try collectGarbage(vm);
     }
 
@@ -107,7 +107,7 @@ fn blackenObject(vm: *VM, obj: *Obj) !void {
     };
 }
 
-fn freeObj(vm: *VM, obj: *Obj) !void {
+fn freeObj(vm: *VM, obj: *Obj) void {
     if (Config.debug_gc) {
         std.debug.print(">> freeing {*}: {s}\n", .{ obj, try valueToStringAlloc(vm.allocator, Value{ .Obj = obj }) });
     }
@@ -128,7 +128,15 @@ fn freeObj(vm: *VM, obj: *Obj) !void {
             obj_typedef.deinit();
             free(vm, ObjTypeDef, obj_typedef);
         },
-        .UpValue => free(vm, ObjUpValue, ObjUpValue.cast(obj).?),
+        .UpValue => {
+            var obj_upvalue = ObjUpValue.cast(obj).?;
+            if (obj_upvalue.closed) |value| {
+                if (value == .Obj) {
+                    freeObj(vm, value.Obj);
+                }
+            }
+            free(vm, ObjUpValue, obj_upvalue);
+        },
         .Closure => {
             var obj_closure = ObjClosure.cast(obj).?;
             obj_closure.deinit();
@@ -211,6 +219,12 @@ fn markRoots(vm: *VM) !void {
     for (vm.globals.items) |global| {
         try markValue(vm, global);
     }
+
+    // Mark interned strings
+    var it = vm.strings.iterator();
+    while (it.next()) |kv| {
+        try markObj(vm, kv.value_ptr.*.toObj());
+    }
 }
 
 fn traceReference(vm: *VM) !void {
@@ -240,7 +254,7 @@ fn sweep(vm: *VM) !void {
                 vm.objects = obj;
             }
 
-            try freeObj(vm, unreached);
+            freeObj(vm, unreached);
         }
     }
 
