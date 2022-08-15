@@ -20,7 +20,7 @@ A small/lightweight typed scripting language written in Zig
 - No nonsense coercion
 - [Fibers](#fibers)
 - Tooling
-    - Generate doc from docblocks (in progress)
+    - [Generate doc from docblocks (in progress)](https://github.com/giann/buzz/blob/main/doc/index.md)
     - LSP (in progress)
     - [TextMate syntax](https://github.com/giann/buzz/tree/main/tmLanguage)
 
