@@ -274,11 +274,25 @@ pub const ObjFiber = struct {
 
     type_def: *ObjTypeDef,
 
-    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
     var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
 
     pub fn mark(self: *Self, vm: *VM) !void {
         try _memory.markFiber(vm, self.fiber);
+        try markObj(vm, self.type_def.toObj());
+        if (Self.members) |umembers| {
+            var it = umembers.iterator();
+            while (it.next()) |umember| {
+                try markObj(vm, umember.value_ptr.*.toObj());
+            }
+        }
+
+        if (Self.memberDefs) |umemberDefs| {
+            var it = umemberDefs.iterator();
+            while (it.next()) |umember| {
+                try markObj(vm, umember.value_ptr.*.toObj());
+            }
+        }
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -313,16 +327,16 @@ pub const ObjFiber = struct {
         return null;
     }
 
-    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (Self.members) |umembers| {
             if (umembers.get(method)) |umethod| {
                 return umethod;
             }
         }
 
-        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
-        var nativeFn: ?NativeFn = rawMember(method);
+        var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
@@ -406,7 +420,7 @@ pub const ObjPattern = struct {
     source: []const u8,
     pattern: *pcre.struct_real_pcre8_or_16,
 
-    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
     var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
 
     pub fn mark(_: *Self, vm: *VM) !void {
@@ -596,16 +610,16 @@ pub const ObjPattern = struct {
         return null;
     }
 
-    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (Self.members) |umembers| {
             if (umembers.get(method)) |umethod| {
                 return umethod;
             }
         }
 
-        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
-        var nativeFn: ?NativeFn = rawMember(method);
+        var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
@@ -821,7 +835,7 @@ pub const ObjUserData = struct {
 pub const ObjString = struct {
     const Self = @This();
 
-    var members: ?std.StringArrayHashMap(*ObjNative) = null;
+    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
     var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
 
     obj: Obj = .{ .obj_type = .String },
@@ -1086,16 +1100,16 @@ pub const ObjString = struct {
     }
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
-    pub fn member(vm: *VM, method: []const u8) !?*ObjNative {
+    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (Self.members) |umembers| {
             if (umembers.get(method)) |umethod| {
                 return umethod;
             }
         }
 
-        Self.members = Self.members orelse std.StringArrayHashMap(*ObjNative).init(vm.allocator);
+        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
-        var nativeFn: ?NativeFn = rawMember(method);
+        var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
@@ -1792,13 +1806,13 @@ pub const ObjList = struct {
     /// List items
     items: std.ArrayList(Value),
 
-    methods: std.StringHashMap(*ObjNative),
+    methods: std.AutoHashMap(*ObjString, *ObjNative),
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return Self{
             .items = std.ArrayList(Value).init(allocator),
             .type_def = type_def,
-            .methods = std.StringHashMap(*ObjNative).init(allocator),
+            .methods = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
         };
     }
 
@@ -1809,6 +1823,7 @@ pub const ObjList = struct {
         try markObj(vm, self.type_def.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
+            try markObj(vm, kv.key_ptr.*.toObj());
             try markObj(vm, kv.value_ptr.*.toObj());
         }
     }
@@ -1835,25 +1850,25 @@ pub const ObjList = struct {
     }
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
-    pub fn member(self: *Self, vm: *VM, method: []const u8) !?*ObjNative {
+    pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
             return native;
         }
 
         var nativeFn: ?NativeFn = null;
-        if (mem.eql(u8, method, "append")) {
+        if (mem.eql(u8, method.string, "append")) {
             nativeFn = append;
-        } else if (mem.eql(u8, method, "len")) {
+        } else if (mem.eql(u8, method.string, "len")) {
             nativeFn = len;
-        } else if (mem.eql(u8, method, "next")) {
+        } else if (mem.eql(u8, method.string, "next")) {
             nativeFn = next;
-        } else if (mem.eql(u8, method, "remove")) {
+        } else if (mem.eql(u8, method.string, "remove")) {
             nativeFn = remove;
-        } else if (mem.eql(u8, method, "sub")) {
+        } else if (mem.eql(u8, method.string, "sub")) {
             nativeFn = sub;
-        } else if (mem.eql(u8, method, "indexOf")) {
+        } else if (mem.eql(u8, method.string, "indexOf")) {
             nativeFn = indexOf;
-        } else if (mem.eql(u8, method, "join")) {
+        } else if (mem.eql(u8, method.string, "join")) {
             nativeFn = join;
         }
 
@@ -2357,29 +2372,29 @@ pub const ObjMap = struct {
     // In order to use a regular HashMap, we would have to hack are away around it to implement next
     map: std.AutoArrayHashMap(HashableValue, Value),
 
-    methods: std.StringHashMap(*ObjNative),
+    methods: std.AutoHashMap(*ObjString, *ObjNative),
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return .{
             .type_def = type_def,
             .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
-            .methods = std.StringHashMap(*ObjNative).init(allocator),
+            .methods = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
         };
     }
 
-    pub fn member(self: *Self, vm: *VM, method: []const u8) !?*ObjNative {
+    pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
             return native;
         }
 
         var nativeFn: ?NativeFn = null;
-        if (mem.eql(u8, method, "remove")) {
+        if (mem.eql(u8, method.string, "remove")) {
             nativeFn = remove;
-        } else if (mem.eql(u8, method, "size")) {
+        } else if (mem.eql(u8, method.string, "size")) {
             nativeFn = size;
-        } else if (mem.eql(u8, method, "keys")) {
+        } else if (mem.eql(u8, method.string, "keys")) {
             nativeFn = keys;
-        } else if (mem.eql(u8, method, "values")) {
+        } else if (mem.eql(u8, method.string, "values")) {
             nativeFn = values;
         }
 

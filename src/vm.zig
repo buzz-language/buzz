@@ -826,7 +826,17 @@ pub const VM = struct {
                             const list = ObjList.cast(obj).?;
                             const name: *ObjString = self.readString(arg);
 
-                            if (try list.member(self, name.string)) |member| {
+                            if (try list.member(self, name)) |member| {
+                                try self.bindMethod(null, member);
+                            } else {
+                                unreachable;
+                            }
+                        },
+                        .Map => {
+                            const map = ObjMap.cast(obj).?;
+                            const name: *ObjString = self.readString(arg);
+
+                            if (try map.member(self, name)) |member| {
                                 try self.bindMethod(null, member);
                             } else {
                                 unreachable;
@@ -835,7 +845,7 @@ pub const VM = struct {
                         .String => {
                             const name: *ObjString = self.readString(arg);
 
-                            if (try ObjString.member(self, name.string)) |member| {
+                            if (try ObjString.member(self, name)) |member| {
                                 try self.bindMethod(null, member);
                             } else {
                                 unreachable;
@@ -844,11 +854,20 @@ pub const VM = struct {
                         .Pattern => {
                             const name: *ObjString = self.readString(arg);
 
-                            if (try ObjPattern.member(self, name.string)) |member| {
+                            if (try ObjPattern.member(self, name)) |member| {
                                 try self.bindMethod(null, member);
                             } else {
                                 unreachable;
                             }
+                        },
+                        .Fiber => {
+                            const name: *ObjString = self.readString(arg);
+
+                            if (try ObjFiber.member(self, name)) |member| {
+                                try self.bindMethod(null, member);
+                            }
+
+                            unreachable;
                         },
                         else => unreachable,
                     }
@@ -1428,7 +1447,7 @@ pub const VM = struct {
                 try self.invokeFromObject(instance.object, name, arg_count, catch_values);
             },
             .String => {
-                if (try ObjString.member(self, name.string)) |member| {
+                if (try ObjString.member(self, name)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
@@ -1438,7 +1457,7 @@ pub const VM = struct {
                 unreachable;
             },
             .Pattern => {
-                if (try ObjPattern.member(self, name.string)) |member| {
+                if (try ObjPattern.member(self, name)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
@@ -1448,7 +1467,7 @@ pub const VM = struct {
                 unreachable;
             },
             .Fiber => {
-                if (try ObjFiber.member(self, name.string)) |member| {
+                if (try ObjFiber.member(self, name)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
@@ -1460,7 +1479,7 @@ pub const VM = struct {
             .List => {
                 var list: *ObjList = ObjList.cast(obj).?;
 
-                if (try list.member(self, name.string)) |member| {
+                if (try list.member(self, name)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
@@ -1472,7 +1491,7 @@ pub const VM = struct {
             .Map => {
                 var map: *ObjMap = ObjMap.cast(obj).?;
 
-                if (try map.member(self, name.string)) |member| {
+                if (try map.member(self, name)) |member| {
                     var member_value: Value = Value{ .Obj = member.toObj() };
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
