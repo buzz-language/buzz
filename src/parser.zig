@@ -3921,6 +3921,16 @@ pub const Parser = struct {
     fn parseFunctionType(self: *Self) !*ObjTypeDef {
         assert(self.parser.previous_token.?.token_type == .Function);
 
+        var name: ?*ObjString = null;
+        if (try self.match(.Identifier)) {
+            name = try copyStringRaw(
+                self.strings,
+                self.allocator,
+                self.parser.previous_token.?.lexeme,
+                false,
+            );
+        }
+
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
         var parameters: std.StringArrayHashMap(*ObjTypeDef) = std.StringArrayHashMap(*ObjTypeDef).init(self.allocator);
@@ -3954,7 +3964,7 @@ pub const Parser = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = try copyStringRaw(self.strings, self.allocator, "anonymous", false),
+            .name = name orelse try copyStringRaw(self.strings, self.allocator, "anonymous", false),
             .return_type = try return_type.toInstance(self.allocator, self.type_registry),
             .yield_type = try yield_type.toInstance(self.allocator, self.type_registry),
             .parameters = parameters,
@@ -4004,6 +4014,26 @@ pub const Parser = struct {
         }
 
         return global_slot.?;
+    }
+
+    pub fn parseTypeDefFrom(self: *Self, source: []const u8) anyerror!*ObjTypeDef {
+        var type_scanner = Scanner.init(self.allocator, self.script_name, source);
+        // Replace parser scanner with one that only looks at that substring
+        const scanner = self.scanner;
+        self.scanner = type_scanner;
+        const parser = self.parser;
+        self.parser = ParserState.init(self.allocator);
+
+        _ = try self.advance();
+
+        const parsed_type = try self.parseTypeDef();
+
+        // Restore normal scanner and parser state
+        self.scanner = scanner;
+        self.parser.deinit();
+        self.parser = parser;
+
+        return parsed_type;
     }
 
     fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {

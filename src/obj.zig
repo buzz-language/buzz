@@ -372,29 +372,11 @@ pub const ObjFiber = struct {
 
         // over() > bool
         if (mem.eql(u8, method, "over")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function over() > bool");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the fiber.
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "over", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .Bool,
-                }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("over", native_type);
 
@@ -656,118 +638,22 @@ pub const ObjPattern = struct {
 
         Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
-        // match(str subject) > [str]?
         if (mem.eql(u8, method, "match")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put(
-                "subject",
-                try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .String,
-                    },
-                ),
-            );
-
-            var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                parser.allocator,
-                try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .String,
-                }),
-            );
-
-            var list_def_union: ObjTypeDef.TypeUnion = .{
-                .List = list_def,
-            };
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "match", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .List,
-                    .optional = true,
-                    .resolved_type = list_def_union,
-                }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("match", native_type);
 
             return native_type;
-        } else if (mem.eql(u8, method, "matchAll")) { // match(str subject) > [[str]]?
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+        } else if (mem.eql(u8, method, "matchAll")) {
+            var native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]?");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put(
-                "subject",
-                try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .String,
-                    },
-                ),
-            );
-
-            var sub_list_def: ObjList.ListDef = ObjList.ListDef.init(
-                parser.allocator,
-                try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .String,
-                }),
-            );
-
-            var sub_list_def_union: ObjTypeDef.TypeUnion = .{
-                .List = sub_list_def,
-            };
-
-            var sub_list_type = try parser.type_registry.getTypeDef(ObjTypeDef{
-                .def_type = .List,
-                .optional = false,
-                .resolved_type = sub_list_def_union,
-            });
-
-            var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                parser.allocator,
-                sub_list_type,
-            );
-
-            var list_def_union: ObjTypeDef.TypeUnion = .{
-                .List = list_def,
-            };
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "matchAll", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .List,
-                    .optional = true,
-                    .resolved_type = list_def_union,
-                }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("matchAll", native_type);
 
@@ -1149,273 +1035,81 @@ pub const ObjString = struct {
         Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
         if (mem.eql(u8, method, "len")) {
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
+            var native_type = try parser.parseTypeDefFrom("Function len() > num");
 
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
-                .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("len", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function byte(num at) > num");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("at", try parser.type_registry.getTypeDef(.{ .def_type = .Number }));
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "byte", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Number }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("byte", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > num?");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Number,
-                        .optional = true,
-                    },
-                ),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("indexOf", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "startsWith")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function startsWith(str needle) > bool");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "startsWith", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Bool,
-                        .optional = false,
-                    },
-                ),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("startsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "endsWith")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function endsWith(str needle) > bool");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "endsWith", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Bool,
-                        .optional = false,
-                    },
-                ),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("endsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("needle", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-            try parameters.put("with", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "replace", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str]");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put("separator", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
-
-            var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                parser.allocator,
-                try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .String,
-                }),
-            );
-
-            var list_def_union: ObjTypeDef.TypeUnion = .{
-                .List = list_def,
-            };
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "split", false),
-                .parameters = parameters,
-                .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
-                    .def_type = .List,
-                    .optional = false,
-                    .resolved_type = list_def_union,
-                }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
-            var defaults = std.StringArrayHashMap(Value).init(parser.allocator);
+            var native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str");
 
-            // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-            // It's always the string.
-
-            try parameters.put(
-                "start",
-                try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Number,
-                    },
-                ),
-            );
-
-            try parameters.put(
-                "len",
-                try parser.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Number,
-                        .optional = true,
-                    },
-                ),
-            );
-
-            // `len` can be omitted
-            try defaults.put("len", Value{ .Null = null });
-
-            var method_def = ObjFunction.FunctionDef{
-                .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
-                .parameters = parameters,
-                .defaults = defaults,
-                .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .String }),
-                .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            };
-
-            var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
-
-            var native_type = try parser.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Native,
-                    .resolved_type = resolved_type,
-                },
-            );
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("sub", native_type);
 
@@ -1477,6 +1171,7 @@ pub const ObjClosure = struct {
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self{
+            // TODO: copy?
             .globals = &vm.globals,
             .function = function,
             .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
