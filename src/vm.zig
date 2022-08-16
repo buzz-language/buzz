@@ -1376,7 +1376,10 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_values);
             },
-            else => unreachable,
+            else => {
+                std.debug.print("unexpected {}\n", .{obj.obj_type});
+                unreachable;
+            },
         }
     }
 

@@ -65,7 +65,14 @@ pub fn freeMany(vm: *VM, comptime T: type, pointer: []const T) void {
     vm.allocator.free(pointer);
 
     if (Config.debug_gc) {
-        std.debug.print("(from {}), freed {}, {} allocated\n", .{ vm.bytes_allocated + n, n, vm.bytes_allocated });
+        std.debug.print(
+            "(from {}), freed {}, {} allocated\n",
+            .{
+                vm.bytes_allocated + n,
+                n,
+                vm.bytes_allocated,
+            },
+        );
     }
 }
 
@@ -254,7 +261,9 @@ fn sweep(vm: *VM) !void {
                 vm.objects = obj;
             }
 
-            freeObj(vm, unreached);
+            if (!unreached.resilient) {
+                freeObj(vm, unreached);
+            }
         }
     }
 

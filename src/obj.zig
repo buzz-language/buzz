@@ -141,6 +141,9 @@ pub const Obj = struct {
 
     obj_type: ObjType,
     is_marked: bool = false,
+    // If true, will never be collected
+    // TODO: we should never have to do this, we do it because we don't know why some things are collected (pattern methods was the case)
+    resilient: bool = false,
     next: ?*Obj = null,
 
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
@@ -347,6 +350,8 @@ pub const ObjFiber = struct {
                     .native = unativeFn,
                 },
             );
+            // Prevent collection
+            native.obj.resilient = true;
 
             try Self.members.?.put(method, native);
 
@@ -428,6 +433,7 @@ pub const ObjPattern = struct {
         if (Self.members) |umembers| {
             var it = umembers.iterator();
             while (it.next()) |kv| {
+                try markObj(vm, kv.key_ptr.*.toObj());
                 try markObj(vm, kv.value_ptr.*.toObj());
             }
         }
@@ -630,6 +636,8 @@ pub const ObjPattern = struct {
                     .native = unativeFn,
                 },
             );
+            // Don't collect basic methods
+            native.obj.resilient = true;
 
             try Self.members.?.put(method, native);
 
@@ -1120,6 +1128,8 @@ pub const ObjString = struct {
                     .native = unativeFn,
                 },
             );
+            // Prevent collection
+            native.obj.resilient = true;
 
             try Self.members.?.put(method, native);
 
