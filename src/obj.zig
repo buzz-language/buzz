@@ -385,8 +385,15 @@ pub const ObjFiber = struct {
     }
 
     pub const FiberDef = struct {
+        const SelfFiberDef = @This();
+
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
+
+        pub fn mark(self: *SelfFiberDef, vm: *VM) !void {
+            try markObj(vm, self.return_type.toObj());
+            try markObj(vm, self.yield_type.toObj());
+        }
     };
 };
 
@@ -1542,6 +1549,8 @@ pub const ObjFunction = struct {
     }
 
     pub const FunctionDef = struct {
+        const FunctionDefSelf = @This();
+
         name: *ObjString,
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
@@ -1550,6 +1559,21 @@ pub const ObjFunction = struct {
         defaults: std.StringArrayHashMap(Value),
         function_type: FunctionType = .Function,
         lambda: bool = false,
+
+        pub fn mark(self: *FunctionDefSelf, vm: *VM) !void {
+            try markObj(vm, self.name.toObj());
+            try markObj(vm, self.return_type.toObj());
+
+            var it = self.parameters.iterator();
+            while (it.next()) |parameter| {
+                try markObj(vm, parameter.value_ptr.*.toObj());
+            }
+
+            var it2 = self.defaults.iterator();
+            while (it2.next()) |default| {
+                try markValue(vm, default.value_ptr.*);
+            }
+        }
     };
 };
 
@@ -2058,6 +2082,14 @@ pub const ObjList = struct {
             self.methods.deinit();
         }
 
+        pub fn mark(self: *SelfListDef, vm: *VM) !void {
+            try markObj(vm, self.item_type.toObj());
+            var it = self.methods.iterator();
+            while (it.next()) |method| {
+                try markObj(vm, method.value_ptr.*.toObj());
+            }
+        }
+
         pub fn member(obj_list: *ObjTypeDef, parser: *Parser, method: []const u8) !?*ObjTypeDef {
             var self = obj_list.resolved_type.?.List;
 
@@ -2559,6 +2591,15 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
+        pub fn mark(self: *SelfMapDef, vm: *VM) !void {
+            try markObj(vm, self.key_type.toObj());
+            try markObj(vm, self.value_type.toObj());
+            var it = self.methods.iterator();
+            while (it.next()) |method| {
+                try markObj(vm, method.value_ptr.*.toObj());
+            }
+        }
+
         pub fn member(obj_map: *ObjTypeDef, parser: *Parser, method: []const u8) !?*ObjTypeDef {
             var self = obj_map.resolved_type.?.Map;
 
@@ -2778,6 +2819,11 @@ pub const ObjEnum = struct {
         pub fn deinit(self: *EnumDefSelf) void {
             self.cases.deinit();
         }
+
+        pub fn mark(self: *EnumDefSelf, vm: *VM) !void {
+            try markObj(vm, self.name.toObj());
+            try markObj(vm, self.enum_type.toObj());
+        }
     };
 };
 
@@ -2959,6 +3005,20 @@ pub const ObjTypeDef = struct {
                 try markObj(vm, resolved.EnumInstance.toObj());
             } else if (resolved.* == .Object) {
                 try resolved.Object.mark(vm);
+            } else if (resolved.* == .Enum) {
+                try resolved.Enum.mark(vm);
+            } else if (resolved.* == .Function) {
+                try resolved.Function.mark(vm);
+            } else if (resolved.* == .List) {
+                try resolved.List.mark(vm);
+            } else if (resolved.* == .Map) {
+                try resolved.Map.mark(vm);
+            } else if (resolved.* == .Native) {
+                try resolved.Native.mark(vm);
+            } else if (resolved.* == .Fiber) {
+                try resolved.Fiber.mark(vm);
+            } else if (resolved.* == .Placeholder) {
+                unreachable;
             }
         }
     }
