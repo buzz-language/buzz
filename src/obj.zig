@@ -29,8 +29,6 @@ const valueIs = _value.valueIs;
 const valueTypeEql = _value.valueTypeEql;
 const allocate = _memory.allocate;
 const allocateMany = _memory.allocateMany;
-const free = _memory.free;
-const freeMany = _memory.freeMany;
 const markObj = _memory.markObj;
 const markValue = _memory.markValue;
 const collectGarbage = _memory.collectGarbage;
@@ -224,7 +222,10 @@ pub const Obj = struct {
                 return mem.eql(u8, ObjPattern.cast(self).?.source, ObjPattern.cast(other).?.source);
             },
             .String => {
-                // return mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string);
+                if (Config.debug) {
+                    assert(self != other or mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
+                    assert(self == other or !mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
+                }
 
                 // since string are interned this should be enough
                 return self == other;

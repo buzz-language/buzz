@@ -279,7 +279,7 @@ pub fn collectGarbage(vm: *VM) !void {
     var toDelete = std.ArrayList([]const u8).init(vm.allocator);
     defer toDelete.deinit();
     while (it.next()) |kv| {
-        if (kv.value_ptr.*.toObj().is_marked) {
+        if (!kv.value_ptr.*.toObj().is_marked) {
             try toDelete.append(kv.key_ptr.*);
         }
     }
