@@ -49,7 +49,7 @@ object Declaration {
     fun toMarkdown() > str {
         const pat atParamPattern = _([^\s]+)\s+(.+)_;
 
-        str out = "\n## `{this.name ?? ""} {this.typeDef}`\n";
+        str out = "\n### `{this.name ?? ""} {this.typeDef}`\n";
 
         if (this.docblock == null) {
             return out;
@@ -92,7 +92,7 @@ fun extractDeclarations([Json] statements) > [Declaration] {
 
     foreach (num index, Json statement in statements) {
         {str, Json} statementMap = statement.mapValue();
-        str nodeType = statementMap["node"]?.stringValue() ?? "unknown";
+        str nodeType = statement.q(["node"]).stringValue();
 
         if (
             nodeType == "Function"
@@ -103,18 +103,18 @@ fun extractDeclarations([Json] statements) > [Declaration] {
         ) {
             Declaration declaration = Declaration.init(
                 declarationType: nodeType,
-                typeDef: statementMap["type_def"]?.stringValue() ?? "unknown",
-                docblock: statementMap["docblock"]?.string,
+                typeDef: statement.q(["type_def"]).stringValue(),
+                docblock: statement.q(["docblock"]).string,
             );
 
             if (nodeType == "VarDeclaration") {
-                declaration.name = statementMap["name"]?.string;
+                declaration.name = statement.q(["name"]).string;
             }
 
             if (nodeType == "ObjectDeclaration") {
-                {str, Json} props = statementMap["members"]?.mapValue() ?? <str, Json>{};
+                {str, Json} props = statement.q(["members"]).mapValue();
                 foreach (str name, Json member in props) {
-                    str typeDef = member.mapValue()["type_def"]?.stringValue() ?? "unknown";
+                    str typeDef = member.q(["type_def"]).stringValue();
                     str displayName = "{typeDef} {name}";
                     if (typeDef.indexOf("fun") == 0) {
                         displayName = typeDef;
@@ -139,15 +139,18 @@ fun extractDeclarations([Json] statements) > [Declaration] {
 fun getDeclarations(str path) > [Declaration] {
     File file = File.open(path, mode: FileMode.read);
 
-    str source = ast(file.readAll(), scriptName: path.sub(0, len: path.indexOf(".buzz")!));
+    str source = ast(
+        file.readAll(),
+        scriptName: path.sub(0, len: path.indexOf(".buzz")!)
+    );
     file.close();
 
-    {str, Json} root = Json.decode(source).mapValue();
+    Json root = Json.decode(source);
 
     | Root must be a function
-    assert(root["node"]?.string == "Function", message: "Expected root node to be a function");
+    assert(root.q(["node"]).string == "Function", message: "Expected root node to be a function");
 
-    return extractDeclarations(root["body"]?.mapValue()["statements"]?.listValue() ?? <Json>[]);
+    return extractDeclarations(root.q(["body", "statements"]).listValue());
 }
 
 fun genMarkdownDoc([Declaration] declarations) > str {
@@ -171,9 +174,15 @@ fun main([str] args) > void {
 
     File mdFile = File.open("{currentDirectory()}/doc/index.md", mode: FileMode.write);
 
+    mdFile.write("# Buzz std lib\n## Table of contents\n");
     foreach (str lib, str libDoc in markdownDoc) {
         const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
-        mdFile.write("\n# {libName}\n{libDoc}");
+        mdFile.write("\n- [{libName}](#{libName.replace(" ", with: "-")})");
+    }
+
+    foreach (str lib, str libDoc in markdownDoc) {
+        const str libName = lib.sub(0, len: lib.indexOf(".buzz")!);
+        mdFile.write("\n## {libName}\n{libDoc}");
     }
 
     mdFile.close();
