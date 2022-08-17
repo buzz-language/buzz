@@ -323,9 +323,19 @@ pub const ObjFiber = struct {
         return 1;
     }
 
+    pub fn cancel(vm: *VM) c_int {
+        var self = Self.cast(vm.peek(0).Obj).?;
+
+        self.fiber.status = .Over;
+
+        return 0;
+    }
+
     pub fn rawMember(method: []const u8) ?NativeFn {
         if (mem.eql(u8, method, "over")) {
             return over;
+        } else if (mem.eql(u8, method, "cancel")) {
+            return cancel;
         }
 
         return null;
@@ -370,7 +380,6 @@ pub const ObjFiber = struct {
 
         Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
-        // over() > bool
         if (mem.eql(u8, method, "over")) {
             var native_type = try parser.parseTypeDefFrom("Function over() > bool");
 
@@ -379,6 +388,16 @@ pub const ObjFiber = struct {
             native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("over", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "cancel")) {
+            var native_type = try parser.parseTypeDefFrom("Function cancel() > void");
+
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
+
+            try Self.memberDefs.?.put("cancel", native_type);
 
             return native_type;
         }

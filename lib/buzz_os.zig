@@ -165,7 +165,9 @@ export fn SocketConnect(vm: *api.VM) c_int {
 
             return 1;
         },
-        1 => {
+        1, // TODO: UDP
+        2, // TODO: IPC
+        => {
             vm.bz_throwString("Not yet implemented");
 
             return -1;

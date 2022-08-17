@@ -52,6 +52,7 @@ enum SocketProtocol {
 
 || A socket
 object Socket {
+    || @private
     num fd,
 
     || Opens a socket
@@ -92,7 +93,9 @@ object Socket {
 
 || A TCP Server
 object TcpServer {
+    || @private
     Socket serverSocket,
+    || @private
     bool reuseAddr,
 
     || Starts a TCP server

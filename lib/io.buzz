@@ -44,7 +44,7 @@ object File {
         FileClose(this.fd);
     }
 
-    || Reads all
+    || Reads file until `EOF`
     fun readAll() > str {
         return FileReadAll(this.fd);
     }

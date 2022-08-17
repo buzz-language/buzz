@@ -168,8 +168,6 @@ Receive from socket until it's closed or a linefeed is received
 
 **Returns:**  The bytes received or null if nothing to read
 
-#### ` num fd`
-
 
 #### ` fun send(str bytes)`
 Send bytes on the socket
@@ -177,8 +175,6 @@ Send bytes on the socket
 
 ### ` object TcpServer`
 A TCP Server
-
-#### ` Socket serverSocket`
 
 
 #### ` fun init(str address, num port, bool reuseAddr) > TcpServer`
@@ -195,8 +191,6 @@ Accept a new connection
 
 #### ` fun close()`
 Close server
-
-#### ` bool reuseAddr`
 
 ## fs
 
