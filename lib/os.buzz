@@ -27,3 +27,102 @@ export tmpDir;
 export tmpFilename;
 export buzzExit as exit;
 export execute;
+
+|| @private
+extern fun SocketConnect(str address, num port, num protocol) > num;
+|| @private
+extern fun SocketClose(num fd) > void;
+|| @private
+extern fun SocketRead(num fd, num n) > str?;
+|| @private
+extern fun SocketWrite(num fd, str bytes) > void;
+|| @private
+extern fun SocketServerStart(str address, num port, bool reuseAddr) > num;
+|| @private
+extern fun SocketServerAccept(num fd, bool reuseAddr) > num;
+|| @private
+extern fun SocketReadLine(num fd) > str?;
+
+|| Protocols supported over a socket
+enum SocketProtocol {
+    tcp,
+    udp,
+    ipc,
+}
+
+|| A socket
+object Socket {
+    num fd,
+
+    || Opens a socket
+    || @param address A string containing either a IPv4, IPv6 or path to a socket file (IPC)
+    || @param port Port to which to connect
+    || @param protocol Protocol to use
+    || @return A new `Socket` opened and ready to use
+    static fun connect(str address, num port, SocketProtocol protocol) > Socket {
+        return Socket{
+            fd = SocketConnect(address, port: port, protocol: protocol.value),
+        };
+    }
+
+    || Close the socket
+    fun close() > void {
+        SocketClose(this.fd);
+    }
+
+    || Receive at most `n` bytes from the socket
+    || @param n How many bytes we're prepare to receive
+    || @return The bytes received or null if nothing to read
+    fun receive(num n) > str? {
+        return SocketRead(this.fd, n: n);
+    }
+
+    || Receive from socket until it's closed or a linefeed is received
+    || @return The bytes received or null if nothing to read
+    fun receiveLine() > str? {
+        return SocketReadLine(this.fd);
+    }
+
+    || Send bytes on the socket
+    || @param bytes Bytes to send
+    fun send(str bytes) > void {
+        SocketWrite(this.fd, bytes: bytes);
+    }
+}
+
+|| A TCP Server
+object TcpServer {
+    Socket serverSocket,
+    bool reuseAddr,
+
+    || Starts a TCP server
+    || @param address Address to listen on
+    || @param port Port to listen on
+    || @param reuseAddr Wether we want to accept multiple connections
+    || @return New `TcpServer` bound to `<address>:<port>`
+    static fun init(str address, num port, bool reuseAddr) > TcpServer {
+        return TcpServer{
+            serverSocket = Socket{
+                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
+            },
+            reuseAddr = reuseAddr,
+        };
+    }
+
+    || Accept a new connection
+    || @return Socket opened with the client
+    fun accept() > Socket {
+        return Socket{
+            fd = SocketServerAccept(this.serverSocket.fd, reuseAddr: this.reuseAddr),
+        };
+    }
+
+    || Close server
+    fun close() > void {
+        this.serverSocket.close();
+    }
+}
+
+export SocketProtocol;
+export Socket;
+export TcpServer;

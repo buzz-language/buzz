@@ -1,0 +1,16 @@
+import "lib/std";
+import "lib/os";
+
+test "Opening a socket" {
+    Socket socket = Socket.connect(
+        address: "127.0.0.1",
+        port: 8080,
+        protocol: SocketProtocol.tcp
+    );
+
+    print("socket fd: {socket.fd}");
+
+    socket.send("hello world");
+
+    socket.close();
+}

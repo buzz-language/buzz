@@ -1,0 +1,26 @@
+import "lib/std";
+import "lib/os";
+
+test "Opening a socket" {
+    TcpServer server = TcpServer.init(
+        address: "127.0.0.1",
+        port: 8080,
+        reuseAddr: true,
+    );
+
+    Socket socket = server.accept();
+
+    print("Accepted connection");
+
+    while (true) {
+        str? received = socket.receive(100);
+
+        if (received != null) {
+            print("received: `{received}`");
+            socket.close();
+            break;
+        }
+    }
+
+    server.close();
+}

@@ -141,6 +141,63 @@ Execute command and return its exit code
 
 
 **Returns:**  exit code of the command
+### ` enum SocketProtocol`
+Protocols supported over a socket
+### ` object Socket`
+A socket
+
+#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket`
+Opens a socket
+- **`protocol`:** Protocol to use
+
+
+**Returns:**  A new `Socket` opened and ready to use
+
+#### ` fun receive(num n) > str?`
+Receive at most `n` bytes from the socket
+- **`n`:** How many bytes we're prepare to receive
+
+
+**Returns:**  The bytes received or null if nothing to read
+
+#### ` fun close()`
+Close the socket
+
+#### ` fun receiveLine() > str?`
+Receive from socket until it's closed or a linefeed is received
+
+**Returns:**  The bytes received or null if nothing to read
+
+#### ` num fd`
+
+
+#### ` fun send(str bytes)`
+Send bytes on the socket
+- **`bytes`:** Bytes to send
+
+### ` object TcpServer`
+A TCP Server
+
+#### ` Socket serverSocket`
+
+
+#### ` fun init(str address, num port, bool reuseAddr) > TcpServer`
+Starts a TCP server
+- **`reuseAddr`:** Wether we want to accept multiple connections
+
+
+**Returns:**  New `TcpServer` bound to `<address>:<port>`
+
+#### ` fun accept() > Socket`
+Accept a new connection
+
+**Returns:**  Socket opened with the client
+
+#### ` fun close()`
+Close server
+
+#### ` bool reuseAddr`
+
 ## fs
 
 ### ` fun currentDirectory() > str`
@@ -170,33 +227,33 @@ File mode with which you can open a file
 ### ` object File`
 Object to manipulate an opened file
 
-### ` fun close()`
+#### ` fun close()`
 Close file
 
-### ` fun read(num n) > str?`
+#### ` fun read(num n) > str?`
 Reads `n` bytes, returns null if nothing to read
 - **`n`:** how many bytes to read
 
 
-### ` fun readAll() > str`
+#### ` fun readAll() > str`
 Reads all
 
-### ` fun readLine() > str?`
+#### ` fun readLine() > str?`
 Reads next line, returns null if nothing to read
 
-### ` fun write(str bytes)`
+#### ` fun write(str bytes)`
 Write bytes
 - **`bytes`:** string to write
 
 
-### ` fun open(str filename, FileMode mode) > File`
+#### ` fun open(str filename, FileMode mode) > File`
 Open file
 - **`mode`:** Mode with which to open it
 
 
 **Returns:**  opened file
 
-### ` num fd`
+#### ` num fd`
 File descriptor
 ### `stdin File`
 stdin
@@ -209,61 +266,61 @@ stderr
 ### ` object Json`
 Utility object to manage data from a JSON string
 
-### ` num? number`
+#### ` num? number`
 When wrapped data is a number
 
-### ` str? string`
+#### ` str? string`
 When wrapped data is a string
 
-### ` {str, Json}? map`
+#### ` {str, Json}? map`
 When wrapped data is an object, object property values are themselves wrapped in a `Json`
 
-### ` [Json]? list`
+#### ` [Json]? list`
 When wrapped data is a list, list elements are themselves warpped in a `Json`
 
-### ` fun encode() > str`
+#### ` fun encode() > str`
 Encode to a JSON string
 
 **Returns:**  str the JSON string
 
-### ` fun numberValue() > num`
+#### ` fun numberValue() > num`
 
 
 **Returns:**  wrapped data number value or `0` if not a number
 
-### ` fun decode(str json) > Json`
+#### ` fun decode(str json) > Json`
 Decode string to a Json instance
 - **`str`:** json The JSON string
 
 
 **Returns:**  Json
 
-### ` fun listValue() > [Json]`
+#### ` fun listValue() > [Json]`
 
 
 **Returns:**  wrapped data list value or empty list if not a list
 
-### ` fun booleanValue() > bool`
+#### ` fun booleanValue() > bool`
 
 
 **Returns:**  wrapped data boolean value or `false` if not a boolean
 
-### ` fun stringValue() > str`
+#### ` fun stringValue() > str`
 
 
 **Returns:**  wrapped data string value or empty string if not a string
 
-### ` fun mapValue() > {str, Json}`
+#### ` fun mapValue() > {str, Json}`
 
 
 **Returns:**  wrapped data map value or empty map if not a map
 
-### ` fun q([str] path) > Json`
+#### ` fun q([str] path) > Json`
 Query the json element at `path`, if nothing matches return `Json{}`
 - **`path`:** Path to query
 
 
 **Returns:**  Found `Json` or `Json{}` (which is `null`)
 
-### ` bool? boolean`
+#### ` bool? boolean`
 When wrapped data is a boolean

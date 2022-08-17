@@ -46,10 +46,10 @@ object Declaration {
         return out;
     }
 
-    fun toMarkdown() > str {
+    fun toMarkdown(str? heading) > str {
         const pat atParamPattern = _([^\s]+)\s+(.+)_;
 
-        str out = "\n### `{this.name ?? ""} {this.typeDef}`\n";
+        str out = "\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n";
 
         if (this.docblock == null) {
             return out;
@@ -80,7 +80,7 @@ object Declaration {
         }
 
         foreach (str key, Declaration decl in this.subDeclarations) {
-            out = "{out}\n{decl.toMarkdown()}";
+            out = "{out}\n{decl.toMarkdown("####")}";
         }
 
         return out;
@@ -156,7 +156,7 @@ fun getDeclarations(str path) > [Declaration] {
 fun genMarkdownDoc([Declaration] declarations) > str {
     str out = "";
     foreach (num i, Declaration decl in declarations) {
-        out = "{out}{decl.toMarkdown()}";
+        out = "{out}{decl.toMarkdown("###")}";
     }
 
     return out;

@@ -151,7 +151,7 @@ export fn FileRead(vm: *api.VM) c_int {
     if (read == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer[0..read]) orelse {
             vm.bz_throwString("Could not read file");
 
             return -1;
@@ -175,7 +175,7 @@ export fn FileWrite(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
     _ = file.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
-        vm.bz_throwString("Could not read file");
+        vm.bz_throwString("Could not write file");
 
         return -1;
     };

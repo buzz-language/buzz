@@ -139,12 +139,201 @@ export fn execute(vm: *api.VM) c_int {
         return -1;
     };
 
-    vm.bz_pushNum(@intToFloat(f64, (child_process.wait() catch |err| {
-        std.debug.print("err: {}\n", .{err});
+    vm.bz_pushNum(@intToFloat(f64, (child_process.wait() catch {
         vm.bz_throwString("Could not execute");
 
         return -1;
     }).Exited));
+
+    return 1;
+}
+
+export fn SocketConnect(vm: *api.VM) c_int {
+    const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
+    const port: u16 = @floatToInt(u16, api.Value.bz_valueToNumber(vm.bz_peek(1)));
+    const protocol: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+
+    switch (protocol) {
+        0 => {
+            const stream = std.net.tcpConnectToHost(api.VM.allocator, utils.toSlice(address), port) catch {
+                vm.bz_throwString("Could not connect");
+
+                return -1;
+            };
+
+            vm.bz_pushNum(@intToFloat(f64, stream.handle));
+
+            return 1;
+        },
+        1 => {
+            vm.bz_throwString("Not yet implemented");
+
+            return -1;
+        },
+        else => {
+            vm.bz_throwString("Unsupported protocol");
+
+            return -1;
+        },
+    }
+}
+
+export fn SocketClose(vm: *api.VM) c_int {
+    const socket: std.os.socket_t = @floatToInt(
+        std.os.socket_t,
+        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+    );
+
+    std.os.closeSocket(socket);
+
+    return 0;
+}
+
+export fn SocketRead(vm: *api.VM) c_int {
+    const n: u64 = @floatToInt(u64, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const handle: std.os.socket_t = @floatToInt(
+        std.os.socket_t,
+        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+    );
+
+    const stream: std.net.Stream = .{ .handle = handle };
+    const reader = stream.reader();
+
+    var buffer = api.VM.allocator.alloc(u8, n) catch {
+        vm.bz_throwString("Could not read from socket");
+
+        return -1;
+    };
+
+    // bz_string will copy it
+    defer api.VM.allocator.free(buffer);
+
+    const read = reader.readAll(buffer) catch {
+        vm.bz_throwString("Could not read from socket");
+
+        return -1;
+    };
+
+    if (read == 0) {
+        vm.bz_pushNull();
+    } else {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer[0..read]) orelse {
+            vm.bz_throwString("Could not read from socket");
+
+            return -1;
+        }) orelse {
+            vm.bz_throwString("Could not read from socket");
+
+            return -1;
+        });
+    }
+
+    return 1;
+}
+
+export fn SocketReadLine(vm: *api.VM) c_int {
+    const handle: std.os.socket_t = @floatToInt(
+        std.os.socket_t,
+        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+    );
+
+    const stream: std.net.Stream = .{ .handle = handle };
+    const reader = stream.reader();
+
+    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch {
+        vm.bz_throwString("Could not read from socket");
+
+        return -1;
+    };
+
+    // EOF?
+    if (buffer.len == 0) {
+        vm.bz_pushNull();
+    } else {
+        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
+            vm.bz_throwString("Could not read from socket");
+
+            return -1;
+        }) orelse {
+            vm.bz_throwString("Could not read from socket");
+
+            return -1;
+        });
+    }
+
+    return 1;
+}
+
+export fn SocketWrite(vm: *api.VM) c_int {
+    const handle: std.os.socket_t = @floatToInt(
+        std.os.socket_t,
+        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+    );
+
+    const stream: std.net.Stream = .{ .handle = handle };
+
+    _ = stream.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
+        vm.bz_throwString("Could not write on socket");
+
+        return -1;
+    };
+
+    return 0;
+}
+
+export fn SocketServerStart(vm: *api.VM) c_int {
+    const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
+    const port: u16 = @floatToInt(u16, api.Value.bz_valueToNumber(vm.bz_peek(1)));
+    const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
+
+    var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
+
+    const list = std.net.getAddressList(api.VM.allocator, utils.toSlice(address), port) catch {
+        vm.bz_throwString("Could not start socket server");
+
+        return -1;
+    };
+    defer list.deinit();
+
+    if (list.addrs.len == 0) {
+        vm.bz_throwString("Could not start socket server");
+
+        return -1;
+    }
+
+    server.listen(list.addrs[0]) catch {
+        vm.bz_throwString("Could not start socket server");
+
+        return -1;
+    };
+
+    vm.bz_pushNum(@intToFloat(f64, server.sockfd.?));
+
+    return 1;
+}
+
+export fn SocketServerAccept(vm: *api.VM) c_int {
+    const server_socket: std.os.socket_t = @floatToInt(
+        std.os.socket_t,
+        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+    );
+    const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
+
+    const default_options = std.net.StreamServer.Options{};
+    var server = std.net.StreamServer{
+        .sockfd = server_socket,
+        .kernel_backlog = default_options.kernel_backlog,
+        .reuse_address = reuse_address,
+        .listen_address = undefined,
+    };
+
+    const connection = server.accept() catch {
+        vm.bz_throwString("Could not accept a connection");
+
+        return -1;
+    };
+
+    vm.bz_pushNum(@intToFloat(f64, connection.stream.handle));
 
     return 1;
 }
