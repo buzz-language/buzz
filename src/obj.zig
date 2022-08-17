@@ -806,6 +806,41 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn repeat(vm: *VM) c_int {
+        const str = Self.cast(vm.peek(1).Obj).?;
+        const n = floatToInteger(vm.peek(0));
+        const n_i = if (n == .Integer) n.Integer else null;
+
+        if (n_i) |ni| {
+            var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.allocator);
+            var i: usize = 0;
+            while (i < ni) : (i += 1) {
+                new_string.appendSlice(str.string) catch {
+                    var err: ?*ObjString = copyString(vm, "Could not repeat string") catch null;
+                    vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                };
+            }
+
+            const new_objstring = copyString(vm, new_string.items) catch {
+                var err: ?*ObjString = copyString(vm, "Could not repeat string") catch null;
+                vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                return -1;
+            };
+
+            vm.push(new_objstring.toValue());
+
+            return 1;
+        }
+
+        var err: ?*ObjString = copyString(vm, "`n` should be an integer") catch null;
+        vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+        return -1;
+    }
+
     pub fn byte(vm: *VM) c_int {
         const self: *Self = Self.cast(vm.peek(1).Obj).?;
         const index = floatToInteger(vm.peek(0));
@@ -1011,6 +1046,8 @@ pub const ObjString = struct {
             return endsWith;
         } else if (mem.eql(u8, method, "replace")) {
             return replace;
+        } else if (mem.eql(u8, method, "repeat")) {
+            return repeat;
         }
 
         return null;
@@ -1134,6 +1171,16 @@ pub const ObjString = struct {
             native_type.resolved_type = .{ .Native = function_def };
 
             try Self.memberDefs.?.put("sub", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "repeat")) {
+            var native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
+
+            native_type.def_type = .Native;
+            const function_def = native_type.resolved_type.?.Function;
+            native_type.resolved_type = .{ .Native = function_def };
+
+            try Self.memberDefs.?.put("repeat", native_type);
 
             return native_type;
         }

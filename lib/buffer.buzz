@@ -1,0 +1,97 @@
+import "lib/math" as math;
+
+|| @private
+extern fun BufferWriteNumber(num n) > str;
+|| @private
+extern fun BufferReadNumber(str buffer) > num?;
+
+|| Read and write data to a string buffer
+object Buffer {
+    str buffer = "",
+    num cursor = 0,
+    
+    || Reads bytes
+    || @param n How many bytes to read
+    || @return Read bytes or `null` if nothing to read
+    fun read(num n) > str? {
+        if (this.cursor >= this.buffer.len()) {
+            return null;
+        }
+
+        const str result = this.buffer.sub(this.cursor, len: math.min(a: this.buffer.len() - this.cursor, b: n));
+
+        this.cursor = this.cursor + result.len();
+
+        return result;
+    }
+
+    || Writes bytes
+    || @param bytes Bytes to write
+    fun write(str bytes) > void {
+        if (this.cursor > 0) {
+            throw "Can't write to a buffer being read";
+        }
+
+        this.buffer = this.buffer + bytes;
+    }
+
+    || Reads a boolean
+    || @return Read boolean or `null` if nothing to read
+    fun readBoolean() > bool? {
+        if (this.cursor >= this.buffer.len()) {
+            return null;
+        }
+
+        | TODO: ideally a boolean should not take up a whole u8
+        num current = this.buffer.byte(this.cursor);
+
+        this.cursor = this.cursor + 1;
+        
+        return current == 1;
+    }
+
+    || Writes boolean
+    || @param boolean Value to write
+    fun writeBoolean(bool value) > void {
+        if (this.cursor > 0) {
+            throw "Can't write to a buffer being read";
+        }
+
+        if (value) {
+            this.buffer = this.buffer + "\1";
+        } else {
+            this.buffer = this.buffer + "\0";
+        }
+    }
+
+    || Writes number
+    || @param number Value to write
+    fun writeNumber(num number) > void {
+        if (this.cursor > 0) {
+            throw "Can't write to a buffer being read";
+        }
+
+        str numberString = BufferWriteNumber(number);
+        
+        this.buffer = this.buffer + numberString + "\0".repeat(9 - numberString.len());
+    }
+
+    || Reads a number
+    || @return Read number or `null` if nothing to read
+    fun readNumber() > num? {
+        if (this.cursor >= this.buffer.len()) {
+            return null;
+        }
+
+        const num? number = BufferReadNumber(this.buffer.sub(this.cursor, len: null));
+
+        if (number != null) {
+            | numbers are either i64 or f64 + a flag to tell if its integer or float
+            this.cursor = this.cursor + 9;
+        }
+
+        return number;
+    }
+}
+
+export Buffer;

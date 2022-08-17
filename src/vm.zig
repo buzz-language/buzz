@@ -248,6 +248,7 @@ pub const VM = struct {
         NumberOverflow,
         NotInFiber,
         FiberOver,
+        BadNumber,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 

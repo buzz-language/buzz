@@ -99,6 +99,13 @@ export fn bz_valueToInteger(value: *Value) i64 {
     return if (value.* == .Integer) value.Integer else @floatToInt(i64, value.Float);
 }
 
+export fn bz_valueIsInteger(value: *Value) bool {
+    return value.* == .Integer;
+}
+export fn bz_valueIsFloat(value: *Value) bool {
+    return value.* == .Float;
+}
+
 // Obj manipulations
 
 /// Converts a c string to a *ObjString

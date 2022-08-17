@@ -5,6 +5,7 @@
 - [gc](#gc)
 - [std](#std)
 - [math](#math)
+- [buffer](#buffer)
 - [os](#os)
 - [fs](#fs)
 - [io](#io)
@@ -111,6 +112,48 @@ Convert degree to radian
 
 
 **Returns:**  tan of n
+## buffer
+
+### ` object Buffer`
+Read and write data to a string buffer
+
+#### ` fun readBoolean() > bool?`
+Reads a boolean
+
+**Returns:**  Read boolean or `null` if nothing to read
+
+#### ` str buffer`
+
+
+#### ` fun read(num n) > str?`
+Reads bytes
+- **`n`:** How many bytes to read
+
+
+**Returns:**  Read bytes or `null` if nothing to read
+
+#### ` num cursor`
+
+
+#### ` fun write(str bytes)`
+Writes bytes
+- **`bytes`:** Bytes to write
+
+
+#### ` fun writeBoolean(bool value)`
+Writes boolean
+- **`boolean`:** Value to write
+
+
+#### ` fun writeNumber(num number)`
+Writes number
+- **`number`:** Value to write
+
+
+#### ` fun readNumber() > num?`
+Reads a number
+
+**Returns:**  Read number or `null` if nothing to read
 ## os
 
 ### ` fun time() > num`

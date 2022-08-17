@@ -1,0 +1,18 @@
+import "lib/std";
+import "lib/buffer";
+
+test "Reading and writing in a buffer" {
+    Buffer buffer = Buffer{};
+
+    buffer.writeNumber("hello world".len());
+    buffer.write("hello world");
+    buffer.writeNumber(1238.324);
+    buffer.writeBoolean(true);
+    
+    const num len = buffer.readNumber() ?? -1;
+    assert(len == 11, message: "could read number");
+
+    assert(buffer.read(len) == "hello world", message: "could read n bytes");
+    assert(buffer.readNumber() == 1238.324, message: "could read float");
+    assert(buffer.readBoolean() == true, message: "could read boolean");
+}

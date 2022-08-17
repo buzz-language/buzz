@@ -32,6 +32,7 @@ pub fn build(b: *Builder) void {
         "lib/buzz_fs.zig",
         "lib/buzz_math.zig",
         "lib/buzz_debug.zig",
+        "lib/buzz_buffer.zig",
     };
     const lib_names = [_][]const u8{
         "std",
@@ -41,6 +42,7 @@ pub fn build(b: *Builder) void {
         "fs",
         "math",
         "debug",
+        "buffer",
     };
 
     for (lib_paths) |lib_path, index| {

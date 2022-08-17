@@ -38,6 +38,8 @@ pub const Value = opaque {
     pub extern fn bz_valueToString(value: *Value) ?[*:0]const u8;
     pub extern fn bz_valueToInteger(value: *Value) i64;
     pub extern fn bz_valueToFloat(value: *Value) f64;
+    pub extern fn bz_valueIsInteger(value: *Value) bool;
+    pub extern fn bz_valueIsFloat(value: *Value) bool;
 };
 
 pub const ObjTypeDef = opaque {

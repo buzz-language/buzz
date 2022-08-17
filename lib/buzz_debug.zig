@@ -56,15 +56,17 @@ export fn ast(vm: *api.VM) c_int {
             return -1;
         };
 
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, out.items) orelse {
-            vm.bz_throwString("Could not build AST");
+        vm.bz_pushString(
+            api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, out.items) orelse {
+                vm.bz_throwString("Could not build AST");
 
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not build AST");
+                return -1;
+            }) orelse {
+                vm.bz_throwString("Could not build AST");
 
-            return -1;
-        });
+                return -1;
+            },
+        );
 
         return 1;
     }

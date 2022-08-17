@@ -56,7 +56,7 @@ pub const StringParser = struct {
 
         if (self.current != null and self.current.? == '\n') {
             self.line_offset += 1;
-            self.column_offset += 0;
+            self.column_offset = 0;
         } else {
             self.column_offset += 1;
         }
@@ -187,7 +187,7 @@ pub const StringParser = struct {
             _ = self.advance();
         }
 
-        const num_str: []const u8 = self.source[start .. self.offset + 1];
+        const num_str: []const u8 = self.source[start..std.math.min(self.offset + 1, self.source.len)];
         _ = self.advance();
         const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
 
