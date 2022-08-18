@@ -1,123 +1,125 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
 
-export fn abs(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+// FIXME: all those function operate on floats discarding integer that don't fit in a f64
 
-    vm.bz_pushNum(if (n < 0) n * -1 else n);
+export fn abs(vm: *api.VM) c_int {
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
+
+    vm.bz_pushFloat(if (n_f < 0) n_f * -1 else n_f);
 
     return 1;
 }
 
 export fn acos(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.acos(n));
+    vm.bz_pushFloat(std.math.acos(n_f));
 
     return 1;
 }
 
 export fn asin(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.asin(n));
+    vm.bz_pushFloat(std.math.asin(n_f));
 
     return 1;
 }
 
 export fn atan(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.atan(n));
+    vm.bz_pushFloat(std.math.atan(n_f));
 
     return 1;
 }
 
 export fn bzceil(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.ceil(n));
+    vm.bz_pushInteger(@floatToInt(i64, std.math.ceil(n_f)));
 
     return 1;
 }
 
 export fn bzcos(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.cos(n));
+    vm.bz_pushFloat(std.math.cos(n_f));
 
     return 1;
 }
 
 export fn bzexp(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.exp(n));
+    vm.bz_pushFloat(std.math.exp(n_f));
 
     return 1;
 }
 
 export fn bzfloor(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.floor(n));
+    vm.bz_pushInteger(@floatToInt(i64, std.math.floor(n_f)));
 
     return 1;
 }
 
 export fn bzlog(vm: *api.VM) c_int {
-    const base = api.Value.bz_valueToNumber(vm.bz_peek(1));
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const base_i: f64 = api.Value.bz_valueToFloat(vm.bz_peek(1));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.log(f64, base, n));
+    vm.bz_pushFloat(std.math.log(f64, base_i, n_f));
 
     return 1;
 }
 
 export fn max(vm: *api.VM) c_int {
-    const a = api.Value.bz_valueToNumber(vm.bz_peek(1));
-    const b = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const a_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
+    const b_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(1));
 
-    vm.bz_pushNum(std.math.max(a, b));
+    vm.bz_pushFloat(std.math.max(a_f, b_f));
 
     return 1;
 }
 
 export fn min(vm: *api.VM) c_int {
-    const a = api.Value.bz_valueToNumber(vm.bz_peek(1));
-    const b = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const a_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
+    const b_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(1));
 
-    vm.bz_pushNum(std.math.min(a, b));
+    vm.bz_pushFloat(std.math.min(a_f, b_f));
 
     return 1;
 }
 
 export fn random(vm: *api.VM) c_int {
-    vm.bz_pushNum(std.crypto.random.float(f64));
+    vm.bz_pushFloat(std.crypto.random.float(f64));
 
     return 1;
 }
 
 export fn bzsin(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.sin(n));
+    vm.bz_pushFloat(std.math.sin(n));
 
     return 1;
 }
 
 export fn bzsqrt(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.sqrt(n));
+    vm.bz_pushFloat(std.math.sqrt(n_f));
 
     return 1;
 }
 
 export fn bztan(vm: *api.VM) c_int {
-    const n = api.Value.bz_valueToNumber(vm.bz_peek(0));
+    const n: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 
-    vm.bz_pushNum(std.math.tan(n));
+    vm.bz_pushFloat(std.math.tan(n));
 
     return 1;
 }

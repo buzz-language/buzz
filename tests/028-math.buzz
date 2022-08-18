@@ -19,7 +19,7 @@ test "math" {
 
     num r = math.random();
     assert(r >= 0 and r <= 1, message: "math.random");
-
+    
     assert(math.deg(2) == 114.59155902616439, message: "math.deg");
     assert(math.rad(math.deg(2)) == 2, message: "math.rad");
 }

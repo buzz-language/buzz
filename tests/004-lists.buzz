@@ -16,7 +16,6 @@ test "Lists" {
     [[str]] nestedList = [["hello"], ["world"]];
     
     assert(nestedList[0][0] == "hello", message: "nested list");
-    assert(list[1.23] == 2, message: "float as list index"); | should be equivalent to list[1]
 
     strList[1] = "yolo";
     assert(strList[1] == "yolo", message: "list assignment");

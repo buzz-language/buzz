@@ -7,11 +7,12 @@ const objToString = _obj.objToString;
 const copyObj = _obj.copyObj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
-pub const ValueType = enum { Boolean, Number, Null, Void, Obj };
+pub const ValueType = enum { Boolean, Float, Integer, Null, Void, Obj };
 
 pub const Value = union(ValueType) {
     Boolean: bool,
-    Number: f64,
+    Float: f64,
+    Integer: i64,
     Null: ?bool,
     Void: ?bool,
     Obj: *Obj,
@@ -20,19 +21,30 @@ pub const Value = union(ValueType) {
 // We can't hash f64
 pub const HashableValue = union(ValueType) {
     Boolean: bool,
-    Number: i64,
+    Float: i64,
+    Integer: i64,
     Null: ?bool,
     Void: ?bool,
     Obj: *Obj,
 };
 
+// If nothing in its decimal part, will return a Value.Integer
+pub inline fn floatToInteger(value: Value) Value {
+    if (value == .Float and value.Float - @intToFloat(f64, @floatToInt(i64, value.Float)) == 0) {
+        return Value{ .Integer = @floatToInt(i64, value.Float) };
+    }
+
+    return value;
+}
+
 pub fn valueToHashable(value: Value) HashableValue {
     switch (value) {
         .Boolean => return HashableValue{ .Boolean = value.Boolean },
-        .Number => {
-            const number: f64 = value.Number;
+        .Integer => return HashableValue{ .Integer = value.Integer },
+        .Float => {
+            const number: f64 = value.Float;
             if (number - @intToFloat(f64, @floatToInt(i64, number)) == 0) {
-                return HashableValue{ .Number = @floatToInt(i64, value.Number) };
+                return HashableValue{ .Float = @floatToInt(i64, value.Float) };
             } else {
                 // TODO: something like: https://github.com/lua/lua/blob/master/ltable.c#L117-L143
                 // See: https://github.com/ziglang/zig/pull/6145
@@ -48,8 +60,9 @@ pub fn valueToHashable(value: Value) HashableValue {
 pub fn hashableToValue(hashable: HashableValue) Value {
     switch (hashable) {
         .Boolean => return Value{ .Boolean = hashable.Boolean },
-        .Number => {
-            return Value{ .Number = @intToFloat(f64, hashable.Number) };
+        .Integer => return Value{ .Integer = hashable.Integer },
+        .Float => {
+            return Value{ .Float = @intToFloat(f64, hashable.Float) };
         },
         .Null => return Value{ .Null = hashable.Null },
         .Void => return Value{ .Void = hashable.Void },
@@ -68,7 +81,8 @@ pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error |
 pub fn valueToString(writer: std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
     switch (value) {
         .Boolean => try writer.print("{}", .{value.Boolean}),
-        .Number => try writer.print("{d}", .{value.Number}),
+        .Integer => try writer.print("{d}", .{value.Integer}),
+        .Float => try writer.print("{d}", .{value.Float}),
         .Null => try writer.print("null", .{}),
         .Void => try writer.print("void", .{}),
 
@@ -77,13 +91,43 @@ pub fn valueToString(writer: std.ArrayList(u8).Writer, value: Value) (Allocator.
 }
 
 pub fn valueEql(a: Value, b: Value) bool {
-    if (@as(ValueType, a) != @as(ValueType, b)) {
+    // zig fmt: off
+    if (@as(ValueType, a) != @as(ValueType, b)
+        and (
+            ((a == .Integer or a == .Float) and b != .Float and b != .Integer)
+            or ((b == .Integer or b == .Float) and a != .Float and a != .Integer)
+            or (a != .Integer and a != .Float and b != .Integer and b != .Float)
+        )
+    ) {
         return false;
     }
+    // zig fmt: on
 
     return switch (a) {
         .Boolean => a.Boolean == b.Boolean,
-        .Number => a.Number == b.Number,
+        .Integer, .Float => number: {
+            const aa = floatToInteger(a);
+            const bb = floatToInteger(b);
+
+            const a_f: ?f64 = if (aa == .Float) aa.Float else null;
+            const b_f: ?f64 = if (bb == .Float) bb.Float else null;
+            const a_i: ?i64 = if (aa == .Integer) aa.Integer else null;
+            const b_i: ?i64 = if (bb == .Integer) bb.Integer else null;
+
+            if (a_f) |af| {
+                if (b_f) |bf| {
+                    break :number af == bf;
+                } else {
+                    break :number af == @intToFloat(f64, b_i.?);
+                }
+            } else {
+                if (b_f) |bf| {
+                    break :number @intToFloat(f64, a_i.?) == bf;
+                } else {
+                    break :number a_i.? == b_i.?;
+                }
+            }
+        },
         .Null => true,
         .Void => true,
         .Obj => a.Obj.eql(b.Obj),
@@ -95,7 +139,8 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
 
     return switch (value) {
         .Boolean => type_def.def_type == .Bool,
-        .Number => type_def.def_type == .Number,
+        .Integer => type_def.def_type == .Number,
+        .Float => type_def.def_type == .Number,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
         .Void => type_def.def_type == .Void,
@@ -106,7 +151,8 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
 pub fn valueTypeEql(self: Value, type_def: *ObjTypeDef) bool {
     return switch (self) {
         .Boolean => type_def.def_type == .Bool,
-        .Number => type_def.def_type == .Number,
+        .Integer => type_def.def_type == .Number,
+        .Float => type_def.def_type == .Number,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
         .Void => type_def.def_type == .Void,

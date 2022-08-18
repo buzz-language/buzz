@@ -148,7 +148,7 @@ object JsonParser {
     fun number(str parsed) > num {
         str number = parsed;
 
-        while (parseNumber(this.peek() ?? "NaN") != null) {
+        while (parseNumber(this.peek() ?? "NaN") != null or this.peek() == ".") {
             str? char = this.advance();
 
             if (char == null) {

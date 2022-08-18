@@ -11,7 +11,8 @@ pub const Token = struct {
     lexeme: []const u8,
     // Literal is either a string or a number
     literal_string: ?[]const u8 = null,
-    literal_number: ?f64 = null,
+    literal_float: ?f64 = null,
+    literal_integer: ?i64 = null,
     line: usize,
     column: usize,
     offset: usize = 0,
@@ -45,7 +46,8 @@ pub const Token = struct {
             .source = self.source,
             .script_name = self.script_name,
             .literal_string = self.literal_string,
-            .literal_number = self.literal_number,
+            .literal_float = self.literal_float,
+            .literal_integer = self.literal_integer,
             .line = self.line,
             .column = self.column,
         };

@@ -13,6 +13,7 @@ const HashableValue = _value.HashableValue;
 const ValueType = _value.ValueType;
 const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
+const floatToInteger = _value.floatToInteger;
 const valueToString = _value.valueToString;
 const valueToStringAlloc = _value.valueToStringAlloc;
 const valueEql = _value.valueEql;
@@ -371,7 +372,8 @@ pub const VM = struct {
     fn cloneValue(self: *Self, value: Value) !Value {
         return switch (value) {
             .Boolean,
-            .Number,
+            .Integer,
+            .Float,
             .Null,
             .Void,
             => value,
@@ -514,7 +516,15 @@ pub const VM = struct {
                         },
                     );
                 },
-                .OP_NEGATE => self.push(Value{ .Number = -self.pop().Number }),
+                .OP_NEGATE => {
+                    const value = self.pop();
+
+                    if (value == .Integer) {
+                        self.push(Value{ .Integer = -value.Integer });
+                    } else {
+                        self.push(Value{ .Float = -value.Float });
+                    }
+                },
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
                     var closure: *ObjClosure = try allocateObject(
@@ -685,7 +695,7 @@ pub const VM = struct {
                 },
 
                 .OP_EXPORT => {
-                    self.push(Value{ .Number = @intToFloat(f64, arg) });
+                    self.push(Value{ .Integer = @intCast(i64, arg) });
                     return;
                 },
 
@@ -908,17 +918,51 @@ pub const VM = struct {
                 .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
 
                 .OP_GREATER => {
-                    const left: f64 = self.pop().Number;
-                    const right: f64 = self.pop().Number;
+                    const right_value = floatToInteger(self.pop());
+                    const left_value = floatToInteger(self.pop());
 
-                    self.push(Value{ .Boolean = right > left });
+                    const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
+                    const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
+                    const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
+                    const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            self.push(Value{ .Boolean = lf > rf });
+                        } else {
+                            self.push(Value{ .Boolean = lf > @intToFloat(f64, right_i.?) });
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) > rf });
+                        } else {
+                            self.push(Value{ .Boolean = left_i.? > right_i.? });
+                        }
+                    }
                 },
 
                 .OP_LESS => {
-                    const left: f64 = self.pop().Number;
-                    const right: f64 = self.pop().Number;
+                    const right_value = floatToInteger(self.pop());
+                    const left_value = floatToInteger(self.pop());
 
-                    self.push(Value{ .Boolean = right < left });
+                    const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
+                    const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
+                    const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
+                    const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            self.push(Value{ .Boolean = lf < rf });
+                        } else {
+                            self.push(Value{ .Boolean = lf < @intToFloat(f64, right_i.?) });
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) < rf });
+                        } else {
+                            self.push(Value{ .Boolean = left_i.? < right_i.? });
+                        }
+                    }
                 },
 
                 .OP_ADD,
@@ -995,14 +1039,14 @@ pub const VM = struct {
                 var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var str: *ObjString = ObjString.cast(iterable).?;
 
-                key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
-                    Value{ .Number = new_index }
+                key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
+                    Value{ .Integer = new_index }
                 else
                     Value{ .Null = null };
 
                 // Set new value
                 if (key_slot.* != .Null) {
-                    value_slot.* = (try _obj.copyString(self, &([_]u8{str.string[@floatToInt(usize, key_slot.Number)]}))).toValue();
+                    value_slot.* = (try _obj.copyString(self, &([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
                 }
             },
             .List => {
@@ -1011,14 +1055,14 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(iterable).?;
 
                 // Get next index
-                key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Number)) |new_index|
-                    Value{ .Number = new_index }
+                key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
+                    Value{ .Integer = new_index }
                 else
                     Value{ .Null = null };
 
                 // Set new value
                 if (key_slot.* != .Null) {
-                    value_slot.* = list.items.items[@floatToInt(usize, key_slot.Number)];
+                    value_slot.* = list.items.items[@intCast(usize, key_slot.Integer)];
                 }
             },
             .Enum => {
@@ -1108,7 +1152,7 @@ pub const VM = struct {
         try vm.interpret(closure.function, null);
 
         // Top of stack is how many export we got
-        var exported_count: u8 = @floatToInt(u8, vm.peek(0).Number);
+        var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
 
         // Copy them to this vm globals
         if (exported_count > 0) {
@@ -1199,11 +1243,13 @@ pub const VM = struct {
     }
 
     fn binary(self: *Self, code: OpCode) !void {
-        const left: Value = self.pop();
-        const right: Value = self.pop();
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Number) right.Number else null;
-        const left_f: ?f64 = if (left == .Number) left.Number else null;
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
 
         const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
         const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
@@ -1217,15 +1263,24 @@ pub const VM = struct {
         switch (code) {
             .OP_ADD => add: {
                 if (right_s != null) {
-                    self.push(Value{ .Obj = (try right_s.?.concat(self, left_s.?)).toObj() });
+                    self.push(Value{ .Obj = (try left_s.?.concat(self, right_s.?)).toObj() });
                     break :add;
-                } else if (right_f != null) {
-                    self.push(Value{ .Number = right_f.? + left_f.? });
+                } else if (right_f != null or left_f != null) {
+                    self.push(Value{
+                        .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
+                    });
+
+                    break :add;
+                } else if (right_i != null or left_i != null) {
+                    self.push(Value{
+                        .Integer = left_i.? + right_i.?,
+                    });
+
                     break :add;
                 } else if (right_l != null) {
                     var new_list = std.ArrayList(Value).init(self.allocator);
-                    try new_list.appendSlice(right_l.?.items.items);
                     try new_list.appendSlice(left_l.?.items.items);
+                    try new_list.appendSlice(right_l.?.items.items);
 
                     self.push(
                         (try _obj.allocateObject(self, ObjList, ObjList{
@@ -1239,8 +1294,8 @@ pub const VM = struct {
                 }
 
                 // map
-                var new_map = try right_m.?.map.clone();
-                var it = left_m.?.map.iterator();
+                var new_map = try left_m.?.map.clone();
+                var it = right_m.?.map.iterator();
                 while (it.next()) |entry| {
                     try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
                 }
@@ -1254,13 +1309,37 @@ pub const VM = struct {
                 );
             },
 
-            .OP_SUBTRACT => self.push(Value{ .Number = right_f.? - left_f.? }),
+            .OP_SUBTRACT => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
+                } else {
+                    self.push(Value{ .Integer = left_i.? - right_i.? });
+                }
+            },
 
-            .OP_MULTIPLY => self.push(Value{ .Number = right_f.? * left_f.? }),
+            .OP_MULTIPLY => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
+                } else {
+                    self.push(Value{ .Integer = left_i.? * right_i.? });
+                }
+            },
 
-            .OP_DIVIDE => self.push(Value{ .Number = right_f.? / left_f.? }),
+            .OP_DIVIDE => {
+                self.push(
+                    Value{
+                        .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
+                    },
+                );
+            },
 
-            .OP_MOD => self.push(Value{ .Number = @mod(right_f.?, left_f.?) }),
+            .OP_MOD => {
+                if (right_f != null or left_f != null) {
+                    self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
+                } else {
+                    self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
+                }
+            },
 
             else => unreachable,
         }
@@ -1583,17 +1662,17 @@ pub const VM = struct {
 
     fn subscript(self: *Self) !void {
         var subscriptable: *Obj = self.peek(1).Obj;
-        var index: Value = self.peek(0);
+        var index: Value = floatToInteger(self.peek(0));
 
         switch (subscriptable.obj_type) {
             .List => {
                 var list: *ObjList = ObjList.cast(subscriptable).?;
 
-                if (index.Number < 0) {
+                if (index != .Integer or index.Integer < 0) {
                     try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
                 }
 
-                const list_index: usize = @floatToInt(usize, index.Number);
+                const list_index: usize = @intCast(usize, index.Integer);
 
                 if (list_index < list.items.items.len) {
                     var list_item: Value = list.items.items[list_index];
@@ -1625,11 +1704,11 @@ pub const VM = struct {
             .String => {
                 var str: *ObjString = ObjString.cast(subscriptable).?;
 
-                if (index.Number < 0) {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound str access.")).toValue());
+                if (index != .Integer or index.Integer < 0) {
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound string access.")).toValue());
                 }
 
-                const str_index: usize = @floatToInt(usize, index.Number);
+                const str_index: usize = @intCast(usize, index.Integer);
 
                 if (str_index < str.string.len) {
                     var str_item: Value = (try _obj.copyString(self, &([_]u8{str.string[str_index]}))).toValue();
@@ -1656,11 +1735,11 @@ pub const VM = struct {
         if (list_or_map.obj_type == .List) {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
-            if (index.Number < 0) {
+            if (index != .Integer or index.Integer < 0) {
                 try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
             }
 
-            const list_index: usize = @floatToInt(usize, index.Number);
+            const list_index: usize = @intCast(usize, index.Integer);
 
             if (list_index < list.items.items.len) {
                 list.items.items[list_index] = value;

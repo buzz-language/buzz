@@ -46,8 +46,13 @@ export fn bz_pushBool(self: *VM, value: bool) void {
 }
 
 /// Push a float value on the stack
-export fn bz_pushNum(self: *VM, value: f64) void {
-    self.push(Value{ .Number = value });
+export fn bz_pushFloat(self: *VM, value: f64) void {
+    self.push(Value{ .Float = value });
+}
+
+/// Push a integer value on the stack
+export fn bz_pushInteger(self: *VM, value: i64) void {
+    self.push(Value{ .Integer = value });
 }
 
 /// Push null on the stack
@@ -84,9 +89,14 @@ export fn bz_valueToString(value: *Value) ?[*:0]const u8 {
     return utils.toCString(std.heap.c_allocator, ObjString.cast(value.Obj).?.string);
 }
 
-/// Converts a value to a number
-export fn bz_valueToNumber(value: *Value) f64 {
-    return value.Number;
+/// Converts a value to a float
+export fn bz_valueToFloat(value: *Value) f64 {
+    return if (value.* == .Integer) @intToFloat(f64, value.Integer) else value.Float;
+}
+
+/// Converts a value to a integer, returns null if float value with decimal part
+export fn bz_valueToInteger(value: *Value) i64 {
+    return if (value.* == .Integer) value.Integer else @floatToInt(i64, value.Float);
 }
 
 // Obj manipulations

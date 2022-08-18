@@ -16,14 +16,25 @@ export fn print(vm: *api.VM) c_int {
 
 export fn parseNumber(vm: *api.VM) c_int {
     const string = std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0);
+    const is_float = std.mem.indexOf(u8, string, ".") != null;
 
-    const number: f64 = std.fmt.parseFloat(f64, string) catch {
-        vm.bz_pushNull();
+    if (is_float) {
+        const number: f64 = std.fmt.parseFloat(f64, string) catch {
+            vm.bz_pushNull();
 
-        return 1;
-    };
+            return 1;
+        };
 
-    vm.bz_pushNum(number);
+        vm.bz_pushFloat(number);
+    } else {
+        const number: i64 = std.fmt.parseInt(i64, string, 10) catch {
+            vm.bz_pushNull();
+
+            return 1;
+        };
+
+        vm.bz_pushInteger(number);
+    }
 
     return 1;
 }

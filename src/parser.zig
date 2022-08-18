@@ -2058,7 +2058,7 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
         var cases = std.ArrayList(*ParseNode).init(self.allocator);
-        var case_index: f64 = 0;
+        var case_index: i64 = 0;
         while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
             if (case_index > 255) {
                 try self.reportError("Too many enum cases.");
@@ -2073,7 +2073,10 @@ pub const Parser = struct {
                 try cases.append(try self.expression(false));
             } else {
                 var constant_node = try self.allocator.create(NumberNode);
-                constant_node.* = NumberNode{ .constant = case_index };
+                constant_node.* = NumberNode{
+                    .integer_constant = case_index,
+                    .float_constant = null,
+                };
                 constant_node.node.type_def = try self.type_registry.getTypeDef(.{
                     .def_type = .Number,
                 });
@@ -2555,7 +2558,8 @@ pub const Parser = struct {
         var node = try self.allocator.create(NumberNode);
 
         node.* = NumberNode{
-            .constant = self.parser.previous_token.?.literal_number.?,
+            .float_constant = self.parser.previous_token.?.literal_float,
+            .integer_constant = self.parser.previous_token.?.literal_integer,
         };
         node.node.type_def = try self.type_registry.getTypeDef(.{
             .def_type = .Number,

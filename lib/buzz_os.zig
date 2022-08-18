@@ -4,7 +4,7 @@ const utils = @import("../src/utils.zig");
 const builtin = @import("builtin");
 
 export fn time(vm: *api.VM) c_int {
-    vm.bz_pushNum(@intToFloat(f64, std.time.milliTimestamp()));
+    vm.bz_pushInteger(std.time.milliTimestamp());
 
     return 1;
 }
@@ -107,9 +107,9 @@ export fn tmpFilename(vm: *api.VM) c_int {
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
 export fn buzzExit(vm: *api.VM) c_int {
-    const exitCode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const exitCode: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
 
-    std.os.exit(exitCode);
+    std.os.exit(@intCast(u8, exitCode));
 
     return 0;
 }
@@ -139,7 +139,7 @@ export fn execute(vm: *api.VM) c_int {
         return -1;
     };
 
-    vm.bz_pushNum(@intToFloat(f64, (child_process.wait() catch {
+    vm.bz_pushInteger(@intCast(i64, (child_process.wait() catch {
         vm.bz_throwString("Could not execute");
 
         return -1;
@@ -150,18 +150,24 @@ export fn execute(vm: *api.VM) c_int {
 
 export fn SocketConnect(vm: *api.VM) c_int {
     const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
-    const port: u16 = @floatToInt(u16, api.Value.bz_valueToNumber(vm.bz_peek(1)));
-    const protocol: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
+    if (port == null or port.? < 0) {
+        vm.bz_throwString("Port should be a positive integer");
+
+        return -1;
+    }
+
+    const protocol = api.Value.bz_valueToInteger(vm.bz_peek(0));
 
     switch (protocol) {
         0 => {
-            const stream = std.net.tcpConnectToHost(api.VM.allocator, utils.toSlice(address), port) catch {
+            const stream = std.net.tcpConnectToHost(api.VM.allocator, utils.toSlice(address), @intCast(u16, port.?)) catch {
                 vm.bz_throwString("Could not connect");
 
                 return -1;
             };
 
-            vm.bz_pushNum(@intToFloat(f64, stream.handle));
+            vm.bz_pushInteger(@intCast(i64, stream.handle));
 
             return 1;
         },
@@ -181,9 +187,9 @@ export fn SocketConnect(vm: *api.VM) c_int {
 }
 
 export fn SocketClose(vm: *api.VM) c_int {
-    const socket: std.os.socket_t = @floatToInt(
+    const socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
     );
 
     std.os.closeSocket(socket);
@@ -192,16 +198,22 @@ export fn SocketClose(vm: *api.VM) c_int {
 }
 
 export fn SocketRead(vm: *api.VM) c_int {
-    const n: u64 = @floatToInt(u64, api.Value.bz_valueToNumber(vm.bz_peek(0)));
-    const handle: std.os.socket_t = @floatToInt(
+    const n: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
+    if (n < 0) {
+        vm.bz_throwString("Could not read from socket: `n` is not a positive integer");
+
+        return -1;
+    }
+
+    const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(vm.bz_peek(1)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = api.VM.allocator.alloc(u8, n) catch {
+    var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
         vm.bz_throwString("Could not read from socket");
 
         return -1;
@@ -234,9 +246,9 @@ export fn SocketRead(vm: *api.VM) c_int {
 }
 
 export fn SocketReadLine(vm: *api.VM) c_int {
-    const handle: std.os.socket_t = @floatToInt(
+    const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -267,9 +279,9 @@ export fn SocketReadLine(vm: *api.VM) c_int {
 }
 
 export fn SocketWrite(vm: *api.VM) c_int {
-    const handle: std.os.socket_t = @floatToInt(
+    const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(vm.bz_peek(1)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -285,12 +297,18 @@ export fn SocketWrite(vm: *api.VM) c_int {
 
 export fn SocketServerStart(vm: *api.VM) c_int {
     const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
-    const port: u16 = @floatToInt(u16, api.Value.bz_valueToNumber(vm.bz_peek(1)));
+    const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
+    if (port == null or port.? < 0) {
+        vm.bz_throwString("Port should be a positive integer");
+
+        return -1;
+    }
+
     const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
 
     var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
 
-    const list = std.net.getAddressList(api.VM.allocator, utils.toSlice(address), port) catch {
+    const list = std.net.getAddressList(api.VM.allocator, utils.toSlice(address), @intCast(u16, port.?)) catch {
         vm.bz_throwString("Could not start socket server");
 
         return -1;
@@ -309,15 +327,15 @@ export fn SocketServerStart(vm: *api.VM) c_int {
         return -1;
     };
 
-    vm.bz_pushNum(@intToFloat(f64, server.sockfd.?));
+    vm.bz_pushInteger(@intCast(i64, server.sockfd.?));
 
     return 1;
 }
 
 export fn SocketServerAccept(vm: *api.VM) c_int {
-    const server_socket: std.os.socket_t = @floatToInt(
+    const server_socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(vm.bz_peek(1)),
     );
     const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
 
@@ -335,7 +353,7 @@ export fn SocketServerAccept(vm: *api.VM) c_int {
         return -1;
     };
 
-    vm.bz_pushNum(@intToFloat(f64, connection.stream.handle));
+    vm.bz_pushInteger(@intCast(i64, connection.stream.handle));
 
     return 1;
 }

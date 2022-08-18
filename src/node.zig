@@ -30,6 +30,7 @@ const copyStringRaw = _obj.copyStringRaw;
 const copyObj = _obj.copyObj;
 const Value = _value.Value;
 const valueToString = _value.valueToString;
+const floatToInteger = _value.floatToInteger;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const CodeGen = _codegen.CodeGen;
@@ -413,14 +414,23 @@ pub const NumberNode = struct {
         .isConstant = cnst,
     },
 
-    constant: f64,
+    float_constant: ?f64,
+    integer_constant: ?i64,
 
     fn cnst(_: *ParseNode) bool {
         return true;
     }
 
     fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
-        return Value{ .Number = Self.cast(node).?.constant };
+        const self = Self.cast(node).?;
+
+        if (self.float_constant) |constant| {
+            return Value{ .Float = constant };
+        } else {
+            assert(self.integer_constant != null);
+
+            return Value{ .Integer = self.integer_constant.? };
+        }
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -432,7 +442,13 @@ pub const NumberNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitConstant(self.node.location, Value{ .Number = self.constant });
+        if (self.float_constant) |constant| {
+            try codegen.emitConstant(self.node.location, Value{ .Float = constant });
+        } else {
+            assert(self.integer_constant != null);
+
+            try codegen.emitConstant(self.node.location, Value{ .Integer = self.integer_constant.? });
+        }
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -443,7 +459,15 @@ pub const NumberNode = struct {
     fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Number\", \"constant\": \"{}\", ", .{self.constant});
+        try out.print("{{\"node\": \"Number\", \"constant\": ", .{});
+
+        if (self.float_constant) |constant| {
+            try out.print("{d}, ", .{constant});
+        } else {
+            assert(self.integer_constant != null);
+
+            try out.print("{d}, ", .{self.integer_constant.?});
+        }
 
         try ParseNode.stringify(node, out);
 
@@ -1383,7 +1407,13 @@ pub const UnaryNode = struct {
 
             return switch (self.operator) {
                 .Bang => Value{ .Boolean = !value.Boolean },
-                .Minus => Value{ .Number = -value.Number },
+                .Minus => number: {
+                    if (value == .Integer) {
+                        break :number Value{ .Integer = -value.Integer };
+                    } else {
+                        break :number Value{ .Float = -value.Float };
+                    }
+                },
                 else => unreachable,
             };
         }
@@ -1492,8 +1522,12 @@ pub const BinaryNode = struct {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            const left = try self.left.toValue(self.left, allocator, strings);
-            const right = try self.right.toValue(self.right, allocator, strings);
+            var left = floatToInteger(try self.left.toValue(self.left, allocator, strings));
+            var right = floatToInteger(try self.right.toValue(self.right, allocator, strings));
+            var left_f: ?f64 = if (left == .Float) left.Float else null;
+            var right_f: ?f64 = if (right == .Float) right.Float else null;
+            var left_i: ?i64 = if (left == .Integer) left.Integer else null;
+            var right_i: ?i64 = if (right == .Integer) right.Integer else null;
 
             switch (self.operator) {
                 .QuestionQuestion => {
@@ -1504,16 +1538,68 @@ pub const BinaryNode = struct {
                     return left;
                 },
                 .Greater => {
-                    return Value{ .Boolean = left.Number > right.Number };
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = lf > rf };
+                        } else {
+                            return Value{ .Boolean = lf > @intToFloat(f64, right_i.?) };
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = @intToFloat(f64, left_i.?) > rf };
+                        } else {
+                            return Value{ .Boolean = left_i.? > right_i.? };
+                        }
+                    }
+                    return Value{ .Boolean = (left_f orelse left_i.?) > (right_f orelse right_i.?) };
                 },
                 .Less => {
-                    return Value{ .Boolean = left.Number < right.Number };
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = lf < rf };
+                        } else {
+                            return Value{ .Boolean = lf < @intToFloat(f64, right_i.?) };
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = @intToFloat(f64, left_i.?) < rf };
+                        } else {
+                            return Value{ .Boolean = left_i.? < right_i.? };
+                        }
+                    }
+                    return Value{ .Boolean = (left_f orelse left_i.?) < (right_f orelse right_i.?) };
                 },
                 .GreaterEqual => {
-                    return Value{ .Boolean = left.Number >= right.Number };
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = lf >= rf };
+                        } else {
+                            return Value{ .Boolean = lf >= @intToFloat(f64, right_i.?) };
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = @intToFloat(f64, left_i.?) >= rf };
+                        } else {
+                            return Value{ .Boolean = left_i.? >= right_i.? };
+                        }
+                    }
+                    return Value{ .Boolean = (left_f orelse left_i.?) >= (right_f orelse right_i.?) };
                 },
                 .LessEqual => {
-                    return Value{ .Boolean = left.Number <= right.Number };
+                    if (left_f) |lf| {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = lf <= rf };
+                        } else {
+                            return Value{ .Boolean = lf <= @intToFloat(f64, right_i.?) };
+                        }
+                    } else {
+                        if (right_f) |rf| {
+                            return Value{ .Boolean = @intToFloat(f64, left_i.?) <= rf };
+                        } else {
+                            return Value{ .Boolean = left_i.? <= right_i.? };
+                        }
+                    }
+                    return Value{ .Boolean = (left_f orelse left_i.?) <= (right_f orelse right_i.?) };
                 },
                 .BangEqual => {
                     return Value{ .Boolean = !_value.valueEql(left, right) };
@@ -1522,9 +1608,6 @@ pub const BinaryNode = struct {
                     return Value{ .Boolean = _value.valueEql(left, right) };
                 },
                 .Plus => {
-                    const right_f: ?f64 = if (right == .Number) right.Number else null;
-                    const left_f: ?f64 = if (left == .Number) left.Number else null;
-
                     const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
                     const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
 
@@ -1540,8 +1623,14 @@ pub const BinaryNode = struct {
                         try new_string.appendSlice(right_s.?.string);
 
                         return (try copyStringRaw(strings, allocator, new_string.items, true)).toValue();
-                    } else if (right_f != null) {
-                        return Value{ .Number = right_f.? + left_f.? };
+                    } else if (right_f != null or left_f != null) {
+                        return Value{
+                            .Float = (right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)),
+                        };
+                    } else if (right_i != null or left_i != null) {
+                        return Value{
+                            .Integer = right_i.? + left_i.?,
+                        };
                     } else if (right_l != null) {
                         var new_list = std.ArrayList(Value).init(allocator);
                         try new_list.appendSlice(left_l.?.items.items);
@@ -1574,16 +1663,32 @@ pub const BinaryNode = struct {
                     return map.toValue();
                 },
                 .Minus => {
-                    return Value{ .Number = left.Number - right.Number };
+                    if (right_f != null or left_f != null) {
+                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) - (left_f orelse @intToFloat(f64, left_i.?)) };
+                    }
+
+                    return Value{ .Integer = right_i.? - left_i.? };
                 },
                 .Star => {
-                    return Value{ .Number = left.Number * right.Number };
+                    if (right_f != null or left_f != null) {
+                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) * (left_f orelse @intToFloat(f64, left_i.?)) };
+                    }
+
+                    return Value{ .Integer = right_i.? * left_i.? };
                 },
                 .Slash => {
-                    return Value{ .Number = left.Number / right.Number };
+                    if (right_f != null or left_f != null) {
+                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) / (left_f orelse @intToFloat(f64, left_i.?)) };
+                    }
+
+                    return Value{ .Float = @intToFloat(f64, right_i.?) / @intToFloat(f64, left_i.?) };
                 },
                 .Percent => {
-                    return Value{ .Number = @mod(left.Number, right.Number) };
+                    if (right_f != null or left_f != null) {
+                        return Value{ .Float = @mod((right_f orelse @intToFloat(f64, right_i.?)), (left_f orelse @intToFloat(f64, left_i.?))) };
+                    }
+
+                    return Value{ .Integer = @mod(right_i.?, left_i.?) };
                 },
                 .And => {
                     return Value{ .Boolean = left.Boolean and right.Boolean };
@@ -1826,13 +1931,19 @@ pub const SubscriptNode = struct {
             const self = Self.cast(node).?;
 
             const subscriptable = (try self.subscripted.toValue(self.subscripted, allocator, strings)).Obj;
-            const index = try self.index.toValue(self.index, allocator, strings);
+            const index = floatToInteger(try self.index.toValue(self.index, allocator, strings));
 
             switch (subscriptable.obj_type) {
                 .List => {
                     const list: *ObjList = ObjList.cast(subscriptable).?;
 
-                    const list_index: usize = @floatToInt(usize, index.Number);
+                    const list_index_i: ?i64 = if (index == .Integer) index.Integer else null;
+
+                    if (list_index_i == null or list_index_i.? < 0) {
+                        return VM.Error.OutOfBound;
+                    }
+
+                    const list_index: usize = @intCast(usize, list_index_i.?);
 
                     if (list_index < list.items.items.len) {
                         return list.items.items[list_index];
@@ -1852,11 +1963,13 @@ pub const SubscriptNode = struct {
                 .String => {
                     const str: *ObjString = ObjString.cast(subscriptable).?;
 
-                    if (index.Number < 0) {
+                    const str_index_i: ?i64 = if (index == .Integer) index.Integer else null;
+
+                    if (str_index_i == null or str_index_i.? < 0) {
                         return VM.Error.OutOfBound;
                     }
 
-                    const str_index: usize = @floatToInt(usize, index.Number);
+                    const str_index: usize = @intCast(usize, str_index_i.?);
 
                     if (str_index < str.string.len) {
                         return (try _obj.copyStringRaw(strings, allocator, &([_]u8{str.string[str_index]}), true)).toValue();

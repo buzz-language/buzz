@@ -3,25 +3,25 @@ const api = @import("./buzz_api.zig");
 const utils = @import("../src/utils.zig");
 
 export fn getStdIn(vm: *api.VM) c_int {
-    vm.bz_pushNum(@intToFloat(f64, std.io.getStdIn().handle));
+    vm.bz_pushInteger(@intCast(i64, std.io.getStdIn().handle));
 
     return 1;
 }
 
 export fn getStdOut(vm: *api.VM) c_int {
-    vm.bz_pushNum(@intToFloat(f64, std.io.getStdOut().handle));
+    vm.bz_pushInteger(@intCast(i64, std.io.getStdOut().handle));
 
     return 1;
 }
 
 export fn getStdErr(vm: *api.VM) c_int {
-    vm.bz_pushNum(@intToFloat(f64, std.io.getStdErr().handle));
+    vm.bz_pushInteger(@intCast(i64, std.io.getStdErr().handle));
 
     return 1;
 }
 
 export fn FileOpen(vm: *api.VM) c_int {
-    const mode: u8 = @floatToInt(u8, api.Value.bz_valueToNumber(vm.bz_peek(0)));
+    const mode: u8 = @intCast(u8, api.Value.bz_valueToInteger(vm.bz_peek(0)));
     const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse "", 0);
 
     var file: std.fs.File = if (std.fs.path.isAbsolute(filename))
@@ -50,15 +50,15 @@ export fn FileOpen(vm: *api.VM) c_int {
         },
     };
 
-    vm.bz_pushNum(@intToFloat(f64, file.handle));
+    vm.bz_pushInteger(@intCast(i64, file.handle));
 
     return 1;
 }
 
 export fn FileClose(vm: *api.VM) c_int {
-    const handle: std.fs.File.Handle = @floatToInt(
+    const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -68,9 +68,9 @@ export fn FileClose(vm: *api.VM) c_int {
 }
 
 export fn FileReadAll(vm: *api.VM) c_int {
-    const handle: std.fs.File.Handle = @floatToInt(
+    const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -91,9 +91,9 @@ export fn FileReadAll(vm: *api.VM) c_int {
 }
 
 export fn FileReadLine(vm: *api.VM) c_int {
-    const handle: std.fs.File.Handle = @floatToInt(
+    const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -124,16 +124,22 @@ export fn FileReadLine(vm: *api.VM) c_int {
 }
 
 export fn FileRead(vm: *api.VM) c_int {
-    const n: u64 = @floatToInt(u64, api.Value.bz_valueToNumber(vm.bz_peek(0)));
-    const handle: std.fs.File.Handle = @floatToInt(
+    const n = api.Value.bz_valueToInteger(vm.bz_peek(0));
+    if (n < 0) {
+        vm.bz_throwString("Could not read file: `n` is not positive integer");
+
+        return -1;
+    }
+
+    const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(vm.bz_peek(1)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = api.VM.allocator.alloc(u8, n) catch {
+    var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
         vm.bz_throwString("Could not read file");
 
         return -1;
@@ -167,9 +173,9 @@ export fn FileRead(vm: *api.VM) c_int {
 
 // extern fun File_write(num fd, [num] bytes) > void;
 export fn FileWrite(vm: *api.VM) c_int {
-    const handle: std.fs.File.Handle = @floatToInt(
+    const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToNumber(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(vm.bz_peek(1)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };

@@ -23,6 +23,7 @@ const HashableValue = _value.HashableValue;
 const ValueType = _value.ValueType;
 const valueToHashable = _value.valueToHashable;
 const hashableToValue = _value.hashableToValue;
+const floatToInteger = _value.floatToInteger;
 const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
 const valueIs = _value.valueIs;
@@ -800,23 +801,24 @@ pub const ObjString = struct {
     pub fn len(vm: *VM) c_int {
         var str: *Self = Self.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Number = @intToFloat(f64, str.string.len) });
+        vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
 
         return 1;
     }
 
     pub fn byte(vm: *VM) c_int {
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var index: f64 = vm.peek(0).Number;
+        const self: *Self = Self.cast(vm.peek(1).Obj).?;
+        const index = floatToInteger(vm.peek(0));
+        const index_i = if (index == .Integer) index.Integer else null;
 
-        if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
+        if (index_i == null or index_i.? < 0 or index_i.? >= self.string.len) {
             var err: ?*ObjString = copyString(vm, "Out of bound access to str") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         }
 
-        vm.push(Value{ .Number = @intToFloat(f64, self.string[@floatToInt(usize, index)]) });
+        vm.push(Value{ .Integer = @intCast(i64, self.string[@intCast(usize, index_i.?)]) });
 
         return 1;
     }
@@ -827,7 +829,7 @@ pub const ObjString = struct {
 
         var index = std.mem.indexOf(u8, self.string, needle.string);
 
-        vm.push(if (index) |uindex| Value{ .Number = @intToFloat(f64, uindex) } else Value{ .Null = false });
+        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = false });
 
         return 1;
     }
@@ -876,11 +878,12 @@ pub const ObjString = struct {
 
     pub fn sub(vm: *VM) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
-        var start: f64 = vm.peek(1).Number;
-        var upto_value: Value = vm.peek(0);
-        var upto: ?f64 = if (upto_value == .Number) upto_value.Number else null;
+        var start_value = floatToInteger(vm.peek(1));
+        var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
+        var upto_value: Value = floatToInteger(vm.peek(0));
+        var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
 
-        if (start < 0 or start >= @intToFloat(f64, self.string.len)) {
+        if (start == null or start.? < 0 or start.? >= self.string.len) {
             var err: ?*ObjString = copyString(vm, "`start` is out of bound") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -894,8 +897,8 @@ pub const ObjString = struct {
             return -1;
         }
 
-        const limit: usize = if (upto != null and @floatToInt(usize, start + upto.?) < self.string.len) @floatToInt(usize, start + upto.?) else self.string.len;
-        var substr: []const u8 = self.string[@floatToInt(usize, start)..limit];
+        const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.string.len) @intCast(usize, start.? + upto.?) else self.string.len;
+        var substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
 
         vm.push(
             (copyString(vm, substr) catch {
@@ -976,18 +979,18 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn next(self: *Self, vm: *VM, str_index: ?f64) !?f64 {
+    pub fn next(self: *Self, vm: *VM, str_index: ?i64) !?i64 {
         if (str_index) |index| {
-            if (index < 0 or index >= @intToFloat(f64, self.string.len)) {
+            if (index < 0 or index >= @intCast(i64, self.string.len)) {
                 try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to str")).toValue());
             }
 
-            return if (index + 1 >= @intToFloat(f64, self.string.len))
+            return if (index + 1 >= @intCast(i64, self.string.len))
                 null
             else
                 index + 1;
         } else {
-            return if (self.string.len > 0) @intToFloat(f64, 0) else null;
+            return if (self.string.len > 0) @intCast(i64, 0) else null;
         }
     }
 
@@ -1644,22 +1647,23 @@ pub const ObjList = struct {
     fn len(vm: *VM) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Number = @intToFloat(f64, list.items.items.len) });
+        vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
 
         return 1;
     }
 
     pub fn remove(vm: *VM) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(1).Obj).?;
-        var list_index: f64 = vm.peek(0).Number;
+        var list_index_value = floatToInteger(vm.peek(0));
+        var list_index: ?i64 = if (list_index_value == .Integer) list_index_value.Integer else null;
 
-        if (list_index < 0 or list_index >= @intToFloat(f64, list.items.items.len)) {
+        if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
             vm.push(Value{ .Null = false });
 
             return 1;
         }
 
-        vm.push(list.items.orderedRemove(@floatToInt(usize, list_index)));
+        vm.push(list.items.orderedRemove(@intCast(usize, list_index.?)));
 
         return 1;
     }
@@ -1679,7 +1683,7 @@ pub const ObjList = struct {
             i += 1;
         }
 
-        vm.push(if (index) |uindex| Value{ .Number = @intToFloat(f64, uindex) } else Value{ .Null = false });
+        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = false });
 
         return 1;
     }
@@ -1725,11 +1729,12 @@ pub const ObjList = struct {
 
     pub fn sub(vm: *VM) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
-        var start: f64 = vm.peek(1).Number;
-        var upto_value: Value = vm.peek(0);
-        var upto: ?f64 = if (upto_value == .Number) upto_value.Number else null;
+        var start_value = floatToInteger(vm.peek(1));
+        var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
+        var upto_value: Value = floatToInteger(vm.peek(0));
+        var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
 
-        if (start < 0 or start >= @intToFloat(f64, self.items.items.len)) {
+        if (start == null or start.? < 0 or start.? >= self.items.items.len) {
             var err: ?*ObjString = copyString(vm, "`start` is out of bound") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -1743,8 +1748,8 @@ pub const ObjList = struct {
             return -1;
         }
 
-        const limit: usize = if (upto != null and @floatToInt(usize, start + upto.?) < self.items.items.len) @floatToInt(usize, start + upto.?) else self.items.items.len;
-        var substr: []Value = self.items.items[@floatToInt(usize, start)..limit];
+        const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len) @intCast(usize, start.? + upto.?) else self.items.items.len;
+        var substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
 
         var list = allocateObject(vm, ObjList, ObjList{
             .type_def = self.type_def,
@@ -1774,18 +1779,18 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?f64) !?f64 {
+    pub fn rawNext(self: *Self, vm: *VM, list_index: ?i64) !?i64 {
         if (list_index) |index| {
-            if (index < 0 or index >= @intToFloat(f64, self.items.items.len)) {
+            if (index < 0 or index >= @intCast(i64, self.items.items.len)) {
                 try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to list")).toValue());
             }
 
-            return if (index + 1 >= @intToFloat(f64, self.items.items.len))
+            return if (index + 1 >= @intCast(i64, self.items.items.len))
                 null
             else
                 index + 1;
         } else {
-            return if (self.items.items.len > 0) @intToFloat(f64, 0) else null;
+            return if (self.items.items.len > 0) @intCast(i64, 0) else null;
         }
     }
 
@@ -1794,13 +1799,13 @@ pub const ObjList = struct {
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
 
-        var next_index: ?f64 = list.rawNext(vm, if (list_index == .Null) null else list_index.Number) catch |err| {
+        var next_index: ?i64 = list.rawNext(vm, if (list_index == .Null) null else list_index.Integer) catch |err| {
             // TODO: should we distinguish NativeFn and ExternFn ?
             std.debug.print("{}\n", .{err});
             std.os.exit(1);
         };
 
-        vm.push(if (next_index) |unext_index| Value{ .Number = unext_index } else Value{ .Null = null });
+        vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = null });
 
         return 1;
     }
@@ -2152,7 +2157,7 @@ pub const ObjMap = struct {
     fn size(vm: *VM) c_int {
         var map: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Number = @intToFloat(f64, map.map.count()) });
+        vm.push(Value{ .Integer = @intCast(i64, map.map.count()) });
 
         return 1;
     }

@@ -230,7 +230,7 @@ Reads `n` bytes, returns null if nothing to read
 
 
 #### ` fun readAll() > str`
-Reads all
+Reads file until `EOF`
 
 #### ` fun readLine() > str?`
 Reads next line, returns null if nothing to read
