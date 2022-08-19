@@ -10,6 +10,7 @@ const VM = _vm.VM;
 const Fiber = _vm.Fiber;
 const Parser = @import("./parser.zig").Parser;
 const _memory = @import("./memory.zig");
+const GarbageCollector = _memory.GarbageCollector;
 const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
 const Config = @import("./config.zig").Config;
@@ -28,11 +29,6 @@ const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
 const valueIs = _value.valueIs;
 const valueTypeEql = _value.valueTypeEql;
-const allocate = _memory.allocate;
-const allocateMany = _memory.allocateMany;
-const markObj = _memory.markObj;
-const markValue = _memory.markValue;
-const collectGarbage = _memory.collectGarbage;
 
 pub const ObjType = enum {
     String,
@@ -53,10 +49,10 @@ pub const ObjType = enum {
     Fiber,
 };
 
-pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
+pub fn allocateObject(gc: *GarbageCollector, comptime T: type, data: T) !*T {
     // var before: usize = vm.bytes_allocated;
 
-    var obj: *T = try allocate(vm, T);
+    var obj: *T = try gc.allocate(T);
     obj.* = data;
 
     var object: *Obj = switch (T) {
@@ -85,56 +81,42 @@ pub fn allocateObject(vm: *VM, comptime T: type, data: T) !*T {
     // }
 
     // Add new object at start of vm.objects linked list
-    object.next = vm.objects;
-    vm.objects = object;
+    object.next = gc.objects;
+    gc.objects = object;
 
     return obj;
 }
 
-pub fn allocateString(vm: *VM, chars: []const u8) !*ObjString {
-    if (vm.strings.get(chars)) |interned| {
+pub fn allocateString(gc: *GarbageCollector, chars: []const u8) !*ObjString {
+    if (gc.strings.get(chars)) |interned| {
         return interned;
     } else {
-        var string: *ObjString = try allocateObject(vm, ObjString, ObjString{ .string = chars });
+        var string: *ObjString = try allocateObject(
+            gc,
+            ObjString,
+            ObjString{ .string = chars },
+        );
 
-        vm.push(Value{ .Obj = string.toObj() });
-        try vm.strings.put(chars, string);
-        _ = vm.pop();
+        // std.debug.print("allocated new string @{} `{s}`\n", .{ @ptrToInt(&string.obj), string.string });
+        try gc.strings.put(string.string, string);
 
         return string;
     }
 }
 
-pub fn copyString(vm: *VM, chars: []const u8) !*ObjString {
-    if (vm.strings.get(chars)) |interned| {
+pub fn copyString(gc: *GarbageCollector, chars: []const u8) !*ObjString {
+    if (gc.strings.get(chars)) |interned| {
         return interned;
     }
 
-    var copy: []u8 = try allocateMany(vm, u8, chars.len);
+    var copy: []u8 = try gc.allocateMany(u8, chars.len);
     mem.copy(u8, copy, chars);
 
-    return try allocateString(vm, copy);
-}
-
-pub fn copyStringRaw(strings: *std.StringHashMap(*ObjString), allocator: Allocator, chars: []const u8, owned: bool) !*ObjString {
-    if (strings.get(chars)) |interned| {
-        return interned;
+    if (Config.debug_gc) {
+        std.debug.print("Allocated slice {*} `{s}`\n", .{ copy, copy });
     }
 
-    var copy: []u8 = undefined;
-    if (!owned) {
-        copy = try allocator.alloc(u8, chars.len);
-        mem.copy(u8, copy, chars);
-    }
-
-    var obj_string: *ObjString = try allocator.create(ObjString);
-    obj_string.* = ObjString{
-        .string = if (owned) chars else copy,
-    };
-
-    try strings.put(chars, obj_string);
-
-    return obj_string;
+    return try allocateString(gc, copy);
 }
 
 pub const Obj = struct {
@@ -142,9 +124,6 @@ pub const Obj = struct {
 
     obj_type: ObjType,
     is_marked: bool = false,
-    // If true, will never be collected
-    // TODO: we should never have to do this, we do it because we don't know why some things are collected (pattern methods was the case)
-    resilient: bool = false,
     next: ?*Obj = null,
 
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
@@ -279,25 +258,9 @@ pub const ObjFiber = struct {
 
     type_def: *ObjTypeDef,
 
-    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
-    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
-
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try _memory.markFiber(vm, self.fiber);
-        try markObj(vm, self.type_def.toObj());
-        if (Self.members) |umembers| {
-            var it = umembers.iterator();
-            while (it.next()) |umember| {
-                try markObj(vm, umember.value_ptr.*.toObj());
-            }
-        }
-
-        if (Self.memberDefs) |umemberDefs| {
-            var it = umemberDefs.iterator();
-            while (it.next()) |umember| {
-                try markObj(vm, umember.value_ptr.*.toObj());
-            }
-        }
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markFiber(self.fiber);
+        try gc.markObj(self.type_def.toObj());
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -343,28 +306,22 @@ pub const ObjFiber = struct {
     }
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (Self.members) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (vm.gc.objfiber_members.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
         var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
-                vm,
+                vm.gc,
                 ObjNative,
                 .{
                     .native = unativeFn,
                 },
             );
-            // Prevent collection
-            native.obj.resilient = true;
 
-            try Self.members.?.put(method, native);
+            try vm.gc.objfiber_members.put(method, native);
 
             return native;
         }
@@ -373,13 +330,9 @@ pub const ObjFiber = struct {
     }
 
     pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (Self.memberDefs) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (parser.gc.objfiber_memberDefs.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
         if (mem.eql(u8, method, "over")) {
             var native_type = try parser.parseTypeDefFrom("Function over() > bool");
@@ -388,7 +341,7 @@ pub const ObjFiber = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("over", native_type);
+            try parser.gc.objfiber_memberDefs.put("over", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "cancel")) {
@@ -398,7 +351,7 @@ pub const ObjFiber = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("cancel", native_type);
+            try parser.gc.objfiber_memberDefs.put("cancel", native_type);
 
             return native_type;
         }
@@ -412,9 +365,9 @@ pub const ObjFiber = struct {
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
 
-        pub fn mark(self: *SelfFiberDef, vm: *VM) !void {
-            try markObj(vm, self.return_type.toObj());
-            try markObj(vm, self.yield_type.toObj());
+        pub fn mark(self: *SelfFiberDef, gc: *GarbageCollector) !void {
+            try gc.markObj(self.return_type.toObj());
+            try gc.markObj(self.yield_type.toObj());
         }
     };
 };
@@ -428,25 +381,7 @@ pub const ObjPattern = struct {
     source: []const u8,
     pattern: *pcre.struct_real_pcre8_or_16,
 
-    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
-    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
-
-    pub fn mark(_: *Self, vm: *VM) !void {
-        if (Self.members) |umembers| {
-            var it = umembers.iterator();
-            while (it.next()) |kv| {
-                try markObj(vm, kv.key_ptr.*.toObj());
-                try markObj(vm, kv.value_ptr.*.toObj());
-            }
-        }
-
-        if (Self.memberDefs) |umemberDefs| {
-            var it = umemberDefs.iterator();
-            while (it.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
-            }
-        }
-    }
+    pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -488,10 +423,10 @@ pub const ObjPattern = struct {
                 offset.* = @intCast(usize, output_vector[1]);
 
                 results = try allocateObject(
-                    vm,
+                    vm.gc,
                     ObjList,
-                    ObjList.init(vm.allocator, try allocateObject(
-                        vm,
+                    ObjList.init(vm.gc.allocator, try allocateObject(
+                        vm.gc,
                         ObjTypeDef,
                         ObjTypeDef{
                             .def_type = .String,
@@ -506,7 +441,7 @@ pub const ObjPattern = struct {
                 while (i < rc) : (i += 1) {
                     try results.?.items.append(
                         (try copyString(
-                            vm,
+                            vm.gc,
                             subject[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])],
                         )).toValue(),
                     );
@@ -526,9 +461,9 @@ pub const ObjPattern = struct {
             if (try self.rawMatch(vm, subject, &offset)) |matches| {
                 var was_null = results == null;
                 results = results orelse try allocateObject(
-                    vm,
+                    vm.gc,
                     ObjList,
-                    ObjList.init(vm.allocator, matches.type_def),
+                    ObjList.init(vm.gc.allocator, matches.type_def),
                 );
 
                 if (was_null) {
@@ -555,12 +490,12 @@ pub const ObjPattern = struct {
     pub fn match(vm: *VM) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
         var subject = utils.toNullTerminated(
-            vm.allocator,
+            vm.gc.allocator,
             ObjString.cast(vm.peek(0).Obj).?.string,
         );
 
         if (subject == null) {
-            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not match") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -568,7 +503,7 @@ pub const ObjPattern = struct {
 
         var offset: usize = 0;
         if (self.rawMatch(vm, subject.?, &offset) catch {
-            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not match") catch null;
             vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -584,19 +519,19 @@ pub const ObjPattern = struct {
     pub fn matchAll(vm: *VM) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
         var subject = utils.toNullTerminated(
-            vm.allocator,
+            vm.gc.allocator,
             ObjString.cast(vm.peek(0).Obj).?.string,
         );
 
         if (subject == null) {
-            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not match") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         }
 
         if (self.rawMatchAll(vm, subject.?) catch {
-            var err: ?*ObjString = copyString(vm, "Could not match") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not match") catch null;
             vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -620,28 +555,22 @@ pub const ObjPattern = struct {
     }
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (Self.members) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (vm.gc.objpattern_members.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
         var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
-                vm,
+                vm.gc,
                 ObjNative,
                 .{
                     .native = unativeFn,
                 },
             );
-            // Don't collect basic methods
-            native.obj.resilient = true;
 
-            try Self.members.?.put(method, native);
+            try vm.gc.objpattern_members.put(method, native);
 
             return native;
         }
@@ -650,13 +579,9 @@ pub const ObjPattern = struct {
     }
 
     pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (Self.memberDefs) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (parser.gc.objpattern_memberDefs.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
         if (mem.eql(u8, method, "match")) {
             var native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
@@ -665,7 +590,7 @@ pub const ObjPattern = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("match", native_type);
+            try parser.gc.objpattern_memberDefs.put("match", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "matchAll")) {
@@ -675,7 +600,7 @@ pub const ObjPattern = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("matchAll", native_type);
+            try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
 
             return native_type;
         }
@@ -698,7 +623,7 @@ pub const ObjNative = struct {
 
     native: NativeFn,
 
-    pub fn mark(_: *Self, _: *VM) void {}
+    pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -727,7 +652,7 @@ pub const ObjUserData = struct {
 
     userdata: *UserData,
 
-    pub fn mark(_: *Self, _: *VM) void {}
+    pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -750,29 +675,12 @@ pub const ObjUserData = struct {
 pub const ObjString = struct {
     const Self = @This();
 
-    var members: ?std.AutoHashMap(*ObjString, *ObjNative) = null;
-    var memberDefs: ?std.StringHashMap(*ObjTypeDef) = null;
-
     obj: Obj = .{ .obj_type = .String },
 
     /// The actual string
     string: []const u8,
 
-    pub fn mark(_: *Self, vm: *VM) !void {
-        if (Self.members) |umembers| {
-            var it = umembers.iterator();
-            while (it.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
-            }
-        }
-
-        if (Self.memberDefs) |umemberDefs| {
-            var it = umemberDefs.iterator();
-            while (it.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
-            }
-        }
-    }
+    pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 
     pub fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -784,6 +692,7 @@ pub const ObjString = struct {
 
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .String) {
+            std.debug.print("Tried to cast into ObjString: {*}\n", .{obj});
             return null;
         }
 
@@ -791,11 +700,11 @@ pub const ObjString = struct {
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
-        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.allocator);
+        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.gc.allocator);
         try new_string.appendSlice(self.string);
         try new_string.appendSlice(other.string);
 
-        return copyString(vm, new_string.items);
+        return copyString(vm.gc, new_string.items);
     }
 
     pub fn len(vm: *VM) c_int {
@@ -812,19 +721,19 @@ pub const ObjString = struct {
         const n_i = if (n == .Integer) n.Integer else null;
 
         if (n_i) |ni| {
-            var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.allocator);
+            var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.gc.allocator);
             var i: usize = 0;
             while (i < ni) : (i += 1) {
                 new_string.appendSlice(str.string) catch {
-                    var err: ?*ObjString = copyString(vm, "Could not repeat string") catch null;
+                    var err: ?*ObjString = copyString(vm.gc, "Could not repeat string") catch null;
                     vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                     return -1;
                 };
             }
 
-            const new_objstring = copyString(vm, new_string.items) catch {
-                var err: ?*ObjString = copyString(vm, "Could not repeat string") catch null;
+            const new_objstring = copyString(vm.gc, new_string.items) catch {
+                var err: ?*ObjString = copyString(vm.gc, "Could not repeat string") catch null;
                 vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -835,7 +744,7 @@ pub const ObjString = struct {
             return 1;
         }
 
-        var err: ?*ObjString = copyString(vm, "`n` should be an integer") catch null;
+        var err: ?*ObjString = copyString(vm.gc, "`n` should be an integer") catch null;
         vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
         return -1;
@@ -847,7 +756,7 @@ pub const ObjString = struct {
         const index_i = if (index == .Integer) index.Integer else null;
 
         if (index_i == null or index_i.? < 0 or index_i.? >= self.string.len) {
-            var err: ?*ObjString = copyString(vm, "Out of bound access to str") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Out of bound access to str") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -892,16 +801,16 @@ pub const ObjString = struct {
         var needle: *Self = Self.cast(vm.peek(1).Obj).?;
         var replacement: *Self = Self.cast(vm.peek(0).Obj).?;
 
-        const new_string = std.mem.replaceOwned(u8, vm.allocator, self.string, needle.string, replacement.string) catch {
-            var err: ?*ObjString = copyString(vm, "Could not replace string") catch null;
+        const new_string = std.mem.replaceOwned(u8, vm.gc.allocator, self.string, needle.string, replacement.string) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not replace string") catch null;
             vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
 
         vm.push(
-            (copyString(vm, new_string) catch {
-                var err: ?*ObjString = copyString(vm, "Could not replace string") catch null;
+            (copyString(vm.gc, new_string) catch {
+                var err: ?*ObjString = copyString(vm.gc, "Could not replace string") catch null;
                 vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -919,14 +828,14 @@ pub const ObjString = struct {
         var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
 
         if (start == null or start.? < 0 or start.? >= self.string.len) {
-            var err: ?*ObjString = copyString(vm, "`start` is out of bound") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "`start` is out of bound") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         }
 
         if (upto != null and upto.? < 0) {
-            var err: ?*ObjString = copyString(vm, "`len` must greater or equal to 0") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "`len` must greater or equal to 0") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -936,8 +845,8 @@ pub const ObjString = struct {
         var substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
 
         vm.push(
-            (copyString(vm, substr) catch {
-                var err: ?*ObjString = copyString(vm, "Could not get sub string") catch null;
+            (copyString(vm.gc, substr) catch {
+                var err: ?*ObjString = copyString(vm.gc, "Could not get sub string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -953,11 +862,11 @@ pub const ObjString = struct {
 
         // std.mem.split(u8, self.string, separator.string);
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.allocator,
-            allocateObject(vm, ObjTypeDef, ObjTypeDef{
+            vm.gc.allocator,
+            allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
                 .def_type = .String,
             }) catch {
-                var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
+                var err: ?*ObjString = copyString(vm.gc, "Could not split string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -969,23 +878,23 @@ pub const ObjString = struct {
         };
 
         // TODO: reuse already allocated similar typedef
-        var list_def_type: *ObjTypeDef = allocateObject(vm, ObjTypeDef, ObjTypeDef{
+        var list_def_type: *ObjTypeDef = allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not split string") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
 
         var list: *ObjList = allocateObject(
-            vm,
+            vm.gc,
             ObjList,
-            ObjList.init(vm.allocator, list_def_type),
+            ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not split string") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -996,15 +905,15 @@ pub const ObjString = struct {
 
         var it = std.mem.split(u8, self.string, separator.string);
         while (it.next()) |fragment| {
-            var fragment_str: ?*ObjString = copyString(vm, fragment) catch {
-                var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
+            var fragment_str: ?*ObjString = copyString(vm.gc, fragment) catch {
+                var err: ?*ObjString = copyString(vm.gc, "Could not split string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
             };
 
             list.rawAppend(fragment_str.?.toValue()) catch {
-                var err: ?*ObjString = copyString(vm, "Could not split string") catch null;
+                var err: ?*ObjString = copyString(vm.gc, "Could not split string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -1017,7 +926,7 @@ pub const ObjString = struct {
     pub fn next(self: *Self, vm: *VM, str_index: ?i64) !?i64 {
         if (str_index) |index| {
             if (index < 0 or index >= @intCast(i64, self.string.len)) {
-                try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to str")).toValue());
+                try vm.throw(VM.Error.OutOfBound, (try copyString(vm.gc, "Out of bound access to str")).toValue());
             }
 
             return if (index + 1 >= @intCast(i64, self.string.len))
@@ -1055,28 +964,22 @@ pub const ObjString = struct {
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (Self.members) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (vm.gc.objstring_members.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.members = Self.members orelse std.AutoHashMap(*ObjString, *ObjNative).init(vm.allocator);
 
         var nativeFn: ?NativeFn = rawMember(method.string);
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
-                vm,
+                vm.gc,
                 ObjNative,
                 .{
                     .native = unativeFn,
                 },
             );
-            // Prevent collection
-            native.obj.resilient = true;
 
-            try Self.members.?.put(method, native);
+            try vm.gc.objstring_members.put(method, native);
 
             return native;
         }
@@ -1085,13 +988,9 @@ pub const ObjString = struct {
     }
 
     pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (Self.memberDefs) |umembers| {
-            if (umembers.get(method)) |umethod| {
-                return umethod;
-            }
+        if (parser.gc.objstring_memberDefs.get(method)) |umethod| {
+            return umethod;
         }
-
-        Self.memberDefs = Self.memberDefs orelse std.StringHashMap(*ObjTypeDef).init(parser.allocator);
 
         if (mem.eql(u8, method, "len")) {
             var native_type = try parser.parseTypeDefFrom("Function len() > num");
@@ -1100,7 +999,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("len", native_type);
+            try parser.gc.objstring_memberDefs.put("len", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
@@ -1110,7 +1009,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("byte", native_type);
+            try parser.gc.objstring_memberDefs.put("byte", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
@@ -1120,7 +1019,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("indexOf", native_type);
+            try parser.gc.objstring_memberDefs.put("indexOf", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "startsWith")) {
@@ -1130,7 +1029,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("startsWith", native_type);
+            try parser.gc.objstring_memberDefs.put("startsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "endsWith")) {
@@ -1140,7 +1039,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("endsWith", native_type);
+            try parser.gc.objstring_memberDefs.put("endsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
@@ -1150,7 +1049,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("replace", native_type);
+            try parser.gc.objstring_memberDefs.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
@@ -1160,7 +1059,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("split", native_type);
+            try parser.gc.objstring_memberDefs.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
@@ -1170,7 +1069,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("sub", native_type);
+            try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
@@ -1180,7 +1079,7 @@ pub const ObjString = struct {
             const function_def = native_type.resolved_type.?.Function;
             native_type.resolved_type = .{ .Native = function_def };
 
-            try Self.memberDefs.?.put("repeat", native_type);
+            try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
             return native_type;
         }
@@ -1204,9 +1103,10 @@ pub const ObjUpValue = struct {
         return Self{ .closed = null, .location = slot, .next = null };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markValue(self.location.*); // Useless
         if (self.closed) |uclosed| {
-            try markValue(vm, uclosed);
+            try gc.markValue(uclosed);
         }
     }
 
@@ -1247,13 +1147,13 @@ pub const ObjClosure = struct {
         };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.function.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.function.toObj());
         for (self.upvalues.items) |upvalue| {
-            try markObj(vm, upvalue.toObj());
+            try gc.markObj(upvalue.toObj());
         }
         for (self.globals.items) |global| {
-            try markValue(vm, global);
+            try gc.markValue(global);
         }
     }
 
@@ -1313,11 +1213,17 @@ pub const ObjFunction = struct {
         self.chunk.deinit();
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.name.toObj());
-        try markObj(vm, self.type_def.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.name.toObj());
+        try gc.markObj(self.type_def.toObj());
+        if (Config.debug_gc) {
+            std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
+        }
         for (self.chunk.constants.items) |constant| {
-            try markValue(vm, constant);
+            try gc.markValue(constant);
+        }
+        if (Config.debug_gc) {
+            std.debug.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
         }
     }
 
@@ -1349,18 +1255,19 @@ pub const ObjFunction = struct {
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        pub fn mark(self: *FunctionDefSelf, vm: *VM) !void {
-            try markObj(vm, self.name.toObj());
-            try markObj(vm, self.return_type.toObj());
+        pub fn mark(self: *FunctionDefSelf, gc: *GarbageCollector) !void {
+            try gc.markObj(self.name.toObj());
+            try gc.markObj(self.return_type.toObj());
+            try gc.markObj(self.yield_type.toObj());
 
             var it = self.parameters.iterator();
             while (it.next()) |parameter| {
-                try markObj(vm, parameter.value_ptr.*.toObj());
+                try gc.markObj(parameter.value_ptr.*.toObj());
             }
 
             var it2 = self.defaults.iterator();
             while (it2.next()) |default| {
-                try markValue(vm, default.value_ptr.*);
+                try gc.markValue(default.value_ptr.*);
             }
         }
     };
@@ -1384,12 +1291,12 @@ pub const ObjObjectInstance = struct {
         };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.object.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.object.toObj());
         var it = self.fields.iterator();
         while (it.next()) |kv| {
-            try markObj(vm, kv.key_ptr.*.toObj());
-            try markValue(vm, kv.value_ptr.*);
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markValue(kv.value_ptr.*);
         }
     }
 
@@ -1453,26 +1360,26 @@ pub const ObjObject = struct {
         };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.type_def.toObj());
-        try markObj(vm, self.name.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(self.name.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
-            try markObj(vm, kv.key_ptr.*.toObj());
-            try markObj(vm, kv.value_ptr.*.toObj());
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markObj(kv.value_ptr.*.toObj());
         }
         var it2 = self.fields.iterator();
         while (it2.next()) |kv| {
-            try markObj(vm, kv.key_ptr.*.toObj());
-            try markValue(vm, kv.value_ptr.*);
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markValue(kv.value_ptr.*);
         }
         var it3 = self.static_fields.iterator();
         while (it3.next()) |kv| {
-            try markObj(vm, kv.key_ptr.*.toObj());
-            try markValue(vm, kv.value_ptr.*);
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markValue(kv.value_ptr.*);
         }
         if (self.super) |usuper| {
-            try markObj(vm, usuper.toObj());
+            try gc.markObj(usuper.toObj());
         }
     }
 
@@ -1537,34 +1444,36 @@ pub const ObjObject = struct {
             self.static_placeholders.deinit();
         }
 
-        pub fn mark(self: *ObjectDefSelf, vm: *VM) !void {
+        pub fn mark(self: *ObjectDefSelf, gc: *GarbageCollector) !void {
+            try gc.markObj(self.name.toObj());
+
             var it = self.fields.iterator();
             while (it.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it3 = self.static_fields.iterator();
             while (it3.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it4 = self.methods.iterator();
             while (it4.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
-                try markObj(vm, kv.value_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             if (self.super) |super| {
-                try markObj(vm, super.toObj());
+                try gc.markObj(super.toObj());
             }
         }
     };
@@ -1591,15 +1500,15 @@ pub const ObjList = struct {
         };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         for (self.items.items) |value| {
-            try markValue(vm, value);
+            try gc.markValue(value);
         }
-        try markObj(vm, self.type_def.toObj());
+        try gc.markObj(self.type_def.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
-            try markObj(vm, kv.key_ptr.*.toObj());
-            try markObj(vm, kv.value_ptr.*.toObj());
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markObj(kv.value_ptr.*.toObj());
         }
     }
 
@@ -1649,7 +1558,7 @@ pub const ObjList = struct {
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
-                vm,
+                vm.gc,
                 ObjNative,
                 .{
                     .native = unativeFn,
@@ -1674,7 +1583,7 @@ pub const ObjList = struct {
         var value: Value = vm.peek(0);
 
         list.rawAppend(value) catch |err| {
-            const messageValue: Value = (copyString(vm, "Could not append to list") catch {
+            const messageValue: Value = (copyString(vm.gc, "Could not append to list") catch {
                 std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             }).toValue();
@@ -1739,12 +1648,12 @@ pub const ObjList = struct {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
 
-        var result = std.ArrayList(u8).init(vm.allocator);
+        var result = std.ArrayList(u8).init(vm.gc.allocator);
         var writer = result.writer();
         defer result.deinit();
         for (self.items.items) |item, i| {
             valueToString(writer, item) catch {
-                var err: ?*ObjString = copyString(vm, "could not stringify item") catch null;
+                var err: ?*ObjString = copyString(vm.gc, "could not stringify item") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -1752,7 +1661,7 @@ pub const ObjList = struct {
 
             if (i + 1 < self.items.items.len) {
                 writer.writeAll(separator.string) catch {
-                    var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+                    var err: ?*ObjString = copyString(vm.gc, "could not join list") catch null;
                     vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                     return -1;
@@ -1762,8 +1671,8 @@ pub const ObjList = struct {
 
         vm.push(
             Value{
-                .Obj = (copyString(vm, result.items) catch {
-                    var err: ?*ObjString = copyString(vm, "could not join list") catch null;
+                .Obj = (copyString(vm.gc, result.items) catch {
+                    var err: ?*ObjString = copyString(vm.gc, "could not join list") catch null;
                     vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                     return -1;
@@ -1782,14 +1691,14 @@ pub const ObjList = struct {
         var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
 
         if (start == null or start.? < 0 or start.? >= self.items.items.len) {
-            var err: ?*ObjString = copyString(vm, "`start` is out of bound") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "`start` is out of bound") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         }
 
         if (upto != null and upto.? < 0) {
-            var err: ?*ObjString = copyString(vm, "`len` must greater or equal to 0") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "`len` must greater or equal to 0") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -1798,17 +1707,17 @@ pub const ObjList = struct {
         const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len) @intCast(usize, start.? + upto.?) else self.items.items.len;
         var substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
 
-        var list = allocateObject(vm, ObjList, ObjList{
+        var list = allocateObject(vm.gc, ObjList, ObjList{
             .type_def = self.type_def,
             .methods = self.methods.clone() catch {
-                var err: ?*ObjString = copyString(vm, "Could not get sub list") catch null;
+                var err: ?*ObjString = copyString(vm.gc, "Could not get sub list") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
             },
-            .items = std.ArrayList(Value).init(vm.allocator),
+            .items = std.ArrayList(Value).init(vm.gc.allocator),
         }) catch {
-            var err: ?*ObjString = copyString(vm, "Could not get sub list") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not get sub list") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -1817,7 +1726,7 @@ pub const ObjList = struct {
         vm.push(list.toValue());
 
         list.items.appendSlice(substr) catch {
-            var err: ?*ObjString = copyString(vm, "Could not get sub list") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "Could not get sub list") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -1829,7 +1738,7 @@ pub const ObjList = struct {
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?i64) !?i64 {
         if (list_index) |index| {
             if (index < 0 or index >= @intCast(i64, self.items.items.len)) {
-                try vm.throw(VM.Error.OutOfBound, (try copyString(vm, "Out of bound access to list")).toValue());
+                try vm.throw(VM.Error.OutOfBound, (try copyString(vm.gc, "Out of bound access to list")).toValue());
             }
 
             return if (index + 1 >= @intCast(i64, self.items.items.len))
@@ -1874,11 +1783,11 @@ pub const ObjList = struct {
             self.methods.deinit();
         }
 
-        pub fn mark(self: *SelfListDef, vm: *VM) !void {
-            try markObj(vm, self.item_type.toObj());
+        pub fn mark(self: *SelfListDef, gc: *GarbageCollector) !void {
+            try gc.markObj(self.item_type.toObj());
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try markObj(vm, method.value_ptr.*.toObj());
+                try gc.markObj(method.value_ptr.*.toObj());
             }
         }
 
@@ -1890,7 +1799,7 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1899,9 +1808,9 @@ pub const ObjList = struct {
                 try parameters.put("value", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "append", false),
+                    .name = try copyString(parser.gc, "append"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
@@ -1914,7 +1823,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1929,9 +1838,9 @@ pub const ObjList = struct {
                 try parameters.put("at", at_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
+                    .name = try copyString(parser.gc, "remove"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
@@ -1953,12 +1862,12 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "len", false),
+                    .name = try copyString(parser.gc, "len"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
@@ -1980,7 +1889,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1997,9 +1906,9 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "next", false),
+                    .name = try copyString(parser.gc, "next"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     // When reached end of list, returns null
                     .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
@@ -2023,7 +1932,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "sub")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2047,9 +1956,9 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "sub", false),
+                    .name = try copyString(parser.gc, "sub"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
@@ -2067,7 +1976,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "indexOf")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2075,9 +1984,9 @@ pub const ObjList = struct {
                 try parameters.put("needle", self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "indexOf", false),
+                    .name = try copyString(parser.gc, "indexOf"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(
                         .{
                             .def_type = self.item_type.def_type,
@@ -2101,7 +2010,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "join")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2109,9 +2018,9 @@ pub const ObjList = struct {
                 try parameters.put("separator", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "join", false),
+                    .name = try copyString(parser.gc, "join"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
@@ -2177,7 +2086,7 @@ pub const ObjMap = struct {
 
         if (nativeFn) |unativeFn| {
             var native: *ObjNative = try allocateObject(
-                vm,
+                vm.gc,
                 ObjNative,
                 .{
                     .native = unativeFn,
@@ -2192,13 +2101,20 @@ pub const ObjMap = struct {
         return null;
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         var it = self.map.iterator();
         while (it.next()) |kv| {
-            try markValue(vm, hashableToValue(kv.key_ptr.*));
-            try markValue(vm, kv.value_ptr.*);
+            try gc.markValue(hashableToValue(kv.key_ptr.*));
+            try gc.markValue(kv.value_ptr.*);
         }
-        try markObj(vm, self.type_def.toObj());
+
+        var it2 = self.methods.iterator();
+        while (it2.next()) |kv| {
+            try gc.markObj(kv.key_ptr.*.toObj());
+            try gc.markObj(kv.value_ptr.*.toObj());
+        }
+
+        try gc.markObj(self.type_def.toObj());
     }
 
     fn size(vm: *VM) c_int {
@@ -2226,10 +2142,10 @@ pub const ObjMap = struct {
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_keys: []HashableValue = self.map.keys();
-        var result = std.ArrayList(Value).init(vm.allocator);
+        var result = std.ArrayList(Value).init(vm.gc.allocator);
         for (map_keys) |key| {
             result.append(hashableToValue(key)) catch {
-                var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+                var err: ?*ObjString = copyString(vm.gc, "could not get map keys") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
                 return -1;
@@ -2237,7 +2153,7 @@ pub const ObjMap = struct {
         }
 
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.allocator,
+            vm.gc.allocator,
             self.type_def.resolved_type.?.Map.key_type,
         );
 
@@ -2245,23 +2161,23 @@ pub const ObjMap = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = allocateObject(vm, ObjTypeDef, ObjTypeDef{
+        var list_def_type: *ObjTypeDef = allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "could not get map keys") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
 
         var list = allocateObject(
-            vm,
+            vm.gc,
             ObjList,
-            ObjList.init(vm.allocator, list_def_type),
+            ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = copyString(vm, "could not get map keys") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "could not get map keys") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -2279,16 +2195,16 @@ pub const ObjMap = struct {
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_values: []Value = self.map.values();
-        var result = std.ArrayList(Value).init(vm.allocator);
+        var result = std.ArrayList(Value).init(vm.gc.allocator);
         result.appendSlice(map_values) catch {
-            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "could not get map values") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
 
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.allocator,
+            vm.gc.allocator,
             self.type_def.resolved_type.?.Map.value_type,
         );
 
@@ -2296,23 +2212,23 @@ pub const ObjMap = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = allocateObject(vm, ObjTypeDef, ObjTypeDef{
+        var list_def_type: *ObjTypeDef = allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "could not get map values") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
         };
 
         var list = allocateObject(
-            vm,
+            vm.gc,
             ObjList,
-            ObjList.init(vm.allocator, list_def_type),
+            ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = copyString(vm, "could not get map values") catch null;
+            var err: ?*ObjString = copyString(vm.gc, "could not get map values") catch null;
             vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
             return -1;
@@ -2383,12 +2299,12 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
-        pub fn mark(self: *SelfMapDef, vm: *VM) !void {
-            try markObj(vm, self.key_type.toObj());
-            try markObj(vm, self.value_type.toObj());
+        pub fn mark(self: *SelfMapDef, gc: *GarbageCollector) !void {
+            try gc.markObj(self.key_type.toObj());
+            try gc.markObj(self.value_type.toObj());
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try markObj(vm, method.value_ptr.*.toObj());
+                try gc.markObj(method.value_ptr.*.toObj());
             }
         }
 
@@ -2401,9 +2317,9 @@ pub const ObjMap = struct {
 
             if (mem.eql(u8, method, "size")) {
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "size", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .name = try copyString(parser.gc, "size"),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .Number,
                     }),
@@ -2423,7 +2339,7 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator);
+                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -2431,9 +2347,9 @@ pub const ObjMap = struct {
                 try parameters.put("at", self.key_type);
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "remove", false),
+                    .name = try copyString(parser.gc, "remove"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.value_type.def_type,
@@ -2456,7 +2372,7 @@ pub const ObjMap = struct {
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                    parser.allocator,
+                    parser.gc.allocator,
                     self.key_type,
                 );
 
@@ -2465,9 +2381,9 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "keys", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .name = try copyString(parser.gc, "keys"),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
@@ -2490,7 +2406,7 @@ pub const ObjMap = struct {
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
-                    parser.allocator,
+                    parser.gc.allocator,
                     self.value_type,
                 );
 
@@ -2499,9 +2415,9 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
-                    .name = try copyStringRaw(parser.strings, parser.allocator, "values", false),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+                    .name = try copyString(parser.gc, "values"),
+                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
@@ -2549,11 +2465,11 @@ pub const ObjEnum = struct {
         };
     }
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.name.toObj());
-        try markObj(vm, self.type_def.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.name.toObj());
+        try gc.markObj(self.type_def.toObj());
         for (self.cases.items) |case| {
-            try markValue(vm, case);
+            try gc.markValue(case);
         }
     }
 
@@ -2565,12 +2481,12 @@ pub const ObjEnum = struct {
                 return null;
             }
 
-            return try allocateObject(vm, ObjEnumInstance, ObjEnumInstance{
+            return try allocateObject(vm.gc, ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = self,
                 .case = @intCast(u8, case.case + 1),
             });
         } else {
-            return try allocateObject(vm, ObjEnumInstance, ObjEnumInstance{
+            return try allocateObject(vm.gc, ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = self,
                 .case = 0,
             });
@@ -2612,9 +2528,9 @@ pub const ObjEnum = struct {
             self.cases.deinit();
         }
 
-        pub fn mark(self: *EnumDefSelf, vm: *VM) !void {
-            try markObj(vm, self.name.toObj());
-            try markObj(vm, self.enum_type.toObj());
+        pub fn mark(self: *EnumDefSelf, gc: *GarbageCollector) !void {
+            try gc.markObj(self.name.toObj());
+            try gc.markObj(self.enum_type.toObj());
         }
     };
 };
@@ -2627,8 +2543,8 @@ pub const ObjEnumInstance = struct {
     enum_ref: *ObjEnum,
     case: u8,
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markObj(vm, self.enum_ref.toObj());
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.enum_ref.toObj());
     }
 
     pub fn toObj(self: *Self) *Obj {
@@ -2662,13 +2578,13 @@ pub const ObjBoundMethod = struct {
     closure: ?*ObjClosure = null,
     native: ?*ObjNative = null,
 
-    pub fn mark(self: *Self, vm: *VM) !void {
-        try markValue(vm, self.receiver);
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markValue(self.receiver);
         if (self.closure) |closure| {
-            try markObj(vm, closure.toObj());
+            try gc.markObj(closure.toObj());
         }
         if (self.native) |native| {
-            try markObj(vm, native.toObj());
+            try gc.markObj(native.toObj());
         }
     }
 
@@ -2692,24 +2608,23 @@ pub const ObjBoundMethod = struct {
 pub const TypeRegistry = struct {
     const Self = @This();
 
-    allocator: Allocator,
+    gc: *GarbageCollector,
     registry: std.StringHashMap(*ObjTypeDef),
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        var type_def_buf = std.ArrayList(u8).init(self.allocator);
+        var type_def_buf = std.ArrayList(u8).init(self.gc.allocator);
         try type_def.toString(type_def_buf.writer());
         const type_def_str: []const u8 = type_def_buf.items;
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
             if (self.registry.get(type_def_str)) |type_def_ptr| {
-                self.allocator.free(type_def_str); // If already in map, we don't need this string anymore
+                self.gc.allocator.free(type_def_str); // If already in map, we don't need this string anymore
                 return type_def_ptr;
             }
         }
 
-        var type_def_ptr: *ObjTypeDef = try self.allocator.create(ObjTypeDef);
-        type_def_ptr.* = type_def;
+        var type_def_ptr: *ObjTypeDef = try allocateObject(self.gc, ObjTypeDef, type_def);
 
         _ = try self.registry.put(type_def_str, type_def_ptr);
 
@@ -2717,7 +2632,7 @@ pub const TypeRegistry = struct {
     }
 
     pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
-        const type_def_str: []const u8 = try type_def.toString(self.allocator);
+        const type_def_str: []const u8 = try type_def.toString(self.gc.allocator);
 
         assert(type_def.def_type != .Placeholder);
 
@@ -2789,26 +2704,26 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
-    pub fn mark(self: *Self, vm: *VM) !void {
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         if (self.resolved_type) |*resolved| {
             if (resolved.* == .ObjectInstance) {
-                try markObj(vm, resolved.ObjectInstance.toObj());
+                try gc.markObj(resolved.ObjectInstance.toObj());
             } else if (resolved.* == .EnumInstance) {
-                try markObj(vm, resolved.EnumInstance.toObj());
+                try gc.markObj(resolved.EnumInstance.toObj());
             } else if (resolved.* == .Object) {
-                try resolved.Object.mark(vm);
+                try resolved.Object.mark(gc);
             } else if (resolved.* == .Enum) {
-                try resolved.Enum.mark(vm);
+                try resolved.Enum.mark(gc);
             } else if (resolved.* == .Function) {
-                try resolved.Function.mark(vm);
+                try resolved.Function.mark(gc);
             } else if (resolved.* == .List) {
-                try resolved.List.mark(vm);
+                try resolved.List.mark(gc);
             } else if (resolved.* == .Map) {
-                try resolved.Map.mark(vm);
+                try resolved.Map.mark(gc);
             } else if (resolved.* == .Native) {
-                try resolved.Native.mark(vm);
+                try resolved.Native.mark(gc);
             } else if (resolved.* == .Fiber) {
-                try resolved.Fiber.mark(vm);
+                try resolved.Fiber.mark(gc);
             } else if (resolved.* == .Placeholder) {
                 unreachable;
             }
@@ -2845,7 +2760,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.allocator);
+            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
 
             // Make actual link
             try PlaceholderDef.link(self, optional, .Optional);
@@ -2866,7 +2781,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.allocator);
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
 
             // Make actual link
             try PlaceholderDef.link(self, non_optional, .Unwrap);
@@ -3167,7 +3082,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
             const list = ObjList.cast(obj).?;
 
             return (try allocateObject(
-                vm,
+                vm.gc,
                 ObjList,
                 .{
                     .type_def = list.type_def,
@@ -3181,7 +3096,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
             const map = ObjMap.cast(obj).?;
 
             return (try allocateObject(
-                vm,
+                vm.gc,
                 ObjMap,
                 .{
                     .type_def = map.type_def,

@@ -13,11 +13,11 @@ const _utils = @import("./utils.zig");
 const _parser = @import("./parser.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");
+const GarbageCollector = @import("./memory.zig").GarbageCollector;
 const Config = @import("./config.zig").Config;
-const copyStringRaw = _obj.copyStringRaw;
+const copyString = _obj.copyString;
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
-const ObjString = _obj.ObjString;
 const ObjFunction = _obj.ObjFunction;
 const Global = _parser.Global;
 const Parser = _parser.Parser;
@@ -41,8 +41,7 @@ pub const CodeGen = struct {
     const Self = @This();
 
     current: ?*Frame = null,
-    allocator: Allocator,
-    strings: *std.StringHashMap(*ObjString),
+    gc: *GarbageCollector,
     type_registry: *TypeRegistry,
     testing: bool,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
@@ -53,16 +52,14 @@ pub const CodeGen = struct {
     parser: *Parser,
 
     pub fn init(
-        allocator: Allocator,
+        gc: *GarbageCollector,
         parser: *Parser,
-        strings: *std.StringHashMap(*ObjString),
         type_registry: *TypeRegistry,
         testing: bool,
     ) Self {
         return .{
-            .allocator = allocator,
+            .gc = gc,
             .parser = parser,
-            .strings = strings,
             .type_registry = type_registry,
             .testing = testing,
         };
@@ -79,7 +76,7 @@ pub const CodeGen = struct {
         self.panic_mode = false;
 
         if (Config.debug) {
-            var out = std.ArrayList(u8).init(self.allocator);
+            var out = std.ArrayList(u8).init(self.gc.allocator);
             defer out.deinit();
 
             try root.node.toJson(&root.node, out.writer());
@@ -217,15 +214,15 @@ pub const CodeGen = struct {
     pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
         return try self.makeConstant(
             Value{
-                .Obj = (try copyStringRaw(self.strings, self.allocator, name, false)).toObj(),
+                .Obj = (try copyString(self.gc, name)).toObj(),
             },
         );
     }
 
     pub fn report(self: *Self, location: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try location.getLines(self.allocator, 3);
+        const lines: std.ArrayList([]const u8) = try location.getLines(self.gc.allocator, 3);
         defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.allocator);
+        var report_line = std.ArrayList(u8).init(self.gc.allocator);
         defer report_line.deinit();
         var writer = report_line.writer();
 
@@ -295,7 +292,7 @@ pub const CodeGen = struct {
     }
 
     pub fn reportErrorFmt(self: *Self, token: Token, comptime fmt: []const u8, args: anytype) !void {
-        var message = std.ArrayList(u8).init(self.allocator);
+        var message = std.ArrayList(u8).init(self.gc.allocator);
         defer message.deinit();
 
         var writer = message.writer();
@@ -305,7 +302,7 @@ pub const CodeGen = struct {
     }
 
     pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var error_message = std.ArrayList(u8).init(self.allocator);
+        var error_message = std.ArrayList(u8).init(self.gc.allocator);
         var writer = error_message.writer();
 
         try writer.print("{s}: expected type `", .{message});

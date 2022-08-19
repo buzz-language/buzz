@@ -7,6 +7,7 @@ const _disassembler = @import("./disassembler.zig");
 const _obj = @import("./obj.zig");
 const Allocator = std.mem.Allocator;
 const Config = @import("./config.zig").Config;
+const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
@@ -142,7 +143,7 @@ pub const Fiber = struct {
 
         switch (self.call_type) {
             .OP_ROUTINE => { // | closure | ...args | ...catch |
-                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                var catch_values = std.ArrayList(Value).init(self.allocator);
                 defer catch_values.deinit();
                 var i: u16 = 0;
                 while (i < self.catch_count) : (i += 1) {
@@ -152,7 +153,7 @@ pub const Fiber = struct {
                 try vm.callValue(vm.peek(self.arg_count), self.arg_count, catch_values);
             },
             .OP_INVOKE_ROUTINE => { // | receiver | ...args | ...catch |
-                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                var catch_values = std.ArrayList(Value).init(self.allocator);
                 defer catch_values.deinit();
                 var i: u16 = 0;
                 while (i < self.catch_count) : (i += 1) {
@@ -162,7 +163,7 @@ pub const Fiber = struct {
                 try vm.invoke(self.method.?, self.arg_count, catch_values);
             },
             .OP_SUPER_INVOKE_ROUTINE => { // | receiver | super | ...args | ...catch |
-                var catch_values = std.ArrayList(Value).init(vm.allocator);
+                var catch_values = std.ArrayList(Value).init(self.allocator);
                 defer catch_values.deinit();
                 var i: u16 = 0;
                 while (i < self.catch_count) : (i += 1) {
@@ -210,7 +211,7 @@ pub const Fiber = struct {
             },
             .Over => {
                 // User should check fiber.over() before doing `resume`
-                try vm.throw(VM.Error.FiberOver, (try _obj.copyString(vm, "Fiber is over")).toValue());
+                try vm.throw(VM.Error.FiberOver, (try _obj.copyString(vm.gc, "Fiber is over")).toValue());
             },
             .Running => unreachable,
         }
@@ -252,45 +253,30 @@ pub const VM = struct {
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
-    allocator: Allocator,
-
+    gc: *GarbageCollector,
     current_fiber: *Fiber,
-
     globals: std.ArrayList(Value),
-    // Interned strings
-    strings: *std.StringHashMap(*ObjString),
 
-    bytes_allocated: usize = 0,
-    next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 1024,
-    // TODO: replace with SinglyLinkedList(*Obj)
-    objects: ?*Obj = null,
-    gray_stack: std.ArrayList(*Obj),
-
-    pub fn init(allocator: Allocator, strings: *std.StringHashMap(*ObjString)) !Self {
+    pub fn init(gc: *GarbageCollector) !Self {
         var self: Self = .{
-            .allocator = allocator,
-            .globals = std.ArrayList(Value).init(allocator),
-            .strings = strings,
-            .gray_stack = std.ArrayList(*Obj).init(allocator),
-            .current_fiber = try allocator.create(Fiber),
+            .gc = gc,
+            .globals = std.ArrayList(Value).init(gc.allocator),
+            .current_fiber = try gc.allocator.create(Fiber),
         };
 
         return self;
     }
 
-    pub fn deinit(self: *Self) void {
-        // TODO: free all objects except exported ones (be careful of indirected exported stuff like object of objectinstance)
-
-        self.gray_stack.deinit();
+    pub fn deinit(_: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            self.allocator,
+            self.gc.allocator,
             try allocateObject(
-                self,
+                self.gc,
                 ObjTypeDef,
                 ObjTypeDef{ .def_type = .String },
             ),
@@ -300,17 +286,21 @@ pub const VM = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = try allocateObject(self, ObjTypeDef, ObjTypeDef{
-            .def_type = .List,
-            .optional = false,
-            .resolved_type = list_def_union,
-        });
+        var list_def_type: *ObjTypeDef = try allocateObject(
+            self.gc,
+            ObjTypeDef,
+            ObjTypeDef{
+                .def_type = .List,
+                .optional = false,
+                .resolved_type = list_def_union,
+            },
+        );
 
         var arg_list = try allocateObject(
-            self,
+            self.gc,
             ObjList,
             ObjList.init(
-                self.allocator,
+                self.gc.allocator,
                 // TODO: get instance that already exists
                 list_def_type,
             ),
@@ -329,7 +319,7 @@ pub const VM = struct {
 
                 try arg_list.items.append(
                     Value{
-                        .Obj = (try _obj.copyString(self, std.mem.sliceTo(arg, 0))).toObj(),
+                        .Obj = (try _obj.copyString(self.gc, std.mem.sliceTo(arg, 0))).toObj(),
                     },
                 );
             }
@@ -406,7 +396,7 @@ pub const VM = struct {
 
     pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {
         self.current_fiber.* = try Fiber.init(
-            self.allocator,
+            self.gc.allocator,
             null, // parent fiber
             null, // stack_slice
             .OP_CALL, // call_type
@@ -416,12 +406,15 @@ pub const VM = struct {
         );
 
         self.push((try allocateObject(
-            self,
+            self.gc,
             ObjClosure,
-            try ObjClosure.init(self.allocator, self, function),
+            try ObjClosure.init(self.gc.allocator, self, function),
         )).toValue());
 
         self.push((try self.cliArgs(args)).toValue());
+
+        try self.gc.registerVM(self);
+        defer self.gc.unregisterVM(self);
 
         try self.callValue(self.peek(1), 0, null);
 
@@ -467,7 +460,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.function.chunk.constants.items[arg];
     }
 
-    inline fn readString(self: *Self, arg: u24) *ObjString {
+    fn readString(self: *Self, arg: u24) *ObjString {
         return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
@@ -509,11 +502,11 @@ pub const VM = struct {
                 .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => {
-                    var str = try valueToStringAlloc(self.allocator, self.pop());
-                    defer self.allocator.free(str);
+                    var str = try valueToStringAlloc(self.gc.allocator, self.pop());
+                    defer self.gc.allocator.free(str);
                     self.push(
                         Value{
-                            .Obj = (try _obj.copyString(self, str)).toObj(),
+                            .Obj = (try _obj.copyString(self.gc, str)).toObj(),
                         },
                     );
                 },
@@ -529,9 +522,9 @@ pub const VM = struct {
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
                     var closure: *ObjClosure = try allocateObject(
-                        self,
+                        self.gc,
                         ObjClosure,
-                        try ObjClosure.init(self.allocator, self, function),
+                        try ObjClosure.init(self.gc.allocator, self, function),
                     );
 
                     self.push(Value{ .Obj = closure.toObj() });
@@ -561,9 +554,9 @@ pub const VM = struct {
                     const stack_len = arg_count + catch_count + 1;
                     const stack_slice = stack_ptr[0..stack_len];
 
-                    var fiber = try self.allocator.create(Fiber);
+                    var fiber = try self.gc.allocator.create(Fiber);
                     fiber.* = try Fiber.init(
-                        self.allocator,
+                        self.gc.allocator,
                         self.current_fiber,
                         stack_slice,
                         instruction,
@@ -578,7 +571,7 @@ pub const VM = struct {
                     const type_def = ObjTypeDef.cast(self.pop().Obj).?;
 
                     // Put new fiber on the stack
-                    var obj_fiber = try allocateObject(self, ObjFiber, ObjFiber{
+                    var obj_fiber = try allocateObject(self.gc, ObjFiber, ObjFiber{
                         .fiber = fiber,
                         .type_def = type_def,
                     });
@@ -600,9 +593,9 @@ pub const VM = struct {
                     const stack_len = arg_count + catch_count + 1 + extra;
                     const stack_slice = stack_ptr[0..stack_len];
 
-                    var fiber = try self.allocator.create(Fiber);
+                    var fiber = try self.gc.allocator.create(Fiber);
                     fiber.* = try Fiber.init(
-                        self.allocator,
+                        self.gc.allocator,
                         self.current_fiber,
                         stack_slice,
                         instruction,
@@ -617,7 +610,7 @@ pub const VM = struct {
                     const type_def = ObjTypeDef.cast(self.pop().Obj).?;
 
                     // Push new fiber on the stack
-                    var obj_fiber = try allocateObject(self, ObjFiber, ObjFiber{
+                    var obj_fiber = try allocateObject(self.gc, ObjFiber, ObjFiber{
                         .fiber = fiber,
                         .type_def = type_def,
                     });
@@ -645,7 +638,7 @@ pub const VM = struct {
                     const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
                     const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
 
-                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    var catch_values = std.ArrayList(Value).init(self.gc.allocator);
                     defer catch_values.deinit();
                     var i: u16 = 0;
                     while (i < catch_count) : (i += 1) {
@@ -661,7 +654,7 @@ pub const VM = struct {
                     const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
                     const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
 
-                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    var catch_values = std.ArrayList(Value).init(self.gc.allocator);
                     defer catch_values.deinit();
                     var i: u16 = 0;
                     while (i < catch_count) : (i += 1) {
@@ -678,7 +671,7 @@ pub const VM = struct {
                     const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
                     const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
 
-                    var catch_values = std.ArrayList(Value).init(self.allocator);
+                    var catch_values = std.ArrayList(Value).init(self.gc.allocator);
                     defer catch_values.deinit();
                     var i: u16 = 0;
                     while (i < catch_count) : (i += 1) {
@@ -706,9 +699,9 @@ pub const VM = struct {
 
                 .OP_LIST => {
                     var list: *ObjList = try allocateObject(
-                        self,
+                        self.gc,
                         ObjList,
-                        ObjList.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+                        ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
                     );
 
                     self.push(Value{ .Obj = list.toObj() });
@@ -717,8 +710,8 @@ pub const VM = struct {
                 .OP_LIST_APPEND => try self.appendToList(),
 
                 .OP_MAP => {
-                    var map: *ObjMap = try allocateObject(self, ObjMap, ObjMap.init(
-                        self.allocator,
+                    var map: *ObjMap = try allocateObject(self.gc, ObjMap, ObjMap.init(
+                        self.gc.allocator,
                         ObjTypeDef.cast(self.readConstant(arg).Obj).?,
                     ));
 
@@ -742,9 +735,9 @@ pub const VM = struct {
 
                 .OP_ENUM => {
                     var enum_: *ObjEnum = try allocateObject(
-                        self,
+                        self.gc,
                         ObjEnum,
-                        ObjEnum.init(self.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+                        ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
                     );
 
                     self.push(Value{ .Obj = enum_.toObj() });
@@ -757,7 +750,7 @@ pub const VM = struct {
 
                     _ = self.pop();
 
-                    var enum_case: *ObjEnumInstance = try allocateObject(self, ObjEnumInstance, ObjEnumInstance{
+                    var enum_case: *ObjEnumInstance = try allocateObject(self.gc, ObjEnumInstance, ObjEnumInstance{
                         .enum_ref = enum_,
                         .case = @intCast(u8, arg),
                     });
@@ -774,10 +767,10 @@ pub const VM = struct {
 
                 .OP_OBJECT => {
                     var object: *ObjObject = try allocateObject(
-                        self,
+                        self.gc,
                         ObjObject,
                         ObjObject.init(
-                            self.allocator,
+                            self.gc.allocator,
                             ObjString.cast(self.readConstant(arg).Obj).?,
                             ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?,
                         ),
@@ -991,7 +984,7 @@ pub const VM = struct {
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self, "Force unwrapped optional is null")).toValue());
+                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self.gc, "Force unwrapped optional is null")).toValue());
                     }
                 },
 
@@ -1047,7 +1040,7 @@ pub const VM = struct {
 
                 // Set new value
                 if (key_slot.* != .Null) {
-                    value_slot.* = (try _obj.copyString(self, &([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
+                    value_slot.* = (try _obj.copyString(self.gc, &([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
                 }
             },
             .List => {
@@ -1145,8 +1138,8 @@ pub const VM = struct {
     fn import(self: *Self, value: Value) Error!void {
         var closure: *ObjClosure = ObjClosure.cast(value.Obj).?;
 
-        var vm = try self.allocator.create(VM);
-        vm.* = try VM.init(self.allocator, self.strings);
+        var vm = try self.gc.allocator.create(VM);
+        vm.* = try VM.init(self.gc);
         // TODO: we can't free this because exported closure refer to it
         // defer vm.deinit();
 
@@ -1167,7 +1160,7 @@ pub const VM = struct {
     }
 
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
-        var stack = std.ArrayList(CallFrame).init(self.allocator);
+        var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
 
         while (self.current_fiber.frame_count > 0) {
             var frame: *CallFrame = self.currentFrame().?;
@@ -1182,7 +1175,7 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Raise the runtime error
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToStringAlloc(self.allocator, payload)});
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToStringAlloc(self.gc.allocator, payload)});
 
                 for (stack.items) |stack_frame| {
                     std.debug.print("\tat {s}", .{stack_frame.closure.function.name.string});
@@ -1279,12 +1272,12 @@ pub const VM = struct {
 
                     break :add;
                 } else if (right_l != null) {
-                    var new_list = std.ArrayList(Value).init(self.allocator);
+                    var new_list = std.ArrayList(Value).init(self.gc.allocator);
                     try new_list.appendSlice(left_l.?.items.items);
                     try new_list.appendSlice(right_l.?.items.items);
 
                     self.push(
-                        (try _obj.allocateObject(self, ObjList, ObjList{
+                        (try _obj.allocateObject(self.gc, ObjList, ObjList{
                             .type_def = left_l.?.type_def,
                             .methods = left_l.?.methods,
                             .items = new_list,
@@ -1302,7 +1295,7 @@ pub const VM = struct {
                 }
 
                 self.push(
-                    (try _obj.allocateObject(self, ObjMap, ObjMap{
+                    (try _obj.allocateObject(self.gc, ObjMap, ObjMap{
                         .type_def = left_m.?.type_def,
                         .methods = left_m.?.methods,
                         .map = new_map,
@@ -1358,7 +1351,7 @@ pub const VM = struct {
                 current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
             else
                 null,
-            .error_handlers = std.ArrayList(*ObjClosure).init(self.allocator),
+            .error_handlers = std.ArrayList(*ObjClosure).init(self.gc.allocator),
         };
 
         if (catch_values != null) {
@@ -1396,7 +1389,7 @@ pub const VM = struct {
         } else {
             // An error occured within the native function -> call error handlers
             if (catch_values != null) {
-                var handlers = std.ArrayList(*ObjClosure).init(self.allocator);
+                var handlers = std.ArrayList(*ObjClosure).init(self.gc.allocator);
                 defer handlers.deinit();
                 for (catch_values.?.items) |catch_value| {
                     if (catch_value == .Obj and ObjClosure.cast(catch_value.Obj) != null and ObjClosure.cast(catch_value.Obj).?.function.type_def.resolved_type.?.Function.function_type == .Catch) {
@@ -1426,7 +1419,7 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
-        var bound: *ObjBoundMethod = try allocateObject(self, ObjBoundMethod, .{
+        var bound: *ObjBoundMethod = try allocateObject(self.gc, ObjBoundMethod, .{
             .receiver = self.peek(0),
             .closure = method,
             .native = native,
@@ -1457,14 +1450,14 @@ pub const VM = struct {
                 return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_values);
             },
             else => {
-                std.debug.print("unexpected {}\n", .{obj.obj_type});
+                std.debug.print("unexpected @{} {}\n", .{ @ptrToInt(obj), obj.obj_type });
                 unreachable;
             },
         }
     }
 
     fn instanciateObject(self: *Self, object: *ObjObject) !void {
-        var instance: *ObjObjectInstance = try allocateObject(self, ObjObjectInstance, ObjObjectInstance.init(self.allocator, object));
+        var instance: *ObjObjectInstance = try allocateObject(self.gc, ObjObjectInstance, ObjObjectInstance.init(self.gc.allocator, object));
 
         // Set instance fields with super classes default values
         if (object.super) |super| {
@@ -1608,7 +1601,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *ObjUpValue = try allocateObject(self, ObjUpValue, ObjUpValue.init(local));
+        var created_upvalue: *ObjUpValue = try allocateObject(self.gc, ObjUpValue, ObjUpValue.init(local));
         created_upvalue.next = upvalue;
 
         if (prev_upvalue) |uprev_upvalue| {
@@ -1670,7 +1663,7 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(subscriptable).?;
 
                 if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
                 }
 
                 const list_index: usize = @intCast(usize, index.Integer);
@@ -1685,7 +1678,7 @@ pub const VM = struct {
                     // Push value
                     self.push(list_item);
                 } else {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
                 }
             },
             .Map => {
@@ -1706,13 +1699,13 @@ pub const VM = struct {
                 var str: *ObjString = ObjString.cast(subscriptable).?;
 
                 if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound string access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound string access.")).toValue());
                 }
 
                 const str_index: usize = @intCast(usize, index.Integer);
 
                 if (str_index < str.string.len) {
-                    var str_item: Value = (try _obj.copyString(self, &([_]u8{str.string[str_index]}))).toValue();
+                    var str_item: Value = (try _obj.copyString(self.gc, &([_]u8{str.string[str_index]}))).toValue();
 
                     // Pop str and index
                     _ = self.pop();
@@ -1721,7 +1714,7 @@ pub const VM = struct {
                     // Push value
                     self.push(str_item);
                 } else {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound str access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound str access.")).toValue());
                 }
             },
             else => unreachable,
@@ -1737,7 +1730,7 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index != .Integer or index.Integer < 0) {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
             }
 
             const list_index: usize = @intCast(usize, index.Integer);
@@ -1753,7 +1746,7 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self, "Out of bound list access.")).toValue());
+                try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;

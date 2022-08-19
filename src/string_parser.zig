@@ -13,7 +13,7 @@ const Token = @import("./token.zig").Token;
 
 const Value = _value.Value;
 const ObjTypeDef = _obj.ObjTypeDef;
-const copyStringRaw = _obj.copyStringRaw;
+const copyString = _obj.copyString;
 
 pub const StringParser = struct {
     const Self = @This();
@@ -38,8 +38,8 @@ pub const StringParser = struct {
         return Self{
             .parser = parser,
             .source = source,
-            .current_chunk = std.ArrayList(u8).init(parser.allocator),
-            .elements = std.ArrayList(*ParseNode).init(parser.allocator),
+            .current_chunk = std.ArrayList(u8).init(parser.gc.allocator),
+            .elements = std.ArrayList(*ParseNode).init(parser.gc.allocator),
             .line_offset = line_offset,
             .column_offset = column_offset,
             .script_name = script_name,
@@ -78,7 +78,7 @@ pub const StringParser = struct {
                         if (self.current_chunk.items.len > 0) {
                             try self.push(self.current_chunk.items);
                             // The previous `current_chunk` memory is owned by the parser
-                            self.current_chunk = std.ArrayList(u8).init(self.parser.allocator);
+                            self.current_chunk = std.ArrayList(u8).init(self.parser.gc.allocator);
 
                             try self.inc();
                         }
@@ -97,10 +97,10 @@ pub const StringParser = struct {
             try self.push(self.current_chunk.items);
 
             // The previous `current_chunk` memory is owned by the parser
-            self.current_chunk = std.ArrayList(u8).init(self.parser.allocator);
+            self.current_chunk = std.ArrayList(u8).init(self.parser.gc.allocator);
         }
 
-        var node = try self.parser.allocator.create(StringNode);
+        var node = try self.parser.gc.allocator.create(StringNode);
         node.* = .{ .elements = self.elements.items };
         node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
 
@@ -108,14 +108,9 @@ pub const StringParser = struct {
     }
 
     fn push(self: *Self, chars: []const u8) !void {
-        var node = try self.parser.allocator.create(StringLiteralNode);
+        var node = try self.parser.gc.allocator.create(StringLiteralNode);
         node.* = .{
-            .constant = try copyStringRaw(
-                self.parser.strings,
-                self.parser.allocator,
-                chars,
-                true, // The substring we built is now owned by parser
-            ),
+            .constant = try copyString(self.parser.gc, chars),
         };
         node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
         node.node.location = self.parser.parser.previous_token.?;
@@ -130,7 +125,7 @@ pub const StringParser = struct {
     fn interpolation(self: *Self) !void {
         var expr: []const u8 = self.source[self.offset..];
 
-        var expr_scanner = Scanner.init(self.parser.allocator, self.parser.script_name, expr);
+        var expr_scanner = Scanner.init(self.parser.gc.allocator, self.parser.script_name, expr);
         expr_scanner.line_offset = self.line_offset;
         expr_scanner.column_offset = self.column_offset;
 
@@ -138,7 +133,7 @@ pub const StringParser = struct {
         var scanner = self.parser.scanner;
         self.parser.scanner = expr_scanner;
         var parser = self.parser.parser;
-        self.parser.parser = ParserState.init(self.parser.allocator);
+        self.parser.parser = ParserState.init(self.parser.gc.allocator);
 
         try self.parser.advance();
 

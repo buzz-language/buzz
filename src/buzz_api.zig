@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const VM = @import("./vm.zig").VM;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
@@ -19,6 +20,15 @@ const UserData = _obj.UserData;
 const TypeRegistry = _obj.TypeRegistry;
 const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
+
+var gpa = std.heap.GeneralPurposeAllocator(.{
+    .safety = true,
+}){};
+
+var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+    gpa.allocator()
+else
+    std.heap.c_allocator;
 
 // Stack manipulation
 
@@ -86,7 +96,7 @@ export fn bz_valueToString(value: *Value) ?[*:0]const u8 {
         return null;
     }
 
-    return utils.toCString(std.heap.c_allocator, ObjString.cast(value.Obj).?.string);
+    return utils.toCString(allocator, ObjString.cast(value.Obj).?.string);
 }
 
 /// Converts a value to a float
@@ -110,7 +120,7 @@ export fn bz_valueIsFloat(value: *Value) bool {
 
 /// Converts a c string to a *ObjString
 export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
-    return copyString(vm, utils.toSlice(string)) catch null;
+    return copyString(vm.gc, utils.toSlice(string)) catch null;
 }
 
 // Other stuff
@@ -120,7 +130,7 @@ export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
 // TODO: should always return the same instance
 /// Returns the [bool] type
 export fn bz_boolType() ?*ObjTypeDef {
-    var bool_type: ?*ObjTypeDef = std.heap.c_allocator.create(ObjTypeDef) catch null;
+    var bool_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
 
     if (bool_type == null) {
         return null;
@@ -133,7 +143,7 @@ export fn bz_boolType() ?*ObjTypeDef {
 
 /// Returns the [str] type
 export fn bz_stringType() ?*ObjTypeDef {
-    var bool_type: ?*ObjTypeDef = std.heap.c_allocator.create(ObjTypeDef) catch null;
+    var bool_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
 
     if (bool_type == null) {
         return null;
@@ -146,7 +156,7 @@ export fn bz_stringType() ?*ObjTypeDef {
 
 /// Returns the [void] type
 export fn bz_voidType() ?*ObjTypeDef {
-    var void_type: ?*ObjTypeDef = std.heap.c_allocator.create(ObjTypeDef) catch null;
+    var void_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
 
     if (void_type == null) {
         return null;
@@ -158,11 +168,11 @@ export fn bz_voidType() ?*ObjTypeDef {
 }
 
 export fn bz_allocated(self: *VM) usize {
-    return self.bytes_allocated;
+    return self.gc.bytes_allocated;
 }
 
 export fn bz_collect(self: *VM) bool {
-    memory.collectGarbage(self) catch {
+    self.gc.collectGarbage() catch {
         return false;
     };
 
@@ -171,7 +181,7 @@ export fn bz_collect(self: *VM) bool {
 
 export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
     var list_def: ObjList.ListDef = ObjList.ListDef.init(
-        vm.allocator,
+        vm.gc.allocator,
         of_type,
     );
 
@@ -179,7 +189,7 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = _obj.allocateObject(vm, ObjTypeDef, ObjTypeDef{
+    var list_def_type: *ObjTypeDef = _obj.allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -188,9 +198,9 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
     };
 
     return _obj.allocateObject(
-        vm,
+        vm.gc,
         ObjList,
-        ObjList.init(vm.allocator, list_def_type),
+        ObjList.init(vm.gc.allocator, list_def_type),
     ) catch {
         return null;
     };
@@ -218,7 +228,7 @@ export fn bz_listLen(self: *ObjList) usize {
 
 export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     return _obj.allocateObject(
-        vm,
+        vm.gc,
         ObjUserData,
         ObjUserData{ .userdata = userdata },
     ) catch {
@@ -238,29 +248,33 @@ export fn bz_throwString(vm: *VM, message: [*:0]const u8) void {
 }
 
 export fn bz_newVM(self: *VM) ?*VM {
-    var vm = self.allocator.create(VM) catch {
+    var vm = self.gc.allocator.create(VM) catch {
         return null;
     };
-    vm.* = VM.init(self.allocator, self.strings) catch {
+    vm.* = VM.init(self.gc) catch {
         return null;
     };
 
     return vm;
 }
 
-export fn bz_deinitVM(self: *VM) void {
-    self.deinit();
+export fn bz_deinitVM(_: *VM) void {
+    // self.deinit();
+}
+
+export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
+    return vm.gc;
 }
 
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
-    var imports = std.StringHashMap(Parser.ScriptImport).init(self.allocator);
-    var strings = std.StringHashMap(*ObjString).init(self.allocator);
+    var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
+    var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
     var type_registry = TypeRegistry{
-        .allocator = self.allocator,
-        .registry = std.StringHashMap(*ObjTypeDef).init(self.allocator),
+        .gc = self.gc,
+        .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
     };
-    var parser = Parser.init(self.allocator, self.strings, &imports, &type_registry, false);
-    var codegen = CodeGen.init(self.allocator, &parser, self.strings, &type_registry, false);
+    var parser = Parser.init(self.gc, &imports, &type_registry, false);
+    var codegen = CodeGen.init(self.gc, &parser, &type_registry, false);
     defer {
         codegen.deinit();
         imports.deinit();

@@ -5,6 +5,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
 }){};
 
+pub const GarbageCollector = opaque {};
+
 pub const VM = opaque {
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
@@ -22,6 +24,7 @@ pub const VM = opaque {
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(vm: *VM, value: *Value) void;
     pub extern fn bz_throwString(vm: *VM, message: [*:0]const u8) void;
+    pub extern fn bz_getGC(vm: *VM) *GarbageCollector;
 
     pub extern fn bz_allocated(self: *VM) usize;
 

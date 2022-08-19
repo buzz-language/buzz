@@ -7,6 +7,7 @@ const TypeRegistry = _obj.TypeRegistry;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const utils = @import("../src/utils.zig");
+const GarbageCollector = @import("../src/memory.zig").GarbageCollector;
 
 export fn ast(vm: *api.VM) c_int {
     const source: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(1)) orelse {
@@ -21,14 +22,15 @@ export fn ast(vm: *api.VM) c_int {
         return -1;
     };
 
+    var gc = GarbageCollector.init(api.VM.allocator);
     var strings = std.StringHashMap(*ObjString).init(api.VM.allocator);
     var imports = std.StringHashMap(Parser.ScriptImport).init(api.VM.allocator);
     var type_registry = TypeRegistry{
-        .allocator = api.VM.allocator,
+        .gc = &gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(api.VM.allocator),
     };
 
-    var parser = Parser.init(api.VM.allocator, &strings, &imports, &type_registry, false);
+    var parser = Parser.init(&gc, &imports, &type_registry, false);
 
     defer {
         parser.deinit();

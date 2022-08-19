@@ -13,6 +13,7 @@ const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
 const Config = @import("./config.zig").Config;
 const VM = @import("./vm.zig").VM;
+const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
 const disassembleChunk = disassembler.disassembleChunk;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -26,7 +27,6 @@ const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const FunctionType = ObjFunction.FunctionType;
-const copyStringRaw = _obj.copyStringRaw;
 const copyObj = _obj.copyObj;
 const Value = _value.Value;
 const valueToString = _value.valueToString;
@@ -40,6 +40,7 @@ const Local = _parser.Local;
 const Global = _parser.Global;
 const UpValue = _parser.UpValue;
 const OpCode = _chunk.OpCode;
+const copyString = _obj.copyString;
 
 pub const GenError = error{NotConstant};
 
@@ -109,14 +110,14 @@ pub const ParseNode = struct {
 
     toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
-    toValue: fn (*Self, Allocator, *std.StringHashMap(*ObjString)) anyerror!Value = val,
+    toValue: fn (*Self, *GarbageCollector) anyerror!Value = val,
     isConstant: fn (*Self) bool,
 
     pub fn constant(_: *Self) bool {
         return false;
     }
 
-    fn val(_: *Self, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *Self, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -237,11 +238,11 @@ pub const ExpressionNode = struct {
         return self.expression.isConstant(self.expression);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            return self.expression.toValue(self.expression, allocator, strings);
+            return self.expression.toValue(self.expression, gc);
         }
 
         return GenError.NotConstant;
@@ -320,7 +321,7 @@ pub const NamedVariableNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -421,7 +422,7 @@ pub const NumberNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
         const self = Self.cast(node).?;
 
         if (self.float_constant) |constant| {
@@ -504,7 +505,7 @@ pub const BooleanNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return Value{ .Boolean = Self.cast(node).?.constant };
     }
 
@@ -565,7 +566,7 @@ pub const StringLiteralNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return Self.cast(node).?.constant.toValue();
     }
 
@@ -626,7 +627,7 @@ pub const PatternNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return Self.cast(node).?.constant.toValue();
     }
 
@@ -696,22 +697,22 @@ pub const StringNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            var list = std.ArrayList(*ObjString).init(allocator);
+            var list = std.ArrayList(*ObjString).init(gc.allocator);
             defer list.deinit();
 
-            var str_value = std.ArrayList(u8).init(allocator);
+            var str_value = std.ArrayList(u8).init(gc.allocator);
             var writer = str_value.writer();
             for (self.elements) |element| {
                 assert(element.isConstant(element));
 
-                try valueToString(writer, try element.toValue(element, allocator, strings));
+                try valueToString(writer, try element.toValue(element, gc));
             }
 
-            return (try copyStringRaw(strings, allocator, str_value.items, true)).toValue();
+            return (try copyString(gc, str_value.items)).toValue();
         }
 
         return GenError.NotConstant;
@@ -816,7 +817,7 @@ pub const NullNode = struct {
         return true;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return Value{ .Null = null };
     }
 
@@ -881,17 +882,16 @@ pub const ListNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var list = try allocator.create(ObjList);
-            list.* = _obj.ObjList.init(allocator, node.type_def.?);
+            var list = try _obj.allocateObject(gc, ObjList, _obj.ObjList.init(gc.allocator, node.type_def.?));
 
             for (self.items) |item| {
-                try list.items.append(try item.toValue(item, allocator, strings));
+                try list.items.append(try item.toValue(item, gc));
             }
 
             return list.toValue();
@@ -998,22 +998,21 @@ pub const MapNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var map = try allocator.create(ObjMap);
-            map.* = _obj.ObjMap.init(allocator, node.type_def.?);
+            var map = try _obj.allocateObject(gc, ObjMap, _obj.ObjMap.init(gc.allocator, node.type_def.?));
 
             assert(self.keys.len == self.values.len);
 
             for (self.keys) |key, index| {
                 const value = self.values[index];
                 try map.map.put(
-                    _value.valueToHashable(try key.toValue(key, allocator, strings)),
-                    try value.toValue(value, allocator, strings),
+                    _value.valueToHashable(try key.toValue(key, gc)),
+                    try value.toValue(value, gc),
                 );
             }
 
@@ -1134,11 +1133,11 @@ pub const UnwrapNode = struct {
         return self.unwrapped.isConstant(self.unwrapped);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            return try self.unwrapped.toValue(self.unwrapped, allocator, strings);
+            return try self.unwrapped.toValue(self.unwrapped, gc);
         }
 
         return GenError.NotConstant;
@@ -1171,7 +1170,7 @@ pub const UnwrapNode = struct {
         const jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
 
         if (codegen.opt_jumps == null) {
-            codegen.opt_jumps = std.ArrayList(usize).init(codegen.allocator);
+            codegen.opt_jumps = std.ArrayList(usize).init(codegen.gc.allocator);
         }
         try codegen.opt_jumps.?.append(jump);
 
@@ -1229,11 +1228,11 @@ pub const ForceUnwrapNode = struct {
         return self.unwrapped.isConstant(self.unwrapped);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            const value = try self.unwrapped.toValue(self.unwrapped, allocator, strings);
+            const value = try self.unwrapped.toValue(self.unwrapped, gc);
 
             if (value == .Null) {
                 return VM.Error.UnwrappedNull;
@@ -1319,10 +1318,10 @@ pub const IsNode = struct {
         return self.left.isConstant(self.left);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
-            const left = try self.left.toValue(self.left, allocator, strings);
+            const left = try self.left.toValue(self.left, gc);
 
             return Value{ .Boolean = _value.valueIs(left, self.constant) };
         }
@@ -1399,11 +1398,11 @@ pub const UnaryNode = struct {
         return self.left.isConstant(self.left);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            const value = try self.left.toValue(self.left, allocator, strings);
+            const value = try self.left.toValue(self.left, gc);
 
             return switch (self.operator) {
                 .Bang => Value{ .Boolean = !value.Boolean },
@@ -1445,7 +1444,7 @@ pub const UnaryNode = struct {
                     try codegen.reportErrorFmt(
                         self.left.location,
                         "Expected type `bool`, got `{s}`",
-                        .{try left_type.toStringAlloc(codegen.allocator)},
+                        .{try left_type.toStringAlloc(codegen.gc.allocator)},
                     );
                 }
 
@@ -1456,7 +1455,7 @@ pub const UnaryNode = struct {
                     try codegen.reportErrorFmt(
                         self.left.location,
                         "Expected type `num`, got `{s}`",
-                        .{try left_type.toStringAlloc(codegen.allocator)},
+                        .{try left_type.toStringAlloc(codegen.gc.allocator)},
                     );
                 }
 
@@ -1518,12 +1517,12 @@ pub const BinaryNode = struct {
         return self.left.isConstant(self.left) and self.right.isConstant(self.right);
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            var left = floatToInteger(try self.left.toValue(self.left, allocator, strings));
-            var right = floatToInteger(try self.right.toValue(self.right, allocator, strings));
+            var left = floatToInteger(try self.left.toValue(self.left, gc));
+            var right = floatToInteger(try self.right.toValue(self.right, gc));
             var left_f: ?f64 = if (left == .Float) left.Float else null;
             var right_f: ?f64 = if (right == .Float) right.Float else null;
             var left_i: ?i64 = if (left == .Integer) left.Integer else null;
@@ -1618,11 +1617,11 @@ pub const BinaryNode = struct {
                     const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
 
                     if (right_s != null) {
-                        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(allocator);
+                        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(gc.allocator);
                         try new_string.appendSlice(left_s.?.string);
                         try new_string.appendSlice(right_s.?.string);
 
-                        return (try copyStringRaw(strings, allocator, new_string.items, true)).toValue();
+                        return (try copyString(gc, new_string.items)).toValue();
                     } else if (right_f != null or left_f != null) {
                         return Value{
                             .Float = (right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)),
@@ -1632,16 +1631,19 @@ pub const BinaryNode = struct {
                             .Integer = right_i.? + left_i.?,
                         };
                     } else if (right_l != null) {
-                        var new_list = std.ArrayList(Value).init(allocator);
+                        var new_list = std.ArrayList(Value).init(gc.allocator);
                         try new_list.appendSlice(left_l.?.items.items);
                         try new_list.appendSlice(right_l.?.items.items);
 
-                        var list = try allocator.create(ObjList);
-                        list.* = ObjList{
-                            .type_def = left_l.?.type_def,
-                            .methods = left_l.?.methods,
-                            .items = new_list,
-                        };
+                        var list = try _obj.allocateObject(
+                            gc,
+                            ObjList,
+                            ObjList{
+                                .type_def = left_l.?.type_def,
+                                .methods = left_l.?.methods,
+                                .items = new_list,
+                            },
+                        );
 
                         return list.toValue();
                     }
@@ -1653,12 +1655,15 @@ pub const BinaryNode = struct {
                         try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
                     }
 
-                    var map = try allocator.create(ObjMap);
-                    map.* = ObjMap{
-                        .type_def = left_m.?.type_def,
-                        .methods = left_m.?.methods,
-                        .map = new_map,
-                    };
+                    var map = try _obj.allocateObject(
+                        gc,
+                        ObjMap,
+                        ObjMap{
+                            .type_def = left_m.?.type_def,
+                            .methods = left_m.?.methods,
+                            .map = new_map,
+                        },
+                    );
 
                     return map.toValue();
                 },
@@ -1926,12 +1931,12 @@ pub const SubscriptNode = struct {
         return self.subscripted.isConstant(self.subscripted) and self.index.isConstant(self.index) and self.value == null;
     }
 
-    fn val(node: *ParseNode, allocator: Allocator, strings: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            const subscriptable = (try self.subscripted.toValue(self.subscripted, allocator, strings)).Obj;
-            const index = floatToInteger(try self.index.toValue(self.index, allocator, strings));
+            const subscriptable = (try self.subscripted.toValue(self.subscripted, gc)).Obj;
+            const index = floatToInteger(try self.index.toValue(self.index, gc));
 
             switch (subscriptable.obj_type) {
                 .List => {
@@ -1972,7 +1977,7 @@ pub const SubscriptNode = struct {
                     const str_index: usize = @intCast(usize, str_index_i.?);
 
                     if (str_index < str.string.len) {
-                        return (try _obj.copyStringRaw(strings, allocator, &([_]u8{str.string[str_index]}), true)).toValue();
+                        return (try _obj.copyString(gc, &([_]u8{str.string[str_index]}))).toValue();
                     } else {
                         return VM.Error.OutOfBound;
                     }
@@ -2122,7 +2127,7 @@ pub const FunctionNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2136,14 +2141,14 @@ pub const FunctionNode = struct {
         var self = Self.cast(node).?;
 
         var enclosing = codegen.current;
-        codegen.current = try codegen.allocator.create(Frame);
+        codegen.current = try codegen.gc.allocator.create(Frame);
         codegen.current.?.* = Frame{
             .enclosing = enclosing,
             .function_node = self,
         };
 
         var function = try ObjFunction.init(
-            codegen.allocator,
+            codegen.gc.allocator,
             node.type_def.?.resolved_type.?.Function.name,
         );
 
@@ -2151,12 +2156,10 @@ pub const FunctionNode = struct {
 
         // First chunk constant is the empty string
         _ = try function.chunk.addConstant(null, Value{
-            .Obj = (try copyStringRaw(codegen.strings, codegen.allocator, "", true // The substring we built is now owned by codegen
-            )).toObj(),
+            .Obj = (try copyString(codegen.gc, "")).toObj(),
         });
 
-        codegen.current.?.function = try codegen.allocator.create(ObjFunction);
-        codegen.current.?.function.?.* = function;
+        codegen.current.?.function = try _obj.allocateObject(codegen.gc, ObjFunction, function);
 
         const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
@@ -2290,11 +2293,11 @@ pub const FunctionNode = struct {
 
     pub fn init(parser: *Parser, function_type: FunctionType, file_name_or_name: ?[]const u8) !Self {
         var self = Self{
-            .body = try parser.allocator.create(BlockNode),
-            .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.allocator),
+            .body = try parser.gc.allocator.create(BlockNode),
+            .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.gc.allocator),
         };
 
-        self.body.?.* = BlockNode.init(parser.allocator);
+        self.body.?.* = BlockNode.init(parser.gc.allocator);
 
         const function_name: []const u8 = switch (function_type) {
             .EntryPoint => "main",
@@ -2304,11 +2307,11 @@ pub const FunctionNode = struct {
         };
 
         const function_def = ObjFunction.FunctionDef{
-            .name = try copyStringRaw(parser.strings, parser.allocator, function_name, false),
+            .name = try copyString(parser.gc, function_name),
             .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.allocator),
-            .defaults = std.StringArrayHashMap(Value).init(parser.allocator),
+            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
+            .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
             .function_type = function_type,
         };
 
@@ -2359,7 +2362,7 @@ pub const YieldNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2424,7 +2427,7 @@ pub const ResolveNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2491,7 +2494,7 @@ pub const ResumeNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2558,7 +2561,7 @@ pub const AsyncCallNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2635,7 +2638,7 @@ pub const CallNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -2696,7 +2699,7 @@ pub const CallNode = struct {
         const arg_keys = args.keys();
         const arg_count = arg_keys.len;
 
-        var missing_arguments = std.StringArrayHashMap(usize).init(codegen.allocator);
+        var missing_arguments = std.StringArrayHashMap(usize).init(codegen.gc.allocator);
         defer missing_arguments.deinit();
         for (arg_keys) |arg_name, pindex| {
             try missing_arguments.put(arg_name, pindex);
@@ -2740,7 +2743,7 @@ pub const CallNode = struct {
         }
 
         // Argument order reference
-        var arguments_order_ref = std.ArrayList([]const u8).init(codegen.allocator);
+        var arguments_order_ref = std.ArrayList([]const u8).init(codegen.gc.allocator);
         defer arguments_order_ref.deinit();
         try arguments_order_ref.appendSlice(self.arguments.keys());
 
@@ -2763,8 +2766,8 @@ pub const CallNode = struct {
         }
 
         if (missing_arguments.count() > 0) {
-            const missing = try std.mem.join(codegen.allocator, ", ", missing_arguments.keys());
-            defer codegen.allocator.free(missing);
+            const missing = try std.mem.join(codegen.gc.allocator, ", ", missing_arguments.keys());
+            defer codegen.gc.allocator.free(missing);
             try codegen.reportErrorFmt(node.location, "Missing argument(s): {s}", .{missing});
         }
 
@@ -3029,7 +3032,7 @@ pub const FunDeclarationNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3104,7 +3107,7 @@ pub const VarDeclarationNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3122,9 +3125,9 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(self.type_def.?.resolved_type.?.Placeholder);
-            } else if (!(try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
+            } else if (!(try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
-                    try self.type_def.?.toInstance(codegen.allocator, codegen.type_registry),
+                    try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry),
                     value.type_def.?,
                     "Wrong variable type",
                     value.location,
@@ -3212,7 +3215,7 @@ pub const EnumNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3237,8 +3240,8 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
-            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry))).eql(case.type_def.?)) {
-                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.allocator, codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
+            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, codegen.type_registry))).eql(case.type_def.?)) {
+                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
             }
 
             _ = try case.toByteCode(case, codegen, breaks);
@@ -3313,7 +3316,7 @@ pub const ThrowNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3378,7 +3381,7 @@ pub const BreakNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3431,7 +3434,7 @@ pub const ContinueNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3488,7 +3491,7 @@ pub const IfNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3511,7 +3514,7 @@ pub const IfNode = struct {
 
         // If condition is a constant expression, no need to generate branches
         if (self.condition.isConstant(self.condition)) {
-            const condition = try self.condition.toValue(self.condition, codegen.allocator, codegen.strings);
+            const condition = try self.condition.toValue(self.condition, codegen.gc);
 
             if (condition.Boolean) {
                 _ = try self.body.toByteCode(self.body, codegen, breaks);
@@ -3602,7 +3605,7 @@ pub const ReturnNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3691,7 +3694,7 @@ pub const ForNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3700,7 +3703,7 @@ pub const ForNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.allocator, codegen.strings)).Boolean) {
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).Boolean) {
             try node.patchOptJumps(codegen);
 
             return null;
@@ -3743,7 +3746,7 @@ pub const ForNode = struct {
 
         try codegen.patchJump(body_jump);
 
-        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
+        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.gc.allocator);
         defer breaks.deinit();
 
         _ = try self.body.toByteCode(self.body, codegen, &breaks);
@@ -3850,7 +3853,7 @@ pub const ForEachNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -3916,7 +3919,7 @@ pub const ForEachNode = struct {
                     }
                 },
                 .Enum => {
-                    const iterable_type = try self.iterable.type_def.?.toInstance(codegen.allocator, codegen.type_registry);
+                    const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry);
                     if (!iterable_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,
@@ -3932,7 +3935,7 @@ pub const ForEachNode = struct {
 
         // If iterable constant and empty, skip the node
         if (self.iterable.isConstant(self.iterable)) {
-            const iterable = (try self.iterable.toValue(self.iterable, codegen.allocator, codegen.strings)).Obj;
+            const iterable = (try self.iterable.toValue(self.iterable, codegen.gc)).Obj;
 
             if (switch (iterable.obj_type) {
                 .List => ObjList.cast(iterable).?.items.items.len == 0,
@@ -3965,7 +3968,7 @@ pub const ForEachNode = struct {
         const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
 
-        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
+        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.gc.allocator);
         defer breaks.deinit();
 
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
@@ -4067,7 +4070,7 @@ pub const WhileNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4077,7 +4080,7 @@ pub const WhileNode = struct {
         var self = Self.cast(node).?;
 
         // If condition constant and false, skip the node
-        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.allocator, codegen.strings)).Boolean) {
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).Boolean) {
             try node.patchOptJumps(codegen);
             try node.endScope(codegen);
 
@@ -4099,7 +4102,7 @@ pub const WhileNode = struct {
         const exit_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
-        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
+        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.gc.allocator);
         defer breaks.deinit();
 
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
@@ -4186,7 +4189,7 @@ pub const DoUntilNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4197,7 +4200,7 @@ pub const DoUntilNode = struct {
 
         const loop_start: usize = codegen.currentCode();
 
-        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.allocator);
+        var breaks: std.ArrayList(usize) = std.ArrayList(usize).init(codegen.gc.allocator);
         defer breaks.deinit();
 
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
@@ -4297,7 +4300,7 @@ pub const BlockNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4385,7 +4388,7 @@ pub const SuperNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4477,7 +4480,7 @@ pub const DotNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4653,7 +4656,7 @@ pub const ObjectInitNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4680,7 +4683,7 @@ pub const ObjectInitNode = struct {
         const obj_def = object_type.resolved_type.?.Object;
 
         // To keep track of what's been initialized or not by this statement
-        var init_properties = std.StringHashMap(void).init(codegen.allocator);
+        var init_properties = std.StringHashMap(void).init(codegen.gc.allocator);
         defer init_properties.deinit();
 
         for (self.properties.keys()) |property_name| {
@@ -4788,7 +4791,7 @@ pub const ObjectDeclarationNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -4981,7 +4984,7 @@ pub const ExportNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
@@ -5039,7 +5042,7 @@ pub const ImportNode = struct {
         return false;
     }
 
-    fn val(_: *ParseNode, _: Allocator, _: *std.StringHashMap(*ObjString)) anyerror!Value {
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 

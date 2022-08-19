@@ -13,6 +13,7 @@ const TypeRegistry = _obj.TypeRegistry;
 const FunctionNode = @import("./node.zig").FunctionNode;
 var Config = @import("./config.zig").Config;
 const clap = @import("ext/clap/clap.zig");
+const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -25,20 +26,20 @@ const RunFlavor = enum {
 };
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor: RunFlavor) !void {
-    var strings = std.StringHashMap(*ObjString).init(allocator);
+    var gc = GarbageCollector.init(allocator);
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var type_registry = TypeRegistry{
-        .allocator = allocator,
+        .gc = &gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
     };
-    var vm = try VM.init(allocator, &strings);
-    var parser = Parser.init(allocator, &strings, &imports, &type_registry, false);
-    var codegen = CodeGen.init(allocator, &parser, &strings, &type_registry, flavor == .Test);
+    var vm = try VM.init(&gc);
+    var parser = Parser.init(&gc, &imports, &type_registry, false);
+    var codegen = CodeGen.init(&gc, &parser, &type_registry, flavor == .Test);
     defer {
         codegen.deinit();
         vm.deinit();
         parser.deinit();
-        strings.deinit();
+        // gc.deinit();
         var it = imports.iterator();
         while (it.next()) |kv| {
             kv.value_ptr.*.globals.deinit();
