@@ -17,9 +17,9 @@ jobs:
         with:
           version: master
       - name: Build
-        run: zig build
+        run: zig build -fstage1
       - name: Run tests
-        run: zig test -lpcre -I/usr/local/include src/main.zig --main-pkg-path src
+        run: zig test -fstage1 -lpcre -I/usr/local/include src/main.zig --main-pkg-path src
   lint:
     runs-on: macos-latest
     steps:
