@@ -721,7 +721,7 @@ pub const Parser = struct {
                 },
                 .Call => {
                     // Can we call the parent?
-                    if (resolved_type.def_type != .Function and resolved_type.def_type != .Native) {
+                    if (resolved_type.def_type != .Function) {
                         try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
@@ -729,13 +729,11 @@ pub const Parser = struct {
                     // Is the child types resolvable with parent return type
                     if (resolved_type.def_type == .Function) {
                         try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Function.return_type, false);
-                    } else if (resolved_type.def_type == .Native) {
-                        try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Native.return_type, false);
                     }
                 },
                 .Yield => {
                     // Can we call the parent?
-                    if (resolved_type.def_type != .Function and resolved_type.def_type != .Native) {
+                    if (resolved_type.def_type != .Function) {
                         try self.reportErrorAt(placeholder_def.where, "Can't be called");
                         return;
                     }
@@ -745,12 +743,6 @@ pub const Parser = struct {
                         try self.resolvePlaceholder(
                             child,
                             resolved_type.resolved_type.?.Function.yield_type,
-                            false,
-                        );
-                    } else if (resolved_type.def_type == .Native) {
-                        try self.resolvePlaceholder(
-                            child,
-                            resolved_type.resolved_type.?.Native.yield_type,
                             false,
                         );
                     }
@@ -2470,11 +2462,11 @@ pub const Parser = struct {
                 .resolved_type = resolved_type,
             });
         } else {
-            if (function_type.?.def_type != .Function and function_type.?.def_type != .Native) {
+            if (function_type.?.def_type != .Function) {
                 try self.reportErrorAt(call_node.callee.location, "Can't be called");
             } else {
-                const return_type = if (function_type.?.def_type == .Function) function_type.?.resolved_type.?.Function.return_type else function_type.?.resolved_type.?.Native.return_type;
-                const yield_type = if (function_type.?.def_type == .Function) function_type.?.resolved_type.?.Function.yield_type else function_type.?.resolved_type.?.Native.yield_type;
+                const return_type = function_type.?.resolved_type.?.Function.return_type;
+                const yield_type = function_type.?.resolved_type.?.Function.yield_type;
 
                 const fiber_def = ObjFiber.FiberDef{
                     .return_type = return_type,
@@ -2729,10 +2721,6 @@ pub const Parser = struct {
             callee.type_def.?.resolved_type.?.Function.return_type
         else
             null;
-        node.node.type_def = node.node.type_def orelse if (callee.type_def != null and callee.type_def.?.def_type == .Native)
-            callee.type_def.?.resolved_type.?.Native.return_type
-        else
-            null;
 
         // If null, create placeholder
         if (node.node.type_def == null) {
@@ -2846,7 +2834,6 @@ pub const Parser = struct {
                         node.node.type_def = member;
                         node.member_type_def = member;
 
-                        assert(member.def_type == .Native);
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
                         // Node type is the return type of the call
@@ -2866,7 +2853,6 @@ pub const Parser = struct {
                         node.node.type_def = member;
                         node.member_type_def = member;
 
-                        assert(member.def_type == .Native);
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
                         // Node type is the return type of the call
@@ -2886,7 +2872,6 @@ pub const Parser = struct {
                         node.node.type_def = member;
                         node.member_type_def = member;
 
-                        assert(member.def_type == .Native);
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
                         // Node type is the return type of the call

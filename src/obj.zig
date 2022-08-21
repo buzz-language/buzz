@@ -337,19 +337,11 @@ pub const ObjFiber = struct {
         if (mem.eql(u8, method, "over")) {
             var native_type = try parser.parseTypeDefFrom("Function over() > bool");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objfiber_memberDefs.put("over", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "cancel")) {
             var native_type = try parser.parseTypeDefFrom("Function cancel() > void");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objfiber_memberDefs.put("cancel", native_type);
 
@@ -586,19 +578,11 @@ pub const ObjPattern = struct {
         if (mem.eql(u8, method, "match")) {
             var native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objpattern_memberDefs.put("match", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "matchAll")) {
             var native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]?");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
 
@@ -995,19 +979,11 @@ pub const ObjString = struct {
         if (mem.eql(u8, method, "len")) {
             var native_type = try parser.parseTypeDefFrom("Function len() > num");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objstring_memberDefs.put("len", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
             var native_type = try parser.parseTypeDefFrom("Function byte(num at) > num");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objstring_memberDefs.put("byte", native_type);
 
@@ -1015,19 +991,11 @@ pub const ObjString = struct {
         } else if (mem.eql(u8, method, "indexOf")) {
             var native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > num?");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objstring_memberDefs.put("indexOf", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "startsWith")) {
             var native_type = try parser.parseTypeDefFrom("Function startsWith(str needle) > bool");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objstring_memberDefs.put("startsWith", native_type);
 
@@ -1035,19 +1003,11 @@ pub const ObjString = struct {
         } else if (mem.eql(u8, method, "endsWith")) {
             var native_type = try parser.parseTypeDefFrom("Function endsWith(str needle) > bool");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objstring_memberDefs.put("endsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
             var native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objstring_memberDefs.put("replace", native_type);
 
@@ -1055,29 +1015,17 @@ pub const ObjString = struct {
         } else if (mem.eql(u8, method, "split")) {
             var native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str]");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objstring_memberDefs.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
             var native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str");
 
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
-
             try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
             var native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
-
-            native_type.def_type = .Native;
-            const function_def = native_type.resolved_type.?.Function;
-            native_type.resolved_type = .{ .Native = function_def };
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
@@ -1815,9 +1763,9 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Native, .resolved_type = resolved_type });
+                var native_type = try parser.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("append", native_type);
 
@@ -1849,11 +1797,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -1876,11 +1824,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -1919,11 +1867,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -1963,11 +1911,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -1997,11 +1945,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2027,11 +1975,11 @@ pub const ObjList = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2326,11 +2274,11 @@ pub const ObjMap = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2358,11 +2306,11 @@ pub const ObjMap = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2392,11 +2340,11 @@ pub const ObjMap = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2426,11 +2374,11 @@ pub const ObjMap = struct {
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Native = method_def };
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
                 var native_type = try parser.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Native,
+                        .def_type = .Function,
                         .resolved_type = resolved_type,
                     },
                 );
@@ -2663,7 +2611,6 @@ pub const ObjTypeDef = struct {
         Function,
         Type, // Something that holds a type, not an actual type
         Void,
-        Native,
         Fiber,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
@@ -2691,7 +2638,6 @@ pub const ObjTypeDef = struct {
         List: ObjList.ListDef,
         Map: ObjMap.MapDef,
         Function: ObjFunction.FunctionDef,
-        Native: ObjFunction.FunctionDef,
 
         Placeholder: PlaceholderDef,
     };
@@ -2720,8 +2666,6 @@ pub const ObjTypeDef = struct {
                 try resolved.List.mark(gc);
             } else if (resolved.* == .Map) {
                 try resolved.Map.mark(gc);
-            } else if (resolved.* == .Native) {
-                try resolved.Native.mark(gc);
             } else if (resolved.* == .Fiber) {
                 try resolved.Fiber.mark(gc);
             } else if (resolved.* == .Placeholder) {
@@ -2841,8 +2785,8 @@ pub const ObjTypeDef = struct {
                 try self.resolved_type.?.Map.value_type.toString(writer);
                 try writer.writeAll("}");
             },
-            .Native, .Function => {
-                var function_def = if (self.def_type == .Function) self.resolved_type.?.Function else self.resolved_type.?.Native;
+            .Function => {
+                var function_def = self.resolved_type.?.Function;
 
                 try writer.writeAll("fun ");
                 try writer.writeAll(function_def.name.string);
@@ -3014,31 +2958,6 @@ pub const ObjTypeDef = struct {
             },
 
             .Placeholder => true, // TODO: should it be false?
-            .Native => {
-                // Compare return types
-                if (a.Native.return_type.eql(b.Native.return_type)) {
-                    return false;
-                }
-
-                // Compare arity
-                if (a.Native.parameters.count() != b.Native.parameters.count()) {
-                    return false;
-                }
-
-                // Compare parameters
-                var it = a.Native.parameters.iterator();
-                while (it.next()) |kv| {
-                    if (b.Native.parameters.get(kv.key_ptr.*)) |value| {
-                        if (!kv.value_ptr.*.eql(value)) {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-
-                return true;
-            },
         };
     }
 

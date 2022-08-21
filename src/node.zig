@@ -2687,15 +2687,8 @@ pub const CallNode = struct {
             return null;
         }
 
-        const args: std.StringArrayHashMap(*ObjTypeDef) = if (callee_type.?.def_type == .Function)
-            callee_type.?.resolved_type.?.Function.parameters
-        else
-            callee_type.?.resolved_type.?.Native.parameters;
-
-        const defaults = if (callee_type.?.def_type == .Function)
-            callee_type.?.resolved_type.?.Function.defaults
-        else
-            callee_type.?.resolved_type.?.Native.defaults;
+        const args: std.StringArrayHashMap(*ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;
+        const defaults = callee_type.?.resolved_type.?.Function.defaults;
         const arg_keys = args.keys();
         const arg_count = arg_keys.len;
 
