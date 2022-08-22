@@ -48,7 +48,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    var file = std.fs.cwd().openFile(file_name, .{}) catch {
+    var file = (if (std.fs.path.isAbsolute(file_name)) std.fs.openFileAbsolute(file_name, .{}) else std.fs.cwd().openFile(file_name, .{})) catch {
         std.debug.print("File not found", .{});
         return;
     };
