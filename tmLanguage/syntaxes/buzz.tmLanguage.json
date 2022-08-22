@@ -131,15 +131,15 @@
       "patterns": [
         {
           "name": "constant.numeric.decimal.buzz",
-          "match": "[0-9][0-9]*(\\.[0-9]+)?"
+          "match": "\\b[0-9][0-9]*(\\.[0-9]+)?\\b"
         },
         {
           "name": "constant.numeric.binary.buzz",
-          "match": "0b[0-1]{8}"
+          "match": "\\b0b[0-1]{8}\\b"
         },
         {
           "name": "constant.numeric.hexa.buzz",
-          "match": "0x[0-9A-F]{2}"
+          "match": "\\b0x[0-9A-F]{2}\\b"
         }
       ]
     },
@@ -149,7 +149,7 @@
     },
     "identifier": {
       "name": "entity.name.buzz",
-      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]+\\b"
+      "match": "\\b[a-zA-Z][a-zA-Z0-9]+\\b"
     },
     "punctuation": {
       "patterns": [
