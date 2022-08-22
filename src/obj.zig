@@ -922,6 +922,68 @@ pub const ObjString = struct {
         }
     }
 
+    pub fn encodeBase64(vm: *VM) c_int {
+        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        var encoded = vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not encode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+        defer vm.gc.allocator.free(encoded);
+
+        var new_string = copyString(
+            vm.gc,
+            std.base64.standard.Encoder.encode(encoded, str.string),
+        ) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not encode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        vm.push(new_string.toValue());
+
+        return 1;
+    }
+
+    pub fn decodeBase64(vm: *VM) c_int {
+        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not decode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+        var decoded = vm.gc.allocator.alloc(u8, size) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not decode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+        defer vm.gc.allocator.free(decoded);
+
+        std.base64.standard.Decoder.decode(decoded, str.string) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not decode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        var new_string = copyString(vm.gc, decoded) catch {
+            var err: ?*ObjString = copyString(vm.gc, "Could not decode string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        vm.push(new_string.toValue());
+
+        return 1;
+    }
+
     pub fn rawMember(method: []const u8) ?NativeFn {
         if (mem.eql(u8, method, "len")) {
             return len;
@@ -941,6 +1003,10 @@ pub const ObjString = struct {
             return replace;
         } else if (mem.eql(u8, method, "repeat")) {
             return repeat;
+        } else if (mem.eql(u8, method, "encodeBase64")) {
+            return encodeBase64;
+        } else if (mem.eql(u8, method, "decodeBase64")) {
+            return decodeBase64;
         }
 
         return null;
@@ -1028,6 +1094,18 @@ pub const ObjString = struct {
             var native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "encodeBase64")) {
+            var native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str");
+
+            try parser.gc.objstring_memberDefs.put("encodeBase64", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "decodeBase64")) {
+            var native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str");
+
+            try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
 
             return native_type;
         }

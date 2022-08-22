@@ -28,3 +28,8 @@ test "str.sub" {
     assert("hello world".sub(6, len: null) == "world", message: "str.sub");
     assert("hello world".sub(0, len: 5) == "hello", message: "str.sub");
 }
+
+test "base64" {
+    assert("hello world".encodeBase64() == "aGVsbG8gd29ybGQ=", message: "could encode in b64");
+    assert("aGVsbG8gd29ybGQ=".decodeBase64() == "hello world", message: "could encode in b64");
+}
