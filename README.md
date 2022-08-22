@@ -29,6 +29,7 @@ A small/lightweight typed scripting language written in Zig
 **Note:** You can also take a look at `tests/` for more examples.
 
 - [Types and variables](#types-and-variables)
+- [Operators](#operators)
 - [Functions](#functions)
 - [Enums](#enums)
 - [Control flow](#control-flow)
@@ -45,6 +46,8 @@ A small/lightweight typed scripting language written in Zig
 bool aBoolean = true;
 str aString = "hello world";
 num aNumber = 23;
+aNumber = 0b110;
+aNumber = 0xA12F;
 pat aPattern = _hello [a-z]+_;
 
 | A constant
@@ -57,6 +60,41 @@ const num pi = 3.14;
     "two": 2,
     "three": 3,
 };
+```
+
+## Operators
+
+```buzz
+| Comparison
+12 == 12;
+12 != 13;
+12 >= 12;
+12 <= 12;
+12 > 11;
+12 < 13;
+
+| Arithmetic
+12 + 12 == 24;
+12 - 12 == 0;
+12 * 12 == 144;
+12 / 12 == 1;
+12 % 12 == 0;
+
+| Logical
+12 > 3 and 5 < 12;
+12 > 3 or 12 < 5;
+
+| String
+"hello " + "world" == "hello world";
+"hello" == "hello";
+
+| Bitwise
+15 << 3 == 120; | shift left
+15 >> 3 == 1;   | shift right
+12 & 23 == 4    | and
+15 ^ 3 == 12;   | xor
+15 \ 3 == 15;   | or
+~15 == -16;     | not
 ```
 
 ### Optionals

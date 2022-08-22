@@ -1405,6 +1405,7 @@ pub const UnaryNode = struct {
             const value = try self.left.toValue(self.left, gc);
 
             return switch (self.operator) {
+                .Bnot => Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) },
                 .Bang => Value{ .Boolean = !value.Boolean },
                 .Minus => number: {
                     if (value == .Integer) {
@@ -1439,6 +1440,17 @@ pub const UnaryNode = struct {
 
         const left_type = self.left.type_def.?;
         switch (self.operator) {
+            .Bnot => {
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorFmt(
+                        self.left.location,
+                        "Expected type `num`, got `{s}`",
+                        .{try left_type.toStringAlloc(codegen.gc.allocator)},
+                    );
+                }
+
+                try codegen.emitOpCode(self.node.location, .OP_BNOT);
+            },
             .Bang => {
                 if (left_type.def_type != .Bool) {
                     try codegen.reportErrorFmt(
@@ -1529,6 +1541,63 @@ pub const BinaryNode = struct {
             var right_i: ?i64 = if (right == .Integer) right.Integer else null;
 
             switch (self.operator) {
+                .Ampersand => {
+                    return Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
+                    };
+                },
+                .Bor => {
+                    return Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
+                    };
+                },
+                .Xor => {
+                    return Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
+                    };
+                },
+                .ShiftLeft => {
+                    const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                    if (b < 0) {
+                        if (b * -1 > std.math.maxInt(u6)) {
+                            return Value{ .Integer = 0 };
+                        }
+
+                        return Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
+                        };
+                    } else {
+                        if (b > std.math.maxInt(u6)) {
+                            return Value{ .Integer = 0 };
+                        }
+
+                        return Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
+                        };
+                    }
+                },
+                .ShiftRight => {
+                    const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                    if (b < 0) {
+                        if (b * -1 > std.math.maxInt(u6)) {
+                            return Value{ .Integer = 0 };
+                        }
+
+                        return Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
+                        };
+                    } else {
+                        if (b > std.math.maxInt(u6)) {
+                            return Value{ .Integer = 0 };
+                        }
+
+                        return Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
+                        };
+                    }
+                },
                 .QuestionQuestion => {
                     if (left == .Null) {
                         return right;
@@ -1741,6 +1810,56 @@ pub const BinaryNode = struct {
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
                 _ = try self.right.toByteCode(self.right, codegen, breaks);
                 try codegen.emitOpCode(self.node.location, .OP_NULL_OR);
+            },
+            .Ampersand => {
+                // Checking only left operand since we asserted earlier that both operand have the same type
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                }
+
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_BAND);
+            },
+            .Bor => {
+                // Checking only left operand since we asserted earlier that both operand have the same type
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                }
+
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_BOR);
+            },
+            .Xor => {
+                // Checking only left operand since we asserted earlier that both operand have the same type
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                }
+
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_XOR);
+            },
+            .ShiftLeft => {
+                // Checking only left operand since we asserted earlier that both operand have the same type
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                }
+
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_SHL);
+            },
+            .ShiftRight => {
+                // Checking only left operand since we asserted earlier that both operand have the same type
+                if (left_type.def_type != .Number) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                }
+
+                _ = try self.left.toByteCode(self.left, codegen, breaks);
+                _ = try self.right.toByteCode(self.right, codegen, breaks);
+                try codegen.emitOpCode(self.node.location, .OP_SHR);
             },
             .Greater => {
                 // Checking only left operand since we asserted earlier that both operand have the same type

@@ -911,6 +911,12 @@ pub const VM = struct {
 
                 .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
 
+                .OP_BNOT => {
+                    const value = self.pop();
+
+                    self.push(Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) });
+                },
+
                 .OP_GREATER => {
                     const right_value = floatToInteger(self.pop());
                     const left_value = floatToInteger(self.pop());
@@ -964,6 +970,11 @@ pub const VM = struct {
                 .OP_MULTIPLY,
                 .OP_DIVIDE,
                 .OP_MOD,
+                .OP_BAND,
+                .OP_BOR,
+                .OP_XOR,
+                .OP_SHL,
+                .OP_SHR,
                 => try self.binary(instruction),
 
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
@@ -1255,6 +1266,63 @@ pub const VM = struct {
         const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
 
         switch (code) {
+            .OP_BAND => {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
+                });
+            },
+            .OP_BOR => {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
+                });
+            },
+            .OP_XOR => {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
+                });
+            },
+            .OP_SHL => {
+                const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                if (b < 0) {
+                    if (b * -1 > std.math.maxInt(u6)) {
+                        self.push(Value{ .Integer = 0 });
+                    } else {
+                        self.push(Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
+                        });
+                    }
+                } else {
+                    if (b > std.math.maxInt(u6)) {
+                        self.push(Value{ .Integer = 0 });
+                    } else {
+                        self.push(Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
+                        });
+                    }
+                }
+            },
+            .OP_SHR => {
+                const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                if (b < 0) {
+                    if (b * -1 > std.math.maxInt(u6)) {
+                        self.push(Value{ .Integer = 0 });
+                    } else {
+                        self.push(Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
+                        });
+                    }
+                } else {
+                    if (b > std.math.maxInt(u6)) {
+                        self.push(Value{ .Integer = 0 });
+                    } else {
+                        self.push(Value{
+                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
+                        });
+                    }
+                }
+            },
             .OP_ADD => add: {
                 if (right_s != null) {
                     self.push(Value{ .Obj = (try left_s.?.concat(self, right_s.?)).toObj() });

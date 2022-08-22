@@ -48,11 +48,11 @@
         },
         {
           "name": "keyword.operator.arithmetic.buzz",
-          "match": "(\\+|\\-|\\/|%|\\*|>>|<<)"
+          "match": "(\\+|\\-|\\/|%|\\*|>>|<<|\\\\|\\^|&|~)"
         },
         {
           "name": "keyword.operator.comparison.buzz",
-          "match": "(==|!=|<=?|>=?|\\bis|\\?\\?|&)"
+          "match": "(==|!=|<=?|>=?|\\bis|\\?\\?)"
         },
         {
           "name": "keyword.declaration.dart",
@@ -135,11 +135,11 @@
         },
         {
           "name": "constant.numeric.binary.buzz",
-          "match": "\\b0b[0-1]{8}\\b"
+          "match": "\\b0b[0-1]+\\b"
         },
         {
           "name": "constant.numeric.hexa.buzz",
-          "match": "\\b0x[0-9A-F]{2}\\b"
+          "match": "\\b0x[0-9A-F]+\\b"
         }
       ]
     },

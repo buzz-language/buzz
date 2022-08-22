@@ -74,7 +74,7 @@ pub const Token = struct {
     }
 };
 
-// WARNING: don't reorder without reordering `rules` in compiler.zig
+// WARNING: don't reorder without reordering `rules` in parser.zig
 pub const TokenType = enum {
     Pipe, // |
     LeftBracket, // [
@@ -117,9 +117,13 @@ pub const TokenType = enum {
     Type, // type
     Bool, // bool
     Function, // Function
+
     ShiftRight, // >>
     ShiftLeft, // <<
-    Xor, // xor
+    Xor, // ^
+    Bor, // \
+    Bnot, // ~
+
     Or, // or
     And, // and
     Return, // return
@@ -161,7 +165,7 @@ pub const TokenType = enum {
     Pattern, // Pattern
     Pat, // pat
     Fib, // fib
-    Ampersand, // async
+    Ampersand, // async or band
     Resume, // resume
     Resolve, // resolve
     Yield, // yield

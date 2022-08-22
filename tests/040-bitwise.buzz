@@ -1,0 +1,10 @@
+import "lib/std";
+
+test "Bitwise" {
+    assert(15 << 3 == 120, message: "<<");
+    assert(15 >> 3 == 1, message: ">>");
+    assert(15 ^ 3 == 12, message: "^");
+    assert(15 \ 3 == 15, message: "\\");
+    assert(~15 == -16, message: "~");
+    assert(12 & 23 == 4, message: "&");
+}

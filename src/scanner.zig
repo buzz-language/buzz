@@ -54,7 +54,7 @@ pub const Scanner = struct {
 
         var char: u8 = self.advance();
         return try switch (char) {
-            'b' => return if (isNumber(self.peek())) self.binary() else self.identifier(),
+            'b' => return self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => return self.identifier(),
             '0' => {
                 if (self.match('x')) {
@@ -94,6 +94,9 @@ pub const Scanner = struct {
                     return self.makeToken(.Less, null, null, null);
                 }
             },
+            '~' => return self.makeToken(.Bnot, null, null, null),
+            '^' => return self.makeToken(.Xor, null, null, null),
+            '\\' => return self.makeToken(.Bor, null, null, null),
             '+' => {
                 if (self.match('+')) {
                     return self.makeToken(.Increment, null, null, null);
@@ -246,15 +249,11 @@ pub const Scanner = struct {
             peeked = self.peek();
         }
 
-        if (self.current.offset - self.current.start != 10) {
-            return self.makeToken(.Error, "Malformed binary number.", null, null);
-        }
-
         return self.makeToken(
             .Number,
             null,
             null,
-            try std.fmt.parseInt(i64, self.source[self.current.start..self.current.offset], 2),
+            try std.fmt.parseInt(i64, self.source[self.current.start + 2 .. self.current.offset], 2),
         );
     }
 
@@ -272,7 +271,7 @@ pub const Scanner = struct {
             .Number,
             null,
             null,
-            try std.fmt.parseInt(i64, self.source[self.current.start..self.current.offset], 16),
+            try std.fmt.parseInt(i64, self.source[self.current.start + 2 .. self.current.offset], 16),
         );
     }
 

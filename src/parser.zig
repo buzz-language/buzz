@@ -195,11 +195,11 @@ pub const Parser = struct {
         Is, // is
         Or, // or
         And, // and
-        Xor, // xor
         Equality, // ==, !=
         Comparison, // >=, <=, >, <
         Term, // +, -
         NullCoalescing, // ??
+        Bitwise, // \, &, ^
         Shift, // >>, <<
         Factor, // /, *, %
         Unary, // +, ++, -, --, !
@@ -258,9 +258,11 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Type
         .{ .prefix = null, .infix = null, .precedence = .None }, // Bool
         .{ .prefix = null, .infix = null, .precedence = .None }, // Function
-        .{ .prefix = null, .infix = null, .precedence = .None }, // ShiftRight
-        .{ .prefix = null, .infix = null, .precedence = .None }, // ShiftLeft
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Xor
+        .{ .prefix = null, .infix = binary, .precedence = .Shift }, // ShiftRight
+        .{ .prefix = null, .infix = binary, .precedence = .Shift }, // ShiftLeft
+        .{ .prefix = null, .infix = binary, .precedence = .Bitwise }, // Xor
+        .{ .prefix = null, .infix = binary, .precedence = .Bitwise }, // Bor
+        .{ .prefix = unary, .infix = null, .precedence = .Term }, // Bnot
         .{ .prefix = null, .infix = or_, .precedence = .Or }, // Or
         .{ .prefix = null, .infix = and_, .precedence = .And }, // And
         .{ .prefix = null, .infix = null, .precedence = .None }, // Return
@@ -302,7 +304,7 @@ pub const Parser = struct {
         .{ .prefix = pattern, .infix = null, .precedence = .None }, // Pattern
         .{ .prefix = null, .infix = null, .precedence = .None }, // pat
         .{ .prefix = null, .infix = null, .precedence = .None }, // fib
-        .{ .prefix = asyncCall, .infix = null, .precedence = .Primary }, // &
+        .{ .prefix = asyncCall, .infix = binary, .precedence = .Term }, // &
         .{ .prefix = resumeFiber, .infix = null, .precedence = .Primary }, // resume
         .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
@@ -3211,6 +3213,11 @@ pub const Parser = struct {
             .Star,
             .Slash,
             .Percent,
+            .ShiftLeft,
+            .ShiftRight,
+            .Ampersand,
+            .Bor,
+            .Xor,
             => try self.type_registry.getTypeDef(ObjTypeDef{
                 .def_type = .Number,
             }),
