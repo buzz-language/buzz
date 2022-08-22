@@ -2511,6 +2511,8 @@ pub const YieldNode = struct {
 
         try self.expression.toJson(self.expression, out);
 
+        try out.writeAll(", ");
+
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");

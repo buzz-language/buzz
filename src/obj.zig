@@ -2888,10 +2888,13 @@ pub const ObjTypeDef = struct {
 
                 try writer.writeAll(")");
 
-                if (function_def.return_type.def_type != Type.Void) {
+                if (function_def.yield_type.def_type != .Void) {
                     try writer.writeAll(" > ");
-                    try function_def.return_type.toString(writer);
+                    try function_def.yield_type.toString(writer);
                 }
+
+                try writer.writeAll(" > ");
+                try function_def.return_type.toString(writer);
             },
             .Type => try writer.writeAll("type"),
             .Void => try writer.writeAll("void"),
@@ -3238,6 +3241,7 @@ pub const PlaceholderDef = struct {
         Yield,
         Subscript,
         Key,
+        SuperFieldAccess,
         FieldAccess,
         Assignment,
         Instance,

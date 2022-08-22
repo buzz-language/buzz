@@ -24,15 +24,15 @@ Parse `source` and return the abstract syntax tree in JSON
 Returns the number of allocated bytes
 
 **Returns:**  allocated bytes
-### ` fun collect()`
+### ` fun collect() > void`
 Triggers a GC sweep
 ## std
 
-### ` fun assert(bool condition, str message)`
+### ` fun assert(bool condition, str message) > void`
 If condition is false throw error with given message
 - **`message`:** message printed if `condition` is false
 
-### ` fun print(str value)`
+### ` fun print(str value) > void`
 Prints value on stdout
 - **`value`:** value to print
 
@@ -42,7 +42,7 @@ Parse number, returns false if string does not represent a number
 
 
 **Returns:**  number parsed or null
-### ` fun runFile(str filename)`
+### ` fun runFile(str filename) > void`
 Run a buzz file
 - **`filename`:** path to buzz file
 
@@ -112,6 +112,10 @@ Convert degree to radian
 
 
 **Returns:**  tan of n
+### ` fun pow(num x, num y) > num`
+
+
+**Returns:**  `x`^`y`
 ## buffer
 
 ### ` object Buffer`
@@ -135,17 +139,17 @@ Reads bytes
 #### ` num cursor`
 
 
-#### ` fun write(str bytes)`
+#### ` fun write(str bytes) > void`
 Writes bytes
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeBoolean(bool value)`
+#### ` fun writeBoolean(bool value) > void`
 Writes boolean
 - **`boolean`:** Value to write
 
 
-#### ` fun writeNumber(num number)`
+#### ` fun writeNumber(num number) > void`
 Writes number
 - **`number`:** Value to write
 
@@ -174,7 +178,7 @@ Returns environment variable under `key`
 
 
 **Returns:**  a temporary file name in system tmp dir
-### ` fun buzzExit(num exitCode)`
+### ` fun buzzExit(num exitCode) > void`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
@@ -203,7 +207,7 @@ Receive at most `n` bytes from the socket
 
 **Returns:**  The bytes received or null if nothing to read
 
-#### ` fun close()`
+#### ` fun close() > void`
 Close the socket
 
 #### ` fun receiveLine() > str?`
@@ -212,7 +216,7 @@ Receive from socket until it's closed or a linefeed is received
 **Returns:**  The bytes received or null if nothing to read
 
 
-#### ` fun send(str bytes)`
+#### ` fun send(str bytes) > void`
 Send bytes on the socket
 - **`bytes`:** Bytes to send
 
@@ -232,7 +236,7 @@ Accept a new connection
 
 **Returns:**  Socket opened with the client
 
-#### ` fun close()`
+#### ` fun close() > void`
 Close server
 
 ## fs
@@ -241,15 +245,15 @@ Close server
 Returns current directory absolute path
 
 **Returns:**  current directory
-### ` fun makeDirectory(str path)`
+### ` fun makeDirectory(str path) > void`
 Creates directory path
 - **`path`:** directory to create
 
-### ` fun delete(str path)`
+### ` fun delete(str path) > void`
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### ` fun move(str source, str destination)`
+### ` fun move(str source, str destination) > void`
 Moves/renames file
 - **`destination`:** where to move it
 
@@ -264,7 +268,7 @@ File mode with which you can open a file
 ### ` object File`
 Object to manipulate an opened file
 
-#### ` fun close()`
+#### ` fun close() > void`
 Close file
 
 #### ` fun read(num n) > str?`
@@ -278,7 +282,7 @@ Reads file until `EOF`
 #### ` fun readLine() > str?`
 Reads next line, returns null if nothing to read
 
-#### ` fun write(str bytes)`
+#### ` fun write(str bytes) > void`
 Write bytes
 - **`bytes`:** string to write
 

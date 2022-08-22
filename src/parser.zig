@@ -746,10 +746,7 @@ pub const Parser = struct {
                         return;
                     }
 
-                    // Is the child types resolvable with parent return type
-                    if (placeholder.def_type == .Function) {
-                        try self.resolvePlaceholder(child, placeholder.resolved_type.?.Function.return_type, false);
-                    }
+                    try self.resolvePlaceholder(child, placeholder.resolved_type.?.Function.return_type, false);
                 },
                 .Yield => {
                     // Can we call the parent?
@@ -758,20 +755,19 @@ pub const Parser = struct {
                         return;
                     }
 
-                    // Is the child types resolvable with parent return type
-                    if (placeholder.def_type == .Function) {
-                        try self.resolvePlaceholder(
-                            child,
-                            placeholder.resolved_type.?.Function.yield_type,
-                            false,
-                        );
-                    }
+                    try self.resolvePlaceholder(
+                        child,
+                        placeholder.resolved_type.?.Function.yield_type,
+                        false,
+                    );
                 },
                 .Subscript => {
                     if (placeholder.def_type == .List) {
                         try self.resolvePlaceholder(child, placeholder.resolved_type.?.List.item_type, false);
                     } else if (placeholder.def_type == .Map) {
-                        try self.resolvePlaceholder(child, placeholder.resolved_type.?.Map.value_type, false);
+                        try self.resolvePlaceholder(child, try placeholder.resolved_type.?.Map.value_type.cloneOptional(self.type_registry), false);
+                    } else if (placeholder.def_type == .String) {
+                        try self.resolvePlaceholder(child, try self.type_registry.getTypeDef(.{ .def_type = .String }), false);
                     } else {
                         try self.reportErrorAt(placeholder_def.where, "Can't be subscripted");
                         return;
@@ -780,13 +776,70 @@ pub const Parser = struct {
                 .Key => {
                     if (placeholder.def_type == .Map) {
                         try self.resolvePlaceholder(child, placeholder.resolved_type.?.Map.key_type, false);
+                    } else if (placeholder.def_type == .List or placeholder.def_type == .String) {
+                        try self.resolvePlaceholder(child, try self.type_registry.getTypeDef(.{ .def_type = .Number }), false);
                     } else {
                         try self.reportErrorAt(placeholder_def.where, "Can't be a key");
                         return;
                     }
                 },
+                .SuperFieldAccess => {
+                    if (placeholder.def_type != .ObjectInstance) {
+                        try self.reportErrorAt(placeholder_def.where, "Doesn't have super");
+                        return;
+                    }
+
+                    if (self.getSuperField(placeholder.resolved_type.?.ObjectInstance, null, child_placeholder.name.?.string)) |super_field| {
+                        try self.resolvePlaceholder(child, super_field, false);
+                    } else if (self.getSuperMethod(placeholder.resolved_type.?.ObjectInstance, null, child_placeholder.name.?.string)) |super_method| {
+                        try self.resolvePlaceholder(child, super_method, false);
+                    } else {
+                        try self.reportErrorFmt(
+                            "`{s}` doesn't have super field `{s}`",
+                            .{
+                                placeholder.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string,
+                                child_placeholder.name.?.string,
+                            },
+                        );
+                    }
+                },
                 .FieldAccess => {
                     switch (placeholder.def_type) {
+                        .List => {
+                            assert(child_placeholder.name != null);
+
+                            if (try ObjList.ListDef.member(placeholder, self, child_placeholder.name.?.string)) |member| {
+                                try self.resolvePlaceholder(child, member, false);
+                            }
+                        },
+                        .Map => {
+                            assert(child_placeholder.name != null);
+
+                            if (try ObjMap.MapDef.member(placeholder, self, child_placeholder.name.?.string)) |member| {
+                                try self.resolvePlaceholder(child, member, false);
+                            }
+                        },
+                        .String => {
+                            assert(child_placeholder.name != null);
+
+                            if (try ObjString.memberDef(self, child_placeholder.name.?.string)) |member| {
+                                try self.resolvePlaceholder(child, member, false);
+                            }
+                        },
+                        .Pattern => {
+                            assert(child_placeholder.name != null);
+
+                            if (try ObjPattern.memberDef(self, child_placeholder.name.?.string)) |member| {
+                                try self.resolvePlaceholder(child, member, false);
+                            }
+                        },
+                        .Fiber => {
+                            assert(child_placeholder.name != null);
+
+                            if (try ObjFiber.memberDef(self, child_placeholder.name.?.string)) |member| {
+                                try self.resolvePlaceholder(child, member, false);
+                            }
+                        },
                         .Object => {
                             // We can't create a field access placeholder without a name
                             assert(child_placeholder.name != null);
@@ -794,29 +847,22 @@ pub const Parser = struct {
                             var object_def: ObjObject.ObjectDef = placeholder.resolved_type.?.Object;
 
                             // Search for a field matching the placeholder
-                            var resolved: bool = false;
                             if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                                // TODO: remove? should only resolve with a field if field accessing an object instance?
                                 try self.resolvePlaceholder(child, field, false);
-                                resolved = true;
+                            } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                                try self.resolvePlaceholder(child, method_def, true);
+                            } else if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
+                                try self.resolvePlaceholder(child, static_def, false);
+                            } else {
+                                try self.reportErrorFmt(
+                                    "`{s}` has no static field `{s}`",
+                                    .{
+                                        object_def.name.string,
+                                        child_placeholder.name.?.string,
+                                    },
+                                );
                             }
-
-                            // Search for a method matching the placeholder
-                            if (!resolved) {
-                                if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                                    try self.resolvePlaceholder(child, method_def, true);
-                                    resolved = true;
-                                }
-                            }
-
-                            // Search for a static field
-                            if (!resolved) {
-                                if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
-                                    try self.resolvePlaceholder(child, static_def, false);
-                                    resolved = true;
-                                }
-                            }
-
-                            // TODO: static fields in inherited classes??
                         },
                         .ObjectInstance => {
                             // We can't create a field access placeholder without a name
@@ -825,20 +871,23 @@ pub const Parser = struct {
                             var object_def: ObjObject.ObjectDef = placeholder.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                             // Search for a field matching the placeholder
-                            var resolved_as_field: bool = false;
                             if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
                                 try self.resolvePlaceholder(child, field, false);
-                                resolved_as_field = true;
+                            } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                                try self.resolvePlaceholder(child, method_def, true);
+                            } else if (self.getSuperField(placeholder, null, child_placeholder.name.?.string)) |super_field| {
+                                try self.resolvePlaceholder(child, super_field, false);
+                            } else if (self.getSuperMethod(placeholder, null, child_placeholder.name.?.string)) |super_method| {
+                                try self.resolvePlaceholder(child, super_method, false);
+                            } else {
+                                try self.reportErrorFmt(
+                                    "`{s}` has no field `{s}`",
+                                    .{
+                                        object_def.name.string,
+                                        child_placeholder.name.?.string,
+                                    },
+                                );
                             }
-
-                            // Search for a method matching the placeholder
-                            if (!resolved_as_field) {
-                                if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                                    try self.resolvePlaceholder(child, method_def, true);
-                                }
-                            }
-
-                            // TODO:search in inherited classes??
                         },
                         .Enum => {
                             // We can't create a field access placeholder without a name
@@ -857,6 +906,16 @@ pub const Parser = struct {
                                     }), true);
                                     break;
                                 }
+                            }
+                        },
+                        .EnumInstance => {
+                            assert(child_placeholder.name != null);
+
+                            if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
+                                try self.resolvePlaceholder(child, placeholder.resolved_type.?.EnumInstance, false);
+                            } else {
+                                try self.reportErrorAt(placeholder_def.where, "Enum instance only has field `value`");
+                                return;
                             }
                         },
                         else => {
@@ -2447,8 +2506,6 @@ pub const Parser = struct {
                 },
             );
 
-            yield_placeholder = try yield_placeholder.cloneOptional(self.type_registry);
-
             try PlaceholderDef.link(function_type.?, yield_placeholder, .Yield);
 
             const fiber_def = ObjFiber.FiberDef{
@@ -2728,7 +2785,7 @@ pub const Parser = struct {
 
         // If null, create placeholder
         if (node.node.type_def == null) {
-            if (callee.type_def.?.def_type != .Placeholder) {
+            if (callee.type_def == null or callee.type_def.?.def_type != .Placeholder) {
                 try self.reportErrorAt(callee.location, "Can't be called");
             }
 
@@ -2794,23 +2851,53 @@ pub const Parser = struct {
         return try self.namedVariable(self.parser.previous_token.?, can_assign);
     }
 
-    fn getSuperMethod(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
-        const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
-        if (obj_def.methods.get(name)) |obj_method| {
-            return obj_method;
-        } else if (obj_def.super) |obj_super| {
-            return self.getSuperMethod(obj_super, name);
+    fn getSuperMethod(self: *Self, root: *ObjTypeDef, object: ?*ObjTypeDef, name: []const u8) ?*ObjTypeDef {
+        if (root.def_type == .Placeholder) {
+            return null;
+        }
+
+        if (object != null and object.?.def_type == .Placeholder) {
+            return null;
+        }
+
+        if (object == null) {
+            const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
+            if (obj_def.super) |obj_super| {
+                return self.getSuperMethod(root, obj_super, name);
+            }
+        } else {
+            const obj_def: ObjObject.ObjectDef = object.?.resolved_type.?.Object;
+            if (obj_def.methods.get(name)) |obj_method| {
+                return obj_method;
+            } else if (obj_def.super) |obj_super| {
+                return self.getSuperMethod(root, obj_super, name);
+            }
         }
 
         return null;
     }
 
-    fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
-        const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
-        if (obj_def.fields.get(name)) |obj_field| {
-            return obj_field;
-        } else if (obj_def.super) |obj_super| {
-            return self.getSuperField(obj_super, name);
+    fn getSuperField(self: *Self, root: *ObjTypeDef, object: ?*ObjTypeDef, name: []const u8) ?*ObjTypeDef {
+        if (root.def_type == .Placeholder) {
+            return null;
+        }
+
+        if (object != null and object.?.def_type == .Placeholder) {
+            return null;
+        }
+
+        if (object == null) {
+            const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
+            if (obj_def.super) |obj_super| {
+                return self.getSuperMethod(root, obj_super, name);
+            }
+        } else {
+            const obj_def: ObjObject.ObjectDef = object.?.resolved_type.?.Object;
+            if (obj_def.fields.get(name)) |obj_field| {
+                return obj_field;
+            } else if (obj_def.super) |obj_super| {
+                return self.getSuperMethod(root, obj_super, name);
+            }
         }
 
         return null;
@@ -2946,10 +3033,10 @@ pub const Parser = struct {
                 var obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
 
                 // Is it a method
-                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name) orelse self.getSuperMethod(object, member_name);
+                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name) orelse self.getSuperMethod(object, null, member_name);
 
                 // Is it a property
-                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name) orelse self.getSuperField(object, member_name);
+                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name) orelse self.getSuperField(object, null, member_name);
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -3247,7 +3334,23 @@ pub const Parser = struct {
         if (subscripted.type_def) |type_def| {
             if (!type_def.optional) {
                 switch (type_def.def_type) {
-                    .Placeholder, .String => subscripted_type_def = type_def,
+                    .Placeholder => {
+                        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                            .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
+                        };
+
+                        var placeholder = try self.type_registry.getTypeDef(
+                            .{
+                                .def_type = .Placeholder,
+                                .resolved_type = placeholder_resolved_type,
+                            },
+                        );
+
+                        try PlaceholderDef.link(type_def, placeholder, .Subscript);
+
+                        subscripted_type_def = placeholder;
+                    },
+                    .String => subscripted_type_def = type_def,
                     .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
                     .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(self.type_registry),
                     else => try self.reportErrorFmt("Type `{s}` is not subscriptable", .{try type_def.toStringAlloc(self.gc.allocator)}),
@@ -3423,7 +3526,29 @@ pub const Parser = struct {
         node.node.location = self.parser.previous_token.?;
 
         if (try self.match(.LeftParen)) {
-            const super_method: ?*ObjTypeDef = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme);
+            var super_method: ?*ObjTypeDef = self.getSuperMethod(self.current_object.?.type_def, null, member_name.lexeme);
+
+            if (super_method == null and self.current_object.?.type_def.def_type == .Placeholder) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
+                };
+                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+
+                var placeholder = try self.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    },
+                );
+
+                try PlaceholderDef.link(
+                    try self.current_object.?.type_def.toInstance(self.gc.allocator, self.type_registry),
+                    placeholder,
+                    .SuperFieldAccess,
+                );
+
+                super_method = placeholder;
+            }
 
             // call will look at parent node for function definition
             node.node.type_def = super_method;
@@ -3441,7 +3566,29 @@ pub const Parser = struct {
                 false,
             )).?;
 
-            node.node.type_def = if (super_method) |umethod| umethod.resolved_type.?.Function.return_type else null;
+            if (super_method != null) {
+                switch (super_method.?.def_type) {
+                    .Function => node.node.type_def = super_method.?.resolved_type.?.Function.return_type,
+                    .Placeholder => {
+                        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                            .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
+                        };
+                        placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+
+                        var placeholder = try self.type_registry.getTypeDef(
+                            .{
+                                .def_type = .Placeholder,
+                                .resolved_type = placeholder_resolved_type,
+                            },
+                        );
+
+                        try PlaceholderDef.link(super_method.?, placeholder, .Call);
+
+                        node.node.type_def = placeholder;
+                    },
+                    else => unreachable,
+                }
+            }
 
             node.member_type_def = super_method;
             node.node.location = start_location;
@@ -3461,7 +3608,26 @@ pub const Parser = struct {
                 false,
             )).?;
 
-            node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, member_name.lexeme);
+            node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, null, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, null, member_name.lexeme);
+
+            if (node.node.type_def == null and self.current_object.?.type_def.def_type == .Placeholder) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
+                };
+                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+
+                var placeholder = try self.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    },
+                );
+
+                try PlaceholderDef.link(self.current_object.?.type_def, placeholder, .FieldAccess);
+
+                node.node.type_def = placeholder;
+            }
+
             node.member_type_def = node.node.type_def;
             node.node.location = start_location;
             node.node.end_location = self.parser.previous_token.?;
