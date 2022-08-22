@@ -4808,6 +4808,17 @@ pub const ObjectInitNode = struct {
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                     try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
                 } else if (!prop.eql(value.type_def.?)) {
+                    if (Config.debug_placeholders) {
+                        std.debug.print(
+                            "prop {}({}), value {}({})\n",
+                            .{
+                                @ptrToInt(prop.resolved_type.?.ObjectInstance),
+                                prop.optional,
+                                @ptrToInt(value.type_def.?.resolved_type.?.ObjectInstance),
+                                value.type_def.?.optional,
+                            },
+                        );
+                    }
                     try codegen.reportTypeCheckAt(prop, value.type_def.?, "Wrong property type", value.location);
                 }
 

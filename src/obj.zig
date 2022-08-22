@@ -2652,13 +2652,16 @@ pub const TypeRegistry = struct {
 
         var type_def_ptr: *ObjTypeDef = try allocateObject(self.gc, ObjTypeDef, type_def);
 
+        if (Config.debug_placeholders) {
+            std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
+        }
         _ = try self.registry.put(type_def_str, type_def_ptr);
 
         return type_def_ptr;
     }
 
     pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
-        const type_def_str: []const u8 = try type_def.toString(self.gc.allocator);
+        const type_def_str: []const u8 = try type_def.toStringAlloc(self.gc.allocator);
 
         assert(type_def.def_type != .Placeholder);
 

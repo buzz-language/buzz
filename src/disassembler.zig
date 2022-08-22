@@ -143,7 +143,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_BNOT,
         .OP_SHL,
         .OP_SHR,
-        .OP_XOR,
         .OP_MOD,
         .OP_UNWRAP,
         .OP_NULL_OR,
