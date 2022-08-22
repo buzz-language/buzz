@@ -56,6 +56,9 @@ extern fun bzsqrt(num n) > num;
 || @return tan of n
 extern fun bztan(num n) > num;
 
+|| @return `x`^`y`
+extern fun pow(num x, num y) > num;
+
 export abs;
 export acos;
 export asin;
@@ -74,3 +77,4 @@ export rad;
 export random;
 export bzsin as sin;
 export bztan as tan;
+export pow;

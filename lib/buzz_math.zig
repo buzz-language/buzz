@@ -123,3 +123,34 @@ export fn bztan(vm: *api.VM) c_int {
 
     return 1;
 }
+
+export fn pow(vm: *api.VM) c_int {
+    const n = vm.bz_peek(1);
+    const p = vm.bz_peek(0);
+
+    const n_i: ?i64 = if (n.bz_valueIsInteger()) n.bz_valueToInteger() else null;
+    const n_f: ?f64 = if (n.bz_valueIsFloat()) n.bz_valueToFloat() else null;
+
+    const p_i: ?i64 = if (p.bz_valueIsInteger()) p.bz_valueToInteger() else null;
+    const p_f: ?f64 = if (p.bz_valueIsFloat()) p.bz_valueToFloat() else null;
+
+    if (p_f) |pf| {
+        vm.bz_pushFloat(
+            std.math.pow(f64, n_f orelse @intToFloat(f64, n_i.?), pf),
+        );
+    } else if (n_f) |nf| {
+        vm.bz_pushFloat(
+            std.math.pow(f64, nf, p_f orelse @intToFloat(f64, p_i.?)),
+        );
+    } else {
+        vm.bz_pushInteger(
+            std.math.powi(i64, n_i.?, p_i.?) catch {
+                vm.bz_throwString("Could not get pow");
+
+                return -1;
+            },
+        );
+    }
+
+    return 1;
+}
