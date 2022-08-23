@@ -1143,10 +1143,14 @@ pub const VM = struct {
     fn import(self: *Self, value: Value) Error!void {
         var closure: *ObjClosure = ObjClosure.cast(value.Obj).?;
 
+        var gc = GarbageCollector.init(self.gc.allocator);
         var vm = try self.gc.allocator.create(VM);
-        vm.* = try VM.init(self.gc);
-        // TODO: we can't free this because exported closure refer to it
-        // defer vm.deinit();
+        vm.* = try VM.init(&gc);
+        // TODO: can we free this?
+        // {
+        //     defer vm.deinit();
+        //     defer gn.deinit();
+        // }
 
         try vm.interpret(closure.function, null);
 
