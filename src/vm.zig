@@ -460,7 +460,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.function.chunk.constants.items[arg];
     }
 
-    fn readString(self: *Self, arg: u24) *ObjString {
+    inline fn readString(self: *Self, arg: u24) *ObjString {
         return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
@@ -1010,12 +1010,6 @@ pub const VM = struct {
                     } else {
                         _ = self.pop(); // Pop right operand
                     }
-                },
-
-                else => {
-                    std.debug.print("{} not yet implemented\n", .{instruction});
-
-                    std.os.exit(1);
                 },
             }
 

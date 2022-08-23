@@ -36,7 +36,7 @@ pub const GarbageCollector = struct {
     allocator: std.mem.Allocator,
     strings: std.StringHashMap(*ObjString),
     bytes_allocated: usize = 0,
-    next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 1024,
+    next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 8,
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
@@ -476,7 +476,7 @@ pub const GarbageCollector = struct {
             }
         }
 
-        if (Config.debug_gc) {
+        if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("Swept {} objects for {} bytes, now {} bytes\n", .{ obj_count, swept - self.bytes_allocated, self.bytes_allocated });
         }
     }
@@ -487,7 +487,7 @@ pub const GarbageCollector = struct {
             return;
         }
 
-        if (Config.debug_gc) {
+        if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("-- gc starts\n", .{});
 
             // try dumpStack(self);
@@ -520,7 +520,7 @@ pub const GarbageCollector = struct {
 
         self.next_gc = self.bytes_allocated * 2;
 
-        if (Config.debug_gc) {
+        if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("-- gc end\n", .{});
         }
     }

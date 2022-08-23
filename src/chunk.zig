@@ -72,7 +72,6 @@ pub const OpCode = enum(u8) {
 
     OP_RETURN,
 
-    OP_CLASS,
     OP_OBJECT,
     OP_INSTANCE,
     OP_INHERIT,
