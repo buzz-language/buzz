@@ -50,7 +50,7 @@ pub const ObjType = enum {
 };
 
 pub fn allocateObject(gc: *GarbageCollector, comptime T: type, data: T) !*T {
-    // var before: usize = vm.bytes_allocated;
+    // var before: usize = gc.bytes_allocated;
 
     var obj: *T = try gc.allocate(T);
     obj.* = data;
@@ -77,7 +77,7 @@ pub fn allocateObject(gc: *GarbageCollector, comptime T: type, data: T) !*T {
 
     // if (Config.debug_gc) {
     //     std.debug.print("allocated {*} {*}\n", .{ obj, object });
-    //     std.debug.print("(from {}) {} allocated, total {}\n", .{ before, @sizeOf(T), vm.bytes_allocated });
+    //     std.debug.print("(from {}) {} allocated, total {}\n", .{ before, gc.bytes_allocated - before, gc.bytes_allocated });
     // }
 
     // Add new object at start of vm.objects linked list

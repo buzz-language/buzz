@@ -686,7 +686,10 @@ pub const Parser = struct {
                 try parent.resolved_type.?.Placeholder.children.append(placeholder);
             }
 
+            // Don't copy obj header or it will break the linked list of objects
+            const obj = placeholder.obj;
             placeholder.* = resolved_type.*;
+            placeholder.obj = obj;
             return;
         }
 
@@ -707,7 +710,10 @@ pub const Parser = struct {
         }
 
         // Overwrite placeholder with resolved_type
+        // Don't copy obj header or it will break the linked list of objects
+        const obj = placeholder.obj;
         placeholder.* = resolved_type.*;
+        placeholder.obj = obj;
         // Put it in the registry so any cloneOptional/cloneNonOptional don't create new types
         try self.type_registry.setTypeDef(placeholder);
 

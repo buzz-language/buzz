@@ -445,14 +445,29 @@ pub const GarbageCollector = struct {
     }
 
     fn sweep(self: *Self) !void {
-        try self.countObj();
+        // try self.countObj();
 
         var swept: usize = self.bytes_allocated;
+
+        var seen: ?std.AutoHashMap(*Obj, void) = if (Config.debug_gc) std.AutoHashMap(*Obj, void).init(self.allocator) else null;
+        defer {
+            if (seen != null) {
+                seen.?.deinit();
+            }
+        }
 
         var obj_count: usize = 0;
         var previous: ?*Obj = null;
         var obj: ?*Obj = self.objects;
         while (obj) |uobj| {
+            if (Config.debug_gc) {
+                if (seen.?.get(uobj) != null) {
+                    std.debug.print("Duplicate @{} {}\n", .{ @ptrToInt(uobj), uobj.obj_type });
+                }
+
+                try seen.?.put(uobj, {});
+            }
+
             if (uobj.is_marked) {
                 if (Config.debug_gc) {
                     std.debug.print("UNMARKING @{}\n", .{@ptrToInt(uobj)});
