@@ -269,17 +269,20 @@ export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
+    var gc = memory.GarbageCollector.init(self.gc.allocator);
     var type_registry = TypeRegistry{
-        .gc = self.gc,
+        .gc = &gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
     };
-    var parser = Parser.init(self.gc, &imports, &type_registry, false);
-    var codegen = CodeGen.init(self.gc, &parser, &type_registry, false);
+    var parser = Parser.init(&gc, &imports, &type_registry, false);
+    var codegen = CodeGen.init(&gc, &parser, &type_registry, false);
     defer {
         codegen.deinit();
         imports.deinit();
         parser.deinit();
         strings.deinit();
+        // FIXME: fails
+        // gc.deinit();
     }
 
     if (parser.parse(utils.toSlice(source), utils.toSlice(file_name)) catch null) |function_node| {

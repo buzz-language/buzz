@@ -49,6 +49,7 @@ pub const ObjType = enum {
     Fiber,
 };
 
+// TODO: move to memory.zig
 pub fn allocateObject(gc: *GarbageCollector, comptime T: type, data: T) !*T {
     // var before: usize = gc.bytes_allocated;
 
@@ -87,6 +88,7 @@ pub fn allocateObject(gc: *GarbageCollector, comptime T: type, data: T) !*T {
     return obj;
 }
 
+// TODO: move to memory.zig
 pub fn allocateString(gc: *GarbageCollector, chars: []const u8) !*ObjString {
     if (gc.strings.get(chars)) |interned| {
         return interned;
@@ -1275,9 +1277,9 @@ pub const ObjFunction = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
-        parameters: std.StringArrayHashMap(*ObjTypeDef),
+        parameters: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.StringArrayHashMap(Value),
+        defaults: std.AutoArrayHashMap(*ObjString, Value),
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
@@ -1288,11 +1290,13 @@ pub const ObjFunction = struct {
 
             var it = self.parameters.iterator();
             while (it.next()) |parameter| {
+                try gc.markObj(parameter.key_ptr.*.toObj());
                 try gc.markObj(parameter.value_ptr.*.toObj());
             }
 
             var it2 = self.defaults.iterator();
             while (it2.next()) |default| {
+                try gc.markObj(default.key_ptr.*.toObj());
                 try gc.markValue(default.value_ptr.*);
             }
         }
@@ -1825,18 +1829,18 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
                 // `value` arg is of item_type
-                try parameters.put("value", self.item_type);
+                try parameters.put(try copyString(parser.gc, "value"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "append"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
@@ -1849,7 +1853,7 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -1861,12 +1865,12 @@ pub const ObjList = struct {
                     },
                 );
 
-                try parameters.put("at", at_type);
+                try parameters.put(try copyString(parser.gc, "at"), at_type);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "remove"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.item_type.def_type,
@@ -1888,12 +1892,12 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "len"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
@@ -1915,14 +1919,14 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
                 // `key` arg is number
                 try parameters.put(
-                    "key",
+                    try copyString(parser.gc, "key"),
                     try parser.type_registry.getTypeDef(
                         ObjTypeDef{
                             .def_type = .Number,
@@ -1934,7 +1938,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "next"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     // When reached end of list, returns null
                     .return_type = try parser.type_registry.getTypeDef(
                         ObjTypeDef{
@@ -1958,13 +1962,13 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "sub")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
                 try parameters.put(
-                    "start",
+                    try copyString(parser.gc, "start"),
                     try parser.type_registry.getTypeDef(
                         .{
                             .def_type = .Number,
@@ -1972,7 +1976,7 @@ pub const ObjList = struct {
                     ),
                 );
                 try parameters.put(
-                    "len",
+                    try copyString(parser.gc, "len"),
                     try parser.type_registry.getTypeDef(
                         .{
                             .def_type = .Number,
@@ -1984,7 +1988,7 @@ pub const ObjList = struct {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "sub"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
                 };
@@ -2002,17 +2006,17 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "indexOf")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put("needle", self.item_type);
+                try parameters.put(try copyString(parser.gc, "needle"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "indexOf"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(
                         .{
                             .def_type = self.item_type.def_type,
@@ -2036,17 +2040,17 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "join")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put("separator", try parser.type_registry.getTypeDef(.{ .def_type = .String }));
+                try parameters.put(try copyString(parser.gc, "separator"), try parser.type_registry.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "join"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(ObjTypeDef{
                         .def_type = .String,
                     }),
@@ -2344,8 +2348,8 @@ pub const ObjMap = struct {
             if (mem.eql(u8, method, "size")) {
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "size"),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .Number,
                     }),
@@ -2365,17 +2369,17 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                try parameters.put("at", self.key_type);
+                try parameters.put(try copyString(parser.gc, "at"), self.key_type);
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "remove"),
                     .parameters = parameters,
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .optional = true,
                         .def_type = self.value_type.def_type,
@@ -2408,8 +2412,8 @@ pub const ObjMap = struct {
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "keys"),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
@@ -2442,8 +2446,8 @@ pub const ObjMap = struct {
 
                 var method_def = ObjFunction.FunctionDef{
                     .name = try copyString(parser.gc, "values"),
-                    .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .optional = false,
@@ -2879,7 +2883,7 @@ pub const ObjTypeDef = struct {
                 while (it.next()) |kv| : (i = i + 1) {
                     try kv.value_ptr.*.toString(writer);
                     try writer.writeAll(" ");
-                    try writer.writeAll(kv.key_ptr.*);
+                    try writer.writeAll(kv.key_ptr.*.string);
 
                     if (i < size - 1) {
                         try writer.writeAll(", ");
@@ -3023,8 +3027,8 @@ pub const ObjTypeDef = struct {
                 }
 
                 // Compare parameters (we ignore argument names and only compare types)
-                const a_keys: [][]const u8 = a.Function.parameters.keys();
-                const b_keys: [][]const u8 = b.Function.parameters.keys();
+                const a_keys: []*ObjString = a.Function.parameters.keys();
+                const b_keys: []*ObjString = b.Function.parameters.keys();
 
                 if (a_keys.len != b_keys.len) {
                     return false;

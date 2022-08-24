@@ -1146,7 +1146,7 @@ pub const VM = struct {
         var gc = GarbageCollector.init(self.gc.allocator);
         var vm = try self.gc.allocator.create(VM);
         vm.* = try VM.init(&gc);
-        // TODO: can we free this?
+        // TODO: how to free this since we copy things to new vm, also fails anyway
         // {
         //     defer vm.deinit();
         //     defer gn.deinit();
@@ -1227,7 +1227,7 @@ pub const VM = struct {
     // Returns true if error was handled
     fn handleError(self: *Self, error_payload: Value, handlers: std.ArrayList(*ObjClosure)) !bool {
         for (handlers.items) |handler| {
-            const parameters: std.StringArrayHashMap(*ObjTypeDef) = handler.function.type_def.resolved_type.?.Function.parameters;
+            const parameters = handler.function.type_def.resolved_type.?.Function.parameters;
             if (parameters.count() == 0 or _value.valueTypeEql(error_payload, parameters.get(parameters.keys()[0]).?)) {
                 // In a normal frame, the slots 0 is either the function or a `this` value
                 self.push(Value{ .Null = null });

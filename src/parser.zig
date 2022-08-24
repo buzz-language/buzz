@@ -2719,8 +2719,8 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn argumentList(self: *Self) !std.StringArrayHashMap(*ParseNode) {
-        var arguments = std.StringArrayHashMap(*ParseNode).init(self.gc.allocator);
+    fn argumentList(self: *Self) !std.AutoArrayHashMap(*ObjString, *ParseNode) {
+        var arguments = std.AutoArrayHashMap(*ObjString, *ParseNode).init(self.gc.allocator);
 
         var arg_count: u8 = 0;
         while (!self.check(.RightParen)) {
@@ -2748,7 +2748,10 @@ pub const Parser = struct {
                 }
             }
 
-            try arguments.put(if (!hanging and arg_name != null) arg_name.?.lexeme else "$", try self.expression(hanging));
+            try arguments.put(
+                try copyString(self.gc, if (!hanging and arg_name != null) arg_name.?.lexeme else "$"),
+                try self.expression(hanging),
+            );
 
             if (arg_count == 255) {
                 try self.reportError("Can't have more than 255 arguments.");
@@ -3671,8 +3674,8 @@ pub const Parser = struct {
                 try copyString(self.gc, "anonymous"),
             .return_type = undefined,
             .yield_type = undefined,
-            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(self.gc.allocator),
-            .defaults = std.StringArrayHashMap(Value).init(self.gc.allocator),
+            .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator),
+            .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = function_type,
         };
 
@@ -3709,16 +3712,16 @@ pub const Parser = struct {
                         true, // function arguments are constant
                         "Expected parameter name",
                     );
-                    var arg_name: []const u8 = undefined;
+                    var arg_name: *ObjString = undefined;
 
                     if (self.current.?.scope_depth > 0) {
                         var local: Local = self.current.?.locals[slot];
-                        arg_name = local.name.string;
-                        try function_node.node.type_def.?.resolved_type.?.Function.parameters.put(local.name.string, local.type_def);
+                        arg_name = local.name;
+                        try function_node.node.type_def.?.resolved_type.?.Function.parameters.put(local.name, local.type_def);
                     } else {
                         var global: Global = self.globals.items[slot];
-                        arg_name = global.name.string;
-                        try function_node.node.type_def.?.resolved_type.?.Function.parameters.put(global.name.string, global.type_def);
+                        arg_name = global.name;
+                        try function_node.node.type_def.?.resolved_type.?.Function.parameters.put(global.name, global.type_def);
                     }
 
                     self.markInitialized();
@@ -4091,7 +4094,7 @@ pub const Parser = struct {
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
-        var parameters: std.StringArrayHashMap(*ObjTypeDef) = std.StringArrayHashMap(*ObjTypeDef).init(self.gc.allocator);
+        var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
         var arity: usize = 0;
         if (!self.check(.RightParen)) {
             while (true) {
@@ -4104,7 +4107,7 @@ pub const Parser = struct {
                 try self.consume(.Identifier, "Expected argument name");
                 var param_name: []const u8 = self.parser.previous_token.?.lexeme;
 
-                try parameters.put(param_name, param_type);
+                try parameters.put(try copyString(self.gc, param_name), param_type);
 
                 if (!try self.match(.Comma)) break;
             }
@@ -4126,7 +4129,7 @@ pub const Parser = struct {
             .return_type = try return_type.toInstance(self.gc.allocator, self.type_registry),
             .yield_type = try yield_type.toInstance(self.gc.allocator, self.type_registry),
             .parameters = parameters,
-            .defaults = std.StringArrayHashMap(Value).init(self.gc.allocator),
+            .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = .Anonymous,
         };
 

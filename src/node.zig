@@ -2429,8 +2429,8 @@ pub const FunctionNode = struct {
             .name = try copyString(parser.gc, function_name),
             .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            .parameters = std.StringArrayHashMap(*ObjTypeDef).init(parser.gc.allocator),
-            .defaults = std.StringArrayHashMap(Value).init(parser.gc.allocator),
+            .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+            .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
             .function_type = function_type,
         };
 
@@ -2751,7 +2751,7 @@ pub const CallNode = struct {
     async_call: bool = false,
     callee: *ParseNode,
     callable_type: ?*ObjTypeDef,
-    arguments: std.StringArrayHashMap(*ParseNode),
+    arguments: std.AutoArrayHashMap(*ObjString, *ParseNode),
     catches: ?[]*ParseNode = null,
     super: ?*NamedVariableNode = null,
 
@@ -2808,12 +2808,12 @@ pub const CallNode = struct {
             return null;
         }
 
-        const args: std.StringArrayHashMap(*ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;
+        const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;
         const defaults = callee_type.?.resolved_type.?.Function.defaults;
         const arg_keys = args.keys();
         const arg_count = arg_keys.len;
 
-        var missing_arguments = std.StringArrayHashMap(usize).init(codegen.gc.allocator);
+        var missing_arguments = std.AutoArrayHashMap(*ObjString, usize).init(codegen.gc.allocator);
         defer missing_arguments.deinit();
         for (arg_keys) |arg_name, pindex| {
             try missing_arguments.put(arg_name, pindex);
@@ -2827,7 +2827,7 @@ pub const CallNode = struct {
         var needs_reorder = false;
         for (self.arguments.keys()) |arg_key, index| {
             const argument = self.arguments.get(arg_key).?;
-            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) arg_keys[0] else arg_key;
+            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key.string, "$")) arg_keys[0] else arg_key;
             const def_arg_type = args.get(actual_arg_key);
 
             const ref_index = args.getIndex(actual_arg_key);
@@ -2850,14 +2850,14 @@ pub const CallNode = struct {
 
                 _ = missing_arguments.orderedRemove(actual_arg_key);
             } else {
-                try codegen.reportErrorFmt(argument.location, "Argument `{s}` does not exists.", .{arg_key});
+                try codegen.reportErrorFmt(argument.location, "Argument `{s}` does not exists.", .{arg_key.string});
             }
 
             _ = try argument.toByteCode(argument, codegen, breaks);
         }
 
         // Argument order reference
-        var arguments_order_ref = std.ArrayList([]const u8).init(codegen.gc.allocator);
+        var arguments_order_ref = std.ArrayList(*ObjString).init(codegen.gc.allocator);
         defer arguments_order_ref.deinit();
         try arguments_order_ref.appendSlice(self.arguments.keys());
 
@@ -2880,9 +2880,13 @@ pub const CallNode = struct {
         }
 
         if (missing_arguments.count() > 0) {
-            const missing = try std.mem.join(codegen.gc.allocator, ", ", missing_arguments.keys());
-            defer codegen.gc.allocator.free(missing);
-            try codegen.reportErrorFmt(node.location, "Missing argument(s): {s}", .{missing});
+            var missing = std.ArrayList(u8).init(codegen.gc.allocator);
+            const missing_writer = missing.writer();
+            for (missing_arguments.keys()) |key| {
+                try missing_writer.print("{s}, ", .{key.string});
+            }
+            defer missing.deinit();
+            try codegen.reportErrorFmt(node.location, "Missing argument(s): {s}", .{missing.items});
         }
 
         // Reorder arguments
@@ -2892,7 +2896,7 @@ pub const CallNode = struct {
                 var ordered = true;
 
                 for (arguments_order_ref.items) |arg_key, index| {
-                    const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$")) args.keys()[0] else arg_key;
+                    const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key.string, "$")) args.keys()[0] else arg_key;
                     const correct_index = args.getIndex(actual_arg_key).?;
 
                     if (correct_index != index) {
@@ -3071,7 +3075,7 @@ pub const CallNode = struct {
         for (self.arguments.keys()) |key, i| {
             const argument = self.arguments.get(key).?;
 
-            try out.print("{{\"name\": \"{s}\", \"value\": ", .{key});
+            try out.print("{{\"name\": \"{s}\", \"value\": ", .{key.string});
 
             try argument.toJson(argument, out);
 

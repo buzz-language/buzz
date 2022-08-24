@@ -36,7 +36,7 @@ pub const GarbageCollector = struct {
     allocator: std.mem.Allocator,
     strings: std.StringHashMap(*ObjString),
     bytes_allocated: usize = 0,
-    next_gc: usize = if (Config.debug_gc) 1024 else 1024 * 8,
+    next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
     objects: ?*Obj = null,
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
