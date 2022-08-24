@@ -37,7 +37,6 @@ const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
-const allocateObject = _obj.allocateObject;
 const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
 const Chunk = _chunk.Chunk;
@@ -211,7 +210,7 @@ pub const Fiber = struct {
             },
             .Over => {
                 // User should check fiber.over() before doing `resume`
-                try vm.throw(VM.Error.FiberOver, (try _obj.copyString(vm.gc, "Fiber is over")).toValue());
+                try vm.throw(VM.Error.FiberOver, (try vm.gc.copyString("Fiber is over")).toValue());
             },
             .Running => unreachable,
         }
@@ -275,8 +274,7 @@ pub const VM = struct {
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
             self.gc.allocator,
-            try allocateObject(
-                self.gc,
+            try self.gc.allocateObject(
                 ObjTypeDef,
                 ObjTypeDef{ .def_type = .String },
             ),
@@ -286,8 +284,7 @@ pub const VM = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = try allocateObject(
-            self.gc,
+        var list_def_type: *ObjTypeDef = try self.gc.allocateObject(
             ObjTypeDef,
             ObjTypeDef{
                 .def_type = .List,
@@ -296,8 +293,7 @@ pub const VM = struct {
             },
         );
 
-        var arg_list = try allocateObject(
-            self.gc,
+        var arg_list = try self.gc.allocateObject(
             ObjList,
             ObjList.init(
                 self.gc.allocator,
@@ -319,7 +315,7 @@ pub const VM = struct {
 
                 try arg_list.items.append(
                     Value{
-                        .Obj = (try _obj.copyString(self.gc, std.mem.sliceTo(arg, 0))).toObj(),
+                        .Obj = (try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj(),
                     },
                 );
             }
@@ -405,8 +401,7 @@ pub const VM = struct {
             null, // method/member
         );
 
-        self.push((try allocateObject(
-            self.gc,
+        self.push((try self.gc.allocateObject(
             ObjClosure,
             try ObjClosure.init(self.gc.allocator, self, function),
         )).toValue());
@@ -506,7 +501,7 @@ pub const VM = struct {
                     defer self.gc.allocator.free(str);
                     self.push(
                         Value{
-                            .Obj = (try _obj.copyString(self.gc, str)).toObj(),
+                            .Obj = (try self.gc.copyString(str)).toObj(),
                         },
                     );
                 },
@@ -521,8 +516,7 @@ pub const VM = struct {
                 },
                 .OP_CLOSURE => {
                     var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
-                    var closure: *ObjClosure = try allocateObject(
-                        self.gc,
+                    var closure: *ObjClosure = try self.gc.allocateObject(
                         ObjClosure,
                         try ObjClosure.init(self.gc.allocator, self, function),
                     );
@@ -571,7 +565,7 @@ pub const VM = struct {
                     const type_def = ObjTypeDef.cast(self.pop().Obj).?;
 
                     // Put new fiber on the stack
-                    var obj_fiber = try allocateObject(self.gc, ObjFiber, ObjFiber{
+                    var obj_fiber = try self.gc.allocateObject(ObjFiber, ObjFiber{
                         .fiber = fiber,
                         .type_def = type_def,
                     });
@@ -610,7 +604,7 @@ pub const VM = struct {
                     const type_def = ObjTypeDef.cast(self.pop().Obj).?;
 
                     // Push new fiber on the stack
-                    var obj_fiber = try allocateObject(self.gc, ObjFiber, ObjFiber{
+                    var obj_fiber = try self.gc.allocateObject(ObjFiber, ObjFiber{
                         .fiber = fiber,
                         .type_def = type_def,
                     });
@@ -698,8 +692,7 @@ pub const VM = struct {
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
 
                 .OP_LIST => {
-                    var list: *ObjList = try allocateObject(
-                        self.gc,
+                    var list: *ObjList = try self.gc.allocateObject(
                         ObjList,
                         ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
                     );
@@ -710,7 +703,7 @@ pub const VM = struct {
                 .OP_LIST_APPEND => try self.appendToList(),
 
                 .OP_MAP => {
-                    var map: *ObjMap = try allocateObject(self.gc, ObjMap, ObjMap.init(
+                    var map: *ObjMap = try self.gc.allocateObject(ObjMap, ObjMap.init(
                         self.gc.allocator,
                         ObjTypeDef.cast(self.readConstant(arg).Obj).?,
                     ));
@@ -723,7 +716,7 @@ pub const VM = struct {
                     var key: Value = self.peek(1);
                     var value: Value = self.peek(0);
 
-                    try map.map.put(valueToHashable(key), value);
+                    try map.set(self.gc, key, value);
 
                     _ = self.pop();
                     _ = self.pop();
@@ -734,8 +727,7 @@ pub const VM = struct {
                 .OP_SET_SUBSCRIPT => try self.setSubscript(),
 
                 .OP_ENUM => {
-                    var enum_: *ObjEnum = try allocateObject(
-                        self.gc,
+                    var enum_: *ObjEnum = try self.gc.allocateObject(
                         ObjEnum,
                         ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
                     );
@@ -750,7 +742,7 @@ pub const VM = struct {
 
                     _ = self.pop();
 
-                    var enum_case: *ObjEnumInstance = try allocateObject(self.gc, ObjEnumInstance, ObjEnumInstance{
+                    var enum_case: *ObjEnumInstance = try self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                         .enum_ref = enum_,
                         .case = @intCast(u8, arg),
                     });
@@ -766,8 +758,7 @@ pub const VM = struct {
                 },
 
                 .OP_OBJECT => {
-                    var object: *ObjObject = try allocateObject(
-                        self.gc,
+                    var object: *ObjObject = try self.gc.allocateObject(
                         ObjObject,
                         ObjObject.init(
                             self.gc.allocator,
@@ -780,7 +771,9 @@ pub const VM = struct {
                 },
 
                 .OP_INHERIT => {
-                    ObjObject.cast(self.pop().Obj).?.super = ObjObject.cast(self.currentGlobals().items[arg].Obj).?;
+                    const obj = self.pop().Obj;
+                    ObjObject.cast(obj).?.super = ObjObject.cast(self.currentGlobals().items[arg].Obj).?;
+                    try self.gc.markObjDirty(obj);
                 },
 
                 .OP_GET_SUPER => {
@@ -886,7 +879,7 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             // Set new value
-                            try instance.fields.put(name, self.peek(0));
+                            try instance.setField(self.gc, name, self.peek(0));
 
                             // Get the new value from stack, pop the instance and push value again
                             const value: Value = self.pop();
@@ -898,7 +891,7 @@ pub const VM = struct {
                             const name: *ObjString = self.readString(arg);
 
                             // Set new value
-                            try object.static_fields.put(name, self.peek(0));
+                            try object.setStaticField(self.gc, name, self.peek(0));
 
                             // Get the new value from stack, pop the object and push value again
                             const value: Value = self.pop();
@@ -995,7 +988,7 @@ pub const VM = struct {
 
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
-                        try self.throw(Error.UnwrappedNull, (try _obj.copyString(self.gc, "Force unwrapped optional is null")).toValue());
+                        try self.throw(Error.UnwrappedNull, (try self.gc.copyString("Force unwrapped optional is null")).toValue());
                     }
                 },
 
@@ -1045,7 +1038,7 @@ pub const VM = struct {
 
                 // Set new value
                 if (key_slot.* != .Null) {
-                    value_slot.* = (try _obj.copyString(self.gc, &([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
+                    value_slot.* = (try self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
                 }
             },
             .List => {
@@ -1161,7 +1154,7 @@ pub const VM = struct {
         if (exported_count > 0) {
             var i: u8 = exported_count;
             while (i > 0) : (i -= 1) {
-                try self.globals.append(vm.peek(i));
+                try self.globals.append(try self.gc.adoptValue(vm.peek(i)));
             }
         }
 
@@ -1343,7 +1336,7 @@ pub const VM = struct {
                     try new_list.appendSlice(right_l.?.items.items);
 
                     self.push(
-                        (try _obj.allocateObject(self.gc, ObjList, ObjList{
+                        (try self.gc.allocateObject(ObjList, ObjList{
                             .type_def = left_l.?.type_def,
                             .methods = left_l.?.methods,
                             .items = new_list,
@@ -1361,7 +1354,7 @@ pub const VM = struct {
                 }
 
                 self.push(
-                    (try _obj.allocateObject(self.gc, ObjMap, ObjMap{
+                    (try self.gc.allocateObject(ObjMap, ObjMap{
                         .type_def = left_m.?.type_def,
                         .methods = left_m.?.methods,
                         .map = new_map,
@@ -1485,7 +1478,7 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
-        var bound: *ObjBoundMethod = try allocateObject(self.gc, ObjBoundMethod, .{
+        var bound: *ObjBoundMethod = try self.gc.allocateObject(ObjBoundMethod, .{
             .receiver = self.peek(0),
             .closure = method,
             .native = native,
@@ -1523,7 +1516,7 @@ pub const VM = struct {
     }
 
     fn instanciateObject(self: *Self, object: *ObjObject) !void {
-        var instance: *ObjObjectInstance = try allocateObject(self.gc, ObjObjectInstance, ObjObjectInstance.init(self.gc.allocator, object));
+        var instance: *ObjObjectInstance = try self.gc.allocateObject(ObjObjectInstance, ObjObjectInstance.init(self.gc.allocator, object));
 
         // Set instance fields with super classes default values
         if (object.super) |super| {
@@ -1533,7 +1526,7 @@ pub const VM = struct {
         // Set instance fields with default values
         var it = object.fields.iterator();
         while (it.next()) |kv| {
-            try instance.fields.put(kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
+            try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
         }
 
         self.push(instance.toValue());
@@ -1548,7 +1541,7 @@ pub const VM = struct {
 
         var it = super.fields.iterator();
         while (it.next()) |kv| {
-            try instance.fields.put(kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
+            try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
         }
     }
 
@@ -1667,7 +1660,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *ObjUpValue = try allocateObject(self.gc, ObjUpValue, ObjUpValue.init(local));
+        var created_upvalue: *ObjUpValue = try self.gc.allocateObject(ObjUpValue, ObjUpValue.init(local));
         created_upvalue.next = upvalue;
 
         if (prev_upvalue) |uprev_upvalue| {
@@ -1683,7 +1676,7 @@ pub const VM = struct {
         var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
         var list_value: Value = self.peek(0);
 
-        try list.items.append(list_value);
+        try list.rawAppend(self.gc, list_value);
 
         _ = self.pop();
     }
@@ -1693,6 +1686,7 @@ pub const VM = struct {
         var enum_value: Value = self.peek(0);
 
         try enum_.cases.append(enum_value);
+        try self.gc.markObjDirty(&enum_.obj);
 
         _ = self.pop();
     }
@@ -1711,10 +1705,10 @@ pub const VM = struct {
         var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
-            try object.fields.put(name, property);
+            try object.setField(self.gc, name, property);
         } else {
             assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
-            try object.static_fields.put(name, property);
+            try object.setStaticField(self.gc, name, property);
         }
 
         _ = self.pop();
@@ -1729,7 +1723,7 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(subscriptable).?;
 
                 if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
                 }
 
                 const list_index: usize = @intCast(usize, index.Integer);
@@ -1744,7 +1738,7 @@ pub const VM = struct {
                     // Push value
                     self.push(list_item);
                 } else {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
                 }
             },
             .Map => {
@@ -1765,13 +1759,13 @@ pub const VM = struct {
                 var str: *ObjString = ObjString.cast(subscriptable).?;
 
                 if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound string access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound string access.")).toValue());
                 }
 
                 const str_index: usize = @intCast(usize, index.Integer);
 
                 if (str_index < str.string.len) {
-                    var str_item: Value = (try _obj.copyString(self.gc, &([_]u8{str.string[str_index]}))).toValue();
+                    var str_item: Value = (try self.gc.copyString(&([_]u8{str.string[str_index]}))).toValue();
 
                     // Pop str and index
                     _ = self.pop();
@@ -1780,7 +1774,7 @@ pub const VM = struct {
                     // Push value
                     self.push(str_item);
                 } else {
-                    try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound str access.")).toValue());
+                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound str access.")).toValue());
                 }
             },
             else => unreachable,
@@ -1796,13 +1790,13 @@ pub const VM = struct {
             var list: *ObjList = ObjList.cast(list_or_map).?;
 
             if (index != .Integer or index.Integer < 0) {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
+                try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
             }
 
             const list_index: usize = @intCast(usize, index.Integer);
 
             if (list_index < list.items.items.len) {
-                list.items.items[list_index] = value;
+                try list.set(self.gc, list_index, value);
 
                 // Pop everyting
                 _ = self.pop();
@@ -1812,12 +1806,12 @@ pub const VM = struct {
                 // Push the value
                 self.push(value);
             } else {
-                try self.throw(Error.OutOfBound, (try _obj.copyString(self.gc, "Out of bound list access.")).toValue());
+                try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
             }
         } else {
             var map: *ObjMap = ObjMap.cast(list_or_map).?;
 
-            try map.map.put(valueToHashable(index), value);
+            try map.set(self.gc, index, value);
 
             // Pop everyting
             _ = self.pop();

@@ -13,7 +13,6 @@ const Token = @import("./token.zig").Token;
 
 const Value = _value.Value;
 const ObjTypeDef = _obj.ObjTypeDef;
-const copyString = _obj.copyString;
 
 pub const StringParser = struct {
     const Self = @This();
@@ -110,7 +109,7 @@ pub const StringParser = struct {
     fn push(self: *Self, chars: []const u8) !void {
         var node = try self.parser.gc.allocator.create(StringLiteralNode);
         node.* = .{
-            .constant = try copyString(self.parser.gc, chars),
+            .constant = try self.parser.gc.copyString(chars),
         };
         node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
         node.node.location = self.parser.parser.previous_token.?;

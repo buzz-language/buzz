@@ -10,7 +10,6 @@ const _codegen = @import("./codegen.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
-const copyString = _obj.copyString;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
@@ -20,6 +19,7 @@ const UserData = _obj.UserData;
 const TypeRegistry = _obj.TypeRegistry;
 const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
+const GarbageCollector = memory.GarbageCollector;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
@@ -120,7 +120,7 @@ export fn bz_valueIsFloat(value: *Value) bool {
 
 /// Converts a c string to a *ObjString
 export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
-    return copyString(vm.gc, utils.toSlice(string)) catch null;
+    return vm.gc.copyString(utils.toSlice(string)) catch null;
 }
 
 // Other stuff
@@ -189,7 +189,7 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = _obj.allocateObject(vm.gc, ObjTypeDef, ObjTypeDef{
+    var list_def_type: *ObjTypeDef = vm.gc.allocateObject(ObjTypeDef, ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -197,8 +197,7 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
         return null;
     };
 
-    return _obj.allocateObject(
-        vm.gc,
+    return vm.gc.allocateObject(
         ObjList,
         ObjList.init(vm.gc.allocator, list_def_type),
     ) catch {
@@ -206,8 +205,8 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
     };
 }
 
-export fn bz_listAppend(self: *ObjList, value: *Value) bool {
-    self.rawAppend(value.*) catch {
+export fn bz_listAppend(self: *ObjList, gc: *GarbageCollector, value: *Value) bool {
+    self.rawAppend(gc, value.*) catch {
         return false;
     };
 
@@ -227,8 +226,7 @@ export fn bz_listLen(self: *ObjList) usize {
 }
 
 export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
-    return _obj.allocateObject(
-        vm.gc,
+    return vm.gc.allocateObject(
         ObjUserData,
         ObjUserData{ .userdata = userdata },
     ) catch {
@@ -251,7 +249,12 @@ export fn bz_newVM(self: *VM) ?*VM {
     var vm = self.gc.allocator.create(VM) catch {
         return null;
     };
-    vm.* = VM.init(self.gc) catch {
+    var gc = self.gc.allocator.create(GarbageCollector) catch {
+        return null;
+    };
+    gc.* = GarbageCollector.init(self.gc.allocator);
+
+    vm.* = VM.init(gc) catch {
         return null;
     };
 
@@ -269,13 +272,12 @@ export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
-    var gc = memory.GarbageCollector.init(self.gc.allocator);
     var type_registry = TypeRegistry{
-        .gc = &gc,
+        .gc = self.gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
     };
-    var parser = Parser.init(&gc, &imports, &type_registry, false);
-    var codegen = CodeGen.init(&gc, &parser, &type_registry, false);
+    var parser = Parser.init(self.gc, &imports, &type_registry, false);
+    var codegen = CodeGen.init(self.gc, &parser, &type_registry, false);
     defer {
         codegen.deinit();
         imports.deinit();
@@ -283,6 +285,7 @@ export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8)
         strings.deinit();
         // FIXME: fails
         // gc.deinit();
+        // self.gc.allocator.destroy(self.gc);
     }
 
     if (parser.parse(utils.toSlice(source), utils.toSlice(file_name)) catch null) |function_node| {

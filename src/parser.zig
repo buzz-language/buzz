@@ -46,7 +46,6 @@ const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = _scanner.Scanner;
 const toNullTerminated = _utils.toNullTerminated;
-const copyString = _obj.copyString;
 const NativeFn = _obj.NativeFn;
 const FunctionType = _obj.ObjFunction.FunctionType;
 const SlotType = _node.SlotType;
@@ -478,7 +477,7 @@ pub const Parser = struct {
             else => "_",
         };
 
-        local.name = try copyString(self.gc, name);
+        local.name = try self.gc.copyString(name);
     }
 
     fn endFrame(self: *Self) *FunctionNode {
@@ -1224,7 +1223,7 @@ pub const Parser = struct {
 
         var object_def = ObjObject.ObjectDef.init(
             self.gc.allocator,
-            try copyString(self.gc, object_name.lexeme),
+            try self.gc.copyString(object_name.lexeme),
             is_class,
         );
 
@@ -1824,8 +1823,7 @@ pub const Parser = struct {
                 .Placeholder = PlaceholderDef.init(self.gc.allocator, user_type_name),
             };
 
-            placeholder_resolved_type.Placeholder.name = try copyString(
-                self.gc,
+            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
                 user_type_name.lexeme,
             );
 
@@ -2097,7 +2095,7 @@ pub const Parser = struct {
 
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.gc.allocator,
-            try copyString(self.gc, enum_name.lexeme),
+            try self.gc.copyString(enum_name.lexeme),
             enum_case_type,
         );
 
@@ -2186,7 +2184,7 @@ pub const Parser = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
                 };
-                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, property_name);
+                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(property_name);
 
                 property_placeholder = try self.type_registry.getTypeDef(
                     .{
@@ -2590,11 +2588,13 @@ pub const Parser = struct {
             return CompileError.Unrecoverable;
         }
 
-        var constant = try self.gc.allocator.create(ObjPattern);
-        constant.* = ObjPattern{
-            .source = source_slice_clean,
-            .pattern = reg.?,
-        };
+        var constant = try self.gc.allocateObject(
+            ObjPattern,
+            .{
+                .source = source_slice_clean,
+                .pattern = reg.?,
+            },
+        );
 
         node.* = PatternNode{
             .constant = constant,
@@ -2749,7 +2749,7 @@ pub const Parser = struct {
             }
 
             try arguments.put(
-                try copyString(self.gc, if (!hanging and arg_name != null) arg_name.?.lexeme else "$"),
+                try self.gc.copyString(if (!hanging and arg_name != null) arg_name.?.lexeme else "$"),
                 try self.expression(hanging),
             );
 
@@ -2995,7 +2995,7 @@ pub const Parser = struct {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
                     };
-                    placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name_token.lexeme);
+                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name_token.lexeme);
 
                     var placeholder: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                         .optional = false,
@@ -3052,7 +3052,7 @@ pub const Parser = struct {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
                     };
-                    placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name);
+                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
 
                     var placeholder: *ObjTypeDef = try self.type_registry.getTypeDef(.{
                         .optional = false,
@@ -3171,7 +3171,7 @@ pub const Parser = struct {
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
                 };
 
-                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name);
+                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
 
                 var placeholder = try self.type_registry.getTypeDef(
                     .{
@@ -3541,7 +3541,7 @@ pub const Parser = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
                 };
-                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
 
                 var placeholder = try self.type_registry.getTypeDef(
                     .{
@@ -3582,7 +3582,7 @@ pub const Parser = struct {
                         var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                             .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
                         };
-                        placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+                        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
 
                         var placeholder = try self.type_registry.getTypeDef(
                             .{
@@ -3623,7 +3623,7 @@ pub const Parser = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
                 };
-                placeholder_resolved_type.Placeholder.name = try copyString(self.gc, member_name.lexeme);
+                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
 
                 var placeholder = try self.type_registry.getTypeDef(
                     .{
@@ -3669,9 +3669,9 @@ pub const Parser = struct {
 
         var function_def = ObjFunction.FunctionDef{
             .name = if (name) |uname|
-                try copyString(self.gc, uname.lexeme)
+                try self.gc.copyString(uname.lexeme)
             else
-                try copyString(self.gc, "anonymous"),
+                try self.gc.copyString("anonymous"),
             .return_type = undefined,
             .yield_type = undefined,
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator),
@@ -3976,7 +3976,7 @@ pub const Parser = struct {
                         global.*.exported = false;
 
                         if (global.export_alias) |export_alias| {
-                            global.*.name = try copyString(self.gc, export_alias);
+                            global.*.name = try self.gc.copyString(export_alias);
                             global.*.export_alias = null;
                         }
                     } else {
@@ -4069,10 +4069,7 @@ pub const Parser = struct {
             }
 
             // Create a ObjNative with it
-            var native = try self.gc.allocator.create(ObjNative);
-            native.* = .{ .native = symbol_method.? };
-
-            return native;
+            return try self.gc.allocateObject(ObjNative, .{ .native = symbol_method.? });
         }
 
         if (builtin.os.tag == .macos) {
@@ -4089,7 +4086,7 @@ pub const Parser = struct {
 
         var name: ?*ObjString = null;
         if (try self.match(.Identifier)) {
-            name = try copyString(self.gc, self.parser.previous_token.?.lexeme);
+            name = try self.gc.copyString(self.parser.previous_token.?.lexeme);
         }
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
@@ -4107,7 +4104,7 @@ pub const Parser = struct {
                 try self.consume(.Identifier, "Expected argument name");
                 var param_name: []const u8 = self.parser.previous_token.?.lexeme;
 
-                try parameters.put(try copyString(self.gc, param_name), param_type);
+                try parameters.put(try self.gc.copyString(param_name), param_type);
 
                 if (!try self.match(.Comma)) break;
             }
@@ -4125,7 +4122,7 @@ pub const Parser = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
-            .name = name orelse try copyString(self.gc, "anonymous"),
+            .name = name orelse try self.gc.copyString("anonymous"),
             .return_type = try return_type.toInstance(self.gc.allocator, self.type_registry),
             .yield_type = try yield_type.toInstance(self.gc.allocator, self.type_registry),
             .parameters = parameters,
@@ -4157,7 +4154,7 @@ pub const Parser = struct {
                 .Placeholder = PlaceholderDef.init(self.gc.allocator, user_type_name),
             };
 
-            placeholder_resolved_type.Placeholder.name = try copyString(self.gc, user_type_name.lexeme);
+            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(user_type_name.lexeme);
 
             var_type = try self.type_registry.getTypeDef(
                 .{
@@ -4254,7 +4251,7 @@ pub const Parser = struct {
             var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                 .Placeholder = PlaceholderDef.init(self.gc.allocator, name),
             };
-            placeholder_resolved_type.Placeholder.name = try copyString(self.gc, name.lexeme);
+            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(name.lexeme);
 
             placeholder_type = try self.type_registry.getTypeDef(.{ .def_type = .Placeholder, .resolved_type = placeholder_resolved_type });
         }
@@ -4347,7 +4344,7 @@ pub const Parser = struct {
         }
 
         self.current.?.locals[self.current.?.local_count] = Local{
-            .name = try copyString(self.gc, name.lexeme),
+            .name = try self.gc.copyString(name.lexeme),
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
@@ -4394,7 +4391,7 @@ pub const Parser = struct {
 
         try self.globals.append(
             Global{
-                .name = try copyString(self.gc, name.lexeme),
+                .name = try self.gc.copyString(name.lexeme),
                 .type_def = global_type,
                 .constant = constant,
             },

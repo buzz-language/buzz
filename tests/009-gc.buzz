@@ -7,6 +7,7 @@ object Kill {
 
 test "GC, collecting unreferenced objects" {
     num i = 0;
+    Kill k = Kill{}; | Should be kept longer
     while (i < 100) {
         Kill{ yo = i }; | Should be collected since not referenced anywhere
 

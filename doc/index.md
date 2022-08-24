@@ -119,7 +119,7 @@ Convert degree to radian
 ## buffer
 
 ### ` object Buffer`
-Read and write data to a string buffer
+TODO: do all this in zig so we reuse a []const u8 instead of allocating a tone of ObjString Read and write data to a string buffer
 
 #### ` fun readBoolean() > bool?`
 Reads a boolean

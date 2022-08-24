@@ -7,6 +7,7 @@ const _obj = @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
 const Config = @import("./config.zig").Config;
 const VM = @import("./vm.zig").VM;
+const assert = std.debug.assert;
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -30,16 +31,49 @@ const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
 const ObjFiber = _obj.ObjFiber;
 
+// Sticky Mark Bits Generational GC basic idea:
+// 1. First GC: do a normal mark, don't clear `is_marked` at the end
+// 2. Young GC:
+//     - Already marked objects are 'old', don't trace them (because all referenced object from it are also old and marked)and don't clear them
+//     - Write barrier: anytime an object is modified, mark it as 'dirty' and add it to the gray_stack so its traced
+//     - Old but dirty object is traced, then marked clean again (because any reference to 'young' objects will be 'old' after this gc sweep)
+// 3. Old GC:
+//     - Trace only already marked objects
+// 4. Full GC:
+//     - Unmark all objects
+//     - Do a mark and sweep
+//
+// Writer barrier on those OpCodes:
+//     * OP_LIST_APPEND
+//     * OP_SET_MAP
+//     * OP_SET_SUBSCRIPT
+//     * OP_INHERIT
+//     * OP_INSTANCE
+//     * OP_METHOD
+//     * OP_PROPERTY
+//     * OP_SET_PROPERTY
+//
+// Can we avoid going through the whole linked list of objects when sweeping?
+//
+// For now we only have either young or old objects but we could improve on it with more categories with each its threshold
 pub const GarbageCollector = struct {
     const Self = @This();
+
+    const Mode = enum {
+        Young,
+        // Old,
+        Full,
+    };
 
     allocator: std.mem.Allocator,
     strings: std.StringHashMap(*ObjString),
     bytes_allocated: usize = 0,
+    // next_gc == next_full_gc at first so the first cycle is a full gc
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
-    objects: ?*Obj = null,
+    next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
+    objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
-    active_vms: std.AutoHashMap(*VM, void),
+    active_vm: ?*VM = null,
 
     objfiber_members: std.AutoHashMap(*ObjString, *ObjNative),
     objfiber_memberDefs: std.StringHashMap(*ObjTypeDef),
@@ -53,7 +87,6 @@ pub const GarbageCollector = struct {
             .allocator = allocator,
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .gray_stack = std.ArrayList(*Obj).init(allocator),
-            .active_vms = std.AutoHashMap(*VM, void).init(allocator),
             .objfiber_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objfiber_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .objpattern_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
@@ -64,25 +97,18 @@ pub const GarbageCollector = struct {
     }
 
     pub fn registerVM(self: *Self, vm: *VM) !void {
-        try self.active_vms.put(vm, .{});
+        self.active_vm = vm;
     }
 
     pub fn unregisterVM(self: *Self, vm: *VM) void {
-        _ = self.active_vms.remove(vm);
+        assert(self.active_vm == vm);
+
+        self.active_vm = null;
     }
 
     pub fn deinit(self: *Self) void {
         self.gray_stack.deinit();
         self.strings.deinit();
-        self.active_vms.deinit();
-
-        var obj = self.objects;
-        while (obj) |uobj| {
-            var next = uobj.next;
-            self.freeObj(uobj);
-            obj = next;
-        }
-
         self.objfiber_members.deinit();
         self.objfiber_memberDefs.deinit();
         self.objpattern_members.deinit();
@@ -117,7 +143,85 @@ pub const GarbageCollector = struct {
         return try self.allocator.alloc(T, count);
     }
 
-    pub fn free(self: *Self, comptime T: type, pointer: *T) void {
+    pub fn allocateObject(self: *Self, comptime T: type, data: T) !*T {
+        // var before: usize = self.bytes_allocated;
+
+        var obj: *T = try self.allocate(T);
+        obj.* = data;
+
+        var object: *Obj = switch (T) {
+            ObjString => ObjString.toObj(obj),
+            ObjTypeDef => ObjTypeDef.toObj(obj),
+            ObjUpValue => ObjUpValue.toObj(obj),
+            ObjClosure => ObjClosure.toObj(obj),
+            ObjFunction => ObjFunction.toObj(obj),
+            ObjObjectInstance => ObjObjectInstance.toObj(obj),
+            ObjObject => ObjObject.toObj(obj),
+            ObjList => ObjList.toObj(obj),
+            ObjMap => ObjMap.toObj(obj),
+            ObjEnum => ObjEnum.toObj(obj),
+            ObjEnumInstance => ObjEnumInstance.toObj(obj),
+            ObjBoundMethod => ObjBoundMethod.toObj(obj),
+            ObjNative => ObjNative.toObj(obj),
+            ObjUserData => ObjUserData.toObj(obj),
+            ObjPattern => ObjPattern.toObj(obj),
+            ObjFiber => ObjFiber.toObj(obj),
+            else => {},
+        };
+
+        // if (Config.debug_gc) {
+        //     std.debug.print("allocated {*} {*}\n", .{ obj, object });
+        //     std.debug.print("(from {}) {} allocated, total {}\n", .{ before, self.bytes_allocated - before, self.bytes_allocated });
+        // }
+
+        // Add new object at start of vm.objects linked list
+        try self.addObject(object);
+
+        return obj;
+    }
+
+    fn addObject(self: *Self, obj: *Obj) !void {
+        var new_node = try self.allocator.create(std.TailQueue(*Obj).Node);
+        new_node.* = .{
+            .data = obj,
+        };
+        obj.node = new_node;
+        self.objects.prepend(new_node);
+    }
+
+    pub fn allocateString(self: *Self, chars: []const u8) !*ObjString {
+        if (self.strings.get(chars)) |interned| {
+            return interned;
+        } else {
+            var string: *ObjString = try allocateObject(
+                self,
+                ObjString,
+                ObjString{ .string = chars },
+            );
+
+            // std.debug.print("allocated new string @{} `{s}`\n", .{ @ptrToInt(&string.obj), string.string });
+            try self.strings.put(string.string, string);
+
+            return string;
+        }
+    }
+
+    pub fn copyString(self: *Self, chars: []const u8) !*ObjString {
+        if (self.strings.get(chars)) |interned| {
+            return interned;
+        }
+
+        var copy: []u8 = try self.allocateMany(u8, chars.len);
+        std.mem.copy(u8, copy, chars);
+
+        if (Config.debug_gc) {
+            std.debug.print("Allocated slice {*} `{s}`\n", .{ copy, copy });
+        }
+
+        return try allocateString(self, copy);
+    }
+
+    fn free(self: *Self, comptime T: type, pointer: *T) void {
         if (Config.debug_gc) {
             std.debug.print("Going to free {*}\n", .{pointer});
         }
@@ -133,7 +237,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    pub fn freeMany(self: *Self, comptime T: type, pointer: []const T) void {
+    fn freeMany(self: *Self, comptime T: type, pointer: []const T) void {
         if (Config.debug_gc) {
             std.debug.print("Going to free slice {*} `{s}`\n", .{ pointer, pointer });
         }
@@ -154,10 +258,47 @@ pub const GarbageCollector = struct {
         }
     }
 
+    // Adopt obj coming from a foreign GC (at least until we use one GC for all VM instances)
+    pub fn adoptObj(self: *Self, obj: *Obj) !void {
+        obj.is_dirty = false;
+        obj.is_marked = false;
+
+        try self.addObject(obj);
+    }
+
+    pub fn adoptValue(self: *Self, value: Value) !Value {
+        if (value == .Obj) {
+            try self.adoptObj(value.Obj);
+        }
+
+        return value;
+    }
+
+    pub fn markObjDirty(self: *Self, obj: *Obj) !void {
+        if (!obj.is_dirty) {
+            obj.is_dirty = true;
+
+            // std.debug.print(
+            //     "Marked obj @{} {} dirty, gray_stack @{} or GC @{} will be {} items long\n",
+            //     .{
+            //         @ptrToInt(obj),
+            //         obj.obj_type,
+            //         @ptrToInt(&self.gray_stack),
+            //         @ptrToInt(self),
+            //         self.gray_stack.items.len,
+            //     },
+            // );
+
+            // A dirty obj is: an old object with reference to potential young objects that will need to be marked
+            // Since old object are ignored when tracing references, this will force tracing for it
+            try self.gray_stack.append(obj);
+        }
+    }
+
     pub fn markObj(self: *Self, obj: *Obj) !void {
         if (obj.is_marked) {
             if (Config.debug_gc) {
-                std.debug.print("{*} {s} already marked\n", .{ obj, try valueToStringAlloc(self.allocator, Value{ .Obj = obj }) });
+                std.debug.print("{*} {s} already marked or old\n", .{ obj, try valueToStringAlloc(self.allocator, Value{ .Obj = obj }) });
             }
             return;
         }
@@ -168,6 +309,16 @@ pub const GarbageCollector = struct {
         }
 
         obj.is_marked = true;
+
+        // Move marked obj to tail so we sweeping can stop going through objects when finding the first marked object
+        self.objects.remove(obj.node.?);
+        // Just to be safe, reset node before inserting it again
+        obj.node.?.* = .{
+            .prev = null,
+            .next = null,
+            .data = obj,
+        };
+        self.objects.append(obj.node.?);
 
         try self.gray_stack.append(obj);
     }
@@ -182,6 +333,8 @@ pub const GarbageCollector = struct {
                 },
             );
         }
+
+        obj.is_dirty = false;
 
         _ = try switch (obj.obj_type) {
             .String => ObjString.cast(obj).?.mark(self),
@@ -217,6 +370,8 @@ pub const GarbageCollector = struct {
         if (Config.debug_gc) {
             std.debug.print(">> freeing {} {}\n", .{ @ptrToInt(obj), obj.obj_type });
         }
+
+        self.allocator.destroy(obj.node.?);
 
         switch (obj.obj_type) {
             .String => {
@@ -428,63 +583,32 @@ pub const GarbageCollector = struct {
         }
     }
 
-    fn countObj(self: *Self) !void {
-        if (Config.debug_gc) {
-            var count: usize = 0;
-            var marked_count: usize = 0;
-            var obj: ?*Obj = self.objects;
-            while (obj) |uobj| : (count += 1) {
-                if (uobj.is_marked) {
-                    marked_count += 1;
-                }
-                obj = uobj.next;
-            }
-
-            std.debug.print(">>>> {} objects in GC with {} marked\n", .{ count, marked_count });
-        }
-    }
-
-    fn sweep(self: *Self) !void {
-        // try self.countObj();
-
+    fn sweep(self: *Self, mode: Mode) void {
         var swept: usize = self.bytes_allocated;
 
-        var seen: ?std.AutoHashMap(*Obj, void) = if (Config.debug_gc) std.AutoHashMap(*Obj, void).init(self.allocator) else null;
-        defer {
-            if (seen != null) {
-                seen.?.deinit();
-            }
-        }
-
         var obj_count: usize = 0;
-        var previous: ?*Obj = null;
-        var obj: ?*Obj = self.objects;
-        while (obj) |uobj| {
-            if (Config.debug_gc) {
-                if (seen.?.get(uobj) != null) {
-                    std.debug.print("Duplicate @{} {}\n", .{ @ptrToInt(uobj), uobj.obj_type });
+        var obj_node: ?*std.TailQueue(*Obj).Node = self.objects.first;
+        var count: usize = 0;
+        while (obj_node) |node| : (count += 1) {
+            if (node.data.is_marked) {
+                if (Config.debug_gc and mode == .Full) {
+                    std.debug.print("UNMARKING @{}\n", .{@ptrToInt(node.data)});
+                }
+                // If not a full gc, we reset is_marked, this object is now 'old'
+                node.data.is_marked = if (mode == .Full) false else node.data.is_marked;
+
+                // If a young collection we don't reset is_marked flags and since we move all marked object
+                // to the tail of the list, we can stop here, there's no more objects to collect
+                if (mode == .Young) {
+                    break;
                 }
 
-                try seen.?.put(uobj, {});
-            }
-
-            if (uobj.is_marked) {
-                if (Config.debug_gc) {
-                    std.debug.print("UNMARKING @{}\n", .{@ptrToInt(uobj)});
-                }
-                uobj.is_marked = false;
-
-                previous = uobj;
-                obj = uobj.next;
+                obj_node = node.next;
             } else {
-                var unreached: *Obj = uobj;
-                obj = uobj.next;
+                var unreached: *Obj = node.data;
+                obj_node = node.next;
 
-                if (previous) |uprevious| {
-                    uprevious.next = obj;
-                } else {
-                    self.objects = obj;
-                }
+                self.objects.remove(node);
 
                 freeObj(self, unreached);
                 obj_count += 1;
@@ -492,51 +616,55 @@ pub const GarbageCollector = struct {
         }
 
         if (Config.debug_gc or Config.debug_gc_light) {
-            std.debug.print("Swept {} objects for {} bytes, now {} bytes\n", .{ obj_count, swept - self.bytes_allocated, self.bytes_allocated });
+            std.debug.print("\nSwept {} objects for {} bytes, now {} bytes\n", .{ obj_count, swept - self.bytes_allocated, self.bytes_allocated });
         }
     }
 
     pub fn collectGarbage(self: *Self) !void {
+        // var timer = std.time.Timer.start() catch unreachable;
+
         // Don't collect until a VM is actually running
-        if (self.active_vms.count() == 0) {
+        if (self.active_vm == null) {
             return;
         }
 
+        const mode: Mode = if (self.bytes_allocated > self.next_full_gc) .Full else .Young;
+
         if (Config.debug_gc or Config.debug_gc_light) {
-            std.debug.print("-- gc starts\n", .{});
+            std.debug.print("-- gc starts mode {}, {} bytes, {} objects\n", .{ mode, self.bytes_allocated, self.objects.len });
 
             // try dumpStack(self);
         }
 
         try self.markMethods();
 
-        var it = self.active_vms.iterator();
-        while (it.next()) |kv| {
-            var vm = kv.key_ptr.*;
+        var vm = self.active_vm.?;
 
-            if (Config.debug_gc) {
-                std.debug.print(
-                    "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
-                    .{
-                        @ptrToInt(vm),
-                        @ptrToInt(vm.current_fiber),
-                        @ptrToInt(vm.currentFrame().?.closure),
-                        @ptrToInt(vm.currentFrame().?.closure.function),
-                        vm.currentFrame().?.closure.function.name.string,
-                    },
-                );
-            }
-            try markRoots(self, kv.key_ptr.*);
+        if (Config.debug_gc) {
+            std.debug.print(
+                "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
+                .{
+                    @ptrToInt(vm),
+                    @ptrToInt(vm.current_fiber),
+                    @ptrToInt(vm.currentFrame().?.closure),
+                    @ptrToInt(vm.currentFrame().?.closure.function),
+                    vm.currentFrame().?.closure.function.name.string,
+                },
+            );
         }
+
+        try markRoots(self, vm);
 
         try traceReference(self);
 
-        try sweep(self);
+        sweep(self, mode);
 
         self.next_gc = self.bytes_allocated * 2;
+        self.next_full_gc = self.next_gc * 4;
 
         if (Config.debug_gc or Config.debug_gc_light) {
-            std.debug.print("-- gc end\n", .{});
+            std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
         }
+        // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
     }
 };

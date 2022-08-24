@@ -15,7 +15,6 @@ const _node = @import("./node.zig");
 const _token = @import("./token.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 const Config = @import("./config.zig").Config;
-const copyString = _obj.copyString;
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
 const ObjFunction = _obj.ObjFunction;
@@ -214,7 +213,7 @@ pub const CodeGen = struct {
     pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
         return try self.makeConstant(
             Value{
-                .Obj = (try copyString(self.gc, name)).toObj(),
+                .Obj = (try self.gc.copyString(name)).toObj(),
             },
         );
     }

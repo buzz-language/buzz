@@ -157,7 +157,7 @@ export fn list(vm: *api.VM) c_int {
             return -1;
         });
 
-        if (!file_list.bz_listAppend(vm.bz_pop())) {
+        if (!file_list.bz_listAppend(vm.bz_getGC(), vm.bz_pop())) {
             vm.bz_throwString("Could not list directory");
 
             return -1;

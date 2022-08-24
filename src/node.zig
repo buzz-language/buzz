@@ -40,7 +40,6 @@ const Local = _parser.Local;
 const Global = _parser.Global;
 const UpValue = _parser.UpValue;
 const OpCode = _chunk.OpCode;
-const copyString = _obj.copyString;
 
 pub const GenError = error{NotConstant};
 
@@ -712,7 +711,7 @@ pub const StringNode = struct {
                 try valueToString(writer, try element.toValue(element, gc));
             }
 
-            return (try copyString(gc, str_value.items)).toValue();
+            return (try gc.copyString(str_value.items)).toValue();
         }
 
         return GenError.NotConstant;
@@ -888,7 +887,7 @@ pub const ListNode = struct {
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var list = try _obj.allocateObject(gc, ObjList, _obj.ObjList.init(gc.allocator, node.type_def.?));
+            var list = try gc.allocateObject(ObjList, _obj.ObjList.init(gc.allocator, node.type_def.?));
 
             for (self.items) |item| {
                 try list.items.append(try item.toValue(item, gc));
@@ -1004,7 +1003,7 @@ pub const MapNode = struct {
 
             assert(node.type_def != null and node.type_def.?.def_type != .Placeholder);
 
-            var map = try _obj.allocateObject(gc, ObjMap, _obj.ObjMap.init(gc.allocator, node.type_def.?));
+            var map = try gc.allocateObject(ObjMap, _obj.ObjMap.init(gc.allocator, node.type_def.?));
 
             assert(self.keys.len == self.values.len);
 
@@ -1690,7 +1689,7 @@ pub const BinaryNode = struct {
                         try new_string.appendSlice(left_s.?.string);
                         try new_string.appendSlice(right_s.?.string);
 
-                        return (try copyString(gc, new_string.items)).toValue();
+                        return (try gc.copyString(new_string.items)).toValue();
                     } else if (right_f != null or left_f != null) {
                         return Value{
                             .Float = (right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)),
@@ -1704,8 +1703,7 @@ pub const BinaryNode = struct {
                         try new_list.appendSlice(left_l.?.items.items);
                         try new_list.appendSlice(right_l.?.items.items);
 
-                        var list = try _obj.allocateObject(
-                            gc,
+                        var list = try gc.allocateObject(
                             ObjList,
                             ObjList{
                                 .type_def = left_l.?.type_def,
@@ -1724,8 +1722,7 @@ pub const BinaryNode = struct {
                         try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
                     }
 
-                    var map = try _obj.allocateObject(
-                        gc,
+                    var map = try gc.allocateObject(
                         ObjMap,
                         ObjMap{
                             .type_def = left_m.?.type_def,
@@ -2096,7 +2093,7 @@ pub const SubscriptNode = struct {
                     const str_index: usize = @intCast(usize, str_index_i.?);
 
                     if (str_index < str.string.len) {
-                        return (try _obj.copyString(gc, &([_]u8{str.string[str_index]}))).toValue();
+                        return (try gc.copyString(&([_]u8{str.string[str_index]}))).toValue();
                     } else {
                         return VM.Error.OutOfBound;
                     }
@@ -2275,10 +2272,10 @@ pub const FunctionNode = struct {
 
         // First chunk constant is the empty string
         _ = try function.chunk.addConstant(null, Value{
-            .Obj = (try copyString(codegen.gc, "")).toObj(),
+            .Obj = (try codegen.gc.copyString("")).toObj(),
         });
 
-        codegen.current.?.function = try _obj.allocateObject(codegen.gc, ObjFunction, function);
+        codegen.current.?.function = try codegen.gc.allocateObject(ObjFunction, function);
 
         const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
@@ -2426,7 +2423,7 @@ pub const FunctionNode = struct {
         };
 
         const function_def = ObjFunction.FunctionDef{
-            .name = try copyString(parser.gc, function_name),
+            .name = try parser.gc.copyString(function_name),
             .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
