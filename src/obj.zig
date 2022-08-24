@@ -504,7 +504,7 @@ pub const ObjPattern = struct {
         }) |results| {
             vm.push(results.toValue());
         } else {
-            vm.push(Value{ .Null = null });
+            vm.push(Value{ .Null = {} });
         }
 
         return 1;
@@ -532,7 +532,7 @@ pub const ObjPattern = struct {
         }) |results| {
             vm.push(results.toValue());
         } else {
-            vm.push(Value{ .Null = null });
+            vm.push(Value{ .Null = {} });
         }
 
         return 1;
@@ -759,7 +759,7 @@ pub const ObjString = struct {
 
         var index = std.mem.indexOf(u8, self.string, needle.string);
 
-        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = false });
+        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
 
         return 1;
     }
@@ -1644,7 +1644,7 @@ pub const ObjList = struct {
         var list_index: ?i64 = if (list_index_value == .Integer) list_index_value.Integer else null;
 
         if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
-            vm.push(Value{ .Null = false });
+            vm.push(Value{ .Null = {} });
 
             return 1;
         }
@@ -1669,7 +1669,7 @@ pub const ObjList = struct {
             i += 1;
         }
 
-        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = false });
+        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
 
         return 1;
     }
@@ -1791,7 +1791,7 @@ pub const ObjList = struct {
             std.os.exit(1);
         };
 
-        vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = null });
+        vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = {} });
 
         return 1;
     }
@@ -2162,7 +2162,7 @@ pub const ObjMap = struct {
         if (map.map.fetchOrderedRemove(map_key)) |removed| {
             vm.push(removed.value);
         } else {
-            vm.push(Value{ .Null = false });
+            vm.push(Value{ .Null = {} });
         }
 
         return 1;
@@ -2708,7 +2708,7 @@ pub const ObjTypeDef = struct {
         String: bool,
         Pattern: bool,
         Type: bool,
-        Void: bool,
+        Void: void,
         Fiber: ObjFiber.FiberDef,
 
         // For those we check that the value is an instance of, because those are user defined types

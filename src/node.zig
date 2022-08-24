@@ -818,7 +818,7 @@ pub const NullNode = struct {
     }
 
     fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
-        return Value{ .Null = null };
+        return Value{ .Null = {} };
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -2081,7 +2081,7 @@ pub const SubscriptNode = struct {
                     if (map.map.get(_value.valueToHashable(index))) |value| {
                         return value;
                     } else {
-                        return Value{ .Null = null };
+                        return Value{ .Null = {} };
                     }
                 },
                 .String => {

@@ -480,8 +480,8 @@ pub const VM = struct {
                 );
             }
             switch (instruction) {
-                .OP_NULL => self.push(Value{ .Null = null }),
-                .OP_VOID => self.push(Value{ .Void = null }),
+                .OP_NULL => self.push(Value{ .Null = {} }),
+                .OP_VOID => self.push(Value{ .Void = {} }),
                 .OP_TRUE => self.push(Value{ .Boolean = true }),
                 .OP_FALSE => self.push(Value{ .Boolean = false }),
                 .OP_POP => _ = self.pop(),
@@ -1041,7 +1041,7 @@ pub const VM = struct {
                 key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
                     Value{ .Integer = new_index }
                 else
-                    Value{ .Null = null };
+                    Value{ .Null = {} };
 
                 // Set new value
                 if (key_slot.* != .Null) {
@@ -1057,7 +1057,7 @@ pub const VM = struct {
                 key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
                     Value{ .Integer = new_index }
                 else
-                    Value{ .Null = null };
+                    Value{ .Null = {} };
 
                 // Set new value
                 if (key_slot.* != .Null) {
@@ -1071,7 +1071,7 @@ pub const VM = struct {
 
                 // Get next enum case
                 var next_case: ?*ObjEnumInstance = try enum_.rawNext(self, enum_case);
-                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = null });
+                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = {} });
             },
             .Map => {
                 var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
@@ -1080,10 +1080,10 @@ pub const VM = struct {
                 var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
 
                 var next_key: ?HashableValue = map.rawNext(current_key);
-                key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = null };
+                key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = {} };
 
                 if (next_key) |unext_key| {
-                    value_slot.* = map.map.get(unext_key) orelse Value{ .Null = null };
+                    value_slot.* = map.map.get(unext_key) orelse Value{ .Null = {} };
                 }
             },
             else => unreachable,
@@ -1120,7 +1120,7 @@ pub const VM = struct {
                 } else {
                     // We did `resume fiber` and hit return
                     // We don't yet care about that value;
-                    self.push(Value{ .Null = null });
+                    self.push(Value{ .Null = {} });
                 }
 
                 // Don't stop the VM
@@ -1230,7 +1230,7 @@ pub const VM = struct {
             const parameters = handler.function.type_def.resolved_type.?.Function.parameters;
             if (parameters.count() == 0 or _value.valueTypeEql(error_payload, parameters.get(parameters.keys()[0]).?)) {
                 // In a normal frame, the slots 0 is either the function or a `this` value
-                self.push(Value{ .Null = null });
+                self.push(Value{ .Null = {} });
 
                 // Push error payload
                 self.push(error_payload);
@@ -1443,7 +1443,7 @@ pub const VM = struct {
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_values: ?std.ArrayList(Value)) !void {
         // TODO: how to use catch_values with a native call?
-        var result: Value = Value{ .Null = null };
+        var result: Value = Value{ .Null = {} };
         const native_return = native.native(self);
         if (native_return == 1 or native_return == 0) {
             if (native_return == 1) {
@@ -1758,7 +1758,7 @@ pub const VM = struct {
                     // Push value
                     self.push(value);
                 } else {
-                    self.push(Value{ .Null = null });
+                    self.push(Value{ .Null = {} });
                 }
             },
             .String => {
