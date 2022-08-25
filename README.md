@@ -44,17 +44,23 @@ A small/lightweight typed scripting language written in Zig
 ```buzz
 | Basic types
 bool aBoolean = true;
+| Immutable sequence of bytes
 str aString = "hello world";
+| Numbers are either internally i64 or f64 and are coerced from one to the other as needed
 num aNumber = 23;
 aNumber = 0b110;
 aNumber = 0xA12F;
+| A PCRE regex
 pat aPattern = _hello [a-z]+_;
+| Userdata are pointers to foreign data wrapped inside a buzz obj
+ud userdata = GetSomeForeignData();
 
 | A constant
 const num pi = 3.14;
 
 | Data structures
 [num] aListOfNumbers = [1, 2, 3];
+| Keys and values can be of any type
 {str, num} aMap = {
     "one": 1,
     "two": 2,

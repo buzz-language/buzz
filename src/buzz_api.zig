@@ -85,6 +85,11 @@ export fn bz_pushList(self: *VM, value: *ObjList) void {
     self.push(value.toValue());
 }
 
+/// Push a uesrdata value on the stack
+export fn bz_pushUserData(self: *VM, value: *ObjUserData) void {
+    self.push(value.toValue());
+}
+
 /// Converts a value to a boolean
 export fn bz_valueToBool(value: *Value) bool {
     return value.Boolean;
@@ -107,6 +112,10 @@ export fn bz_valueToFloat(value: *Value) f64 {
 /// Converts a value to a integer, returns null if float value with decimal part
 export fn bz_valueToInteger(value: *Value) i64 {
     return if (value.* == .Integer) value.Integer else @floatToInt(i64, value.Float);
+}
+
+export fn bz_valueToUserData(value: *Value) *UserData {
+    return ObjUserData.cast(value.Obj).?.userdata;
 }
 
 export fn bz_valueIsInteger(value: *Value) bool {
@@ -232,6 +241,10 @@ export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     ) catch {
         return null;
     };
+}
+
+export fn bz_getUserData(userdata: *ObjUserData) *UserData {
+    return userdata.userdata;
 }
 
 export fn bz_throw(vm: *VM, value: *Value) void {

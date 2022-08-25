@@ -20,6 +20,7 @@ pub const VM = opaque {
     pub extern fn bz_pushInteger(self: *VM, value: i64) void;
     pub extern fn bz_pushString(self: *VM, value: *ObjString) void;
     pub extern fn bz_pushList(self: *VM, value: *ObjList) void;
+    pub extern fn bz_pushUserData(self: *VM, value: *ObjUserData) void;
     pub extern fn bz_pushNull(self: *VM) void;
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(vm: *VM, value: *Value) void;
@@ -41,6 +42,7 @@ pub const Value = opaque {
     pub extern fn bz_valueToString(value: *Value) ?[*:0]const u8;
     pub extern fn bz_valueToInteger(value: *Value) i64;
     pub extern fn bz_valueToFloat(value: *Value) f64;
+    pub extern fn bz_valueToUserData(value: *Value) *UserData;
     pub extern fn bz_valueIsInteger(value: *Value) bool;
     pub extern fn bz_valueIsFloat(value: *Value) bool;
 };
@@ -65,8 +67,9 @@ pub const ObjList = opaque {
 
 pub const ObjFunction = opaque {};
 
-pub const UserData = opaque {};
+pub const UserData = anyopaque;
 
 pub const ObjUserData = opaque {
     pub extern fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData;
+    pub extern fn bz_getUserData(userdata: *ObjUserData) *UserData;
 };

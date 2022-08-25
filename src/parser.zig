@@ -253,6 +253,7 @@ pub const Parser = struct {
         .{ .prefix = literal, .infix = null, .precedence = .None }, // False
         .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
         .{ .prefix = null, .infix = null, .precedence = .None }, // Str
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Ud
         .{ .prefix = null, .infix = null, .precedence = .None }, // Num
         .{ .prefix = null, .infix = null, .precedence = .None }, // Type
         .{ .prefix = null, .infix = null, .precedence = .None }, // Bool
@@ -1012,6 +1013,13 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
+            else if (try self.match(.Ud))
+                try self.varDeclaration(
+                    try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData }),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.Str))
                 try self.varDeclaration(
                     try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
@@ -1097,6 +1105,13 @@ pub const Parser = struct {
         } else if (try self.match(.Pat)) {
             return try self.varDeclaration(
                 try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Ud)) {
+            return try self.varDeclaration(
+                try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData }),
                 .Semicolon,
                 constant,
                 true,
@@ -2896,6 +2911,7 @@ pub const Parser = struct {
         }
 
         if (object == null) {
+            std.debug.print("was trying to resolve {s}\n", .{name});
             const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
             if (obj_def.super) |obj_super| {
                 return self.getSuperMethod(root, obj_super, name);
@@ -4194,6 +4210,8 @@ pub const Parser = struct {
             return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
         } else if (try self.match(.Pat)) {
             return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern });
+        } else if (try self.match(.Ud)) {
+            return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData });
         } else if (try self.match(.Type)) {
             return try self.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.Void)) {

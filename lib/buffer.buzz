@@ -1,98 +1,96 @@
 import "lib/math" as math;
 
 || @private
-extern fun BufferWriteNumber(num n) > str;
+extern fun BufferNew() > ud;
 || @private
-extern fun BufferReadNumber(str buffer) > num?;
+extern fun BufferDeinit(ud userdata) > void;
+|| @private
+extern fun BufferRead(ud userdata, num n) > str?;
+|| @private
+extern fun BufferWrite(ud userdata, str bytes) > void;
+|| @private
+extern fun BufferReadBoolean(ud userdata) > bool?;
+|| @private
+extern fun BufferWriteBoolean(ud userdata, bool b) > void;
+|| @private
+extern fun BufferWriteNumber(ud userdata, num n) > str;
+|| @private
+extern fun BufferReadNumber(ud userdata) > num?;
+|| @private
+extern fun BufferLen(ud userdata) > num;
+|| @private
+extern fun BufferCursor(ud userdata) > num;
+|| @private
+extern fun BufferBuffer(ud userdata) > str;
 
-|| TODO: do all this in zig so we reuse a []const u8 instead of allocating a tone of ObjString
 || Read and write data to a string buffer
 object Buffer {
-    str buffer = "",
-    num cursor = 0,
-    
-    || Reads bytes
-    || @param n How many bytes to read
-    || @return Read bytes or `null` if nothing to read
-    fun read(num n) > str? {
-        if (this.cursor >= this.buffer.len()) {
-            return null;
-        }
+    || Pointer to the actual buffer
+    ud buffer,
 
-        const str result = this.buffer.sub(this.cursor, len: math.min(a: this.buffer.len() - this.cursor, b: n));
-
-        this.cursor = this.cursor + result.len();
-
-        return result;
+    || @return A new `Buffer`
+    static fun init() > Buffer {
+        return Buffer{
+            buffer = BufferNew()
+        };
     }
 
-    || Writes bytes
+    || Frees the buffer
+    || TODO: with finalizers we could do this automatically when the object is collected
+    fun deinit() > void {
+        BufferDeinit(this.buffer);
+    }
+
+    || Reads `n` bytes
+    || @return Read bytes or `null` if nothing to read
+    fun read(num n) > str? {
+        return BufferRead(this.buffer, n: n);
+    }
+
+    || Writes a string
     || @param bytes Bytes to write
     fun write(str bytes) > void {
-        if (this.cursor > 0) {
-            throw "Can't write to a buffer being read";
-        }
-
-        this.buffer = this.buffer + bytes;
+        BufferWrite(this.buffer, bytes: bytes);
     }
 
     || Reads a boolean
-    || @return Read boolean or `null` if nothing to read
+    || @return Boolean we read or `null` if nothing to read
     fun readBoolean() > bool? {
-        if (this.cursor >= this.buffer.len()) {
-            return null;
-        }
-
-        | TODO: ideally a boolean should not take up a whole u8
-        num current = this.buffer.byte(this.cursor);
-
-        this.cursor = this.cursor + 1;
-        
-        return current == 1;
+        return BufferReadBoolean(this.buffer);
     }
 
-    || Writes boolean
-    || @param boolean Value to write
-    fun writeBoolean(bool value) > void {
-        if (this.cursor > 0) {
-            throw "Can't write to a buffer being read";
-        }
-
-        if (value) {
-            this.buffer = this.buffer + "\1";
-        } else {
-            this.buffer = this.buffer + "\0";
-        }
-    }
-
-    || Writes number
-    || @param number Value to write
-    fun writeNumber(num number) > void {
-        if (this.cursor > 0) {
-            throw "Can't write to a buffer being read";
-        }
-
-        str numberString = BufferWriteNumber(number);
-        
-        this.buffer = this.buffer + numberString + "\0".repeat(9 - numberString.len());
+    || Writes a boolean
+    || @param boolean Boolean to write
+    fun writeBoolean(bool boolean) > void {
+        BufferWriteBoolean(this.buffer, b: boolean);
     }
 
     || Reads a number
     || @return Read number or `null` if nothing to read
     fun readNumber() > num? {
-        if (this.cursor >= this.buffer.len()) {
-            return null;
-        }
-
-        const num? number = BufferReadNumber(this.buffer.sub(this.cursor, len: null));
-
-        if (number != null) {
-            | numbers are either i64 or f64 + a flag to tell if its integer or float
-            this.cursor = this.cursor + 9;
-        }
-
-        return number;
+        return BufferReadNumber(this.buffer);
     }
+
+    || Writes a number
+    || @param number Number to write
+    fun writeNumber(num number) > void {
+        BufferWriteNumber(this.buffer, n: number);
+    }
+
+    || @return Length of the buffer
+    fun len() > num {
+        return BufferLen(this.buffer);
+    }
+
+    || @return Position of the reading cursor
+    fun cursor() > num {
+        return BufferCursor(this.buffer);
+    }
+
+    | TODO: useless since string coming from zig/c side are \0 terminated
+    | fun getBuffer() > str {
+    |     return BufferBuffer(this.buffer);
+    | }
 }
 
 export Buffer;

@@ -552,7 +552,7 @@ pub const ObjNative = struct {
     }
 };
 
-pub const UserData = opaque {};
+pub const UserData = anyopaque;
 
 /// User data, type around an opaque pointer
 pub const ObjUserData = struct {
@@ -573,7 +573,7 @@ pub const ObjUserData = struct {
     }
 
     pub fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Native) {
+        if (obj.obj_type != .UserData) {
             return null;
         }
 
@@ -2653,18 +2653,20 @@ pub const ObjTypeDef = struct {
         Type, // Something that holds a type, not an actual type
         Void,
         Fiber,
+        UserData,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
 
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
-        Bool: bool,
-        Number: bool,
-        String: bool,
-        Pattern: bool,
-        Type: bool,
+        Bool: void,
+        Number: void,
+        String: void,
+        Pattern: void,
+        Type: void,
         Void: void,
+        UserData: void,
         Fiber: ObjFiber.FiberDef,
 
         // For those we check that the value is an instance of, because those are user defined types
@@ -2787,6 +2789,7 @@ pub const ObjTypeDef = struct {
 
     pub fn toString(self: *const Self, writer: std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
+            .UserData => try writer.writeAll("ud"),
             .Bool => try writer.writeAll("bool"),
             .Number => try writer.writeAll("num"),
             .String => try writer.writeAll("str"),
@@ -2951,6 +2954,7 @@ pub const ObjTypeDef = struct {
             .Type,
             .Void,
             .Pattern,
+            .UserData,
             => return true,
 
             .Fiber => {

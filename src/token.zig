@@ -113,6 +113,7 @@ pub const TokenType = enum {
     False, // false
     Null, // null
     Str, // str
+    Ud, // ud
     Num, // num
     Type, // type
     Bool, // bool
@@ -213,6 +214,10 @@ pub const Keywords = [_]TokenType{
 
 // TODO: must be a way to write that more elegantly
 pub fn isKeyword(literal: []const u8) ?TokenType {
+    if (mem.eql(u8, literal, "ud")) {
+        return .Ud;
+    }
+
     if (mem.eql(u8, literal, "void")) {
         return .Void;
     }
