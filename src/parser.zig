@@ -2588,7 +2588,7 @@ pub const Parser = struct {
         // FIXME: crashes i don't know why
         // defer self.gc.allocator.free(err);
         var err_offset: c_int = undefined;
-        const reg: ?*pcre.struct_real_pcre8_or_16 = pcre.pcre_compile(
+        const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
             source.?, // pattern
             0, // options
             @ptrCast([*c][*c]const u8, &err), // error message buffer
