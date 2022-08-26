@@ -41,7 +41,6 @@ pub const CodeGen = struct {
 
     current: ?*Frame = null,
     gc: *GarbageCollector,
-    type_registry: *TypeRegistry,
     testing: bool,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(usize) = null,
@@ -53,13 +52,11 @@ pub const CodeGen = struct {
     pub fn init(
         gc: *GarbageCollector,
         parser: *Parser,
-        type_registry: *TypeRegistry,
         testing: bool,
     ) Self {
         return .{
             .gc = gc,
             .parser = parser,
-            .type_registry = type_registry,
             .testing = testing,
         };
     }

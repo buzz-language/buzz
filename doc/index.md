@@ -119,45 +119,56 @@ Convert degree to radian
 ## buffer
 
 ### ` object Buffer`
-TODO: do all this in zig so we reuse a []const u8 instead of allocating a tone of ObjString Read and write data to a string buffer
+Read and write data to a string buffer
+
+#### ` fun len() > num`
+
+
+**Returns:**  Length of the buffer
 
 #### ` fun readBoolean() > bool?`
 Reads a boolean
 
-**Returns:**  Read boolean or `null` if nothing to read
-
-#### ` str buffer`
+**Returns:**  Boolean we read or `null` if nothing to read
 
 
 #### ` fun read(num n) > str?`
-Reads bytes
-- **`n`:** How many bytes to read
-
+Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
-#### ` num cursor`
+#### ` fun init() > Buffer`
 
+
+**Returns:**  A new `Buffer`
 
 #### ` fun write(str bytes) > void`
-Writes bytes
+Writes a string
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeBoolean(bool value) > void`
-Writes boolean
-- **`boolean`:** Value to write
+#### ` fun writeBoolean(bool boolean) > void`
+Writes a boolean
+- **`boolean`:** Boolean to write
 
+
+#### ` fun deinit() > void`
+Frees the buffer TODO: with finalizers we could do this automatically when the object is collected
 
 #### ` fun writeNumber(num number) > void`
-Writes number
-- **`number`:** Value to write
+Writes a number
+- **`number`:** Number to write
 
 
 #### ` fun readNumber() > num?`
 Reads a number
 
 **Returns:**  Read number or `null` if nothing to read
+
+#### ` fun cursor() > num`
+
+
+**Returns:**  Position of the reading cursor
 ## os
 
 ### ` fun time() > num`

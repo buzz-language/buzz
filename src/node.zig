@@ -2424,8 +2424,8 @@ pub const FunctionNode = struct {
 
         const function_def = ObjFunction.FunctionDef{
             .name = try parser.gc.copyString(function_name),
-            .return_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
-            .yield_type = try parser.type_registry.getTypeDef(.{ .def_type = .Void }),
+            .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
             .function_type = function_type,
@@ -2433,7 +2433,7 @@ pub const FunctionNode = struct {
 
         const type_def = ObjTypeDef.TypeUnion{ .Function = function_def };
 
-        self.node.type_def = try parser.type_registry.getTypeDef(
+        self.node.type_def = try parser.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Function,
                 .resolved_type = type_def,
@@ -3240,9 +3240,9 @@ pub const VarDeclarationNode = struct {
                 try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(self.type_def.?.resolved_type.?.Placeholder);
-            } else if (!(try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry)).cloneNonOptional(codegen.type_registry)).eql(value.type_def.?)) {
+            } else if (!(try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).cloneNonOptional(&codegen.gc.type_registry)).eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
-                    try self.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry),
+                    try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry),
                     value.type_def.?,
                     "Wrong variable type",
                     value.location,
@@ -3355,8 +3355,8 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
-            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, codegen.type_registry))).eql(case.type_def.?)) {
-                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, codegen.type_registry)), case.type_def.?, "Bad enum case type", case.location);
+            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry))).eql(case.type_def.?)) {
+                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)), case.type_def.?, "Bad enum case type", case.location);
             }
 
             _ = try case.toByteCode(case, codegen, breaks);
@@ -4034,7 +4034,7 @@ pub const ForEachNode = struct {
                     }
                 },
                 .Enum => {
-                    const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, codegen.type_registry);
+                    const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry);
                     if (!iterable_type.eql(self.value.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,

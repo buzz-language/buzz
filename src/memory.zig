@@ -31,6 +31,56 @@ const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
 const ObjFiber = _obj.ObjFiber;
 
+pub const TypeRegistry = struct {
+    const Self = @This();
+
+    gc: *GarbageCollector,
+    registry: std.StringHashMap(*ObjTypeDef),
+
+    pub fn init(gc: *GarbageCollector) Self {
+        return .{ .gc = gc, .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator) };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.registry.deinit();
+    }
+
+    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+        var type_def_buf = std.ArrayList(u8).init(self.gc.allocator);
+        try type_def.toString(type_def_buf.writer());
+        const type_def_str: []const u8 = type_def_buf.items;
+
+        // We don't return a cached version of a placeholder since they all maintain a particular state (link)
+        if (type_def.def_type != .Placeholder) {
+            if (self.registry.get(type_def_str)) |type_def_ptr| {
+                self.gc.allocator.free(type_def_str); // If already in map, we don't need this string anymore
+                return type_def_ptr;
+            }
+        }
+
+        var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
+
+        if (Config.debug_placeholders) {
+            std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
+        }
+        _ = try self.registry.put(type_def_str, type_def_ptr);
+
+        return type_def_ptr;
+    }
+
+    pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
+        const type_def_str: []const u8 = try type_def.toStringAlloc(self.gc.allocator);
+
+        assert(type_def.def_type != .Placeholder);
+
+        _ = try self.registry.put(type_def_str, type_def);
+    }
+
+    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
+        return self.registry.get(name);
+    }
+};
+
 // Sticky Mark Bits Generational GC basic idea:
 // 1. First GC: do a normal mark, don't clear `is_marked` at the end
 // 2. Young GC:
@@ -67,6 +117,7 @@ pub const GarbageCollector = struct {
 
     allocator: std.mem.Allocator,
     strings: std.StringHashMap(*ObjString),
+    type_registry: TypeRegistry,
     bytes_allocated: usize = 0,
     // next_gc == next_full_gc at first so the first cycle is a full gc
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
@@ -86,6 +137,7 @@ pub const GarbageCollector = struct {
         return Self{
             .allocator = allocator,
             .strings = std.StringHashMap(*ObjString).init(allocator),
+            .type_registry = undefined,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
             .objfiber_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objfiber_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -366,7 +418,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    fn freeObj(self: *Self, obj: *Obj) void {
+    fn freeObj(self: *Self, obj: *Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
         if (Config.debug_gc) {
             std.debug.print(">> freeing {} {}\n", .{ @ptrToInt(obj), obj.obj_type });
         }
@@ -388,6 +440,19 @@ pub const GarbageCollector = struct {
             },
             .Type => {
                 var obj_typedef = ObjTypeDef.cast(obj).?;
+
+                const str = try obj_typedef.toStringAlloc(self.allocator);
+                defer self.allocator.free(str);
+
+                if (self.type_registry.registry.get(str)) |registered_obj| {
+                    if (registered_obj == obj_typedef) {
+                        _ = self.type_registry.registry.remove(str);
+                        if (Config.debug_gc) {
+                            std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str });
+                        }
+                    }
+                }
+
                 obj_typedef.deinit();
                 free(self, ObjTypeDef, obj_typedef);
             },
@@ -395,7 +460,7 @@ pub const GarbageCollector = struct {
                 var obj_upvalue = ObjUpValue.cast(obj).?;
                 if (obj_upvalue.closed) |value| {
                     if (value == .Obj) {
-                        freeObj(self, value.Obj);
+                        try freeObj(self, value.Obj);
                     }
                 }
                 free(self, ObjUpValue, obj_upvalue);
@@ -556,6 +621,8 @@ pub const GarbageCollector = struct {
     }
 
     fn markRoots(self: *Self, vm: *VM) !void {
+        try self.markMethods();
+
         // Mark current fiber and its parent fibers
         try markFiber(self, vm.current_fiber);
 
@@ -583,7 +650,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    fn sweep(self: *Self, mode: Mode) void {
+    fn sweep(self: *Self, mode: Mode) !void {
         var swept: usize = self.bytes_allocated;
 
         var obj_count: usize = 0;
@@ -610,7 +677,7 @@ pub const GarbageCollector = struct {
 
                 self.objects.remove(node);
 
-                freeObj(self, unreached);
+                try freeObj(self, unreached);
                 obj_count += 1;
             }
         }
@@ -636,8 +703,6 @@ pub const GarbageCollector = struct {
             // try dumpStack(self);
         }
 
-        try self.markMethods();
-
         var vm = self.active_vm.?;
 
         if (Config.debug_gc) {
@@ -657,7 +722,7 @@ pub const GarbageCollector = struct {
 
         try traceReference(self);
 
-        sweep(self, mode);
+        try sweep(self, mode);
 
         self.next_gc = self.bytes_allocated * 2;
         self.next_full_gc = self.next_gc * 4;

@@ -101,7 +101,7 @@ pub const StringParser = struct {
 
         var node = try self.parser.gc.allocator.create(StringNode);
         node.* = .{ .elements = self.elements.items };
-        node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
+        node.node.type_def = try self.parser.gc.type_registry.getTypeDef(.{ .def_type = .String });
 
         return node;
     }
@@ -111,7 +111,7 @@ pub const StringParser = struct {
         node.* = .{
             .constant = try self.parser.gc.copyString(chars),
         };
-        node.node.type_def = try self.parser.type_registry.getTypeDef(.{ .def_type = .String });
+        node.node.type_def = try self.parser.gc.type_registry.getTypeDef(.{ .def_type = .String });
         node.node.location = self.parser.parser.previous_token.?;
 
         try self.elements.append(node.toNode());

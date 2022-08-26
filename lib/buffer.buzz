@@ -25,7 +25,7 @@ extern fun BufferBuffer(ud userdata) > str;
 
 || Read and write data to a string buffer
 object Buffer {
-    || Pointer to the actual buffer
+    || @private
     ud buffer,
 
     || @return A new `Buffer`

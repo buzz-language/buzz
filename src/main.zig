@@ -9,7 +9,7 @@ const CodeGen = @import("./codegen.zig").CodeGen;
 const _obj = @import("./obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
-const TypeRegistry = _obj.TypeRegistry;
+const TypeRegistry = @import("./memory.zig").TypeRegistry;
 const FunctionNode = @import("./node.zig").FunctionNode;
 var Config = @import("./config.zig").Config;
 const clap = @import("ext/clap/clap.zig");
@@ -27,14 +27,14 @@ const RunFlavor = enum {
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor: RunFlavor) !void {
     var gc = GarbageCollector.init(allocator);
-    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
-    var type_registry = TypeRegistry{
+    gc.type_registry = TypeRegistry{
         .gc = &gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
     };
+    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc);
-    var parser = Parser.init(&gc, &imports, &type_registry, false);
-    var codegen = CodeGen.init(&gc, &parser, &type_registry, flavor == .Test);
+    var parser = Parser.init(&gc, &imports, false);
+    var codegen = CodeGen.init(&gc, &parser, flavor == .Test);
     defer {
         codegen.deinit();
         vm.deinit();

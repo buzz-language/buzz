@@ -16,7 +16,7 @@ const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
 const UserData = _obj.UserData;
-const TypeRegistry = _obj.TypeRegistry;
+const TypeRegistry = memory.TypeRegistry;
 const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
 const GarbageCollector = memory.GarbageCollector;
@@ -198,7 +198,7 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = vm.gc.allocateObject(ObjTypeDef, ObjTypeDef{
+    var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -266,6 +266,10 @@ export fn bz_newVM(self: *VM) ?*VM {
         return null;
     };
     gc.* = GarbageCollector.init(self.gc.allocator);
+    gc.type_registry = TypeRegistry{
+        .gc = gc,
+        .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
+    };
 
     vm.* = VM.init(gc) catch {
         return null;
@@ -285,12 +289,8 @@ export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
 export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
-    var type_registry = TypeRegistry{
-        .gc = self.gc,
-        .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
-    };
-    var parser = Parser.init(self.gc, &imports, &type_registry, false);
-    var codegen = CodeGen.init(self.gc, &parser, &type_registry, false);
+    var parser = Parser.init(self.gc, &imports, false);
+    var codegen = CodeGen.init(self.gc, &parser, false);
     defer {
         codegen.deinit();
         imports.deinit();
