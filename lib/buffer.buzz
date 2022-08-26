@@ -22,6 +22,8 @@ extern fun BufferLen(ud userdata) > num;
 extern fun BufferCursor(ud userdata) > num;
 || @private
 extern fun BufferBuffer(ud userdata) > str;
+|| @private
+extern fun BufferEmpty(ud userdata) > void;
 
 || Read and write data to a string buffer
 object Buffer {
@@ -85,6 +87,11 @@ object Buffer {
     || @return Position of the reading cursor
     fun cursor() > num {
         return BufferCursor(this.buffer);
+    }
+
+    || Empties the buffer
+    fun empty() > void {
+        BufferEmpty(this.buffer);
     }
 
     | TODO: useless since string coming from zig/c side are \0 terminated

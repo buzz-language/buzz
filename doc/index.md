@@ -137,6 +137,9 @@ Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
+#### ` fun empty() > void`
+Empties the buffer
+
 #### ` fun init() > Buffer`
 
 

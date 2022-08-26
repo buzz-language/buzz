@@ -151,6 +151,7 @@ const Buffer = struct {
 
     pub fn empty(self: *Self) void {
         self.buffer.shrinkRetainingCapacity(0);
+        self.cursor = 0;
     }
 };
 

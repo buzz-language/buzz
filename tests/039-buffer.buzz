@@ -18,5 +18,9 @@ test "Reading and writing in a buffer" {
     assert(buffer.readNumber() == 1238.324, message: "could read float");
     assert(buffer.readBoolean() == true, message: "could read boolean");
 
+    buffer.empty();
+
+    assert(buffer.len() == 0, message: "could empty buffer");
+
     buffer.deinit();
 }
