@@ -96,14 +96,14 @@ pub fn dumpStack(vm: *VM) !void {
         defer std.heap.c_allocator.free(value_str);
 
         if (vm.currentFrame().?.slots == value) {
-            print("{*} {s} frame\n ", .{ value, value_str[0..std.math.min(value_str.len, 100)] });
+            print("{} {s} frame\n ", .{ @ptrToInt(value), value_str[0..std.math.min(value_str.len, 100)] });
         } else {
-            print("{*} {s}\n ", .{ value, value_str[0..std.math.min(value_str.len, 100)] });
+            print("{} {s}\n ", .{ @ptrToInt(value), value_str[0..std.math.min(value_str.len, 100)] });
         }
 
         value += 1;
     }
-    print("{*} top\n", .{vm.current_fiber.stack_top});
+    print("{} top\n", .{@ptrToInt(vm.current_fiber.stack_top)});
 
     print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
     print("\u{001b}[0m", .{});

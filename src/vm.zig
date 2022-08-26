@@ -193,6 +193,22 @@ pub const Fiber = struct {
         vm.push(top);
 
         self.status = .Yielded;
+
+        // Do we need to finish OP_CODE that triggered the yield?
+        const full_instruction = vm.readPreviousInstruction();
+        if (full_instruction) |ufull_instruction| {
+            const instruction = VM.getCode(ufull_instruction);
+            switch (instruction) {
+                .OP_FOREACH => {
+                    _ = vm.pop();
+
+                    var value_slot: *Value = @ptrCast(*Value, vm.current_fiber.stack_top - 2);
+
+                    value_slot.* = top;
+                },
+                else => {},
+            }
+        }
     }
 
     pub fn resume_(self: *Self, vm: *VM) !void {
@@ -235,6 +251,44 @@ pub const Fiber = struct {
                 // FIXME: but this means we can do several `resolve fiber`
             },
             .Running => unreachable,
+        }
+    }
+
+    pub fn finish(self: *Self, vm: *VM, result: Value) !void {
+        // Fiber is now over
+        self.status = .Over;
+        const resolved = self.resolved;
+
+        // Put the result back stack so `resolve` can pick it up
+        vm.push(result);
+
+        // Go back to parent fiber
+        vm.current_fiber = self.parent_fiber.?;
+
+        if (resolved) {
+            // We did `resolve fiber` we want the returned value
+            vm.push(result);
+        } else {
+            // We did `resume fiber` and hit return
+            // We don't yet care about that value;
+            vm.push(Value{ .Null = {} });
+        }
+
+        // Do we need to finish OP_CODE that triggered the yield?
+        const full_instruction = vm.readPreviousInstruction();
+        if (full_instruction) |ufull_instruction| {
+            const instruction = VM.getCode(ufull_instruction);
+            switch (instruction) {
+                .OP_FOREACH => {
+                    // We don't care about the returned value
+                    _ = vm.pop();
+
+                    var value_slot: *Value = @ptrCast(*Value, vm.current_fiber.stack_top - 2);
+
+                    value_slot.* = Value{ .Null = {} };
+                },
+                else => {},
+            }
         }
     }
 };
@@ -418,6 +472,16 @@ pub const VM = struct {
         return try self.run();
     }
 
+    fn readPreviousInstruction(self: *Self) ?u32 {
+        const current_frame: *CallFrame = self.currentFrame().?;
+
+        if (current_frame.ip > 0) {
+            return current_frame.closure.function.chunk.code.items[current_frame.ip - 1];
+        }
+
+        return null;
+    }
+
     fn readInstruction(self: *Self) u32 {
         const current_frame: *CallFrame = self.currentFrame().?;
         var instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
@@ -427,7 +491,7 @@ pub const VM = struct {
         return instruction;
     }
 
-    inline fn getCode(instruction: u32) OpCode {
+    pub inline fn getCode(instruction: u32) OpCode {
         return @intToEnum(OpCode, @intCast(u8, instruction >> 24));
     }
 
@@ -462,9 +526,9 @@ pub const VM = struct {
     fn run(self: *Self) Error!void {
         while (true) {
             const current_frame: *CallFrame = self.currentFrame().?;
-            var full_instruction: u32 = self.readInstruction();
-            var instruction: OpCode = getCode(full_instruction);
-            var arg: u24 = getArg(full_instruction);
+            const full_instruction: u32 = self.readInstruction();
+            const instruction: OpCode = getCode(full_instruction);
+            const arg: u24 = getArg(full_instruction);
             if (Config.debug_current_instruction) {
                 std.debug.print(
                     "{}: {}\n",
@@ -1079,6 +1143,16 @@ pub const VM = struct {
                     value_slot.* = map.map.get(unext_key) orelse Value{ .Null = {} };
                 }
             },
+            .Fiber => {
+                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+                var fiber = ObjFiber.cast(iterable).?;
+
+                if (fiber.fiber.status == .Over) {
+                    value_slot.* = Value{ .Null = {} };
+                } else {
+                    try fiber.fiber.resume_(self);
+                }
+            },
             else => unreachable,
         }
     }
@@ -1097,24 +1171,8 @@ pub const VM = struct {
         // We popped the last frame
         if (self.current_fiber.frame_count == 0) {
             // We're in a fiber
-            if (self.current_fiber.parent_fiber) |parent_fiber| {
-                // Fiber is now over
-                self.current_fiber.status = .Over;
-                const resolved = self.current_fiber.resolved;
-
-                // Put the result back stack so `resolve` can pick it up
-                self.push(result);
-
-                self.current_fiber = parent_fiber;
-
-                if (resolved) {
-                    // We did `resolve fiber` we want the returned value
-                    self.push(result);
-                } else {
-                    // We did `resume fiber` and hit return
-                    // We don't yet care about that value;
-                    self.push(Value{ .Null = {} });
-                }
+            if (self.current_fiber.parent_fiber != null) {
+                try self.current_fiber.finish(self, result);
 
                 // Don't stop the VM
                 return false;

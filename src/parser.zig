@@ -1275,14 +1275,7 @@ pub const Parser = struct {
 
                     self.beginScope();
                     _ = try self.addLocal(
-                        Token{
-                            .token_type = .Identifier,
-                            .lexeme = "super",
-                            .source = "",
-                            .script_name = "",
-                            .line = 0,
-                            .column = 0,
-                        },
+                        Token.identifier("super"),
                         try parent.toInstance(self.gc.allocator, &self.gc.type_registry),
                         true,
                     );
@@ -1658,14 +1651,7 @@ pub const Parser = struct {
 
         // Local not usable by user but needed so that locals are correct
         _ = try self.addLocal(
-            Token{
-                .token_type = .Identifier,
-                .line = 0,
-                .column = 0,
-                .source = "",
-                .lexeme = "$",
-                .script_name = "",
-            },
+            Token.identifier("$"),
             iterable.type_def.?,
             true,
         );
@@ -3535,14 +3521,7 @@ pub const Parser = struct {
         node.* = SuperNode{
             .identifier = member_name,
             .this = NamedVariableNode.cast(try self.namedVariable(
-                Token{
-                    .token_type = .Identifier,
-                    .lexeme = "this",
-                    .line = 0,
-                    .column = 0,
-                    .source = "",
-                    .script_name = "",
-                },
+                Token.identifier("this"),
                 false,
             )).?,
         };
@@ -3578,14 +3557,7 @@ pub const Parser = struct {
 
             node.call = CallNode.cast(try self.call(false, &node.node)).?;
             node.call.?.super = NamedVariableNode.cast(try self.namedVariable(
-                Token{
-                    .token_type = .Identifier,
-                    .lexeme = "super",
-                    .line = 0,
-                    .column = 0,
-                    .source = "",
-                    .script_name = "",
-                },
+                Token.identifier("super"),
                 false,
             )).?;
 
@@ -3620,14 +3592,7 @@ pub const Parser = struct {
             return &node.node;
         } else {
             node.super = NamedVariableNode.cast(try self.namedVariable(
-                Token{
-                    .token_type = .Identifier,
-                    .lexeme = "super",
-                    .line = 0,
-                    .column = 0,
-                    .source = "",
-                    .script_name = "",
-                },
+                Token.identifier("super"),
                 false,
             )).?;
 

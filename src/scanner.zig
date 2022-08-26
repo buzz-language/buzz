@@ -209,7 +209,7 @@ pub const Scanner = struct {
         }
 
         const literal = self.source[self.current.start..self.current.offset];
-        const keywordOpt = tk.isKeyword(literal);
+        const keywordOpt = tk.keywords.get(literal);
 
         if (keywordOpt) |keyword| {
             return self.makeToken(keyword, literal, null, null);

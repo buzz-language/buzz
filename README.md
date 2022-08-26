@@ -209,6 +209,11 @@ foreach (str key, num value in aMap) {
 foreach (num i, str char in aString) {
     | ...
 }
+
+fib<void, num?> fibonnaciFib = &fibonnaci(10);
+foreach (num value in fibonnaciFib) {
+    | ...
+}
 ```
 
 ## Objects and Classes

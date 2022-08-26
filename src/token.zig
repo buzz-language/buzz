@@ -172,233 +172,52 @@ pub const TokenType = enum {
     Yield, // yield
 };
 
-pub const Keywords = [_]TokenType{
-    .True,
-    .False,
-    .Null,
-    .Or,
-    .And,
-    .Return,
-    .If,
-    .Else,
-    .While,
-    .For,
-    .ForEach,
-    .Switch,
-    .Break,
-    .Continue,
-    .Default,
-    .Fun,
-    .In,
-    .Function,
-    .Print,
-    .Throw,
-    .Catch,
-    .Test,
-    .Import,
-    .Export,
-    .Const,
-    .Static,
-    .Super,
-    .From,
-    .As,
-    .Continue,
-    .Extern,
-    .Void,
-    .Pat,
-    .Fib,
-    .Resume,
-    .Resolve,
-    .Yield,
-};
-
-// TODO: must be a way to write that more elegantly
-pub fn isKeyword(literal: []const u8) ?TokenType {
-    if (mem.eql(u8, literal, "ud")) {
-        return .Ud;
-    }
-
-    if (mem.eql(u8, literal, "void")) {
-        return .Void;
-    }
-
-    if (mem.eql(u8, literal, "true")) {
-        return .True;
-    }
-
-    if (mem.eql(u8, literal, "false")) {
-        return .False;
-    }
-
-    if (mem.eql(u8, literal, "null")) {
-        return .Null;
-    }
-
-    if (mem.eql(u8, literal, "or")) {
-        return .Or;
-    }
-
-    if (mem.eql(u8, literal, "and")) {
-        return .And;
-    }
-
-    if (mem.eql(u8, literal, "as")) {
-        return .As;
-    }
-
-    if (mem.eql(u8, literal, "return")) {
-        return .Return;
-    }
-
-    if (mem.eql(u8, literal, "if")) {
-        return .If;
-    }
-
-    if (mem.eql(u8, literal, "else")) {
-        return .Else;
-    }
-
-    if (mem.eql(u8, literal, "while")) {
-        return .While;
-    }
-
-    if (mem.eql(u8, literal, "for")) {
-        return .For;
-    }
-
-    if (mem.eql(u8, literal, "foreach")) {
-        return .ForEach;
-    }
-
-    if (mem.eql(u8, literal, "switch")) {
-        return .Switch;
-    }
-
-    if (mem.eql(u8, literal, "break")) {
-        return .Break;
-    }
-
-    if (mem.eql(u8, literal, "continue")) {
-        return .Continue;
-    }
-
-    if (mem.eql(u8, literal, "default")) {
-        return .Default;
-    }
-
-    if (mem.eql(u8, literal, "const")) {
-        return .Const;
-    }
-
-    if (mem.eql(u8, literal, "super")) {
-        return .Super;
-    }
-
-    if (mem.eql(u8, literal, "fun")) {
-        return .Fun;
-    }
-
-    if (mem.eql(u8, literal, "in")) {
-        return .In;
-    }
-
-    if (mem.eql(u8, literal, "str")) {
-        return .Str;
-    }
-
-    if (mem.eql(u8, literal, "num")) {
-        return .Num;
-    }
-
-    if (mem.eql(u8, literal, "type")) {
-        return .Type;
-    }
-
-    if (mem.eql(u8, literal, "bool")) {
-        return .Bool;
-    }
-
-    if (mem.eql(u8, literal, "pat")) {
-        return .Pat;
-    }
-
-    if (mem.eql(u8, literal, "xor")) {
-        return .Xor;
-    }
-
-    if (mem.eql(u8, literal, "do")) {
-        return .Do;
-    }
-
-    if (mem.eql(u8, literal, "until")) {
-        return .Until;
-    }
-
-    if (mem.eql(u8, literal, "is")) {
-        return .Is;
-    }
-
-    if (mem.eql(u8, literal, "object")) {
-        return .Object;
-    }
-
-    if (mem.eql(u8, literal, "static")) {
-        return .Static;
-    }
-
-    if (mem.eql(u8, literal, "class")) {
-        return .Class;
-    }
-
-    if (mem.eql(u8, literal, "enum")) {
-        return .Enum;
-    }
-
-    if (mem.eql(u8, literal, "throw")) {
-        return .Throw;
-    }
-
-    if (mem.eql(u8, literal, "catch")) {
-        return .Catch;
-    }
-
-    if (mem.eql(u8, literal, "test")) {
-        return .Test;
-    }
-
-    if (mem.eql(u8, literal, "Function")) {
-        return .Function;
-    }
-
-    if (mem.eql(u8, literal, "import")) {
-        return .Import;
-    }
-
-    if (mem.eql(u8, literal, "export")) {
-        return .Export;
-    }
-
-    if (mem.eql(u8, literal, "extern")) {
-        return .Extern;
-    }
-
-    if (mem.eql(u8, literal, "from")) {
-        return .From;
-    }
-
-    if (mem.eql(u8, literal, "fib")) {
-        return .Fib;
-    }
-
-    if (mem.eql(u8, literal, "resume")) {
-        return .Resume;
-    }
-    if (mem.eql(u8, literal, "resolve")) {
-        return .Resolve;
-    }
-    if (mem.eql(u8, literal, "yield")) {
-        return .Yield;
-    }
-
-    return null;
-}
+pub const keywords = std.ComptimeStringMap(TokenType, .{
+    .{ "ud", .Ud },
+    .{ "void", .Void },
+    .{ "true", .True },
+    .{ "false", .False },
+    .{ "null", .Null },
+    .{ "or", .Or },
+    .{ "and", .And },
+    .{ "as", .As },
+    .{ "return", .Return },
+    .{ "if", .If },
+    .{ "else", .Else },
+    .{ "while", .While },
+    .{ "for", .For },
+    .{ "foreach", .ForEach },
+    .{ "switch", .Switch },
+    .{ "break", .Break },
+    .{ "continue", .Continue },
+    .{ "default", .Default },
+    .{ "const", .Const },
+    .{ "super", .Super },
+    .{ "fun", .Fun },
+    .{ "in", .In },
+    .{ "str", .Str },
+    .{ "num", .Num },
+    .{ "type", .Type },
+    .{ "bool", .Bool },
+    .{ "pat", .Pat },
+    .{ "xor", .Xor },
+    .{ "do", .Do },
+    .{ "until", .Until },
+    .{ "is", .Is },
+    .{ "object", .Object },
+    .{ "static", .Static },
+    .{ "class", .Class },
+    .{ "enum", .Enum },
+    .{ "throw", .Throw },
+    .{ "catch", .Catch },
+    .{ "test", .Test },
+    .{ "Function", .Function },
+    .{ "import", .Import },
+    .{ "export", .Export },
+    .{ "extern", .Extern },
+    .{ "from", .From },
+    .{ "fib", .Fib },
+    .{ "resume", .Resume },
+    .{ "resolve", .Resolve },
+    .{ "yield", .Yield },
+});

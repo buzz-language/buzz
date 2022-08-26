@@ -4044,6 +4044,20 @@ pub const ForEachNode = struct {
                         );
                     }
                 },
+                .Fiber => {
+                    const iterable_type = try self.iterable.type_def.?.resolved_type.?.Fiber.yield_type.toInstance(
+                        codegen.gc.allocator,
+                        &codegen.gc.type_registry,
+                    );
+                    if (!iterable_type.eql(self.value.type_def.?)) {
+                        try codegen.reportTypeCheckAt(
+                            iterable_type,
+                            self.value.type_def.?,
+                            "Bad value type",
+                            self.value.node.location,
+                        );
+                    }
+                },
                 else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
             }
         }
