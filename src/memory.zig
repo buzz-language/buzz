@@ -120,8 +120,8 @@ pub const GarbageCollector = struct {
     type_registry: TypeRegistry,
     bytes_allocated: usize = 0,
     // next_gc == next_full_gc at first so the first cycle is a full gc
-    next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
-    next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * 8,
+    next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
+    next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
     active_vm: ?*VM = null,
@@ -908,8 +908,8 @@ pub const GarbageCollector = struct {
 
         try sweep(self, mode);
 
-        self.next_gc = self.bytes_allocated * 2;
-        self.next_full_gc = self.next_gc * 4;
+        self.next_gc = self.bytes_allocated * Config.gc.next_gc_ratio;
+        self.next_full_gc = self.next_gc * Config.gc.next_full_gc_ratio;
 
         if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
