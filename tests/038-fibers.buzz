@@ -93,11 +93,11 @@ class FiberObj < Parent {
 }
 
 test "Invoke in a routine" {
-    FiberObj obj = FiberObj{};
+    FiberObj fiberObj = FiberObj{};
 
-    assert(resolve &obj.sayHello() == "Hello Joe", message: "Could invoke inside a routine");
+    assert(resolve &fiberObj.sayHello() == "Hello Joe", message: "Could invoke inside a routine");
 
-    fib<str, num?> counter = &obj.countUpTo(10);
+    fib<str, num?> counter = &fiberObj.countUpTo(10);
 
     num sum = 0;
     while (!counter.over()) {
@@ -109,9 +109,9 @@ test "Invoke in a routine" {
 }
 
 test "Super invoke in a routine" {
-    FiberObj obj = FiberObj{};
+    FiberObj fiberObj = FiberObj{};
 
-    assert(obj.saySuperHello() == "Hello Joe", message: "Could invoke inside a routine");
+    assert(fiberObj.saySuperHello() == "Hello Joe", message: "Could invoke inside a routine");
 }
 
 test "Wrapping call inside complex expressions" {

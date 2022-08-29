@@ -847,7 +847,7 @@ pub const VM = struct {
                     try self.bindMethod(super_class.methods.get(name).?, null);
                 },
 
-                .OP_INSTANCE => try self.instanciateObject(ObjObject.cast(self.pop().Obj).?),
+                .OP_INSTANCE => try self.instanciateObject(self.pop().Obj),
 
                 .OP_METHOD => try self.defineMethod(self.readString(arg)),
 
@@ -872,12 +872,14 @@ pub const VM = struct {
                             if (instance.fields.get(name)) |field| {
                                 _ = self.pop(); // Pop instance
                                 self.push(field);
-                            } else if (instance.object.methods.get(name)) |method| {
-                                try self.bindMethod(method, null);
-                            } else if (instance.object.super) |super| {
-                                try self.getSuperField(name, super);
-                            } else {
-                                unreachable;
+                            } else if (instance.object) |object| {
+                                if (object.methods.get(name)) |method| {
+                                    try self.bindMethod(method, null);
+                                } else if (object.super) |super| {
+                                    try self.getSuperField(name, super);
+                                } else {
+                                    unreachable;
+                                }
                             }
                         },
                         .Enum => {
@@ -1573,18 +1575,28 @@ pub const VM = struct {
         }
     }
 
-    fn instanciateObject(self: *Self, object: *ObjObject) !void {
-        var instance: *ObjObjectInstance = try self.gc.allocateObject(ObjObjectInstance, ObjObjectInstance.init(self.gc.allocator, object));
+    fn instanciateObject(self: *Self, object_or_type: *Obj) !void {
+        var instance: *ObjObjectInstance = try self.gc.allocateObject(
+            ObjObjectInstance,
+            ObjObjectInstance.init(
+                self.gc.allocator,
+                ObjObject.cast(object_or_type),
+                ObjTypeDef.cast(object_or_type),
+            ),
+        );
 
-        // Set instance fields with super classes default values
-        if (object.super) |super| {
-            try self.superDefaults(instance, super);
-        }
+        // If not anonymous, set default fields
+        if (ObjObject.cast(object_or_type)) |object| {
+            // Set instance fields with super classes default values
+            if (object.super) |super| {
+                try self.superDefaults(instance, super);
+            }
 
-        // Set instance fields with default values
-        var it = object.fields.iterator();
-        while (it.next()) |kv| {
-            try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
+            // Set instance fields with default values
+            var it = object.fields.iterator();
+            while (it.next()) |kv| {
+                try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
+            }
         }
 
         self.push(instance.toValue());
@@ -1631,13 +1643,15 @@ pub const VM = struct {
             .ObjectInstance => {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
 
+                assert(instance.object != null);
+
                 if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
                     return try self.callValue(field, arg_count, catch_values);
                 }
 
-                try self.invokeFromObject(instance.object, name, arg_count, catch_values);
+                try self.invokeFromObject(instance.object.?, name, arg_count, catch_values);
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {

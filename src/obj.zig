@@ -1239,8 +1239,10 @@ pub const ObjObjectInstance = struct {
 
     obj: Obj = .{ .obj_type = .ObjectInstance },
 
-    /// Object
-    object: *ObjObject,
+    /// Object (null when anonymous)
+    object: ?*ObjObject,
+    /// Object type (null when not anonymous)
+    type_def: ?*ObjTypeDef,
     /// Fields value
     fields: std.AutoHashMap(*ObjString, Value),
 
@@ -1249,15 +1251,21 @@ pub const ObjObjectInstance = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn init(allocator: Allocator, object: *ObjObject) Self {
+    pub fn init(allocator: Allocator, object: ?*ObjObject, type_def: ?*ObjTypeDef) Self {
         return Self{
             .object = object,
+            .type_def = type_def,
             .fields = std.AutoHashMap(*ObjString, Value).init(allocator),
         };
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
-        try gc.markObj(self.object.toObj());
+        if (self.object) |object| {
+            try gc.markObj(object.toObj());
+        }
+        if (self.type_def) |type_def| {
+            try gc.markObj(type_def.toObj());
+        }
         var it = self.fields.iterator();
         while (it.next()) |kv| {
             try gc.markObj(kv.key_ptr.*.toObj());
@@ -1286,7 +1294,7 @@ pub const ObjObjectInstance = struct {
     }
 
     fn is(self: *Self, instance_type: ?*ObjTypeDef, type_def: *ObjTypeDef) bool {
-        const object_def: *ObjTypeDef = instance_type orelse self.object.type_def;
+        const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
 
         if (type_def.def_type != .Object) {
             return false;
@@ -3085,10 +3093,27 @@ pub fn objToString(writer: std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error
             @ptrToInt(ObjFunction.cast(obj).?),
             ObjFunction.cast(obj).?.name.string,
         }),
-        .ObjectInstance => try writer.print("object instance: 0x{x} `{s}`", .{
-            @ptrToInt(ObjObjectInstance.cast(obj).?),
-            ObjObjectInstance.cast(obj).?.object.name.string,
-        }),
+        .ObjectInstance => {
+            const instance = ObjObjectInstance.cast(obj).?;
+
+            if (instance.object) |object| {
+                try writer.print("object instance: 0x{x} `{s}`", .{
+                    @ptrToInt(instance),
+                    object.name.string,
+                });
+            } else {
+                try writer.print("object instance: 0x{x} obj{{ ", .{
+                    @ptrToInt(instance),
+                });
+                var it = instance.fields.iterator();
+                while (it.next()) |kv| {
+                    // This line is awesome
+                    try instance.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(kv.key_ptr.*.string).?.toString(writer);
+                    try writer.print(" {s}, ", .{kv.key_ptr.*.string});
+                }
+                try writer.writeAll("}");
+            }
+        },
         .Object => try writer.print("object: 0x{x} `{s}`", .{
             @ptrToInt(ObjObject.cast(obj).?),
             ObjObject.cast(obj).?.name.string,

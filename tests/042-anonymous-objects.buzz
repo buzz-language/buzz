@@ -1,0 +1,17 @@
+import "lib/std";
+
+fun getInfo() > obj{ str name, num age } {
+    return .{
+        name = "Joe",
+        age = 36,
+    };
+}
+
+test "Anonymous objects" {
+    obj{ str name, num age } info = getInfo();
+    | Two anonymous type match
+    obj{ str name, num age } info2 = info;
+
+    assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");
+    assert(info is obj{ str name, num age },  message: "Type safety works with anonymous object");
+}

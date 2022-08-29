@@ -223,7 +223,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // RightParen
         .{ .prefix = map, .infix = objectInit, .precedence = .Primary }, // LeftBrace
         .{ .prefix = null, .infix = null, .precedence = .None }, // RightBrace
-        .{ .prefix = null, .infix = dot, .precedence = .Call }, // Dot
+        .{ .prefix = anonymousObjectInit, .infix = dot, .precedence = .Call }, // Dot
         .{ .prefix = null, .infix = null, .precedence = .None }, // Comma
         .{ .prefix = null, .infix = null, .precedence = .None }, // Semicolon
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Greater
@@ -284,6 +284,7 @@ pub const Parser = struct {
         .{ .prefix = variable, .infix = null, .precedence = .None }, // Identifier
         .{ .prefix = fun, .infix = null, .precedence = .None }, // Fun
         .{ .prefix = null, .infix = null, .precedence = .None }, // Object
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Obj
         .{ .prefix = null, .infix = null, .precedence = .None }, // Class
         .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
@@ -1053,6 +1054,13 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
+            else if (try self.match(.Obj))
+                try self.varDeclaration(
+                    try self.parseObjType(),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.LeftBracket))
                 try self.listDeclaration(constant)
             else if (try self.match(.LeftBrace))
@@ -1138,6 +1146,13 @@ pub const Parser = struct {
         } else if (try self.match(.Fib)) {
             return try self.varDeclaration(
                 try self.parseFiberType(),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Obj)) {
+            return try self.varDeclaration(
+                try self.parseObjType(),
                 .Semicolon,
                 constant,
                 true,
@@ -2159,6 +2174,63 @@ pub const Parser = struct {
         };
         node.node.type_def = enum_type;
         node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn anonymousObjectInit(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+        try self.consume(.LeftBrace, "Expected `{` after `.`");
+
+        var node = try self.gc.allocator.create(ObjectInitNode);
+        node.* = ObjectInitNode.init(self.gc.allocator, null);
+        node.node.location = start_location;
+
+        var object_def = ObjObject.ObjectDef.init(
+            self.gc.allocator,
+            try self.gc.copyString("anonymous"),
+            false,
+        );
+
+        var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
+
+        // We build the object type has we parse its instanciation
+        var object_type: ObjTypeDef = .{
+            .def_type = .Object,
+            .resolved_type = resolved_type,
+        };
+
+        // Anonymous object can only have properties without default values (no methods, no static fields)
+        // They can't self reference since their anonymous
+        var fields = std.StringHashMap(void).init(self.gc.allocator);
+        defer fields.deinit();
+
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            try self.consume(.Identifier, "Expected property name");
+
+            const property_name: []const u8 = self.parser.previous_token.?.lexeme;
+
+            if (fields.get(property_name) != null) {
+                try self.reportError("A property with that name already exists.");
+            }
+
+            try self.consume(.Equal, "Expected `=` after property name.");
+
+            const expr = try self.expression(false);
+
+            try fields.put(property_name, {});
+            try object_type.resolved_type.?.Object.fields.put(property_name, expr.type_def.?);
+            try node.properties.put(property_name, expr);
+
+            if (!self.check(.RightBrace) or self.check(.Comma)) {
+                try self.consume(.Comma, "Expected `,` after field initialization.");
+            }
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after object initialization.");
+
+        node.node.type_def = try object_type.toInstance(self.gc.allocator, &self.gc.type_registry);
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
@@ -4193,6 +4265,8 @@ pub const Parser = struct {
             return try self.parseFunctionType();
         } else if (try self.match(.Fib)) {
             return try self.parseFiberType();
+        } else if (try self.match(.Obj)) {
+            return try self.parseObjType();
         } else if ((try self.match(.Identifier))) {
             const user_type = self.globals.items[try self.parseUserType()].type_def;
 
@@ -4206,6 +4280,48 @@ pub const Parser = struct {
 
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Void });
         }
+    }
+
+    fn parseObjType(self: *Self) !*ObjTypeDef {
+        try self.consume(.LeftBrace, "Expected `{` after `obj`");
+
+        var object_def = ObjObject.ObjectDef.init(
+            self.gc.allocator,
+            try self.gc.copyString("anonymous"),
+            false,
+        );
+
+        var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
+
+        var object_type: ObjTypeDef = .{
+            .def_type = .Object,
+            .resolved_type = resolved_type,
+        };
+
+        // Anonymous object can only have properties without default values (no methods, no static fields)
+        // They can't self reference since their anonymous
+        var fields = std.StringHashMap(void).init(self.gc.allocator);
+        defer fields.deinit();
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            const property_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+
+            try self.consume(.Identifier, "Expected property name.");
+            const property_name = self.parser.previous_token.?.clone();
+
+            if (fields.get(property_name.lexeme) != null) {
+                try self.reportError("A property with that name already exists.");
+            }
+
+            if (!self.check(.RightBrace) or self.check(.Comma)) {
+                try self.consume(.Comma, "Expected `,` after property definition.");
+            }
+            try object_type.resolved_type.?.Object.fields.put(property_name.lexeme, property_type);
+            try fields.put(property_name.lexeme, {});
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after object body.");
+
+        return try self.gc.type_registry.getTypeDef(object_type);
     }
 
     fn parseVariable(self: *Self, variable_type: *ObjTypeDef, constant: bool, error_message: []const u8) !usize {

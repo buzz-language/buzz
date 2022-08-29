@@ -4753,7 +4753,7 @@ pub const ObjectInitNode = struct {
         .isConstant = constant,
     },
 
-    object: *ParseNode, // Should mostly be a NamedVariableNode
+    object: ?*ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
 
     fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
@@ -4798,7 +4798,16 @@ pub const ObjectInitNode = struct {
 
         var self = Self.cast(node).?;
 
-        _ = try self.object.toByteCode(self.object, codegen, breaks);
+        if (self.object) |object| {
+            _ = try object.toByteCode(object, codegen, breaks);
+        } else {
+            // Anonymous object, we push its type
+            try codegen.emitCodeArg(
+                node.location,
+                .OP_CONSTANT,
+                try codegen.makeConstant(node.type_def.?.toValue()),
+            );
+        }
 
         try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
 
@@ -4885,7 +4894,7 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}");
     }
 
-    pub fn init(allocator: Allocator, object: *ParseNode) Self {
+    pub fn init(allocator: Allocator, object: ?*ParseNode) Self {
         return Self{
             .object = object,
             .properties = std.StringArrayHashMap(*ParseNode).init(allocator),

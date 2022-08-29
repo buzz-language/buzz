@@ -266,6 +266,22 @@ class Circle < Form {
 }
 ```
 
+### Anonymous objects
+
+```buzz
+| Anonymous objects don't have methods, static fields or default values
+fun getInfo() > obj{ str name, num age } {
+    return .{
+        name = "Joe",
+        age = 36,
+    };
+}
+
+| ...
+
+obj{ str name, num age } info = getInfo();
+```
+
 ## Errors
 
 Right now errors can be anything.
