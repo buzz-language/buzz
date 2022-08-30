@@ -94,10 +94,9 @@ object Buffer {
         BufferEmpty(this.buffer);
     }
 
-    | TODO: useless since string coming from zig/c side are \0 terminated
-    | fun getBuffer() > str {
-    |     return BufferBuffer(this.buffer);
-    | }
+    fun getBuffer() > str {
+        return BufferBuffer(this.buffer);
+    }
 }
 
 export Buffer;

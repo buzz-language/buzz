@@ -172,7 +172,7 @@ fun main([str] args) > void {
         }
     }
 
-    File mdFile = File.open("{currentDirectory()}/doc/index.md", mode: FileMode.write);
+    File mdFile = File.open("{currentDirectory()}/doc/std.md", mode: FileMode.write);
 
     mdFile.write("# Buzz std lib\n## Table of contents\n");
     foreach (str lib, str libDoc in markdownDoc) {

@@ -1,11 +1,10 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
-const utils = @import("../src/utils.zig");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 export fn BufferNew(vm: *api.VM) c_int {
     var buffer = api.VM.allocator.create(Buffer) catch {
-        vm.bz_throwString("Could not create buffer");
+        vm.bz_throwString("Could not create buffer", "Could not create buffer".len);
 
         return -1;
     };
@@ -16,7 +15,7 @@ export fn BufferNew(vm: *api.VM) c_int {
 
         return 1;
     } else {
-        vm.bz_throwString("Could not create buffer");
+        vm.bz_throwString("Could not create buffer", "Could not create buffer".len);
 
         return -1;
     }
@@ -161,14 +160,10 @@ export fn BufferRead(vm: *api.VM) c_int {
 
     const read_slice = buffer.read(@intCast(usize, n));
     if (read_slice) |uread_slice| {
-        const read_c_slice = utils.toCString(api.VM.allocator, uread_slice);
+        if (api.ObjString.bz_string(vm, if (uread_slice.len > 0) @ptrCast([*]const u8, uread_slice) else null, uread_slice.len)) |obj_string| {
+            vm.bz_pushString(obj_string);
 
-        if (read_c_slice) |slice| {
-            if (api.ObjString.bz_string(vm, slice)) |obj_string| {
-                vm.bz_pushString(obj_string);
-
-                return 1;
-            }
+            return 1;
         }
     }
 
@@ -179,25 +174,24 @@ export fn BufferRead(vm: *api.VM) c_int {
 
 export fn BufferWrite(vm: *api.VM) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
-    var bytes = vm.bz_peek(0).bz_valueToString();
+    var len: usize = 0;
+    var bytes = vm.bz_peek(0).bz_valueToString(&len);
 
-    if (bytes) |ubytes| {
-        buffer.write(utils.toSlice(ubytes)) catch |err| {
-            if (err == Buffer.Error.WriteWhileReading) {
-                vm.bz_throwString("Can't write to buffer while it's being read");
-            } else {
-                vm.bz_throwString("Could not write bytes");
-            }
-
-            return -1;
-        };
-
+    if (len == 0) {
         return 0;
-    } else {
-        vm.bz_throwString("Could not write bytes");
+    }
+
+    buffer.write(bytes.?[0..len]) catch |err| {
+        if (err == Buffer.Error.WriteWhileReading) {
+            vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
+        } else {
+            vm.bz_throwString("Could not write bytes", "Could not write bytes".len);
+        }
 
         return -1;
-    }
+    };
+
+    return 0;
 }
 
 export fn BufferReadBoolean(vm: *api.VM) c_int {
@@ -218,9 +212,9 @@ export fn BufferWriteBoolean(vm: *api.VM) c_int {
 
     buffer.writeBool(value) catch |err| {
         if (err == Buffer.Error.WriteWhileReading) {
-            vm.bz_throwString("Can't write to buffer while it's being read");
+            vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
         } else {
-            vm.bz_throwString("Could not write boolean");
+            vm.bz_throwString("Could not write boolean", "Could not write boolean".len);
         }
 
         return -1;
@@ -236,7 +230,7 @@ export fn BufferReadNumber(vm: *api.VM) c_int {
     if (is_integer) |uis_integer| {
         if (uis_integer[0] == 1) {
             if (buffer.readInteger() catch {
-                vm.bz_throwString("Could not read number");
+                vm.bz_throwString("Could not read number", "Could not read number".len);
 
                 return -1;
             }) |value| {
@@ -245,7 +239,7 @@ export fn BufferReadNumber(vm: *api.VM) c_int {
                 return 1;
             }
         } else if (buffer.readFloat() catch {
-            vm.bz_throwString("Could not read number");
+            vm.bz_throwString("Could not read number", "Could not read number".len);
 
             return -1;
         }) |value| {
@@ -266,9 +260,9 @@ export fn BufferWriteNumber(vm: *api.VM) c_int {
     if (number.bz_valueIsInteger()) {
         buffer.writeInteger(number.bz_valueToInteger()) catch |err| {
             if (err == Buffer.Error.WriteWhileReading) {
-                vm.bz_throwString("Can't write to buffer while it's being read");
+                vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
             } else {
-                vm.bz_throwString("Could not write number");
+                vm.bz_throwString("Could not write number", "Could not write number".len);
             }
 
             return -1;
@@ -276,9 +270,9 @@ export fn BufferWriteNumber(vm: *api.VM) c_int {
     } else {
         buffer.writeFloat(number.bz_valueToFloat()) catch |err| {
             if (err == Buffer.Error.WriteWhileReading) {
-                vm.bz_throwString("Can't write to buffer while it's being read");
+                vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
             } else {
-                vm.bz_throwString("Could not write number");
+                vm.bz_throwString("Could not write number", "Could not write number".len);
             }
 
             return -1;
@@ -315,15 +309,10 @@ export fn BufferCursor(vm: *api.VM) c_int {
 export fn BufferBuffer(vm: *api.VM) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
-    if (utils.toCString(api.VM.allocator, buffer.buffer.items)) |string| {
-        if (api.ObjString.bz_string(vm, string)) |objstring| {
-            vm.bz_pushString(objstring);
-        } else {
-            vm.bz_throwString("Could not get buffer");
-            return -1;
-        }
+    if (api.ObjString.bz_string(vm, if (buffer.buffer.items.len > 0) @ptrCast([*]const u8, buffer.buffer.items) else null, buffer.buffer.items.len)) |objstring| {
+        vm.bz_pushString(objstring);
     } else {
-        vm.bz_throwString("Could not get buffer");
+        vm.bz_throwString("Could not get buffer", "Could not get buffer".len);
         return -1;
     }
 

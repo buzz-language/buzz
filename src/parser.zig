@@ -12,7 +12,6 @@ const _token = @import("./token.zig");
 const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
 const _scanner = @import("./scanner.zig");
-const _utils = @import("./utils.zig");
 const _chunk = @import("./chunk.zig");
 const Config = @import("./config.zig").Config;
 const StringParser = @import("./string_parser.zig").StringParser;
@@ -45,7 +44,6 @@ const PlaceholderDef = _obj.PlaceholderDef;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const Scanner = _scanner.Scanner;
-const toNullTerminated = _utils.toNullTerminated;
 const NativeFn = _obj.NativeFn;
 const FunctionType = _obj.ObjFunction.FunctionType;
 const SlotType = _node.SlotType;
@@ -2635,19 +2633,14 @@ pub const Parser = struct {
         const source_slice = self.parser.previous_token.?.literal_string.?;
         // Replace escaped pattern delimiter with delimiter
         const source_slice_clean = try std.mem.replaceOwned(u8, self.gc.allocator, source_slice, "__", "_");
-        const source = toNullTerminated(self.gc.allocator, source_slice_clean);
-
-        if (source == null) {
-            try self.reportError("Could not compile pattern");
-            return CompileError.Unrecoverable;
-        }
+        const source = try self.gc.allocator.dupeZ(u8, source_slice_clean);
 
         var err = try self.gc.allocator.allocSentinel(u8, 1000, 0);
         // FIXME: crashes i don't know why
         // defer self.gc.allocator.free(err);
         var err_offset: c_int = undefined;
         const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
-            source.?, // pattern
+            source, // pattern
             0, // options
             @ptrCast([*c][*c]const u8, &err), // error message buffer
             &err_offset, // offset at which error occured
@@ -4108,7 +4101,7 @@ pub const Parser = struct {
 
         if (lib) |*dlib| {
             // Convert symbol names to zig slices
-            var ssymbol = try (toNullTerminated(self.gc.allocator, symbol) orelse Allocator.Error.OutOfMemory);
+            const ssymbol = try self.gc.allocator.dupeZ(u8, symbol);
             defer self.gc.allocator.free(ssymbol);
 
             // Lookup symbol NativeFn

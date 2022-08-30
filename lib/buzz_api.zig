@@ -10,7 +10,7 @@ pub const GarbageCollector = opaque {};
 pub const VM = opaque {
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
-    pub extern fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction;
+    pub extern fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction;
     pub extern fn bz_interpret(self: *VM, function: *ObjFunction) bool;
     pub extern fn bz_push(self: *VM, value: *Value) void;
     pub extern fn bz_pop(self: *VM) *Value;
@@ -24,7 +24,7 @@ pub const VM = opaque {
     pub extern fn bz_pushNull(self: *VM) void;
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_throw(vm: *VM, value: *Value) void;
-    pub extern fn bz_throwString(vm: *VM, message: [*:0]const u8) void;
+    pub extern fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void;
     pub extern fn bz_getGC(vm: *VM) *GarbageCollector;
 
     pub extern fn bz_allocated(self: *VM) usize;
@@ -39,7 +39,7 @@ pub const VM = opaque {
 
 pub const Value = opaque {
     pub extern fn bz_valueToBool(value: *Value) bool;
-    pub extern fn bz_valueToString(value: *Value) ?[*:0]const u8;
+    pub extern fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToInteger(value: *Value) i64;
     pub extern fn bz_valueToFloat(value: *Value) f64;
     pub extern fn bz_valueToUserData(value: *Value) *UserData;
@@ -54,7 +54,7 @@ pub const ObjTypeDef = opaque {
 };
 
 pub const ObjString = opaque {
-    pub extern fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString;
+    pub extern fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString;
 };
 
 pub const ObjList = opaque {

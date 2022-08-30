@@ -16,7 +16,6 @@ const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
 const Config = @import("./config.zig").Config;
 const CodeGen = @import("./codegen.zig").CodeGen;
-const utils = @import("./utils.zig");
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -329,7 +328,11 @@ pub const ObjPattern = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    fn rawMatch(self: *Self, vm: *VM, subject: [:0]const u8, offset: *usize) !?*ObjList {
+    fn rawMatch(self: *Self, vm: *VM, subject: ?[*]const u8, len: usize, offset: *usize) !?*ObjList {
+        if (subject == null) {
+            return null;
+        }
+
         var results: ?*ObjList = null;
 
         var output_vector: [3000]c_int = undefined;
@@ -337,8 +340,8 @@ pub const ObjPattern = struct {
         const rc = pcre.pcre_exec(
             self.pattern, // the compiled pattern
             null, // no extra data - we didn't study the pattern
-            @ptrCast([*c]const u8, subject), // the subject string
-            @intCast(c_int, subject.len), // the length of the subject
+            @ptrCast([*c]const u8, subject.?), // the subject string
+            @intCast(c_int, len), // the length of the subject
             @intCast(c_int, offset.*), // start offset
             0, // default options
             @ptrCast([*c]c_int, &output_vector), // output vector for substring information
@@ -371,7 +374,7 @@ pub const ObjPattern = struct {
                 while (i < rc) : (i += 1) {
                     try results.?.items.append(
                         (try vm.gc.copyString(
-                            subject[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])],
+                            subject.?[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])],
                         )).toValue(),
                     );
                 }
@@ -383,11 +386,15 @@ pub const ObjPattern = struct {
         return results;
     }
 
-    fn rawMatchAll(self: *Self, vm: *VM, subject: [:0]const u8) !?*ObjList {
+    fn rawMatchAll(self: *Self, vm: *VM, subject: ?[*]const u8, len: usize) !?*ObjList {
+        if (subject == null) {
+            return null;
+        }
+
         var results: ?*ObjList = null;
         var offset: usize = 0;
         while (true) {
-            if (try self.rawMatch(vm, subject, &offset)) |matches| {
+            if (try self.rawMatch(vm, subject.?, len, &offset)) |matches| {
                 var was_null = results == null;
                 results = results orelse try vm.gc.allocateObject(
                     ObjList,
@@ -416,21 +423,11 @@ pub const ObjPattern = struct {
     }
 
     pub fn match(vm: *VM) c_int {
-        var self = Self.cast(vm.peek(1).Obj).?;
-        var subject = utils.toNullTerminated(
-            vm.gc.allocator,
-            ObjString.cast(vm.peek(0).Obj).?.string,
-        );
-
-        if (subject == null) {
-            var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
-
-            return -1;
-        }
+        const self = Self.cast(vm.peek(1).Obj).?;
+        const subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
         var offset: usize = 0;
-        if (self.rawMatch(vm, subject.?, &offset) catch {
+        if (self.rawMatch(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len, &offset) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
             vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -446,19 +443,9 @@ pub const ObjPattern = struct {
 
     pub fn matchAll(vm: *VM) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
-        var subject = utils.toNullTerminated(
-            vm.gc.allocator,
-            ObjString.cast(vm.peek(0).Obj).?.string,
-        );
+        var subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
-        if (subject == null) {
-            var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
-
-            return -1;
-        }
-
-        if (self.rawMatchAll(vm, subject.?) catch {
+        if (self.rawMatchAll(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
             vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 

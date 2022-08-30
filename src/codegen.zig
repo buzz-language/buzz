@@ -9,7 +9,6 @@ const _obj = @import("./obj.zig");
 const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
 const _disassembler = @import("./disassembler.zig");
-const _utils = @import("./utils.zig");
 const _parser = @import("./parser.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");

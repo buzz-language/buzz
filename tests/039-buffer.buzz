@@ -9,6 +9,18 @@ test "Reading and writing in a buffer" {
     buffer.writeNumber(1238.324);
     buffer.writeBoolean(true);
 
+    [num] expected = [
+        1,                                                    | integer flag
+        11, 0, 0, 0, 0, 0, 0, 0,                              | "hello world".len()
+        104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, | "hello world"
+        2,                                                    | float flag
+        158, 239, 167, 198, 75, 89, 147, 64,                  | 1238.324
+        1,                                                    | true
+    ];
+    foreach (num i, str char in buffer.getBuffer()) {
+        assert(expected[i] == char.byte(0), message: "Buffer has expected content");
+    }
+
     assert(buffer.len() == 30, message: "wrote expected number of bytes");
     
     const num len = buffer.readNumber() ?? -1;

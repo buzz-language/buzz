@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const VM = @import("./vm.zig").VM;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
-const utils = @import("./utils.zig");
 const memory = @import("./memory.zig");
 const _parser = @import("./parser.zig");
 const _codegen = @import("./codegen.zig");
@@ -96,12 +95,16 @@ export fn bz_valueToBool(value: *Value) bool {
 }
 
 /// Converts a value to a string
-export fn bz_valueToString(value: *Value) ?[*:0]const u8 {
+export fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8 {
     if (value.* != .Obj or value.Obj.obj_type != .String) {
         return null;
     }
 
-    return utils.toCString(allocator, ObjString.cast(value.Obj).?.string);
+    const string = ObjString.cast(value.Obj).?.string;
+
+    len.* = string.len;
+
+    return if (string.len > 0) if (string.len > 0) @ptrCast([*]const u8, string) else null else null;
 }
 
 /// Converts a value to a float
@@ -128,8 +131,8 @@ export fn bz_valueIsFloat(value: *Value) bool {
 // Obj manipulations
 
 /// Converts a c string to a *ObjString
-export fn bz_string(vm: *VM, string: [*:0]const u8) ?*ObjString {
-    return vm.gc.copyString(utils.toSlice(string)) catch null;
+export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
+    return (if (string) |ustring| vm.gc.copyString(ustring[0..len]) else vm.gc.copyString("")) catch null;
 }
 
 // Other stuff
@@ -251,9 +254,9 @@ export fn bz_throw(vm: *VM, value: *Value) void {
     vm.push(value.*);
 }
 
-export fn bz_throwString(vm: *VM, message: [*:0]const u8) void {
-    bz_pushString(vm, bz_string(vm, message) orelse {
-        _ = std.io.getStdErr().write(utils.toSlice(message)) catch unreachable;
+export fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void {
+    bz_pushString(vm, bz_string(vm, message orelse "", len) orelse {
+        _ = std.io.getStdErr().write((message orelse "")[0..len]) catch unreachable;
         std.os.exit(1);
     });
 }
@@ -286,7 +289,11 @@ export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
     return vm.gc;
 }
 
-export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8) ?*ObjFunction {
+export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction {
+    if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
+        return null;
+    }
+
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
     var parser = Parser.init(self.gc, &imports, false);
@@ -301,7 +308,7 @@ export fn bz_compile(self: *VM, source: [*:0]const u8, file_name: [*:0]const u8)
         // self.gc.allocator.destroy(self.gc);
     }
 
-    if (parser.parse(utils.toSlice(source), utils.toSlice(file_name)) catch null) |function_node| {
+    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |function_node| {
         return function_node.toByteCode(function_node, &codegen, null) catch null;
     } else {
         return null;

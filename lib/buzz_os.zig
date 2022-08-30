@@ -1,6 +1,5 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
-const utils = @import("../src/utils.zig");
 const builtin = @import("builtin");
 
 export fn time(vm: *api.VM) c_int {
@@ -10,15 +9,31 @@ export fn time(vm: *api.VM) c_int {
 }
 
 export fn env(vm: *api.VM) c_int {
-    const key = api.Value.bz_valueToString(vm.bz_peek(0)) orelse "";
+    var len: usize = 0;
+    const key = vm.bz_peek(0).bz_valueToString(&len);
 
-    if (std.os.getenvZ(key)) |value| {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, value) orelse {
-            vm.bz_throwString("Could not get environment variable");
+    if (len == 0) {
+        vm.bz_throwString("Env key is empty", "Env key is empty".len);
 
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not get environment variable");
+        return -1;
+    }
+
+    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch null;
+    defer {
+        if (key_slice != null) {
+            api.VM.allocator.free(key_slice.?);
+        }
+    }
+
+    if (key_slice == null) {
+        vm.bz_throwString("Could not get environment variable", "Could not get environment variable".len);
+
+        return -1;
+    }
+
+    if (std.os.getenvZ(key_slice.?)) |value| {
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
+            vm.bz_throwString("Could not get environment variable", "Could not get environment variable".len);
 
             return -1;
         });
@@ -26,7 +41,9 @@ export fn env(vm: *api.VM) c_int {
         return 1;
     }
 
-    return 0;
+    vm.bz_pushNull();
+
+    return 1;
 }
 
 fn sysTempDir() []const u8 {
@@ -39,12 +56,8 @@ fn sysTempDir() []const u8 {
 export fn tmpDir(vm: *api.VM) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, tmp_dir) orelse {
-        vm.bz_throwString("Could not get tmp dir");
-
-        return -1;
-    }) orelse {
-        vm.bz_throwString("Could not get tmp dir");
+    vm.bz_pushString(api.ObjString.bz_string(vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
+        vm.bz_throwString("Could not get tmp dir", "Could not get tmp dir".len);
 
         return -1;
     });
@@ -54,18 +67,21 @@ export fn tmpDir(vm: *api.VM) c_int {
 
 // TODO: what if file with same random name exists already?
 export fn tmpFilename(vm: *api.VM) c_int {
-    const prefix: ?[*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(0));
+    var prefix_len: usize = 0;
+    const prefix = vm.bz_peek(0).bz_valueToString(&prefix_len);
+
+    const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
     var random_part = std.ArrayList(u8).init(api.VM.allocator);
     defer random_part.deinit();
     random_part.writer().print("{x}", .{std.crypto.random.int(i64)}) catch {
-        vm.bz_throwString("Could not get tmp file");
+        vm.bz_throwString("Could not get tmp file", "Could not get tmp file".len);
 
         return -1;
     };
 
     var random_part_b64 = std.ArrayList(u8).initCapacity(api.VM.allocator, std.base64.standard.Encoder.calcSize(random_part.items.len)) catch {
-        vm.bz_throwString("Could not get tmp file");
+        vm.bz_throwString("Could not get tmp file", "Could not get tmp file".len);
 
         return -1;
     };
@@ -78,26 +94,14 @@ export fn tmpFilename(vm: *api.VM) c_int {
     defer final.deinit();
 
     // TODO: take into account system file separator (windows is \)
-    if (prefix) |uprefix| {
-        final.writer().print("{s}{s}-{s}", .{ sysTempDir(), uprefix, random_part_b64.items }) catch {
-            vm.bz_throwString("Could not get tmp file");
-
-            return -1;
-        };
-    } else {
-        final.writer().print("{s}{s}", .{ sysTempDir(), random_part_b64.items }) catch {
-            vm.bz_throwString("Could not get tmp file");
-
-            return -1;
-        };
-    }
-
-    vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, final.items) orelse {
-        vm.bz_throwString("Could not get tmp file");
+    final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
+        vm.bz_throwString("Could not get tmp file", "Could not get tmp file".len);
 
         return -1;
-    }) orelse {
-        vm.bz_throwString("Could not get tmp file");
+    };
+
+    vm.bz_pushString(api.ObjString.bz_string(vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
+        vm.bz_throwString("Could not get tmp file", "Could not get tmp file".len);
 
         return -1;
     });
@@ -115,7 +119,6 @@ export fn buzzExit(vm: *api.VM) c_int {
 }
 
 export fn execute(vm: *api.VM) c_int {
-    // const command: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(0)) orelse "", 0);
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
@@ -123,8 +126,14 @@ export fn execute(vm: *api.VM) c_int {
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        command.append(utils.toSlice(api.Value.bz_valueToString(argv.bz_listGet(i)) orelse "")) catch {
-            vm.bz_throwString("Could not execute");
+        const arg = argv.bz_listGet(i);
+        var arg_len: usize = 0;
+        var arg_str = arg.bz_valueToString(&arg_len);
+
+        std.debug.assert(arg_len > 0);
+
+        command.append(arg_str.?[0..arg_len]) catch {
+            vm.bz_throwString("Could not execute", "Could not execute".len);
 
             return -1;
         };
@@ -134,13 +143,13 @@ export fn execute(vm: *api.VM) c_int {
     child_process.disable_aslr = true;
 
     child_process.spawn() catch {
-        vm.bz_throwString("Could not execute");
+        vm.bz_throwString("Could not execute", "Could not execute".len);
 
         return -1;
     };
 
     vm.bz_pushInteger(@intCast(i64, (child_process.wait() catch {
-        vm.bz_throwString("Could not execute");
+        vm.bz_throwString("Could not execute", "Could not execute".len);
 
         return -1;
     }).Exited));
@@ -149,10 +158,12 @@ export fn execute(vm: *api.VM) c_int {
 }
 
 export fn SocketConnect(vm: *api.VM) c_int {
-    const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
+    var len: usize = 0;
+    const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
+    const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
     if (port == null or port.? < 0) {
-        vm.bz_throwString("Port should be a positive integer");
+        vm.bz_throwString("Port should be a positive integer", "Port should be a positive integer".len);
 
         return -1;
     }
@@ -161,8 +172,8 @@ export fn SocketConnect(vm: *api.VM) c_int {
 
     switch (protocol) {
         0 => {
-            const stream = std.net.tcpConnectToHost(api.VM.allocator, utils.toSlice(address), @intCast(u16, port.?)) catch {
-                vm.bz_throwString("Could not connect");
+            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @intCast(u16, port.?)) catch {
+                vm.bz_throwString("Could not connect", "Could not connect".len);
 
                 return -1;
             };
@@ -174,12 +185,12 @@ export fn SocketConnect(vm: *api.VM) c_int {
         1, // TODO: UDP
         2, // TODO: IPC
         => {
-            vm.bz_throwString("Not yet implemented");
+            vm.bz_throwString("Not yet implemented", "Not yet implemented".len);
 
             return -1;
         },
         else => {
-            vm.bz_throwString("Unsupported protocol");
+            vm.bz_throwString("Unsupported protocol", "Unsupported protocol".len);
 
             return -1;
         },
@@ -200,7 +211,7 @@ export fn SocketClose(vm: *api.VM) c_int {
 export fn SocketRead(vm: *api.VM) c_int {
     const n: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
     if (n < 0) {
-        vm.bz_throwString("Could not read from socket: `n` is not a positive integer");
+        vm.bz_throwString("Could not read from socket: `n` is not a positive integer", "Could not read from socket: `n` is not a positive integer".len);
 
         return -1;
     }
@@ -214,7 +225,7 @@ export fn SocketRead(vm: *api.VM) c_int {
     const reader = stream.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
-        vm.bz_throwString("Could not read from socket");
+        vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
 
         return -1;
     };
@@ -223,7 +234,7 @@ export fn SocketRead(vm: *api.VM) c_int {
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch {
-        vm.bz_throwString("Could not read from socket");
+        vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
 
         return -1;
     };
@@ -231,12 +242,8 @@ export fn SocketRead(vm: *api.VM) c_int {
     if (read == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer[0..read]) orelse {
-            vm.bz_throwString("Could not read from socket");
-
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not read from socket");
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+            vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
 
             return -1;
         });
@@ -255,7 +262,7 @@ export fn SocketReadLine(vm: *api.VM) c_int {
     const reader = stream.reader();
 
     var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch {
-        vm.bz_throwString("Could not read from socket");
+        vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
 
         return -1;
     };
@@ -264,12 +271,8 @@ export fn SocketReadLine(vm: *api.VM) c_int {
     if (buffer.len == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
-            vm.bz_throwString("Could not read from socket");
-
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not read from socket");
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+            vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
 
             return -1;
         });
@@ -286,8 +289,15 @@ export fn SocketWrite(vm: *api.VM) c_int {
 
     const stream: std.net.Stream = .{ .handle = handle };
 
-    _ = stream.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
-        vm.bz_throwString("Could not write on socket");
+    var len: usize = 0;
+    var value = vm.bz_peek(0).bz_valueToString(&len);
+
+    if (len == 0) {
+        return 0;
+    }
+
+    _ = stream.write(value.?[0..len]) catch {
+        vm.bz_throwString("Could not write on socket", "Could not write on socket".len);
 
         return -1;
     };
@@ -296,10 +306,12 @@ export fn SocketWrite(vm: *api.VM) c_int {
 }
 
 export fn SocketServerStart(vm: *api.VM) c_int {
-    const address: [*:0]const u8 = api.Value.bz_valueToString(vm.bz_peek(2)) orelse "";
+    var len: usize = 0;
+    const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
+    const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
     if (port == null or port.? < 0) {
-        vm.bz_throwString("Port should be a positive integer");
+        vm.bz_throwString("Port should be a positive integer", "Port should be a positive integer".len);
 
         return -1;
     }
@@ -308,21 +320,21 @@ export fn SocketServerStart(vm: *api.VM) c_int {
 
     var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
 
-    const list = std.net.getAddressList(api.VM.allocator, utils.toSlice(address), @intCast(u16, port.?)) catch {
-        vm.bz_throwString("Could not start socket server");
+    const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port.?)) catch {
+        vm.bz_throwString("Could not start socket server", "Could not start socket server".len);
 
         return -1;
     };
     defer list.deinit();
 
     if (list.addrs.len == 0) {
-        vm.bz_throwString("Could not start socket server");
+        vm.bz_throwString("Could not start socket server", "Could not start socket server".len);
 
         return -1;
     }
 
     server.listen(list.addrs[0]) catch {
-        vm.bz_throwString("Could not start socket server");
+        vm.bz_throwString("Could not start socket server", "Could not start socket server".len);
 
         return -1;
     };
@@ -348,7 +360,7 @@ export fn SocketServerAccept(vm: *api.VM) c_int {
     };
 
     const connection = server.accept() catch {
-        vm.bz_throwString("Could not accept a connection");
+        vm.bz_throwString("Could not accept a connection", "Could not accept a connection".len);
 
         return -1;
     };

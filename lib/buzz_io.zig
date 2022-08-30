@@ -1,6 +1,5 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
-const utils = @import("../src/utils.zig");
 
 export fn getStdIn(vm: *api.VM) c_int {
     vm.bz_pushInteger(@intCast(i64, std.io.getStdIn().handle));
@@ -22,29 +21,38 @@ export fn getStdErr(vm: *api.VM) c_int {
 
 export fn FileOpen(vm: *api.VM) c_int {
     const mode: u8 = @intCast(u8, api.Value.bz_valueToInteger(vm.bz_peek(0)));
-    const filename: []const u8 = std.mem.sliceTo(api.Value.bz_valueToString(vm.bz_peek(1)) orelse "", 0);
+    var len: usize = 0;
+    const filename = vm.bz_peek(1).bz_valueToString(&len);
 
-    var file: std.fs.File = if (std.fs.path.isAbsolute(filename))
+    if (len == 0) {
+        vm.bz_throwString("File name is empty", "File name is empty".len);
+
+        return -1;
+    }
+
+    const filename_slice = filename.?[0..len];
+
+    var file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
         switch (mode) {
-            0 => std.fs.openFileAbsolute(filename, .{ .mode = .read_only }) catch {
-                vm.bz_throwString("Could not open file");
+            0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch {
+                vm.bz_throwString("Could not open file", "Could not open file".len);
 
                 return -1;
             },
-            else => std.fs.createFileAbsolute(filename, .{ .read = mode != 1 }) catch {
-                vm.bz_throwString("Could not open file");
+            else => std.fs.createFileAbsolute(filename_slice, .{ .read = mode != 1 }) catch {
+                vm.bz_throwString("Could not open file", "Could not open file".len);
 
                 return -1;
             },
         }
     else switch (mode) {
-        0 => std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch {
-            vm.bz_throwString("Could not open file");
+        0 => std.fs.cwd().openFile(filename_slice, .{ .mode = .read_only }) catch {
+            vm.bz_throwString("Could not open file", "Could not open file".len);
 
             return -1;
         },
-        else => std.fs.cwd().createFile(filename, .{ .read = mode != 1 }) catch {
-            vm.bz_throwString("Could not open file");
+        else => std.fs.cwd().createFile(filename_slice, .{ .read = mode != 1 }) catch {
+            vm.bz_throwString("Could not open file", "Could not open file".len);
 
             return -1;
         },
@@ -75,14 +83,20 @@ export fn FileReadAll(vm: *api.VM) c_int {
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
-    const content: [*:0]u8 = file.readToEndAllocOptions(api.VM.allocator, std.math.maxInt(u64), null, @alignOf(u8), 0) catch {
-        vm.bz_throwString("Could not read file");
+    const content: []u8 = file.readToEndAllocOptions(
+        api.VM.allocator,
+        std.math.maxInt(u64),
+        null,
+        @alignOf(u8),
+        null,
+    ) catch {
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     };
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, content) orelse {
-        vm.bz_throwString("Could not read file");
+    vm.bz_pushString(api.ObjString.bz_string(vm, if (content.len > 0) @ptrCast([*]const u8, content) else null, content.len) orelse {
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     });
@@ -100,7 +114,7 @@ export fn FileReadLine(vm: *api.VM) c_int {
     const reader = file.reader();
 
     var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch {
-        vm.bz_throwString("Could not read file");
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     };
@@ -109,12 +123,8 @@ export fn FileReadLine(vm: *api.VM) c_int {
     if (buffer.len == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer) orelse {
-            vm.bz_throwString("Could not read file");
-
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not read file");
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+            vm.bz_throwString("Could not read file", "Could not read file".len);
 
             return -1;
         });
@@ -126,7 +136,7 @@ export fn FileReadLine(vm: *api.VM) c_int {
 export fn FileRead(vm: *api.VM) c_int {
     const n = api.Value.bz_valueToInteger(vm.bz_peek(0));
     if (n < 0) {
-        vm.bz_throwString("Could not read file: `n` is not positive integer");
+        vm.bz_throwString("Could not read file: `n` is not positive integer", "Could not read file: `n` is not positive integer".len);
 
         return -1;
     }
@@ -140,7 +150,7 @@ export fn FileRead(vm: *api.VM) c_int {
     const reader = file.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
-        vm.bz_throwString("Could not read file");
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     };
@@ -149,7 +159,7 @@ export fn FileRead(vm: *api.VM) c_int {
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch {
-        vm.bz_throwString("Could not read file");
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     };
@@ -157,12 +167,8 @@ export fn FileRead(vm: *api.VM) c_int {
     if (read == 0) {
         vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, utils.toCString(api.VM.allocator, buffer[0..read]) orelse {
-            vm.bz_throwString("Could not read file");
-
-            return -1;
-        }) orelse {
-            vm.bz_throwString("Could not read file");
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+            vm.bz_throwString("Could not read file", "Could not read file".len);
 
             return -1;
         });
@@ -180,8 +186,15 @@ export fn FileWrite(vm: *api.VM) c_int {
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
-    _ = file.write(std.mem.sliceTo(vm.bz_peek(0).bz_valueToString().?, 0)) catch {
-        vm.bz_throwString("Could not write file");
+    var len: usize = 0;
+    var value = vm.bz_peek(0).bz_valueToString(&len);
+
+    if (len == 0) {
+        return 0;
+    }
+
+    _ = file.write(value.?[0..len]) catch {
+        vm.bz_throwString("Could not write file", "Could not write file".len);
 
         return -1;
     };
