@@ -1,5 +1,6 @@
+| `joe` is not defined
 import "lib/std";
-import "tests/compile_errors/bad-import";
+import "tests/compile_errors/utils/bad-import";
 
 test "Unknown string interpolated expression" {
     num hello = 12 + world;

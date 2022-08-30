@@ -9,7 +9,7 @@ fun getInfo() > obj{ str name, num age } {
 
 test "Anonymous objects" {
     obj{ str name, num age } info = getInfo();
-    | Two anonymous type match
+    | Two anonymous type matches
     obj{ str name, num age } info2 = info;
 
     assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");

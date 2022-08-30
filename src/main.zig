@@ -80,6 +80,8 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
             }
 
             running_time = timer.read();
+        } else {
+            return CompileError.Recoverable;
         }
 
         if (Config.debug_perf) {
@@ -182,41 +184,83 @@ pub fn main() !void {
     std.os.exit(0);
 }
 
-test "Testing buzz" {
+test "Testing behavior" {
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .safety = true,
     }){};
-    var allocator: Allocator = if (builtin.mode == .Debug)
-        gpa.allocator()
-    else
-        std.heap.c_allocator;
+    var allocator: Allocator = gpa.allocator();
 
-    var test_dir = try std.fs.cwd().openIterableDir("tests", .{});
-    var it = test_dir.iterate();
-
-    var success = true;
     var count: usize = 0;
     var fail_count: usize = 0;
-    while (try it.next()) |file| : (count += 1) {
-        if (file.kind == .File) {
-            var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
-            defer allocator.free(file_name);
+    {
+        var test_dir = try std.fs.cwd().openIterableDir("tests", .{});
+        var it = test_dir.iterate();
 
-            var had_error: bool = false;
-            runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, .Test) catch {
-                std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
-                had_error = true;
-                success = false;
-                fail_count += 1;
-            };
+        while (try it.next()) |file| : (count += 1) {
+            if (file.kind == .File) {
+                var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+                defer allocator.free(file_name);
 
-            if (!had_error) {
-                std.debug.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
+                var had_error: bool = false;
+                runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, .Test) catch {
+                    std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
+                    had_error = true;
+                    fail_count += 1;
+                };
+
+                if (!had_error) {
+                    std.debug.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
+                }
             }
         }
     }
 
-    if (success) {
+    {
+        var test_dir = try std.fs.cwd().openIterableDir("tests/compile_errors", .{});
+        var it = test_dir.iterate();
+
+        while (try it.next()) |file| : (count += 1) {
+            if (file.kind == .File) {
+                var file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
+                defer allocator.free(file_name);
+                _ = try std.fmt.bufPrint(file_name, "tests/compile_errors/{s}", .{file.name});
+
+                // First line of test file is expected error message
+                const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+                const reader = test_file.reader();
+                const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', 16 * 8 * 64);
+                defer allocator.free(first_line);
+
+                const result = try std.ChildProcess.exec(
+                    .{
+                        .allocator = allocator,
+                        .argv = ([_][]const u8{
+                            "zig-out/bin/buzz",
+                            "-t",
+                            file_name,
+                        })[0..],
+                    },
+                );
+
+                if (!std.mem.containsAtLeast(u8, result.stderr, 1, first_line[2..])) {
+                    fail_count += 1;
+                    std.debug.print(
+                        "Expected error `{s}` got `{s}`\n",
+                        .{
+                            first_line[2..],
+                            result.stderr,
+                        },
+                    );
+
+                    std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
+                } else {
+                    std.debug.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
+                }
+            }
+        }
+    }
+
+    if (fail_count == 0) {
         std.debug.print("\n\u{001b}[32m", .{});
     } else {
         std.debug.print("\n\u{001b}[31m", .{});
@@ -227,5 +271,5 @@ test "Testing buzz" {
         fail_count,
     });
 
-    std.os.exit(if (success) 0 else 1);
+    std.os.exit(if (fail_count == 0) 0 else 1);
 }
