@@ -1,381 +1,158 @@
-# Buzz std lib
+# Buzz
+
+For std lib documentation see [here](std.md).
+
 ## Table of contents
 
-- [debug](#debug)
-- [gc](#gc)
-- [std](#std)
-- [math](#math)
-- [buffer](#buffer)
-- [os](#os)
-- [fs](#fs)
-- [io](#io)
-- [json](#json)
-## debug
+- [Strings](#strings)
+- [Lists](#lists)
+- [Maps](#maps)
+- [Patterns](#patterns)
+- [Fibers](#fibers)
 
-### ` fun ast(str source, str scriptName) > str`
-Parse `source` and return the abstract syntax tree in JSON
-- **`script`:** name (used to fetch eventual extern functions)
+## Strings
 
+### `fun len() > num`
+**Returns:** Length of the string
 
-**Returns:**  AST as JSON
-## gc
+### `fun byte(num at) > num`
+Get byte value of character
+- **`at`**: index of character in the string
 
-### ` fun allocated() > num`
-Returns the number of allocated bytes
+**Returns:** Byte value of character
 
-**Returns:**  allocated bytes
-### ` fun collect() > void`
-Triggers a GC sweep
-## std
+### `fun indexOf(str needle) > num?`
+Find needle in string
+- **`needle`**: needle to find
 
-### ` fun assert(bool condition, str message) > void`
-If condition is false throw error with given message
-- **`message`:** message printed if `condition` is false
+**Returns:** Index of found match
 
-### ` fun print(str value) > void`
-Prints value on stdout
-- **`value`:** value to print
+### `fun startsWith(str needle) > bool`
+Test if strings starts with needle
+- **`needle`**: needle to find
 
-### ` fun parseNumber(str string) > num?`
-Parse number, returns false if string does not represent a number
-- **`string`:** string to parse
+**Returns:** `true` if strings starts with needle
 
+### `fun endsWith(str needle) > bool`
+Test if strings ends with needle
+- **`needle`**: needle to find
 
-**Returns:**  number parsed or null
-### ` fun runFile(str filename) > void`
-Run a buzz file
-- **`filename`:** path to buzz file
+**Returns:** `true` if strings ends with needle
 
-## math
 
-### ` fun abs(num n) > num`
+### `fun replace(str needle, str with) > str`
+Replace first occurence of needle
+- **`needle`**: needle to find
+- **`with`**: replacement
 
+**Returns:** New string
 
-**Returns:**  absolute value of n
-### ` fun acos(num n) > num`
+### `fun split(str separator) > [str]`
+Split string
+- **`separator`**: separator by which the string will be split
 
+**Returns:** Splitted string
 
-**Returns:**  acos of n
-### ` fun asin(num n) > num`
+### `fun sub(num start, num? len) > str`
+Get sub string
+- **`start`**: Sub string start index
+- **`end`**: Length of sub string, if `null` will go until end of string
 
+**Returns:** The substring
 
-**Returns:**  asin of n
-### ` fun atan(num n) > num`
+### `fun repeat(num n) > str`
+Repeat string
+- **`n`**: How many times the string will be repeated
 
+**Returns:** New string
 
-**Returns:**  atan of n
-### ` fun bzceil(num n) > num`
+### `fun encodeBase64() > str`
+Base64 encode the string
 
+**Returns:** Encoded string
 
-**Returns:**  ceiled n
-### ` fun bzcos(num n) > num`
 
+### `fun decodeBase64() > str`
+Base64 decode the string
 
-**Returns:**  cos of n
-### `pi num`
-π constant
-### ` fun deg(num n) > num`
-Convert radian to degree
-### ` fun bzexp(num n) > num`
+**Returns:** Decoded string
 
+## Lists
 
-**Returns:**  exp of n
-### ` fun bzfloor(num n) > num`
+### `fun append(T value) > void`
+Append new element at end of the list
+- **`value`**: New element
 
-### ` fun bzlog(num base, num n) > num`
+### `fun remove(num at) > T`
+Remove element form the list shifting elements after index
+- **`at`**: Index of element to remove
 
+**Returns:** Removed element
 
-**Returns:**  log(base) of n
-### ` fun max(num a, num b) > num`
+### `fun len() > num`
+**Returns:** Length of list
 
+### `fun next(num key) > num?`
+Given index, returns next index or null if end of list is reached (function used by `foreach`).
+- **`key`**: current index
 
-**Returns:**  max of a and b
-### ` fun min(num a, num b) > num`
+**Returns:** Next index
 
+### `fun sub(num start, num? len) > [T]`
+Get sub list
+- **`start`**: Start index of sub list
+- **`len`**: Length of sub list, if `null` will go to end of list
 
-**Returns:**  min of a and b
-### ` fun rad(num n) > num`
-Convert degree to radian
-### ` fun random() > num`
+**Returns:** Sub list
 
+### `fun indexOf(T needle) > num?`
+Search first occurence of the needle
+- **`needle`**: Element to find
 
-**Returns:**  random number between 0 and 1
-### ` fun bzsin(num n) > num`
+**Returns:** Index of element or `null` if not found
 
+### `fun join(str separator) > str`
+Join list element in a string with a separator. Elements are converted to a string just like an interpolation would.
+- **`separator`**: Separator to put between each elements
 
-**Returns:**  sin of n
-### ` fun bzsqrt(num n) > num`
+**Returns:** Elements joined as a string
 
 
-**Returns:**  square root of n
-### ` fun bztan(num n) > num`
+## Maps
 
+### `fun size() > num`
+**Returns:** Number of elements in the map
 
-**Returns:**  tan of n
-### ` fun pow(num x, num y) > num`
+### `fun remove(K key) > V?`
+Remove element from the map
+- **`key``**: Key of element to remove
 
+**Returns:** Removed element or `null` if nothing was under `key`
 
-**Returns:**  `x`^`y`
-## buffer
+### `fun keys() > [K]`
+**Returns:** Return list of the map keys
 
-### ` object Buffer`
-Read and write data to a string buffer
+### `fun values() > [V]`
+**Returns:** Return list of the map values
 
-#### ` fun len() > num`
+## Patterns
 
+## `fun match(str subject) > [str]?`
+Get first match of the pattern against a string
+- **`subject`**: Subject to match the pattern against
 
-**Returns:**  Length of the buffer
+**Returns:** List of match and captures or `null` if nothing matches
 
-#### ` fun readBoolean() > bool?`
-Reads a boolean
+## `fun matchAll(str subject) > [[str]]?`
+Get all matches of the pattern against a string
+- **`subject`**: Subject to match the pattern against
 
-**Returns:**  Boolean we read or `null` if nothing to read
+**Returns:** List of matches or `null` if nothing matches
 
+## Fibers
 
-#### ` fun read(num n) > str?`
-Reads `n` bytes
+## `fun over() > bool`
+**Returns:** `true` if fiber is over
 
-**Returns:**  Read bytes or `null` if nothing to read
-
-#### ` fun empty() > void`
-Empties the buffer
-
-#### ` fun init() > Buffer`
-
-
-**Returns:**  A new `Buffer`
-
-#### ` fun write(str bytes) > void`
-Writes a string
-- **`bytes`:** Bytes to write
-
-
-#### ` fun writeBoolean(bool boolean) > void`
-Writes a boolean
-- **`boolean`:** Boolean to write
-
-
-#### ` fun deinit() > void`
-Frees the buffer TODO: with finalizers we could do this automatically when the object is collected
-
-#### ` fun writeNumber(num number) > void`
-Writes a number
-- **`number`:** Number to write
-
-
-#### ` fun readNumber() > num?`
-Reads a number
-
-**Returns:**  Read number or `null` if nothing to read
-
-#### ` fun cursor() > num`
-
-
-**Returns:**  Position of the reading cursor
-## os
-
-### ` fun time() > num`
-
-
-**Returns:**  epoch time in ms
-### ` fun env(str key) > str?`
-Returns environment variable under `key`
-- **`key`:** environment variable name
-
-### ` fun tmpDir() > str`
-
-
-**Returns:**  path to system temp directory
-### ` fun tmpFilename(str? prefix) > str`
-
-- **`prefix`:** prefix to the temp file name
-
-
-**Returns:**  a temporary file name in system tmp dir
-### ` fun buzzExit(num exitCode) > void`
-Exit program with `exitCode`
-- **`exitCode`:** exit code
-
-### ` fun execute([str] command) > num`
-Execute command and return its exit code
-- **`command`:** command to execute
-
-
-**Returns:**  exit code of the command
-### ` enum SocketProtocol`
-Protocols supported over a socket
-### ` object Socket`
-A socket
-
-#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket`
-Opens a socket
-- **`protocol`:** Protocol to use
-
-
-**Returns:**  A new `Socket` opened and ready to use
-
-#### ` fun receive(num n) > str?`
-Receive at most `n` bytes from the socket
-- **`n`:** How many bytes we're prepare to receive
-
-
-**Returns:**  The bytes received or null if nothing to read
-
-#### ` fun close() > void`
-Close the socket
-
-#### ` fun receiveLine() > str?`
-Receive from socket until it's closed or a linefeed is received
-
-**Returns:**  The bytes received or null if nothing to read
-
-
-#### ` fun send(str bytes) > void`
-Send bytes on the socket
-- **`bytes`:** Bytes to send
-
-### ` object TcpServer`
-A TCP Server
-
-
-#### ` fun init(str address, num port, bool reuseAddr) > TcpServer`
-Starts a TCP server
-- **`reuseAddr`:** Wether we want to accept multiple connections
-
-
-**Returns:**  New `TcpServer` bound to `<address>:<port>`
-
-#### ` fun accept() > Socket`
-Accept a new connection
-
-**Returns:**  Socket opened with the client
-
-#### ` fun close() > void`
-Close server
-
-## fs
-
-### ` fun currentDirectory() > str`
-Returns current directory absolute path
-
-**Returns:**  current directory
-### ` fun makeDirectory(str path) > void`
-Creates directory path
-- **`path`:** directory to create
-
-### ` fun delete(str path) > void`
-Deletes directory or file at path
-- **`path`:** direcotry/file to delete
-
-### ` fun move(str source, str destination) > void`
-Moves/renames file
-- **`destination`:** where to move it
-
-### ` fun list(str path) > [str]`
-List files under path
-- **`path`:** directory to list
-
-## io
-
-### ` enum FileMode`
-File mode with which you can open a file
-### ` object File`
-Object to manipulate an opened file
-
-#### ` fun close() > void`
-Close file
-
-#### ` fun read(num n) > str?`
-Reads `n` bytes, returns null if nothing to read
-- **`n`:** how many bytes to read
-
-
-#### ` fun readAll() > str`
-Reads file until `EOF`
-
-#### ` fun readLine() > str?`
-Reads next line, returns null if nothing to read
-
-#### ` fun write(str bytes) > void`
-Write bytes
-- **`bytes`:** string to write
-
-
-#### ` fun open(str filename, FileMode mode) > File`
-Open file
-- **`mode`:** Mode with which to open it
-
-
-**Returns:**  opened file
-
-#### ` num fd`
-File descriptor
-### `stdin File`
-stdin
-### `stdout File`
-stdout
-### `stderr File`
-stderr
-## json
-
-### ` object Json`
-Utility object to manage data from a JSON string
-
-#### ` num? number`
-When wrapped data is a number
-
-#### ` str? string`
-When wrapped data is a string
-
-#### ` {str, Json}? map`
-When wrapped data is an object, object property values are themselves wrapped in a `Json`
-
-#### ` [Json]? list`
-When wrapped data is a list, list elements are themselves warpped in a `Json`
-
-#### ` fun encode() > str`
-Encode to a JSON string
-
-**Returns:**  str the JSON string
-
-#### ` fun numberValue() > num`
-
-
-**Returns:**  wrapped data number value or `0` if not a number
-
-#### ` fun decode(str json) > Json`
-Decode string to a Json instance
-- **`str`:** json The JSON string
-
-
-**Returns:**  Json
-
-#### ` fun listValue() > [Json]`
-
-
-**Returns:**  wrapped data list value or empty list if not a list
-
-#### ` fun booleanValue() > bool`
-
-
-**Returns:**  wrapped data boolean value or `false` if not a boolean
-
-#### ` fun stringValue() > str`
-
-
-**Returns:**  wrapped data string value or empty string if not a string
-
-#### ` fun mapValue() > {str, Json}`
-
-
-**Returns:**  wrapped data map value or empty map if not a map
-
-#### ` fun q([str] path) > Json`
-Query the json element at `path`, if nothing matches return `Json{}`
-- **`path`:** Path to query
-
-
-**Returns:**  Found `Json` or `Json{}` (which is `null`)
-
-#### ` bool? boolean`
-When wrapped data is a boolean
+## `fun cancel() > void`
+Cancel the fiber by changing its internal status to `over` preventing further `resume` or `resolve`
