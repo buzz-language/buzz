@@ -42,6 +42,8 @@ extern fun SocketServerStart(str address, num port, bool reuseAddr) > num;
 extern fun SocketServerAccept(num fd, bool reuseAddr) > num;
 || @private
 extern fun SocketReadLine(num fd) > str?;
+|| @private
+extern fun SocketReadAll(num fd) > str?;
 
 || Protocols supported over a socket
 enum SocketProtocol {
@@ -82,6 +84,12 @@ object Socket {
     || @return The bytes received or null if nothing to read
     fun receiveLine() > str? {
         return SocketReadLine(this.fd);
+    }
+
+    || Receive from socket until it's closed
+    || @return The bytes received or null if nothing to read
+    fun receiveAll() > str? {
+        return SocketReadAll(this.fd);
     }
 
     || Send bytes on the socket

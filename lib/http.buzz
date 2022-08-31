@@ -1,0 +1,60 @@
+import "lib/std";
+import "lib/os";
+
+object Request {
+    str method,
+    {str, str} headers,
+    str url,
+    num contentLength = 0,
+    str? body = null,
+
+    static fun parse(str raw) > Request {
+        [str] lines = raw.split("\n");
+        [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
+
+        if (methodAndUrl == null) {
+            throw "Could not parse request method and url";
+        }
+
+        str method = methodAndUrl![1];
+        str url = methodAndUrl![2];
+
+        {str, str} headers = <str, str>{};
+        num contentLength = 0;
+        num lineOffset = 0;
+        foreach (num i, str line in lines.sub(1, len: null)) {
+            if (line == "\n" or line == "\r") {
+                print("---");
+                continue;
+            } else {
+                lineOffset = lineOffset + 1;
+            }
+
+            print(line);
+
+            [str]? headerMatch = _^([^:]+): (.+)_.match(line);
+
+            if (headerMatch == null) {
+                throw "Could not parse request headers";
+            }
+
+            headers[headerMatch![1]] = headerMatch![2];
+
+            if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
+                contentLength = parseNumber(headerMatch![2]);
+            }
+        }
+
+        print("{lineOffset}/{lines.len()}");
+
+        return Request{
+            method = method,
+            url = url,
+            headers = headers,
+            contentLength = contentLength,
+            | body = lines.sub(lineOffset, len: null).join("\n"),
+        };
+    }
+}
+
+export Request;

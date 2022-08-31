@@ -7,7 +7,9 @@ const _disassembler = @import("./disassembler.zig");
 const _obj = @import("./obj.zig");
 const Allocator = std.mem.Allocator;
 const Config = @import("./config.zig").Config;
-const GarbageCollector = @import("./memory.zig").GarbageCollector;
+const _memory = @import("./memory.zig");
+const GarbageCollector = _memory.GarbageCollector;
+const TypeRegistry = _memory.TypeRegistry;
 
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
@@ -1197,6 +1199,10 @@ pub const VM = struct {
         var closure: *ObjClosure = ObjClosure.cast(value.Obj).?;
 
         var gc = GarbageCollector.init(self.gc.allocator);
+        gc.type_registry = TypeRegistry{
+            .gc = &gc,
+            .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
+        };
         var vm = try self.gc.allocator.create(VM);
         vm.* = try VM.init(&gc);
         // TODO: how to free this since we copy things to new vm, also fails anyway

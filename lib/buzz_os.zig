@@ -281,6 +281,35 @@ export fn SocketReadLine(vm: *api.VM) c_int {
     return 1;
 }
 
+export fn SocketReadAll(vm: *api.VM) c_int {
+    const handle: std.os.socket_t = @intCast(
+        std.os.socket_t,
+        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+    );
+
+    const stream: std.net.Stream = .{ .handle = handle };
+    const reader = stream.reader();
+
+    var buffer = reader.readAllAlloc(api.VM.allocator, 16 * 8 * 64) catch {
+        vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
+
+        return -1;
+    };
+
+    // EOF?
+    if (buffer.len == 0) {
+        vm.bz_pushNull();
+    } else {
+        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+            vm.bz_throwString("Could not read from socket", "Could not read from socket".len);
+
+            return -1;
+        });
+    }
+
+    return 1;
+}
+
 export fn SocketWrite(vm: *api.VM) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,

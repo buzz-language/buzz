@@ -598,7 +598,7 @@ pub const ObjString = struct {
 
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .String) {
-            std.debug.print("Tried to cast into ObjString: {*}\n", .{obj});
+            std.debug.print("Tried to cast into ObjString: {*} {}\n", .{ obj, obj.obj_type });
             return null;
         }
 

@@ -1,5 +1,6 @@
 import "lib/std";
 import "lib/os";
+import "lib/http";
 
 test "Opening a socket" {
     TcpServer server = TcpServer.init(
@@ -8,19 +9,21 @@ test "Opening a socket" {
         reuseAddr: true,
     );
 
+    print("Listening on 127.0.0.1:8080...");
+
     Socket socket = server.accept();
 
     print("Accepted connection");
 
-    while (true) {
-        str? received = socket.receive(100);
+    Request request = Request.parse(socket.receiveAll() ?? "");
 
-        if (received != null) {
-            print("received: `{received}`");
-            socket.close();
-            break;
-        }
+    print("Received request: {request.method} {request.url}");
+    print("headers:");
+    foreach (str key, str value in request.headers) {
+        print("{key}: {value}");
     }
+    print("body: `{request.body ?? ""}`");
 
+    socket.close();
     server.close();
 }
