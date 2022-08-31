@@ -140,7 +140,7 @@ export fn execute(vm: *api.VM) c_int {
     }
 
     var child_process = std.ChildProcess.init(command.items, api.VM.allocator);
-    child_process.disable_aslr = true;
+    child_process.disable_aslr = builtin.target.isDarwin();
 
     child_process.spawn() catch {
         vm.bz_throwString("Could not execute", "Could not execute".len);

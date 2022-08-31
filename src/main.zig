@@ -235,7 +235,7 @@ test "Testing behavior" {
                     .{
                         .allocator = allocator,
                         .argv = ([_][]const u8{
-                            "zig-out/bin/buzz",
+                            "./zig-out/bin/buzz",
                             "-t",
                             file_name,
                         })[0..],
