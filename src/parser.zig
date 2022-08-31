@@ -178,12 +178,16 @@ pub const Parser = struct {
         Nothing,
     };
 
-    pub const BlockType = enum {
+    pub const LoopType = enum {
         While,
         Do,
         For,
         ForEach,
-        Function,
+    };
+
+    pub const LoopScope = struct {
+        loop_type: LoopType,
+        loop_body_scope: usize,
     };
 
     pub const Precedence = enum {
@@ -502,6 +506,24 @@ pub const Parser = struct {
             }
 
             current.local_count -= 1;
+        }
+
+        return closing;
+    }
+
+    fn closeScope(self: *Self, upto_depth: usize) !std.ArrayList(OpCode) {
+        var current = self.current.?;
+        var closing = std.ArrayList(OpCode).init(self.gc.allocator);
+
+        var local_count = current.local_count;
+        while (local_count > 0 and current.locals[local_count - 1].depth > upto_depth - 1) {
+            if (current.locals[local_count - 1].is_captured) {
+                try closing.append(.OP_CLOSE_UPVALUE);
+            } else {
+                try closing.append(.OP_POP);
+            }
+
+            local_count -= 1;
         }
 
         return closing;
@@ -1093,7 +1115,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn declarationOrStatement(self: *Self, block_type: BlockType) !?*ParseNode {
+    fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?*ParseNode {
         var hanging: bool = false;
         const constant: bool = try self.match(.Const);
         // Things we can match with the first token
@@ -1184,14 +1206,14 @@ pub const Parser = struct {
             try self.reportError("`const` not allowed here.");
         }
 
-        return try self.statement(hanging, block_type);
+        return try self.statement(hanging, loop_scope);
     }
 
     // When a break statement, will return index of jump to patch
-    fn statement(self: *Self, hanging: bool, block_type: BlockType) !?*ParseNode {
+    fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?*ParseNode {
         if (try self.match(.If)) {
             assert(!hanging);
-            return try self.ifStatement(block_type);
+            return try self.ifStatement(loop_scope);
         } else if (try self.match(.For)) {
             assert(!hanging);
             return try self.forStatement();
@@ -1209,10 +1231,10 @@ pub const Parser = struct {
             return try self.returnStatement();
         } else if (try self.match(.Break)) {
             assert(!hanging);
-            return try self.breakStatement(block_type);
+            return try self.breakStatement(loop_scope);
         } else if (try self.match(.Continue)) {
             assert(!hanging);
-            return try self.continueStatement(block_type);
+            return try self.continueStatement(loop_scope);
         } else if (try self.match(.Import)) {
             assert(!hanging);
             return try self.importStatement();
@@ -1516,10 +1538,10 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn breakStatement(self: *Self, block_type: BlockType) !*ParseNode {
+    fn breakStatement(self: *Self, loop_scope: ?LoopScope) !*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        if (block_type == .Function) {
+        if (loop_scope == null) {
             try self.reportError("break is not allowed here.");
         }
 
@@ -1529,14 +1551,15 @@ pub const Parser = struct {
         node.* = .{};
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
+        node.node.ends_scope = try self.closeScope(loop_scope.?.loop_body_scope);
 
         return &node.node;
     }
 
-    fn continueStatement(self: *Self, block_type: BlockType) !*ParseNode {
+    fn continueStatement(self: *Self, loop_scope: ?LoopScope) !*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        if (block_type == .Function) {
+        if (loop_scope == null) {
             try self.reportError("continue is not allowed here.");
         }
 
@@ -1546,11 +1569,13 @@ pub const Parser = struct {
         node.* = .{};
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
+        // Continue only close body scope and not foreach/for loop variables
+        node.node.ends_scope = try self.closeScope(loop_scope.?.loop_body_scope);
 
         return &node.node;
     }
 
-    fn ifStatement(self: *Self, block_type: BlockType) anyerror!*ParseNode {
+    fn ifStatement(self: *Self, loop_scope: ?LoopScope) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
         try self.consume(.LeftParen, "Expected `(` after `if`.");
@@ -1561,18 +1586,18 @@ pub const Parser = struct {
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
         self.beginScope();
-        var body = try self.block(block_type);
+        var body = try self.block(loop_scope);
         body.ends_scope = try self.endScope();
 
         var else_branch: ?*ParseNode = null;
         if (try self.match(.Else)) {
             if (try self.match(.If)) {
-                else_branch = try self.ifStatement(block_type);
+                else_branch = try self.ifStatement(loop_scope);
             } else {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
 
                 self.beginScope();
-                else_branch = try self.block(block_type);
+                else_branch = try self.block(loop_scope);
                 else_branch.?.ends_scope = try self.endScope();
             }
         }
@@ -1627,7 +1652,10 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` after `for` definition.");
 
         self.beginScope();
-        var body = try self.block(.For);
+        var body = try self.block(LoopScope{
+            .loop_type = .For,
+            .loop_body_scope = self.current.?.scope_depth,
+        });
         body.ends_scope = try self.endScope();
 
         var node = try self.gc.allocator.create(ForNode);
@@ -1676,7 +1704,10 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
 
         self.beginScope();
-        var body = try self.block(.ForEach);
+        var body = try self.block(LoopScope{
+            .loop_type = .ForEach,
+            .loop_body_scope = self.current.?.scope_depth,
+        });
         body.ends_scope = try self.endScope();
 
         // Only one variable: it's the value not the key
@@ -1711,8 +1742,10 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
 
         self.beginScope();
-
-        var body = try self.block(.While);
+        var body = try self.block(LoopScope{
+            .loop_type = .While,
+            .loop_body_scope = self.current.?.scope_depth,
+        });
         body.ends_scope = try self.endScope();
 
         var node = try self.gc.allocator.create(WhileNode);
@@ -1732,8 +1765,10 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` after `do`.");
 
         self.beginScope();
-
-        var body = try self.block(.Do);
+        var body = try self.block(LoopScope{
+            .loop_type = .Do,
+            .loop_body_scope = self.current.?.scope_depth,
+        });
         body.ends_scope = try self.endScope();
 
         try self.consume(.Until, "Expected `until` after `do` block.");
@@ -2289,14 +2324,14 @@ pub const Parser = struct {
     }
 
     // Returns a list of break jumps to patch
-    fn block(self: *Self, block_type: BlockType) anyerror!*ParseNode {
+    fn block(self: *Self, loop_scope: ?LoopScope) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
         var node = try self.gc.allocator.create(BlockNode);
         node.* = BlockNode.init(self.gc.allocator);
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            if (try self.declarationOrStatement(block_type)) |declOrStmt| {
+            if (try self.declarationOrStatement(loop_scope)) |declOrStmt| {
                 try node.statements.append(declOrStmt);
             }
         }
@@ -3852,7 +3887,7 @@ pub const Parser = struct {
             }
 
             try self.consume(.LeftBrace, "Expected `{` before function body.");
-            function_node.body = BlockNode.cast(try self.block(.Function)).?;
+            function_node.body = BlockNode.cast(try self.block(null)).?;
         }
 
         if (!parsed_return_type) {

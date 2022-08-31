@@ -3509,10 +3509,12 @@ pub const BreakNode = struct {
 
         assert(breaks != null);
 
+        // Close scope(s), then jump
+        try node.endScope(codegen);
         try breaks.?.append(try codegen.emitJump(node.location, .OP_JUMP));
 
+        // TODO: not sur if this makes sense here
         try node.patchOptJumps(codegen);
-        try node.endScope(codegen);
 
         return null;
     }
@@ -3562,10 +3564,12 @@ pub const ContinueNode = struct {
 
         assert(breaks != null);
 
+        // Close scope(s), then jump
+        try node.endScope(codegen);
         try breaks.?.append(try codegen.emitJump(node.location, .OP_LOOP));
 
+        // TODO: not sur if this makes sense here
         try node.patchOptJumps(codegen);
-        try node.endScope(codegen);
 
         return null;
     }
@@ -3872,15 +3876,10 @@ pub const ForNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition
 
-        const jump_over_break = try codegen.emitJump(self.node.location, .OP_JUMP);
-
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
-            try self.body.endScope(codegen);
         }
-
-        try codegen.patchJump(jump_over_break);
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -4109,15 +4108,10 @@ pub const ForEachNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition result
 
-        const jump_over_break = try codegen.emitJump(self.node.location, .OP_JUMP);
-
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
-            try self.block.endScope(codegen);
         }
-
-        try codegen.patchJump(jump_over_break);
 
         try node.patchOptJumps(codegen);
         // Should have key, [value,] iterable to pop
@@ -4241,15 +4235,10 @@ pub const WhileNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition (is not necessary if broke out of the loop)
 
-        const jump_over_break = try codegen.emitJump(self.node.location, .OP_JUMP);
-
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
-            try self.block.endScope(codegen);
         }
-
-        try codegen.patchJump(jump_over_break);
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -4353,15 +4342,10 @@ pub const DoUntilNode = struct {
 
         try codegen.emitOpCode(self.node.location, .OP_POP); // Pop condition
 
-        const jump_over_break = try codegen.emitJump(self.node.location, .OP_JUMP);
-
         // Patch breaks
         for (breaks.items) |jump| {
             try codegen.patchJumpOrLoop(jump, loop_start);
-            try self.block.endScope(codegen);
         }
-
-        try codegen.patchJump(jump_over_break);
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);

@@ -1,0 +1,33 @@
+import "lib/std";
+
+test "break properly jumps and closes scope" {
+    [num] list = [1, 2, 3, 4, 5];
+    foreach (num i, num value in list) {
+        str randomLocal = "hello there!";
+        if (value == 3) {
+            if (true) {
+                continue;
+            }
+        }
+    }
+
+    str anotherRandomLocal = "bye there";
+
+    assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
+}
+
+test "break properly jumps and closes scope" {
+    [num] list = [1, 2, 3, 4, 5];
+    foreach (num i, num value in list) {
+        str randomLocal = "hello there!";
+        if (value == 3) {
+            if (true) {
+                break;
+            }
+        }
+    }
+
+    str anotherRandomLocal = "bye there";
+
+    assert(anotherRandomLocal == "bye there", message: "break properly closed revelant scopes");
+}

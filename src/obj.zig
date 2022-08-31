@@ -598,7 +598,6 @@ pub const ObjString = struct {
 
     pub fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .String) {
-            std.debug.print("Tried to cast into ObjString: {*} {}\n", .{ obj, obj.obj_type });
             return null;
         }
 
@@ -3110,7 +3109,6 @@ pub fn objToString(writer: std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error
 
             try writer.print("list: 0x{x} [", .{@ptrToInt(list)});
 
-            std.debug.print("list @{} item type @{} {}\n", .{ @ptrToInt(list), @ptrToInt(list.type_def), list.type_def.def_type });
             try list.type_def.resolved_type.?.List.item_type.toString(writer);
 
             try writer.writeAll("]");

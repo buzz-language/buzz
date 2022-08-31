@@ -9,6 +9,7 @@ object Request {
     str? body = null,
 
     static fun parse(str raw) > Request {
+        print(raw);
         [str] lines = raw.split("\n");
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
 
@@ -23,14 +24,11 @@ object Request {
         num contentLength = 0;
         num lineOffset = 0;
         foreach (num i, str line in lines.sub(1, len: null)) {
-            if (line == "\n" or line == "\r") {
-                print("---");
-                continue;
-            } else {
-                lineOffset = lineOffset + 1;
+            if (line == "\n" or line == "\r" or line == "") {
+                break;
             }
 
-            print(line);
+            lineOffset = lineOffset + 1;
 
             [str]? headerMatch = _^([^:]+): (.+)_.match(line);
 
@@ -41,18 +39,24 @@ object Request {
             headers[headerMatch![1]] = headerMatch![2];
 
             if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
-                contentLength = parseNumber(headerMatch![2]);
+
+                contentLength = parseNumber(headerMatch![2]) ?? 0; | FIXME: buzz let me omit `?? 0` !
             }
         }
 
-        print("{lineOffset}/{lines.len()}");
+        print("{contentLength}");
+
+        str? body = null;
+        if (contentLength > 0) {
+            body = lines.sub(lineOffset, len: null).join("\n");
+        }
 
         return Request{
             method = method,
             url = url,
             headers = headers,
             contentLength = contentLength,
-            | body = lines.sub(lineOffset, len: null).join("\n"),
+            body = body,
         };
     }
 }
