@@ -175,6 +175,15 @@ enum(str) Country {
 
 | To get the value associated with a enum case
 print(Country.usa.value); | -> "United States of America"
+
+| enum(str) can omit values
+enum(str) Locale {
+    fr,
+    en,
+    it,
+}
+
+Locale.fr.value == "fr";
 ```
 
 ### Control flow

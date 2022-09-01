@@ -1,9 +1,9 @@
 import "lib/std";
 
 enum(str) StrEnum {
-    one = "one",
-    two = "two",
-    three = "three",
+    one,
+    two,
+    three,
 }
 
 enum(num) NumEnum {

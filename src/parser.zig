@@ -2172,22 +2172,35 @@ pub const Parser = struct {
             try self.consume(.Identifier, "Expected case name.");
             const case_name: []const u8 = self.parser.previous_token.?.lexeme;
 
-            if (case_type_picked) {
+            if (case_type_picked and enum_case_type.def_type != .String) {
                 try self.consume(.Equal, "Expected `=` after case name.");
 
                 try cases.append(try self.expression(false));
             } else {
-                var constant_node = try self.gc.allocator.create(NumberNode);
-                constant_node.* = NumberNode{
-                    .integer_constant = case_index,
-                    .float_constant = null,
-                };
-                constant_node.node.type_def = try self.gc.type_registry.getTypeDef(.{
-                    .def_type = .Number,
-                });
-                constant_node.node.location = self.parser.previous_token.?;
+                if (enum_case_type.def_type == .Number) {
+                    var constant_node = try self.gc.allocator.create(NumberNode);
+                    constant_node.* = NumberNode{
+                        .integer_constant = case_index,
+                        .float_constant = null,
+                    };
+                    constant_node.node.type_def = try self.gc.type_registry.getTypeDef(.{
+                        .def_type = .Number,
+                    });
+                    constant_node.node.location = self.parser.previous_token.?;
 
-                try cases.append(&constant_node.node);
+                    try cases.append(&constant_node.node);
+                } else {
+                    var constant_node = try self.gc.allocator.create(StringLiteralNode);
+                    constant_node.* = StringLiteralNode{
+                        .constant = try self.gc.copyString(case_name),
+                    };
+                    constant_node.node.type_def = try self.gc.type_registry.getTypeDef(.{
+                        .def_type = .String,
+                    });
+                    constant_node.node.location = self.parser.previous_token.?;
+
+                    try cases.append(&constant_node.node);
+                }
             }
 
             try enum_type.resolved_type.?.Enum.cases.append(case_name);
