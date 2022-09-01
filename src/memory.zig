@@ -124,7 +124,7 @@ pub const GarbageCollector = struct {
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
-    active_vm: ?*VM = null,
+    active_vms: std.AutoHashMap(*VM, void),
 
     // Types we generaly don't wan't to ever be collected
     objfiber_members: std.AutoHashMap(*ObjString, *ObjNative),
@@ -158,6 +158,7 @@ pub const GarbageCollector = struct {
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_registry = undefined,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
+            .active_vms = std.AutoHashMap(*VM, void).init(allocator),
 
             .objfiber_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objfiber_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -186,18 +187,17 @@ pub const GarbageCollector = struct {
     }
 
     pub fn registerVM(self: *Self, vm: *VM) !void {
-        self.active_vm = vm;
+        try self.active_vms.put(vm, {});
     }
 
     pub fn unregisterVM(self: *Self, vm: *VM) void {
-        assert(self.active_vm == vm);
-
-        self.active_vm = null;
+        assert(self.active_vms.remove(vm));
     }
 
     pub fn deinit(self: *Self) void {
         self.gray_stack.deinit();
         self.strings.deinit();
+        self.active_vms.deinit();
 
         self.objfiber_members.deinit();
         self.objfiber_memberDefs.deinit();
@@ -387,22 +387,6 @@ pub const GarbageCollector = struct {
                 },
             );
         }
-    }
-
-    // Adopt obj coming from a foreign GC (at least until we use one GC for all VM instances)
-    pub fn adoptObj(self: *Self, obj: *Obj) !void {
-        obj.is_dirty = false;
-        obj.is_marked = false;
-
-        try self.addObject(obj);
-    }
-
-    pub fn adoptValue(self: *Self, value: Value) !Value {
-        if (value == .Obj) {
-            try self.adoptObj(value.Obj);
-        }
-
-        return value;
     }
 
     pub fn markObjDirty(self: *Self, obj: *Obj) !void {
@@ -884,7 +868,7 @@ pub const GarbageCollector = struct {
         // var timer = std.time.Timer.start() catch unreachable;
 
         // Don't collect until a VM is actually running
-        if (self.active_vm == null) {
+        if (self.active_vms.count() == 0) {
             return;
         }
 
@@ -896,22 +880,25 @@ pub const GarbageCollector = struct {
             // try dumpStack(self);
         }
 
-        var vm = self.active_vm.?;
+        var it = self.active_vms.iterator();
+        while (it.next()) |kv| {
+            var vm = kv.key_ptr.*;
 
-        if (Config.debug_gc) {
-            std.debug.print(
-                "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
-                .{
-                    @ptrToInt(vm),
-                    @ptrToInt(vm.current_fiber),
-                    @ptrToInt(vm.currentFrame().?.closure),
-                    @ptrToInt(vm.currentFrame().?.closure.function),
-                    vm.currentFrame().?.closure.function.name.string,
-                },
-            );
+            if (Config.debug_gc) {
+                std.debug.print(
+                    "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
+                    .{
+                        @ptrToInt(vm),
+                        @ptrToInt(vm.current_fiber),
+                        @ptrToInt(vm.currentFrame().?.closure),
+                        @ptrToInt(vm.currentFrame().?.closure.function),
+                        vm.currentFrame().?.closure.function.name.string,
+                    },
+                );
+            }
+
+            try markRoots(self, vm);
         }
-
-        try markRoots(self, vm);
 
         try traceReference(self);
 

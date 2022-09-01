@@ -1205,17 +1205,11 @@ pub const VM = struct {
 
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
-                try self.globals.append(try self.gc.adoptValue(global));
+                try self.globals.append(global);
             }
         } else {
-            // FIXME: should share strings between gc
-            var gc = GarbageCollector.init(self.gc.allocator);
-            gc.type_registry = TypeRegistry{
-                .gc = &gc,
-                .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
-            };
             var vm = try self.gc.allocator.create(VM);
-            vm.* = try VM.init(&gc, self.import_registry);
+            vm.* = try VM.init(self.gc, self.import_registry);
             // TODO: how to free this since we copy things to new vm, also fails anyway
             // {
             //     defer vm.deinit();
@@ -1233,7 +1227,7 @@ pub const VM = struct {
                 var i: u8 = exported_count;
                 while (i > 0) : (i -= 1) {
                     const global = vm.peek(i);
-                    try self.globals.append(try self.gc.adoptValue(global));
+                    try self.globals.append(global);
                     try import_cache.append(global);
                 }
             }

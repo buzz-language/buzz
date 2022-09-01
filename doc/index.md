@@ -15,6 +15,9 @@ For std lib documentation see [here](std.md).
 ### `fun len() > num`
 **Returns:** Length of the string
 
+### `fun trim() > str`
+**Returns:** Trimmed string
+
 ### `fun byte(num at) > num`
 Get byte value of character
 - **`at`**: index of character in the string
