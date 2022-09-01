@@ -2897,20 +2897,20 @@ pub const Parser = struct {
         if (node.node.type_def == null) {
             if (callee.type_def == null or callee.type_def.?.def_type != .Placeholder) {
                 try self.reportErrorAt(callee.location, "Can't be called");
+            } else {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
+                };
+
+                node.node.type_def = try self.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    },
+                );
+
+                try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
             }
-
-            var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
-            };
-
-            node.node.type_def = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type,
-                },
-            );
-
-            try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
         }
 
         node.node.location = start_location;

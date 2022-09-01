@@ -2803,6 +2803,10 @@ pub const CallNode = struct {
 
             // We know nothing about the function being called, no need to go any further
             return null;
+        } else if (callee_type.?.def_type != .Function) {
+            try codegen.report(self.node.location, "Can't be called");
+
+            return null;
         }
 
         const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;

@@ -1,0 +1,10 @@
+| Can't be called
+enum Yo {
+    mo,
+    jo,
+    lo,
+}
+
+test "Can't be called" {
+    Yo("mo");
+}
