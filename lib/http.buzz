@@ -39,16 +39,13 @@ object Request {
             headers[headerMatch![1]] = headerMatch![2];
 
             if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
-
-                contentLength = parseNumber(headerMatch![2]) ?? 0; | FIXME: buzz let me omit `?? 0` !
+                contentLength = parseNumber(headerMatch![2].trim()) ?? 0; | FIXME: buzz let me omit `?? 0` !
             }
         }
 
-        print("{contentLength}");
-
         str? body = null;
         if (contentLength > 0) {
-            body = lines.sub(lineOffset, len: null).join("\n");
+            body = lines.sub(lineOffset + 2, len: null).join("\n");
         }
 
         return Request{

@@ -612,8 +612,26 @@ pub const ObjString = struct {
         return vm.gc.copyString(new_string.items);
     }
 
+    pub fn trim(vm: *VM) c_int {
+        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        var trimmed = std.mem.trim(u8, str.string, " ");
+        trimmed = std.mem.trim(u8, trimmed, "\t");
+        trimmed = std.mem.trim(u8, trimmed, "\r");
+        trimmed = std.mem.trim(u8, trimmed, "\n");
+
+        vm.push((vm.gc.copyString(trimmed) catch {
+            var err: ?*ObjString = vm.gc.copyString("Could not trim string") catch null;
+            vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        }).toValue());
+
+        return 1;
+    }
+
     pub fn len(vm: *VM) c_int {
-        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
 
@@ -906,6 +924,8 @@ pub const ObjString = struct {
     pub fn rawMember(method: []const u8) ?NativeFn {
         if (mem.eql(u8, method, "len")) {
             return len;
+        } else if (mem.eql(u8, method, "trim")) {
+            return trim;
         } else if (mem.eql(u8, method, "byte")) {
             return byte;
         } else if (mem.eql(u8, method, "indexOf")) {
@@ -964,6 +984,13 @@ pub const ObjString = struct {
             var native_type = try parser.parseTypeDefFrom("Function len() > num");
 
             try parser.gc.objstring_memberDefs.put("len", native_type);
+
+            return native_type;
+        }
+        if (mem.eql(u8, method, "trim")) {
+            var native_type = try parser.parseTypeDefFrom("Function trim() > str");
+
+            try parser.gc.objstring_memberDefs.put("trim", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
