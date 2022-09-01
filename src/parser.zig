@@ -2172,7 +2172,7 @@ pub const Parser = struct {
             try self.consume(.Identifier, "Expected case name.");
             const case_name: []const u8 = self.parser.previous_token.?.lexeme;
 
-            if (case_type_picked and enum_case_type.def_type != .String) {
+            if (case_type_picked and (enum_case_type.def_type != .String or self.check(.Equal))) {
                 try self.consume(.Equal, "Expected `=` after case name.");
 
                 try cases.append(try self.expression(false));

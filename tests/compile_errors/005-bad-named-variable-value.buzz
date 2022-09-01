@@ -1,0 +1,10 @@
+| Bad value type: expected type `Yo`, got `num`
+object Yo {
+    str name,
+}
+
+test "Wrong named variable value" {
+    Yo yo = Yo{ name = "yolo" };
+
+    yo = 12;
+}

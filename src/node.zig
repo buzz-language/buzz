@@ -352,6 +352,15 @@ pub const NamedVariableNode = struct {
         }
 
         if (self.value) |value| {
+            // Type checking
+            if (node.type_def.?.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
+            }
+
+            if (!node.type_def.?.eql(value.type_def.?)) {
+                try codegen.reportTypeCheckAt(node.type_def.?, value.type_def.?, "Bad value type", value.location);
+            }
+
             _ = try value.toByteCode(value, codegen, breaks);
 
             try codegen.emitCodeArg(self.node.location, set_op, @intCast(u24, self.slot));
