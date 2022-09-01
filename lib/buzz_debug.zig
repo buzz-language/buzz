@@ -28,6 +28,7 @@ export fn ast(vm: *api.VM) c_int {
         return -1;
     }
 
+    // FIXME: should share strings between gc
     var gc = GarbageCollector.init(api.VM.allocator);
     gc.type_registry = TypeRegistry{
         .gc = &gc,

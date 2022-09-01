@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const VM = @import("./vm.zig").VM;
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
+const ImportRegistry = _vm.ImportRegistry;
 const _parser = @import("./parser.zig");
 const Parser = _parser.Parser;
 const CompileError = _parser.CompileError;
@@ -26,13 +28,14 @@ const RunFlavor = enum {
 };
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor: RunFlavor) !void {
+    var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
     gc.type_registry = TypeRegistry{
         .gc = &gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
-    var vm = try VM.init(&gc);
+    var vm = try VM.init(&gc, &import_registry);
     var parser = Parser.init(&gc, &imports, false);
     var codegen = CodeGen.init(&gc, &parser, flavor == .Test);
     defer {

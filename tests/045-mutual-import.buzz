@@ -1,0 +1,10 @@
+import "lib/std";
+import "tests/utils/import-b";
+import "tests/utils/import-a";
+
+test "Mutual import" {
+    print("t: {Hello}");
+    printClass();
+    print("{hello}");
+    assert(hello is Hello, message: "multiple import of the same script produce the same globals");
+}

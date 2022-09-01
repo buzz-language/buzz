@@ -1,0 +1,11 @@
+import "tests/utils/import-a";
+import "lib/std";
+
+Hello hello = Hello{ message = "hello world" };
+
+fun printClass() > void {
+    print("b: {Hello}");
+}
+
+export hello;
+export printClass;

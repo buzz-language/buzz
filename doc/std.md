@@ -4,6 +4,7 @@
 - [debug](#debug)
 - [gc](#gc)
 - [std](#std)
+- [http](#http)
 - [math](#math)
 - [buffer](#buffer)
 - [os](#os)
@@ -45,6 +46,10 @@ Parse number, returns false if string does not represent a number
 ### ` fun runFile(str filename) > void`
 Run a buzz file
 - **`filename`:** path to buzz file
+
+## http
+
+### ` object Request`
 
 ## math
 
@@ -137,9 +142,6 @@ Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
-#### ` fun empty() > void`
-Empties the buffer
-
 #### ` fun init() > Buffer`
 
 
@@ -150,28 +152,34 @@ Writes a string
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeBoolean(bool boolean) > void`
-Writes a boolean
-- **`boolean`:** Boolean to write
+#### ` fun writeNumber(num number) > void`
+Writes a number
+- **`number`:** Number to write
 
 
 #### ` fun deinit() > void`
 Frees the buffer TODO: with finalizers we could do this automatically when the object is collected
 
-#### ` fun writeNumber(num number) > void`
-Writes a number
-- **`number`:** Number to write
+#### ` fun cursor() > num`
 
+
+**Returns:**  Position of the reading cursor
 
 #### ` fun readNumber() > num?`
 Reads a number
 
 **Returns:**  Read number or `null` if nothing to read
 
-#### ` fun cursor() > num`
+#### ` fun getBuffer() > str`
 
 
-**Returns:**  Position of the reading cursor
+#### ` fun empty() > void`
+Empties the buffer
+
+#### ` fun writeBoolean(bool boolean) > void`
+Writes a boolean
+- **`boolean`:** Boolean to write
+
 ## os
 
 ### ` fun time() > num`
@@ -207,13 +215,6 @@ Protocols supported over a socket
 ### ` object Socket`
 A socket
 
-#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket`
-Opens a socket
-- **`protocol`:** Protocol to use
-
-
-**Returns:**  A new `Socket` opened and ready to use
-
 #### ` fun receive(num n) > str?`
 Receive at most `n` bytes from the socket
 - **`n`:** How many bytes we're prepare to receive
@@ -224,15 +225,27 @@ Receive at most `n` bytes from the socket
 #### ` fun close() > void`
 Close the socket
 
-#### ` fun receiveLine() > str?`
-Receive from socket until it's closed or a linefeed is received
+#### ` fun receiveAll() > str?`
+Receive from socket until it's closed
 
 **Returns:**  The bytes received or null if nothing to read
-
 
 #### ` fun send(str bytes) > void`
 Send bytes on the socket
 - **`bytes`:** Bytes to send
+
+
+#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket`
+Opens a socket
+- **`protocol`:** Protocol to use
+
+
+**Returns:**  A new `Socket` opened and ready to use
+
+#### ` fun receiveLine() > str?`
+Receive from socket until it's closed or a linefeed is received
+
+**Returns:**  The bytes received or null if nothing to read
 
 ### ` object TcpServer`
 A TCP Server

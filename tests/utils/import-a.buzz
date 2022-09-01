@@ -1,0 +1,5 @@
+object Hello {
+    str message,
+}
+
+export Hello;

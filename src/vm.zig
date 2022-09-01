@@ -45,6 +45,8 @@ const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
 
+pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
+
 pub const CallFrame = struct {
     const Self = @This();
 
@@ -311,10 +313,12 @@ pub const VM = struct {
     gc: *GarbageCollector,
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
+    import_registry: *ImportRegistry,
 
-    pub fn init(gc: *GarbageCollector) !Self {
+    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry) !Self {
         var self: Self = .{
             .gc = gc,
+            .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
             .current_fiber = try gc.allocator.create(Fiber),
         };
@@ -753,7 +757,7 @@ pub const VM = struct {
                     return;
                 },
 
-                .OP_IMPORT => try self.import(self.peek(0)),
+                .OP_IMPORT => try self.import(self.peek(1), self.peek(0)),
 
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
 
@@ -1195,35 +1199,50 @@ pub const VM = struct {
         return false;
     }
 
-    fn import(self: *Self, value: Value) Error!void {
-        var closure: *ObjClosure = ObjClosure.cast(value.Obj).?;
+    fn import(self: *Self, path: Value, value: Value) Error!void {
+        const fullpath = ObjString.cast(path.Obj).?;
+        const closure = ObjClosure.cast(value.Obj).?;
 
-        var gc = GarbageCollector.init(self.gc.allocator);
-        gc.type_registry = TypeRegistry{
-            .gc = &gc,
-            .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
-        };
-        var vm = try self.gc.allocator.create(VM);
-        vm.* = try VM.init(&gc);
-        // TODO: how to free this since we copy things to new vm, also fails anyway
-        // {
-        //     defer vm.deinit();
-        //     defer gn.deinit();
-        // }
-
-        try vm.interpret(closure.function, null);
-
-        // Top of stack is how many export we got
-        var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
-
-        // Copy them to this vm globals
-        if (exported_count > 0) {
-            var i: u8 = exported_count;
-            while (i > 0) : (i -= 1) {
-                try self.globals.append(try self.gc.adoptValue(vm.peek(i)));
+        if (self.import_registry.get(fullpath)) |globals| {
+            for (globals.items) |global| {
+                try self.globals.append(try self.gc.adoptValue(global));
             }
+        } else {
+            // FIXME: should share strings between gc
+            var gc = GarbageCollector.init(self.gc.allocator);
+            gc.type_registry = TypeRegistry{
+                .gc = &gc,
+                .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
+            };
+            var vm = try self.gc.allocator.create(VM);
+            vm.* = try VM.init(&gc, self.import_registry);
+            // TODO: how to free this since we copy things to new vm, also fails anyway
+            // {
+            //     defer vm.deinit();
+            //     defer gn.deinit();
+            // }
+
+            try vm.interpret(closure.function, null);
+
+            // Top of stack is how many export we got
+            var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
+
+            // Copy them to this vm globals
+            var import_cache = std.ArrayList(Value).init(self.gc.allocator);
+            if (exported_count > 0) {
+                var i: u8 = exported_count;
+                while (i > 0) : (i -= 1) {
+                    const global = vm.peek(i);
+                    try self.globals.append(try self.gc.adoptValue(global));
+                    try import_cache.append(global);
+                }
+            }
+
+            try self.import_registry.put(fullpath, import_cache);
         }
 
+        // Pop path and closure
+        _ = self.pop();
         _ = self.pop();
     }
 

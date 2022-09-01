@@ -5189,6 +5189,10 @@ pub const ImportNode = struct {
         var self = Self.cast(node).?;
 
         if (self.import) |import| {
+            try codegen.emitConstant(
+                node.location,
+                import.absolute_path.toValue(),
+            );
             _ = try import.function.toByteCode(import.function, codegen, breaks);
             // FIXME: avoid generating the same import function more than once!
             try codegen.emitOpCode(self.node.location, .OP_IMPORT);

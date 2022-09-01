@@ -268,13 +268,14 @@ export fn bz_newVM(self: *VM) ?*VM {
     var gc = self.gc.allocator.create(GarbageCollector) catch {
         return null;
     };
+    // FIXME: should share strings between gc
     gc.* = GarbageCollector.init(self.gc.allocator);
     gc.type_registry = TypeRegistry{
         .gc = gc,
         .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
     };
 
-    vm.* = VM.init(gc) catch {
+    vm.* = VM.init(gc, self.import_registry) catch {
         return null;
     };
 

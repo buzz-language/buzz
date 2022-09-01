@@ -807,6 +807,15 @@ pub const GarbageCollector = struct {
     fn markRoots(self: *Self, vm: *VM) !void {
         try self.markMethods();
 
+        // Mark import registry
+        var it = vm.import_registry.iterator();
+        while (it.next()) |kv| {
+            try self.markObj(kv.key_ptr.*.toObj());
+            for (kv.value_ptr.*.items) |global| {
+                try self.markValue(global);
+            }
+        }
+
         // Mark current fiber and its parent fibers
         try markFiber(self, vm.current_fiber);
 

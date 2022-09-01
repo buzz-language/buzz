@@ -316,6 +316,7 @@ pub const Parser = struct {
     pub const ScriptImport = struct {
         function: *ParseNode,
         globals: std.ArrayList(Global),
+        absolute_path: *ObjString,
     };
 
     gc: *GarbageCollector,
@@ -2995,7 +2996,6 @@ pub const Parser = struct {
         }
 
         if (object == null) {
-            std.debug.print("was trying to resolve {s}\n", .{name});
             const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
             if (obj_def.super) |obj_super| {
                 return self.getSuperMethod(root, obj_super, name);
@@ -4017,27 +4017,55 @@ pub const Parser = struct {
             );
 
             // Find and read file
-            var file: std.fs.File = (if (std.fs.path.isAbsolute(lib_path.items))
-                std.fs.openFileAbsolute(lib_path.items, .{}) catch null
-            else
-                std.fs.cwd().openFile(lib_path.items, .{}) catch null) orelse (if (std.fs.path.isAbsolute(dir_path.items))
-                std.fs.openFileAbsolute(dir_path.items, .{}) catch {
-                    try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
-                    return null;
-                }
-            else
-                std.fs.cwd().openFile(dir_path.items, .{}) catch {
-                    try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
-                    return null;
-                });
+            // zig fmt: off
+            var file: ?std.fs.File = null;
+            var absolute_path: ?[]const u8 = null;
+            var owned = false;
 
-            defer file.close();
+            if (std.fs.path.isAbsolute(lib_path.items)) {
+                file = std.fs.openFileAbsolute(lib_path.items, .{}) catch null;
+                if (file != null) {
+                    absolute_path = lib_path.items;
+                }
+            } else {
+                file = std.fs.cwd().openFile(lib_path.items, .{}) catch null;
+                if (file != null) {
+                    absolute_path = try std.fs.cwd().realpathAlloc(self.gc.allocator, lib_path.items);
+                    owned = true;
+                }
+            }
+
+            if (file == null) {
+                if (std.fs.path.isAbsolute(dir_path.items)) {
+                    file = std.fs.openFileAbsolute(dir_path.items, .{}) catch {
+                        try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
+                        return null;
+                    };
+
+                    absolute_path = dir_path.items;
+                } else {
+                    file = std.fs.cwd().openFile(dir_path.items, .{}) catch {
+                        try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
+                        return null;
+                    };
+
+                    absolute_path = try std.fs.cwd().realpathAlloc(self.gc.allocator, dir_path.items);
+                    owned = true;
+                }
+            }
+            // zig fmt: on
+            defer file.?.close();
+            defer {
+                if (owned) {
+                    self.gc.allocator.free(absolute_path.?);
+                }
+            }
 
             // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
-            const source = try self.gc.allocator.alloc(u8, (try file.stat()).size);
+            const source = try self.gc.allocator.alloc(u8, (try file.?.stat()).size);
             // defer self.gc.allocator.free(source);
 
-            _ = try file.readAll(source);
+            _ = try file.?.readAll(source);
 
             var parser = Parser.init(self.gc, self.imports, true);
             defer parser.deinit();
@@ -4048,6 +4076,7 @@ pub const Parser = struct {
                 import = ScriptImport{
                     .function = import_node,
                     .globals = std.ArrayList(Global).init(self.gc.allocator),
+                    .absolute_path = try self.gc.copyString(absolute_path.?),
                 };
 
                 for (parser.globals.items) |*global| {
