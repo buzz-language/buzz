@@ -10,9 +10,7 @@ A small/lightweight typed scripting language written in Zig
     <img src="https://github.com/giann/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
-**Note: This is very much in development. I continuously built it with zig master.**
-
-# Goals
+## Goals
 
 - Small in size and complexity (just a bit more than Lua though)
 - Strict typing
@@ -24,7 +22,25 @@ A small/lightweight typed scripting language written in Zig
     - LSP (in progress)
     - [TextMate syntax](https://github.com/giann/buzz/tree/main/tmLanguage)
 
-# Quick tour
+## Progress
+
+We're not far from completing [miletone 0.1.0](https://github.com/giann/buzz/milestone/1). As writing buzz code is the best way of finding bugs, we implement a lot of features of the [next](https://github.com/giann/buzz/milestone/2) [milestones](https://github.com/giann/buzz/milestone/3) too.
+
+## How to build
+
+### Requirements
+- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86.
+- Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/giann/buzz/issues/74))
+- libpcre (not libpcre2)
+- libc on Linux
+- zig master
+
+### Steps
+From cloned buzz repository:
+- `zig build`
+- `zig-out/bin/buzz <myscript.buzz>`
+
+## Quick tour
 
 **Note:** You can also take a look at `tests/` for more examples.
 
@@ -39,7 +55,7 @@ A small/lightweight typed scripting language written in Zig
 - [Fibers](#fibers)
 - [Call C/Zig code](#call-c/zig-code)
 
-## Types and variables
+### Types and variables
 
 ```buzz
 | Basic types
@@ -68,7 +84,7 @@ const num pi = 3.14;
 };
 ```
 
-## Operators
+### Operators
 
 ```buzz
 | Comparison
@@ -103,7 +119,7 @@ const num pi = 3.14;
 ~15 == -16;     | not
 ```
 
-### Optionals
+#### Optionals
 
 ```buzz
 str? aStringOrNull = "hello";
@@ -120,7 +136,7 @@ str unwrapped = aStringOrNull!;
 print(optList?.len()); | -> null
 ```
 
-## Functions
+### Functions
 
 ```buzz
 fun sayHiTo(str name, str? lastName, num age) > str {
@@ -146,7 +162,7 @@ Function() fn = fun () > void -> print("hello world"); | Arrow function
 fn(); | -> "hello world"
 ```
 
-## Enums
+### Enums
 
 ```buzz
 | Enums can have a type, if none is specified the type is `num` and values are ordinal.
@@ -161,7 +177,7 @@ enum(str) Country {
 print(Country.usa.value); | -> "United States of America"
 ```
 
-## Control flow
+### Control flow
 
 ```buzz
 | The usual
@@ -189,7 +205,7 @@ for (num i = 0; i < 10; i = i + 1) {
 }
 ```
 
-### `foreach`
+#### `foreach`
 
 `foreach` can iterate over most data structures:
 
@@ -216,7 +232,7 @@ foreach (num value in fibonnaciFib) {
 }
 ```
 
-## Objects and Classes
+### Objects and Classes
 
 An `object` is like a class except it can't be inherited from and can't inherit from anything:
 
@@ -244,7 +260,7 @@ object Person {
 }
 ```
 
-`class` act like you would expect. They don't have the central place they have in other languages (tbh I may end up removing them):
+`class` act like you would expect. They don't have the central place they have in other languages (tbh we may end up removing them):
 
 ```buzz
 class Form {
@@ -266,7 +282,7 @@ class Circle < Form {
 }
 ```
 
-### Anonymous objects
+#### Anonymous objects
 
 ```buzz
 | Anonymous objects don't have methods, static fields or default values
@@ -282,7 +298,7 @@ fun getInfo() > obj{ str name, num age } {
 obj{ str name, num age } info = getInfo();
 ```
 
-## Errors
+### Errors
 
 Right now errors can be anything.
 
@@ -319,7 +335,7 @@ num result = willFail() catch {
 }
 ```
 
-## Import/Export
+### Import/Export
 
 ```buzz
 | hello.buzz
@@ -344,7 +360,7 @@ fun main() > void {
 }
 ```
 
-## Fibers
+### Fibers
 
 Similar to Lua's coroutines. Buzz's fibers have their own state and stack and can be switched in and out from.
 Fibers can yield from within any call depth. Any function can be wrapped in a fiber. Unlike Lua, `yield` are evaluated and dismissed
@@ -379,7 +395,7 @@ fun main() > void {
 }
 ```
 
-## Call C/Zig code
+### Call C/Zig code
 
 First define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib` (only dylib right now):
 
