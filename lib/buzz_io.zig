@@ -113,22 +113,23 @@ export fn FileReadLine(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch {
+    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
+        if (err == error.EndOfStream) {
+            vm.bz_pushNull();
+
+            return 1;
+        }
+
         vm.bz_throwString("Could not read file", "Could not read file".len);
 
         return -1;
     };
 
-    // EOF?
-    if (buffer.len == 0) {
-        vm.bz_pushNull();
-    } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-            vm.bz_throwString("Could not read file", "Could not read file".len);
+    vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+        vm.bz_throwString("Could not read file", "Could not read file".len);
 
-            return -1;
-        });
-    }
+        return -1;
+    });
 
     return 1;
 }

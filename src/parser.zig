@@ -1622,6 +1622,7 @@ pub const Parser = struct {
 
         self.beginScope();
 
+        // Should be either VarDeclaration or expression
         var init_declarations = std.ArrayList(*VarDeclarationNode).init(self.gc.allocator);
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
             try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, true)).?);
