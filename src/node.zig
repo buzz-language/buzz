@@ -2567,6 +2567,16 @@ pub const ResolveNode = struct {
 
         var self = Self.cast(node).?; // self
 
+        if (self.fiber.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.fiber.type_def.?.resolved_type.?.Placeholder);
+
+            return null;
+        }
+
+        if (self.fiber.type_def.?.def_type != .Fiber) {
+            try codegen.report(self.fiber.location, "Not a fiber");
+        }
+
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_RESOLVE);
@@ -2633,6 +2643,16 @@ pub const ResumeNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?; // self
+
+        if (self.fiber.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.fiber.type_def.?.resolved_type.?.Placeholder);
+
+            return null;
+        }
+
+        if (self.fiber.type_def.?.def_type != .Fiber) {
+            try codegen.report(self.fiber.location, "Not a fiber");
+        }
 
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
 

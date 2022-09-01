@@ -39,7 +39,7 @@ object Request {
             headers[headerMatch![1]] = headerMatch![2];
 
             if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
-                contentLength = parseNumber(headerMatch![2].trim()) ?? 0; | FIXME: buzz let me omit `?? 0` !
+                contentLength = parseNumber(headerMatch![2].trim()) ?? 0;
             }
         }
 
