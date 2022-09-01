@@ -3347,8 +3347,20 @@ pub const EnumNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (node.type_def.?.resolved_type.?.Enum.enum_type.def_type == .Placeholder) {
-            try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Enum.enum_type.resolved_type.?.Placeholder);
+        const enum_type = node.type_def.?.resolved_type.?.Enum.enum_type;
+
+        if (enum_type.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(enum_type.resolved_type.?.Placeholder);
+
+            return null;
+        }
+
+        switch (enum_type.def_type) {
+            .String, .Number => {},
+            else => {
+                try codegen.reportErrorAt(node.location, "Type not allowed as enum value");
+                return null;
+            },
         }
 
         try codegen.emitCodeArg(self.node.location, .OP_ENUM, try codegen.makeConstant(node.type_def.?.toValue()));
@@ -3359,8 +3371,13 @@ pub const EnumNode = struct {
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
-            } else if (!((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry))).eql(case.type_def.?)) {
-                try codegen.reportTypeCheckAt((try node.type_def.?.resolved_type.?.Enum.enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)), case.type_def.?, "Bad enum case type", case.location);
+            } else if (!((try enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry))).eql(case.type_def.?)) {
+                try codegen.reportTypeCheckAt(
+                    (try enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)),
+                    case.type_def.?,
+                    "Bad enum case type",
+                    case.location,
+                );
             }
 
             _ = try case.toByteCode(case, codegen, breaks);

@@ -165,8 +165,22 @@ fn(); | -> "hello world"
 ### Enums
 
 ```buzz
-| Enums can have a type, if none is specified the type is `num` and values are ordinal.
-| If a type is specified, all values must be initialized.
+| Enums can have number or string values. If type is omitted, the enum is a number enum with ordinal values
+| If type is specified, values must be provided.
+enum Natural {
+    zero,
+    one,
+    two,
+}
+
+Natural.zero.value == 0;
+
+enum(num) NumEnum {
+    three = 3,
+    four = 4,
+    five = 5,
+}
+
 enum(str) Country {
     usa = "United States of America",
     uk = "United Kingdoms",

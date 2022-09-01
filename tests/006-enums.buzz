@@ -19,16 +19,6 @@ enum NaturalEnum {
     two,
 }
 
-object My {
-    num age = 10
-}
-
-enum(My) CustomEnum {
-    zero = My{ age = 0 },
-    one = My{ age = 1 },
-    two = My{ age = 2 },
-}
-
 test "Enums" {
     assert(StrEnum.one.value == "one", message: "str enum");
 
@@ -39,6 +29,4 @@ test "Enums" {
     NaturalEnum myCase = NaturalEnum.two;
 
     assert(myCase.value == 2, message: "enum instance");
-
-    assert(CustomEnum.zero.value.age == 0, message: "enum of custom type");
 }
