@@ -2334,10 +2334,13 @@ pub const FunctionNode = struct {
                 } else {
                     try codegen.emitOpCode(node.location, .OP_VOID);
                     try codegen.emitOpCode(node.location, .OP_RETURN);
+                    codegen.current.?.return_emitted = true;
                 }
             } else if (codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !codegen.current.?.return_emitted) {
                 // TODO: detect if some branches of the function body miss a return statement
                 try codegen.emitReturn(node.location);
+            } else if (!codegen.current.?.return_emitted) {
+                try codegen.reportErrorAt(node.location, "Missing return statement");
             }
         }
 
@@ -3786,6 +3789,8 @@ pub const ReturnNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        codegen.current.?.return_emitted = true;
 
         if (self.value) |value| {
             if (value.type_def == null) {
