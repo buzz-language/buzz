@@ -1456,6 +1456,7 @@ pub const ObjObject = struct {
 
         pub fn mark(self: *ObjectDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
+            try gc.markObj(self.qualified_name.toObj());
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
@@ -2577,6 +2578,7 @@ pub const ObjEnum = struct {
 
         pub fn mark(self: *EnumDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
+            try gc.markObj(self.qualified_name.toObj());
             try gc.markObj(self.enum_type.toObj());
         }
     };

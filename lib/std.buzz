@@ -1,9 +1,11 @@
+object AssertError {}
+
 || If condition is false throw error with given message
 || @param condition assert condition
 || @param message message printed if `condition` is false
-fun assert(bool condition, str message) > void !> str {
+fun assert(bool condition, str message) > void !> AssertError {
     if (!condition) {
-        throw message;
+        throw AssertError{};
     }
 }
 
@@ -24,3 +26,4 @@ export assert;
 export print;
 export parseNumber;
 export runFile;
+export AssertError;

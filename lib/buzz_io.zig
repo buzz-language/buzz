@@ -34,25 +34,41 @@ export fn FileOpen(vm: *api.VM) c_int {
 
     var file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
         switch (mode) {
-            0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch {
-                vm.bz_throwString("Could not open file", "Could not open file".len);
+            0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch |err| {
+                if (err == std.fs.File.OpenError.FileNotFound) {
+                    vm.bz_pushError("lib.io.FileNotFoundError", "lib.io.FileNotFoundError".len);
+                } else {
+                    vm.bz_throwString("Could not open file", "Could not open file".len);
+                }
 
                 return -1;
             },
-            else => std.fs.createFileAbsolute(filename_slice, .{ .read = mode != 1 }) catch {
-                vm.bz_throwString("Could not open file", "Could not open file".len);
+            else => std.fs.createFileAbsolute(filename_slice, .{ .read = mode != 1 }) catch |err| {
+                if (err == std.fs.File.OpenError.FileNotFound) {
+                    vm.bz_pushError("lib.io.FileNotFoundError", "lib.io.FileNotFoundError".len);
+                } else {
+                    vm.bz_throwString("Could not open file", "Could not open file".len);
+                }
 
                 return -1;
             },
         }
     else switch (mode) {
-        0 => std.fs.cwd().openFile(filename_slice, .{ .mode = .read_only }) catch {
-            vm.bz_throwString("Could not open file", "Could not open file".len);
+        0 => std.fs.cwd().openFile(filename_slice, .{ .mode = .read_only }) catch |err| {
+            if (err == std.fs.File.OpenError.FileNotFound) {
+                vm.bz_pushError("lib.io.FileNotFoundError", "lib.io.FileNotFoundError".len);
+            } else {
+                vm.bz_throwString("Could not open file", "Could not open file".len);
+            }
 
             return -1;
         },
-        else => std.fs.cwd().createFile(filename_slice, .{ .read = mode != 1 }) catch {
-            vm.bz_throwString("Could not open file", "Could not open file".len);
+        else => std.fs.cwd().createFile(filename_slice, .{ .read = mode != 1 }) catch |err| {
+            if (err == std.fs.File.OpenError.FileNotFound) {
+                vm.bz_pushError("lib.io.FileNotFoundError", "lib.io.FileNotFoundError".len);
+            } else {
+                vm.bz_throwString("Could not open file", "Could not open file".len);
+            }
 
             return -1;
         },

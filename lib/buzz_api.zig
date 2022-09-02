@@ -23,9 +23,12 @@ pub const VM = opaque {
     pub extern fn bz_pushUserData(self: *VM, value: *ObjUserData) void;
     pub extern fn bz_pushNull(self: *VM) void;
     pub extern fn bz_pushVoid(self: *VM) void;
+    pub extern fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void;
+    pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void;
     pub extern fn bz_throw(vm: *VM, value: *Value) void;
     pub extern fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void;
     pub extern fn bz_getGC(vm: *VM) *GarbageCollector;
+    pub extern fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ?*Value;
 
     pub extern fn bz_allocated(self: *VM) usize;
 
@@ -72,4 +75,11 @@ pub const UserData = anyopaque;
 pub const ObjUserData = opaque {
     pub extern fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData;
     pub extern fn bz_getUserData(userdata: *ObjUserData) *UserData;
+};
+
+pub const ObjObjectInstance = opaque {};
+
+pub const ObjObject = opaque {
+    pub extern fn bz_valueToObject(value: *Value) *ObjObject;
+    pub extern fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance;
 };

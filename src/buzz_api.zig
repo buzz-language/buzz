@@ -10,6 +10,9 @@ const _codegen = @import("./codegen.zig");
 const Value = _value.Value;
 const valueToString = _value.valueToString;
 const ObjString = _obj.ObjString;
+const ObjEnum = _obj.ObjEnum;
+const ObjObject = _obj.ObjObject;
+const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
@@ -322,4 +325,58 @@ export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
     };
 
     return true;
+}
+
+// Assumes the global exists
+export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
+    const object = bz_getQualified(self, qualified_name, len).?;
+
+    self.push(
+        // Dismiss error because if we fail to create the error payload there's not much to salvage anyway
+        (self.gc.allocateObject(
+            ObjObjectInstance,
+            ObjObjectInstance.init(self.gc.allocator, ObjObject.cast(object.Obj).?, null),
+        ) catch unreachable).toValue(),
+    );
+}
+
+export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ?*Value {
+    for (self.globals.items) |*global| {
+        if (global.* == .Obj) {
+            switch (global.Obj.obj_type) {
+                .Enum => {
+                    const obj_enum = ObjEnum.cast(global.Obj).?;
+
+                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Enum.qualified_name.string)) {
+                        return global;
+                    }
+                },
+                .Object => {
+                    const obj_enum = ObjObject.cast(global.Obj).?;
+
+                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Object.qualified_name.string)) {
+                        return global;
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    return null;
+}
+
+export fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance {
+    return vm.gc.allocateObject(
+        ObjObjectInstance,
+        ObjObjectInstance.init(vm.gc.allocator, self, null),
+    ) catch null;
+}
+
+export fn bz_valueToObject(value: *Value) *ObjObject {
+    return ObjObject.cast(value.Obj).?;
+}
+
+export fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void {
+    vm.push(payload.toValue());
 }

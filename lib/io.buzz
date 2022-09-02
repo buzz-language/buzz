@@ -1,5 +1,7 @@
+object FileNotFoundError {}
+
 || @private
-extern fun FileOpen(str filename, num mode) > num !> str;
+extern fun FileOpen(str filename, num mode) > num !> FileNotFoundError, str;
 || @private
 extern fun FileClose(num fd) > void;
 || @private
@@ -33,7 +35,7 @@ object File {
     || @param filename Path of file to open
     || @param mode Mode with which to open it
     || @return opened file
-    static fun open(str filename, FileMode mode) > File !> str {
+    static fun open(str filename, FileMode mode) > File !> FileNotFoundError, str {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
