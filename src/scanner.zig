@@ -122,7 +122,15 @@ pub const Scanner = struct {
             '/' => return self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
             '%' => return self.makeToken(.Percent, null, null, null),
             '?' => return self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
-            '!' => return self.makeToken(if (self.match('=')) .BangEqual else .Bang, null, null, null),
+            '!' => {
+                if (self.match('=')) {
+                    return self.makeToken(.BangEqual, null, null, null);
+                } else if (self.match('>')) {
+                    return self.makeToken(.BangGreater, null, null, null);
+                } else {
+                    return self.makeToken(.Bang, null, null, null);
+                }
+            },
             ':' => return self.makeToken(.Colon, null, null, null),
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '\"' => return self.string(),

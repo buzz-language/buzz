@@ -48,7 +48,7 @@
         },
         {
           "name": "keyword.operator.arithmetic.buzz",
-          "match": "(\\+|\\-|\\/|%|\\*|>>|<<|\\\\|\\^|&|~)"
+          "match": "(\\+|\\-|\\/|%|\\*|>>|<<|\\\\|\\^|&|~|!>)"
         },
         {
           "name": "keyword.operator.comparison.buzz",

@@ -1,15 +1,15 @@
 || @private
-extern fun FileOpen(str filename, num mode) > num;
+extern fun FileOpen(str filename, num mode) > num !> str;
 || @private
 extern fun FileClose(num fd) > void;
 || @private
-extern fun FileReadAll(num fd) > str;
+extern fun FileReadAll(num fd) > str !> str;
 || @private
-extern fun FileReadLine(num fd) > str?;
+extern fun FileReadLine(num fd) > str? !> str;
 || @private
-extern fun FileRead(num fd, num n) > str?;
+extern fun FileRead(num fd, num n) > str? !> str;
 || @private
-extern fun FileWrite(num fd, str bytes) > void;
+extern fun FileWrite(num fd, str bytes) > void !> str;
 || @private
 extern fun getStdIn() > num;
 || @private
@@ -33,7 +33,7 @@ object File {
     || @param filename Path of file to open
     || @param mode Mode with which to open it
     || @return opened file
-    static fun open(str filename, FileMode mode) > File {
+    static fun open(str filename, FileMode mode) > File !> str {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
@@ -45,24 +45,24 @@ object File {
     }
 
     || Reads file until `EOF`
-    fun readAll() > str {
+    fun readAll() > str !> str {
         return FileReadAll(this.fd);
     }
 
     || Reads next line, returns null if nothing to read
-    fun readLine() > str? {
+    fun readLine() > str? !> str {
         return FileReadLine(this.fd);
     }
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
-    fun read(num n) > str? {
+    fun read(num n) > str? !> str {
         return FileRead(this.fd, n: n);
     }
 
     || Write bytes
     || @param bytes string to write
-    fun write(str bytes) > void {
+    fun write(str bytes) > void !> str {
         FileWrite(this.fd, bytes: bytes);
     }
 }

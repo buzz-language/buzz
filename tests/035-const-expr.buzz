@@ -1,6 +1,6 @@
 import "lib/std";
 
-fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewhere street", "town": "New York" }) > void {
+fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewhere street", "town": "New York" }) > void !> str {
     assert(name.len() == 2, message: "default arg is clone of the default value");
     assert(address.size() == 2, message: "default arg is clone of the default value");
 

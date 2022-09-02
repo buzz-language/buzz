@@ -2,6 +2,6 @@
 || @param source the buzz source
 || @param script name (used to fetch eventual extern functions)
 || @return AST as JSON
-extern fun ast(str source, str scriptName) > str;
+extern fun ast(str source, str scriptName) > str !> str;
 
 export ast;

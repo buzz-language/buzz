@@ -34,13 +34,13 @@ fun count(num n) > str > num? {
     return "Counting is done!";
 }
 
-fun fail() > bool {
+fun fail() > bool !> str {
     throw "This fiber failed";
 
     return false;
 }
 
-fun caughFiberFail() > bool {
+fun caughFiberFail() > bool !> str {
     fib<bool, void> fiber = &fail();
 
     return resolve fiber;

@@ -3,14 +3,14 @@ extern fun time() > num;
 
 || Returns environment variable under `key`
 || @param key environment variable name
-extern fun env(str key) > str?;
+extern fun env(str key) > str? !> str;
 
 || @return path to system temp directory
-extern fun tmpDir() > str;
+extern fun tmpDir() > str !> str;
 
 || @param prefix prefix to the temp file name
 || @return a temporary file name in system tmp dir
-extern fun tmpFilename(str? prefix) > str;
+extern fun tmpFilename(str? prefix) > str !> str;
 
 || Exit program with `exitCode`
 || @param exitCode exit code
@@ -19,7 +19,7 @@ extern fun buzzExit(num exitCode) > void;
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-extern fun execute([str] command) > num;
+extern fun execute([str] command) > num !> str;
 
 export time;
 export env;
@@ -29,21 +29,21 @@ export buzzExit as exit;
 export execute;
 
 || @private
-extern fun SocketConnect(str address, num port, num protocol) > num;
+extern fun SocketConnect(str address, num port, num protocol) > num !> str;
 || @private
 extern fun SocketClose(num fd) > void;
 || @private
-extern fun SocketRead(num fd, num n) > str?;
+extern fun SocketRead(num fd, num n) > str? !> str;
 || @private
-extern fun SocketWrite(num fd, str bytes) > void;
+extern fun SocketWrite(num fd, str bytes) > void !> str;
 || @private
-extern fun SocketServerStart(str address, num port, bool reuseAddr) > num;
+extern fun SocketServerStart(str address, num port, bool reuseAddr) > num !> str;
 || @private
-extern fun SocketServerAccept(num fd, bool reuseAddr) > num;
+extern fun SocketServerAccept(num fd, bool reuseAddr) > num !> str;
 || @private
-extern fun SocketReadLine(num fd) > str?;
+extern fun SocketReadLine(num fd) > str? !> str;
 || @private
-extern fun SocketReadAll(num fd) > str?;
+extern fun SocketReadAll(num fd) > str? !> str;
 
 || Protocols supported over a socket
 enum SocketProtocol {
@@ -62,7 +62,7 @@ object Socket {
     || @param port Port to which to connect
     || @param protocol Protocol to use
     || @return A new `Socket` opened and ready to use
-    static fun connect(str address, num port, SocketProtocol protocol) > Socket {
+    static fun connect(str address, num port, SocketProtocol protocol) > Socket !> str {
         return Socket{
             fd = SocketConnect(address, port: port, protocol: protocol.value),
         };
@@ -76,25 +76,25 @@ object Socket {
     || Receive at most `n` bytes from the socket
     || @param n How many bytes we're prepare to receive
     || @return The bytes received or null if nothing to read
-    fun receive(num n) > str? {
+    fun receive(num n) > str? !> str {
         return SocketRead(this.fd, n: n);
     }
 
     || Receive from socket until it's closed or a linefeed is received
     || @return The bytes received or null if nothing to read
-    fun receiveLine() > str? {
+    fun receiveLine() > str? !> str {
         return SocketReadLine(this.fd);
     }
 
     || Receive from socket until it's closed
     || @return The bytes received or null if nothing to read
-    fun receiveAll() > str? {
+    fun receiveAll() > str? !> str {
         return SocketReadAll(this.fd);
     }
 
     || Send bytes on the socket
     || @param bytes Bytes to send
-    fun send(str bytes) > void {
+    fun send(str bytes) > void !> str {
         SocketWrite(this.fd, bytes: bytes);
     }
 }
@@ -111,7 +111,7 @@ object TcpServer {
     || @param port Port to listen on
     || @param reuseAddr Wether we want to accept multiple connections
     || @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(str address, num port, bool reuseAddr) > TcpServer {
+    static fun init(str address, num port, bool reuseAddr) > TcpServer !> str {
         return TcpServer{
             serverSocket = Socket{
                 fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
@@ -122,7 +122,7 @@ object TcpServer {
 
     || Accept a new connection
     || @return Socket opened with the client
-    fun accept() > Socket {
+    fun accept() > Socket !> str {
         return Socket{
             fd = SocketServerAccept(this.serverSocket.fd, reuseAddr: this.reuseAddr),
         };

@@ -15,7 +15,7 @@ For std lib documentation see [here](std.md).
 ### `fun len() > num`
 **Returns:** Length of the string
 
-### `fun trim() > str`
+### `fun trim() > str !> str`
 **Returns:** Trimmed string
 
 ### `fun byte(num at) > num`
@@ -43,46 +43,46 @@ Test if strings ends with needle
 **Returns:** `true` if strings ends with needle
 
 
-### `fun replace(str needle, str with) > str`
+### `fun replace(str needle, str with) > str !> str`
 Replace first occurence of needle
 - **`needle`**: needle to find
 - **`with`**: replacement
 
 **Returns:** New string
 
-### `fun split(str separator) > [str]`
+### `fun split(str separator) > [str] !> str`
 Split string
 - **`separator`**: separator by which the string will be split
 
 **Returns:** Splitted string
 
-### `fun sub(num start, num? len) > str`
+### `fun sub(num start, num? len) > str !> str`
 Get sub string
 - **`start`**: Sub string start index
 - **`end`**: Length of sub string, if `null` will go until end of string
 
 **Returns:** The substring
 
-### `fun repeat(num n) > str`
+### `fun repeat(num n) > str !> str`
 Repeat string
 - **`n`**: How many times the string will be repeated
 
 **Returns:** New string
 
-### `fun encodeBase64() > str`
+### `fun encodeBase64() > str !> str`
 Base64 encode the string
 
 **Returns:** Encoded string
 
 
-### `fun decodeBase64() > str`
+### `fun decodeBase64() > str !> str`
 Base64 decode the string
 
 **Returns:** Decoded string
 
 ## Lists
 
-### `fun append(T value) > void`
+### `fun append(T value) > void !> str`
 Append new element at end of the list
 - **`value`**: New element
 
@@ -101,7 +101,7 @@ Given index, returns next index or null if end of list is reached (function used
 
 **Returns:** Next index
 
-### `fun sub(num start, num? len) > [T]`
+### `fun sub(num start, num? len) > [T] !> str`
 Get sub list
 - **`start`**: Start index of sub list
 - **`len`**: Length of sub list, if `null` will go to end of list
@@ -114,7 +114,7 @@ Search first occurence of the needle
 
 **Returns:** Index of element or `null` if not found
 
-### `fun join(str separator) > str`
+### `fun join(str separator) > str !> str`
 Join list element in a string with a separator. Elements are converted to a string just like an interpolation would.
 - **`separator`**: Separator to put between each elements
 
@@ -132,21 +132,21 @@ Remove element from the map
 
 **Returns:** Removed element or `null` if nothing was under `key`
 
-### `fun keys() > [K]`
+### `fun keys() > [K] !> str`
 **Returns:** Return list of the map keys
 
-### `fun values() > [V]`
+### `fun values() > [V] !> str`
 **Returns:** Return list of the map values
 
 ## Patterns
 
-## `fun match(str subject) > [str]?`
+## `fun match(str subject) > [str]? !> str`
 Get first match of the pattern against a string
 - **`subject`**: Subject to match the pattern against
 
 **Returns:** List of match and captures or `null` if nothing matches
 
-## `fun matchAll(str subject) > [[str]]?`
+## `fun matchAll(str subject) > [[str]]? !> str`
 Get all matches of the pattern against a string
 - **`subject`**: Subject to match the pattern against
 

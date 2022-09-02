@@ -13,7 +13,7 @@
 - [json](#json)
 ## debug
 
-### ` fun ast(str source, str scriptName) > str`
+### ` fun ast(str source, str scriptName) > str !> str`
 Parse `source` and return the abstract syntax tree in JSON
 - **`script`:** name (used to fetch eventual extern functions)
 
@@ -25,11 +25,11 @@ Parse `source` and return the abstract syntax tree in JSON
 Returns the number of allocated bytes
 
 **Returns:**  allocated bytes
-### ` fun collect() > void`
+### ` fun collect() > void !> str`
 Triggers a GC sweep
 ## std
 
-### ` fun assert(bool condition, str message) > void`
+### ` fun assert(bool condition, str message) > void !> str`
 If condition is false throw error with given message
 - **`message`:** message printed if `condition` is false
 
@@ -43,7 +43,7 @@ Parse number, returns false if string does not represent a number
 
 
 **Returns:**  number parsed or null
-### ` fun runFile(str filename) > void`
+### ` fun runFile(str filename) > void !> str`
 Run a buzz file
 - **`filename`:** path to buzz file
 
@@ -117,7 +117,7 @@ Convert degree to radian
 
 
 **Returns:**  tan of n
-### ` fun pow(num x, num y) > num`
+### ` fun pow(num x, num y) > num !> str`
 
 
 **Returns:**  `x`^`y`
@@ -142,17 +142,17 @@ Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
-#### ` fun init() > Buffer`
+#### ` fun init() > Buffer !> str`
 
 
 **Returns:**  A new `Buffer`
 
-#### ` fun write(str bytes) > void`
+#### ` fun write(str bytes) > void !> str`
 Writes a string
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeNumber(num number) > void`
+#### ` fun writeNumber(num number) > void !> str`
 Writes a number
 - **`number`:** Number to write
 
@@ -165,18 +165,18 @@ Frees the buffer TODO: with finalizers we could do this automatically when the o
 
 **Returns:**  Position of the reading cursor
 
-#### ` fun readNumber() > num?`
+#### ` fun readNumber() > num? !> str`
 Reads a number
 
 **Returns:**  Read number or `null` if nothing to read
 
-#### ` fun getBuffer() > str`
+#### ` fun getBuffer() > str !> str`
 
 
 #### ` fun empty() > void`
 Empties the buffer
 
-#### ` fun writeBoolean(bool boolean) > void`
+#### ` fun writeBoolean(bool boolean) > void !> str`
 Writes a boolean
 - **`boolean`:** Boolean to write
 
@@ -186,15 +186,15 @@ Writes a boolean
 
 
 **Returns:**  epoch time in ms
-### ` fun env(str key) > str?`
+### ` fun env(str key) > str? !> str`
 Returns environment variable under `key`
 - **`key`:** environment variable name
 
-### ` fun tmpDir() > str`
+### ` fun tmpDir() > str !> str`
 
 
 **Returns:**  path to system temp directory
-### ` fun tmpFilename(str? prefix) > str`
+### ` fun tmpFilename(str? prefix) > str !> str`
 
 - **`prefix`:** prefix to the temp file name
 
@@ -204,7 +204,7 @@ Returns environment variable under `key`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### ` fun execute([str] command) > num`
+### ` fun execute([str] command) > num !> str`
 Execute command and return its exit code
 - **`command`:** command to execute
 
@@ -215,7 +215,7 @@ Protocols supported over a socket
 ### ` object Socket`
 A socket
 
-#### ` fun receive(num n) > str?`
+#### ` fun receive(num n) > str? !> str`
 Receive at most `n` bytes from the socket
 - **`n`:** How many bytes we're prepare to receive
 
@@ -225,24 +225,24 @@ Receive at most `n` bytes from the socket
 #### ` fun close() > void`
 Close the socket
 
-#### ` fun receiveAll() > str?`
+#### ` fun receiveAll() > str? !> str`
 Receive from socket until it's closed
 
 **Returns:**  The bytes received or null if nothing to read
 
-#### ` fun send(str bytes) > void`
+#### ` fun send(str bytes) > void !> str`
 Send bytes on the socket
 - **`bytes`:** Bytes to send
 
 
-#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket`
+#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket !> str`
 Opens a socket
 - **`protocol`:** Protocol to use
 
 
 **Returns:**  A new `Socket` opened and ready to use
 
-#### ` fun receiveLine() > str?`
+#### ` fun receiveLine() > str? !> str`
 Receive from socket until it's closed or a linefeed is received
 
 **Returns:**  The bytes received or null if nothing to read
@@ -251,14 +251,14 @@ Receive from socket until it's closed or a linefeed is received
 A TCP Server
 
 
-#### ` fun init(str address, num port, bool reuseAddr) > TcpServer`
+#### ` fun init(str address, num port, bool reuseAddr) > TcpServer !> str`
 Starts a TCP server
 - **`reuseAddr`:** Wether we want to accept multiple connections
 
 
 **Returns:**  New `TcpServer` bound to `<address>:<port>`
 
-#### ` fun accept() > Socket`
+#### ` fun accept() > Socket !> str`
 Accept a new connection
 
 **Returns:**  Socket opened with the client
@@ -268,23 +268,23 @@ Close server
 
 ## fs
 
-### ` fun currentDirectory() > str`
+### ` fun currentDirectory() > str !> str`
 Returns current directory absolute path
 
 **Returns:**  current directory
-### ` fun makeDirectory(str path) > void`
+### ` fun makeDirectory(str path) > void !> str`
 Creates directory path
 - **`path`:** directory to create
 
-### ` fun delete(str path) > void`
+### ` fun delete(str path) > void !> str`
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### ` fun move(str source, str destination) > void`
+### ` fun move(str source, str destination) > void !> str`
 Moves/renames file
 - **`destination`:** where to move it
 
-### ` fun list(str path) > [str]`
+### ` fun list(str path) > [str] !> str`
 List files under path
 - **`path`:** directory to list
 
@@ -298,23 +298,23 @@ Object to manipulate an opened file
 #### ` fun close() > void`
 Close file
 
-#### ` fun read(num n) > str?`
+#### ` fun read(num n) > str? !> str`
 Reads `n` bytes, returns null if nothing to read
 - **`n`:** how many bytes to read
 
 
-#### ` fun readAll() > str`
+#### ` fun readAll() > str !> str`
 Reads file until `EOF`
 
-#### ` fun readLine() > str?`
+#### ` fun readLine() > str? !> str`
 Reads next line, returns null if nothing to read
 
-#### ` fun write(str bytes) > void`
+#### ` fun write(str bytes) > void !> str`
 Write bytes
 - **`bytes`:** string to write
 
 
-#### ` fun open(str filename, FileMode mode) > File`
+#### ` fun open(str filename, FileMode mode) > File !> str`
 Open file
 - **`mode`:** Mode with which to open it
 
@@ -356,7 +356,7 @@ Encode to a JSON string
 
 **Returns:**  wrapped data number value or `0` if not a number
 
-#### ` fun decode(str json) > Json`
+#### ` fun decode(str json) > Json !> str`
 Decode string to a Json instance
 - **`str`:** json The JSON string
 
@@ -383,7 +383,7 @@ Decode string to a Json instance
 
 **Returns:**  wrapped data map value or empty map if not a map
 
-#### ` fun q([str] path) > Json`
+#### ` fun q([str] path) > Json !> str`
 Query the json element at `path`, if nothing matches return `Json{}`
 - **`path`:** Path to query
 

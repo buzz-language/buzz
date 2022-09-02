@@ -206,13 +206,13 @@ test "Testing behavior" {
 
                 var had_error: bool = false;
                 runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, .Test) catch {
-                    std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
+                    std.debug.print("\u{001b}[31m[{s} ✕]\u{001b}[0m\n", .{file.name});
                     had_error = true;
                     fail_count += 1;
                 };
 
                 if (!had_error) {
-                    std.debug.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
+                    std.debug.print("\u{001b}[32m[{s} ✓]\u{001b}[0m\n", .{file.name});
                 }
             }
         }

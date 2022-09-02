@@ -8,7 +8,7 @@ object Request {
     num contentLength = 0,
     str? body = null,
 
-    static fun parse(str raw) > Request {
+    static fun parse(str raw) > Request !> str {
         print(raw);
         [str] lines = raw.split("\n");
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);

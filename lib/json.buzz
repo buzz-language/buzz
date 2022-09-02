@@ -40,7 +40,7 @@ object JsonParser {
         return true;
     }
 
-    fun consume(str expected) > void {
+    fun consume(str expected) > void !> str {
         if (!this.match(expected)) {
             throw "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}";
         }
@@ -58,7 +58,7 @@ object JsonParser {
         }
     }
 
-    fun next() > Json {
+    fun next() > Json !> str {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
@@ -88,7 +88,7 @@ object JsonParser {
         throw "Could not parse JSON: unexpected character `{char}` at offset {this.offset}";
     }
 
-    fun array() > [Json] {
+    fun array() > [Json] !> str {
         [Json] array = <Json>[];
 
         while (true) {
@@ -112,7 +112,7 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str, Json} {
+    fun map() > {str, Json} !> str {
         {str, Json} map = <str, Json>{};
 
         while (true) {
@@ -145,7 +145,7 @@ object JsonParser {
         return map;
     }
 
-    fun number(str parsed) > num {
+    fun number(str parsed) > num !> str {
         str number = parsed;
 
         while (parseNumber(this.peek() ?? "NaN") != null or this.peek() == ".") {
@@ -212,7 +212,7 @@ object Json {
     || Query the json element at `path`, if nothing matches return `Json{}`
     || @param path Path to query
     || @return Found `Json` or `Json{}` (which is `null`)
-    fun q([str] path) > Json {
+    fun q([str] path) > Json !> str {
         if (this.map != null) {
             if (path.len() > 1) {
                 return (this.map![path[0]] ?? Json{}).q(path.sub(1, len: null));
@@ -270,7 +270,7 @@ object Json {
     || Decode string to a Json instance
     || @param str json The JSON string
     || @return Json
-    static fun decode(str json) > Json {
+    static fun decode(str json) > Json !> str {
         return JsonParser{ source = json }.next();
     }
 }

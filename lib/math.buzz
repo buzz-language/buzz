@@ -57,7 +57,7 @@ extern fun bzsqrt(num n) > num;
 extern fun bztan(num n) > num;
 
 || @return `x`^`y`
-extern fun pow(num x, num y) > num;
+extern fun pow(num x, num y) > num !> str;
 
 export abs;
 export acos;

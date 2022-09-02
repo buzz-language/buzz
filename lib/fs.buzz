@@ -2,7 +2,7 @@ import "lib/os" as os;
 
 || Returns current directory absolute path
 || @return current directory
-fun currentDirectory() > str {
+fun currentDirectory() > str !> str {
     str? dir = os.env("PWD");
 
     if (dir != null) {
@@ -17,20 +17,20 @@ fun currentDirectory() > str {
 
 || Creates directory path
 || @param path directory to create
-extern fun makeDirectory(str path) > void;
+extern fun makeDirectory(str path) > void !> str;
 
 || Deletes directory or file at path
 || @param path direcotry/file to delete
-extern fun delete(str path) > void;
+extern fun delete(str path) > void !> str;
 
 || Moves/renames file
 || @param source file to move
 || @param destination where to move it
-extern fun move(str source, str destination) > void;
+extern fun move(str source, str destination) > void !> str;
 
 || List files under path
 || @param path directory to list
-extern fun list(str path) > [str];
+extern fun list(str path) > [str] !> str;
 
 export currentDirectory;
 export makeDirectory;

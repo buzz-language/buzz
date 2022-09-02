@@ -2985,39 +2985,109 @@ pub const CallNode = struct {
         }
 
         // Catch clauses
+        const error_types = callee_type.?.resolved_type.?.Function.error_types;
         if (self.catches) |catches| {
-            for (catches) |catch_clause| {
-                if (catch_clause.type_def == null or catch_clause.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportPlaceholder(catch_clause.type_def.?.resolved_type.?.Placeholder);
-                } else {
-                    switch (catch_clause.type_def.?.def_type) {
-                        .Function => {
-                            if (!node.type_def.?.eql(catch_clause.type_def.?.resolved_type.?.Function.return_type)) {
-                                try codegen.reportTypeCheckAt(
-                                    node.type_def.?,
-                                    catch_clause.type_def.?.resolved_type.?.Function.return_type,
-                                    "Wrong catch clause return type",
-                                    catch_clause.location,
-                                );
-                            }
-                        },
-                        else => {
-                            assert(self.catches.?.len == 1);
+            if ((error_types == null or error_types.?.len == 0) and catches.len > 0) {
+                try codegen.reportErrorAt(node.location, "Function doesn't raise any error");
+            } else if (error_types != null) {
+                var handled_errors = std.AutoHashMap(*ObjTypeDef, void).init(codegen.gc.allocator);
+                defer handled_errors.deinit();
 
-                            // Expression
-                            if (!node.type_def.?.eql(catch_clause.type_def.?)) {
-                                try codegen.reportTypeCheckAt(
-                                    node.type_def.?,
-                                    catch_clause.type_def.?.resolved_type.?.Function.return_type,
-                                    "Wrong catch clause return type",
-                                    catch_clause.location,
-                                );
-                            }
-                        },
+                var default_count: usize = 0;
+                for (catches) |catch_clause| {
+                    if (catch_clause.type_def == null or catch_clause.type_def.?.def_type == .Placeholder) {
+                        try codegen.reportPlaceholder(catch_clause.type_def.?.resolved_type.?.Placeholder);
+                    } else {
+                        switch (catch_clause.type_def.?.def_type) {
+                            .Function => {
+                                const clause_parameters = catch_clause.type_def.?.resolved_type.?.Function.parameters.keys();
+                                var error_param: ?*ObjTypeDef = null;
+                                if (clause_parameters.len == 0) {
+                                    default_count += 1;
+
+                                    if (default_count > 1) {
+                                        try codegen.reportErrorAt(catch_clause.location, "Only one `default` catch clause is allowed");
+                                    }
+                                } else if (clause_parameters.len > 1) {
+                                    try codegen.reportErrorAt(catch_clause.location, "Catch clause can have only one argument");
+                                } else {
+                                    error_param = catch_clause.type_def.?.resolved_type.?.Function.parameters.get(clause_parameters[0]);
+                                }
+
+                                if (error_param) |uerror_param| {
+                                    var found = false;
+                                    for (error_types.?) |error_type| {
+                                        if (error_type.eql(uerror_param)) {
+                                            found = true;
+                                        }
+                                    }
+
+                                    if (!found) {
+                                        const err_str = try uerror_param.toStringAlloc(codegen.gc.allocator);
+                                        defer codegen.gc.allocator.free(err_str);
+                                        try codegen.reportErrorFmt(catch_clause.location, "Function doesn't raise error `{s}`", .{err_str});
+                                    } else {
+                                        try handled_errors.put(uerror_param, {});
+                                    }
+                                }
+
+                                if (!node.type_def.?.eql(catch_clause.type_def.?.resolved_type.?.Function.return_type)) {
+                                    try codegen.reportTypeCheckAt(
+                                        node.type_def.?,
+                                        catch_clause.type_def.?.resolved_type.?.Function.return_type,
+                                        "Wrong catch clause return type",
+                                        catch_clause.location,
+                                    );
+                                }
+                            },
+                            else => {
+                                assert(self.catches.?.len == 1);
+
+                                // Expression
+                                if (!node.type_def.?.eql(catch_clause.type_def.?)) {
+                                    try codegen.reportTypeCheckAt(
+                                        node.type_def.?,
+                                        catch_clause.type_def.?.resolved_type.?.Function.return_type,
+                                        "Wrong catch clause return type",
+                                        catch_clause.location,
+                                    );
+                                }
+
+                                default_count += 1;
+                            },
+                        }
                     }
+
+                    _ = try catch_clause.toByteCode(catch_clause, codegen, breaks);
                 }
 
-                _ = try catch_clause.toByteCode(catch_clause, codegen, breaks);
+                // Did we handle all possible errors?
+                if (default_count != 1) {
+                    for (error_types.?) |error_type| {
+                        if (handled_errors.get(error_type) == null) {
+                            // Is is in the current function signature ?
+                            const current_fun_type = codegen.current.?.function.?.type_def.resolved_type.?.Function.function_type;
+                            const current_errors = codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+                            // Scope 0 and test functions let errors crash
+                            var handled_by_current = current_fun_type == .Script or current_fun_type == .ScriptEntryPoint or current_fun_type == .Test;
+                            if (!handled_by_current and current_errors != null and current_errors.?.len > 0) {
+                                for (current_errors.?) |cerror_type| {
+                                    if (cerror_type.eql(error_type)) {
+                                        handled_by_current = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!handled_by_current) {
+                                const err_str = try error_type.toStringAlloc(codegen.gc.allocator);
+                                defer codegen.gc.allocator.free(err_str);
+
+                                try codegen.reportErrorFmt(node.location, "Error type `{s}` not handled", .{err_str});
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3526,6 +3596,31 @@ pub const ThrowNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        assert(self.error_value.type_def != null);
+        if (self.error_value.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.error_value.type_def.?.resolved_type.?.Placeholder);
+        } else {
+            const current_error_types = codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+            if (current_error_types == null) {
+                try codegen.reportErrorAt(node.location, "Error not expected in current function");
+            } else {
+                var found_match = false;
+                for (current_error_types.?) |error_type| {
+                    if (error_type.eql(self.error_value.type_def.?)) {
+                        found_match = true;
+                        break;
+                    }
+                }
+
+                if (!found_match) {
+                    const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
+                    defer codegen.gc.allocator.free(error_str);
+
+                    try codegen.reportErrorFmt(node.location, "Error type `{s}` not expected", .{error_str});
+                }
+            }
+        }
 
         _ = try self.error_value.toByteCode(self.error_value, codegen, breaks);
 

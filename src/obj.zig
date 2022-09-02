@@ -266,13 +266,13 @@ pub const ObjFiber = struct {
         }
 
         if (mem.eql(u8, method, "over")) {
-            var native_type = try parser.parseTypeDefFrom("Function over() > bool");
+            const native_type = try parser.parseTypeDefFrom("Function over() > bool");
 
             try parser.gc.objfiber_memberDefs.put("over", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "cancel")) {
-            var native_type = try parser.parseTypeDefFrom("Function cancel() > void");
+            const native_type = try parser.parseTypeDefFrom("Function cancel() > void");
 
             try parser.gc.objfiber_memberDefs.put("cancel", native_type);
 
@@ -498,13 +498,13 @@ pub const ObjPattern = struct {
         }
 
         if (mem.eql(u8, method, "match")) {
-            var native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
+            const native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]? !> str");
 
             try parser.gc.objpattern_memberDefs.put("match", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "matchAll")) {
-            var native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]?");
+            const native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]? !> str");
 
             try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
 
@@ -981,74 +981,74 @@ pub const ObjString = struct {
         }
 
         if (mem.eql(u8, method, "len")) {
-            var native_type = try parser.parseTypeDefFrom("Function len() > num");
+            const native_type = try parser.parseTypeDefFrom("Function len() > num");
 
             try parser.gc.objstring_memberDefs.put("len", native_type);
 
             return native_type;
         }
         if (mem.eql(u8, method, "trim")) {
-            var native_type = try parser.parseTypeDefFrom("Function trim() > str");
+            const native_type = try parser.parseTypeDefFrom("Function trim() > str !> str");
 
             try parser.gc.objstring_memberDefs.put("trim", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
-            var native_type = try parser.parseTypeDefFrom("Function byte(num at) > num");
+            const native_type = try parser.parseTypeDefFrom("Function byte(num at) > num");
 
             try parser.gc.objstring_memberDefs.put("byte", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
-            var native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > num?");
+            const native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > num?");
 
             try parser.gc.objstring_memberDefs.put("indexOf", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "startsWith")) {
-            var native_type = try parser.parseTypeDefFrom("Function startsWith(str needle) > bool");
+            const native_type = try parser.parseTypeDefFrom("Function startsWith(str needle) > bool");
 
             try parser.gc.objstring_memberDefs.put("startsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "endsWith")) {
-            var native_type = try parser.parseTypeDefFrom("Function endsWith(str needle) > bool");
+            const native_type = try parser.parseTypeDefFrom("Function endsWith(str needle) > bool");
 
             try parser.gc.objstring_memberDefs.put("endsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
-            var native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str");
+            const native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str !> str");
 
             try parser.gc.objstring_memberDefs.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
-            var native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str]");
+            const native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str] !> str");
 
             try parser.gc.objstring_memberDefs.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            var native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str");
+            const native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str !> str");
 
             try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
-            var native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
+            const native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str !> str");
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "encodeBase64")) {
-            var native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str");
+            const native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str !> str");
 
             try parser.gc.objstring_memberDefs.put("encodeBase64", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "decodeBase64")) {
-            var native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str");
+            const native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str !> str");
 
             try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
 
@@ -1220,6 +1220,7 @@ pub const ObjFunction = struct {
         name: *ObjString,
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
+        error_types: ?[]const *ObjTypeDef = null,
         parameters: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
         // Storing here the defaults means they can only be non-Obj values
         defaults: std.AutoArrayHashMap(*ObjString, Value),
@@ -1241,6 +1242,12 @@ pub const ObjFunction = struct {
             while (it2.next()) |default| {
                 try gc.markObj(default.key_ptr.*.toObj());
                 try gc.markValue(default.value_ptr.*);
+            }
+
+            if (self.error_types) |error_types| {
+                for (error_types) |error_item| {
+                    try gc.markObj(error_item.toObj());
+                }
             }
         }
     };
@@ -1809,6 +1816,9 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
+                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
+                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
+
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -1823,6 +1833,7 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -1942,6 +1953,9 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "sub")) {
+                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
+                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
+
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -1971,6 +1985,7 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2020,6 +2035,9 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "join")) {
+                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
+                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
+
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -2035,6 +2053,7 @@ pub const ObjList = struct {
                         .def_type = .String,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2387,6 +2406,9 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
+                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
+                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
+
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.key_type,
@@ -2406,6 +2428,7 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2421,6 +2444,9 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
+                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
+                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
+
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.value_type,
@@ -2440,6 +2466,7 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2846,6 +2873,17 @@ pub const ObjTypeDef = struct {
 
                 try writer.writeAll(" > ");
                 try function_def.return_type.toString(writer);
+
+                if (function_def.error_types != null and function_def.error_types.?.len > 0) {
+                    try writer.writeAll(" !> ");
+                    for (function_def.error_types.?) |error_type, index| {
+                        try error_type.toString(writer);
+
+                        if (index < function_def.error_types.?.len - 1) {
+                            try writer.writeAll(", ");
+                        }
+                    }
+                }
             },
             .Type => try writer.writeAll("type"),
             .Void => try writer.writeAll("void"),

@@ -323,7 +323,8 @@ obj{ str name, num age } info = getInfo();
 
 ### Errors
 
-Right now errors can be anything.
+Functions must specify which error they can raise with `!> type1, type2, ...`. Error can't be raised in the global scope. `test` function can ignore errors.
+Error must either be handled with a `catch` clause matching the possible errors type or by adding those error types to the function signature.
 
 ```buzz
 enum(str) MyErrors {
@@ -338,8 +339,15 @@ enum(str) OtherErrors {
     ohno = "Oh no!",
 }
 
-fun willFail() > num {
-    throw MyErrors.failed;
+fun willFail() > num !> MyErrors, OtherErrors, str {
+    num random = rand();
+    if (random == 1) {
+        throw MyErrors.failed;
+    } else if (random == 0) {
+        throw OtherErrors.failed;
+    }
+
+    throw "something else";
 
     return 0;
 }

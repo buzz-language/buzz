@@ -99,6 +99,7 @@ pub const TokenType = enum {
     Equal, // =
     EqualEqual, // ==
     BangEqual, // !=
+    BangGreater, // !>
     GreaterEqual, // >=
     LessEqual, // <=
     QuestionQuestion, // ??

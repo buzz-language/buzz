@@ -241,6 +241,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Equal
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // EqualEqual
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // BangEqual
+        .{ .prefix = null, .infix = null, .precedence = .None }, // BangGreater
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // GreaterEqual
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // LessEqual
         .{ .prefix = null, .infix = binary, .precedence = .NullCoalescing }, // QuestionQuestion
@@ -1240,6 +1241,7 @@ pub const Parser = struct {
             assert(!hanging);
             return try self.importStatement();
         } else if (try self.match(.Throw)) {
+            const start_location = self.parser.previous_token.?;
             // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
             var error_value = try self.expression(false);
 
@@ -1247,6 +1249,8 @@ pub const Parser = struct {
 
             var node = try self.gc.allocator.create(ThrowNode);
             node.* = .{ .error_value = error_value };
+            node.node.location = start_location;
+            node.node.end_location = self.parser.previous_token.?;
 
             return &node.node;
         } else {
@@ -3878,6 +3882,26 @@ pub const Parser = struct {
             function_node.node.type_def.?.resolved_type.?.Function.yield_type = try yield_type.toInstance(self.gc.allocator, &self.gc.type_registry);
         } else {
             function_node.node.type_def.?.resolved_type.?.Function.yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        }
+
+        // Error set
+        if (parsed_return_type and (function_type == .Method or function_type == .Function or function_type == .Anonymous or function_type == .EntryPoint or function_type == .Extern) and (try self.match(.BangGreater))) {
+            var error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+            const end_token: TokenType = if (function_type == .Extern) .Semicolon else .LeftBrace;
+            while (!self.check(end_token) and !self.check(.Eof)) {
+                const error_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+                try error_types.append(error_type);
+
+                if (!self.check(end_token)) {
+                    try self.consume(.Comma, "Expected `,` after error type");
+                }
+            }
+
+            if (error_types.items.len > 0) {
+                function_node.node.type_def.?.resolved_type.?.Function.error_types = error_types.items;
+            } else {
+                error_types.deinit();
+            }
         }
 
         // Parse body

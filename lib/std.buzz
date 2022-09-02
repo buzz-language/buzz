@@ -1,12 +1,8 @@
 || If condition is false throw error with given message
 || @param condition assert condition
 || @param message message printed if `condition` is false
-fun assert(bool condition, str message) > void {
+fun assert(bool condition, str message) > void !> str {
     if (!condition) {
-        | throw Error {
-        |     message = message
-        | };
-
         throw message;
     }
 }
@@ -22,7 +18,7 @@ extern fun parseNumber(str string) > num?;
 
 || Run a buzz file
 || @param filename path to buzz file
-extern fun runFile(str filename) > void;
+extern fun runFile(str filename) > void !> str;
 
 export assert;
 export print;

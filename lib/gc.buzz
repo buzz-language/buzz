@@ -3,7 +3,7 @@
 extern fun allocated() > num;
 
 || Triggers a GC sweep
-extern fun collect() > void;
+extern fun collect() > void !> str;
 
 export allocated;
 export collect;

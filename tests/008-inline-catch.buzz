@@ -12,23 +12,17 @@ enum(str) OtherErrors {
     ohno = "Oh no!",
 }
 
-fun willFail() > num {
+fun willFail() > num !> MyErrors {
     throw MyErrors.failed;
     return 1;
 }
 
-fun willFailToo() > num {
+fun willFailToo() > num !> OtherErrors {
     throw OtherErrors.failed;
     return 1;
 }
 
-fun willFailMore() > num {
-    [num] list = <num>[];
-
-    return list[100];
-}
-
-fun willIndirectlyFail() > num {
+fun willIndirectlyFail() > num !> MyErrors {
     | let error forward to caller
     return willFail();
 }
@@ -42,15 +36,8 @@ test "Inline catch clauses" {
     }) == 0, message: "caught the right error");
 
     assert((willFailToo() catch {
-        (MyErrors error) -> 1,
         (OtherErrors error) -> 0,
     }) == 0, message: "caught the right error");
-
-    assert((willFailMore() catch {
-        (MyErrors error) -> 1,
-        (OtherErrors error) -> 2,
-        default -> 0,
-    }) == 0, message: "default catch");
 
     assert((willIndirectlyFail() catch {
         (MyErrors error) -> 0,

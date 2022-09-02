@@ -1,27 +1,27 @@
 import "lib/math" as math;
 
 || @private
-extern fun BufferNew() > ud;
+extern fun BufferNew() > ud !> str;
 || @private
 extern fun BufferDeinit(ud userdata) > void;
 || @private
 extern fun BufferRead(ud userdata, num n) > str?;
 || @private
-extern fun BufferWrite(ud userdata, str bytes) > void;
+extern fun BufferWrite(ud userdata, str bytes) > void !> str;
 || @private
 extern fun BufferReadBoolean(ud userdata) > bool?;
 || @private
-extern fun BufferWriteBoolean(ud userdata, bool b) > void;
+extern fun BufferWriteBoolean(ud userdata, bool b) > void !> str;
 || @private
-extern fun BufferWriteNumber(ud userdata, num n) > str;
+extern fun BufferWriteNumber(ud userdata, num n) > str !> str;
 || @private
-extern fun BufferReadNumber(ud userdata) > num?;
+extern fun BufferReadNumber(ud userdata) > num? !> str;
 || @private
 extern fun BufferLen(ud userdata) > num;
 || @private
 extern fun BufferCursor(ud userdata) > num;
 || @private
-extern fun BufferBuffer(ud userdata) > str;
+extern fun BufferBuffer(ud userdata) > str !> str;
 || @private
 extern fun BufferEmpty(ud userdata) > void;
 
@@ -31,7 +31,7 @@ object Buffer {
     ud buffer,
 
     || @return A new `Buffer`
-    static fun init() > Buffer {
+    static fun init() > Buffer !> str {
         return Buffer{
             buffer = BufferNew()
         };
@@ -51,7 +51,7 @@ object Buffer {
 
     || Writes a string
     || @param bytes Bytes to write
-    fun write(str bytes) > void {
+    fun write(str bytes) > void !> str {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
@@ -63,19 +63,19 @@ object Buffer {
 
     || Writes a boolean
     || @param boolean Boolean to write
-    fun writeBoolean(bool boolean) > void {
+    fun writeBoolean(bool boolean) > void !> str {
         BufferWriteBoolean(this.buffer, b: boolean);
     }
 
     || Reads a number
     || @return Read number or `null` if nothing to read
-    fun readNumber() > num? {
+    fun readNumber() > num? !> str {
         return BufferReadNumber(this.buffer);
     }
 
     || Writes a number
     || @param number Number to write
-    fun writeNumber(num number) > void {
+    fun writeNumber(num number) > void !> str {
         BufferWriteNumber(this.buffer, n: number);
     }
 
@@ -94,7 +94,7 @@ object Buffer {
         BufferEmpty(this.buffer);
     }
 
-    fun getBuffer() > str {
+    fun getBuffer() > str !> str {
         return BufferBuffer(this.buffer);
     }
 }

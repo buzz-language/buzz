@@ -87,7 +87,7 @@ object Declaration {
     }
 }
 
-fun extractDeclarations([Json] statements) > [Declaration] {
+fun extractDeclarations([Json] statements) > [Declaration] !> str {
     [Declaration] declarations = <Declaration>[];
 
     foreach (num index, Json statement in statements) {
@@ -136,7 +136,7 @@ fun extractDeclarations([Json] statements) > [Declaration] {
     return declarations;
 }
 
-fun getDeclarations(str path) > [Declaration] {
+fun getDeclarations(str path) > [Declaration] !> str {
     File file = File.open(path, mode: FileMode.read);
 
     str source = ast(
@@ -162,7 +162,7 @@ fun genMarkdownDoc([Declaration] declarations) > str {
     return out;
 }
 
-fun main([str] args) > void {
+fun main([str] args) > void !> str {
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {
