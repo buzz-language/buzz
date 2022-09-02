@@ -1417,6 +1417,7 @@ pub const ObjObject = struct {
         const ObjectDefSelf = @This();
 
         name: *ObjString,
+        qualified_name: *ObjString,
         // TODO: Do i need to have two maps ?
         fields: std.StringHashMap(*ObjTypeDef),
         fields_defaults: std.StringHashMap(void),
@@ -1430,9 +1431,10 @@ pub const ObjObject = struct {
         inheritable: bool = false,
         is_class: bool,
 
-        pub fn init(allocator: Allocator, name: *ObjString, is_class: bool) ObjectDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, is_class: bool) ObjectDefSelf {
             return ObjectDefSelf{
                 .name = name,
+                .qualified_name = qualified_name,
                 .is_class = is_class,
                 .fields = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .static_fields = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -2556,12 +2558,14 @@ pub const ObjEnum = struct {
         const EnumDefSelf = @This();
 
         name: *ObjString,
+        qualified_name: *ObjString,
         enum_type: *ObjTypeDef,
         cases: std.ArrayList([]const u8),
 
-        pub fn init(allocator: Allocator, name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
             return EnumDefSelf{
                 .name = name,
+                .qualified_name = qualified_name,
                 .cases = std.ArrayList([]const u8).init(allocator),
                 .enum_type = enum_type,
             };
@@ -2822,15 +2826,15 @@ pub const ObjTypeDef = struct {
                 const object_def = self.resolved_type.?.Object;
 
                 try writer.writeAll(if (object_def.is_class) "class " else "object ");
-                try writer.writeAll(object_def.name.string);
+                try writer.writeAll(object_def.qualified_name.string);
             },
             .Enum => {
                 try writer.writeAll("enum ");
-                try writer.writeAll(self.resolved_type.?.Enum.name.string);
+                try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
             },
 
-            .ObjectInstance => try writer.writeAll(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string),
-            .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string),
+            .ObjectInstance => try writer.writeAll(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.qualified_name.string),
+            .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string),
 
             .List => {
                 try writer.writeAll("[");

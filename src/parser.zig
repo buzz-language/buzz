@@ -1269,7 +1269,14 @@ pub const Parser = struct {
 
         // Get object name
         try self.consume(.Identifier, "Expected object name.");
-        var object_name: Token = self.parser.previous_token.?.clone();
+        const object_name: Token = self.parser.previous_token.?.clone();
+
+        // Qualified name to avoid cross script collision
+        const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+        defer self.gc.allocator.free(qualifier);
+        var qualified_object_name = std.ArrayList(u8).init(self.gc.allocator);
+        defer qualified_object_name.deinit();
+        try qualified_object_name.writer().print("{s}.{s}", .{ qualifier, object_name.lexeme });
 
         // Create a placeholder for self-reference which will be resolved at the end when declaring the object
         var object_placeholder = self.globals.items[try self.declarePlaceholder(object_name, null)].type_def;
@@ -1277,6 +1284,7 @@ pub const Parser = struct {
         var object_def = ObjObject.ObjectDef.init(
             self.gc.allocator,
             try self.gc.copyString(object_name.lexeme),
+            try self.gc.copyString(qualified_object_name.items),
             is_class,
         );
 
@@ -2146,9 +2154,17 @@ pub const Parser = struct {
         try self.consume(.Identifier, "Expected enum name.");
         var enum_name: Token = self.parser.previous_token.?.clone();
 
+        // Qualified name to avoid cross script collision
+        const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+        defer self.gc.allocator.free(qualifier);
+        var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+        defer qualified_name.deinit();
+        try qualified_name.writer().print("{s}.{s}", .{ qualifier, enum_name.lexeme });
+
         var enum_def: ObjEnum.EnumDef = ObjEnum.EnumDef.init(
             self.gc.allocator,
             try self.gc.copyString(enum_name.lexeme),
+            try self.gc.copyString(qualified_name.items),
             enum_case_type,
         );
 
@@ -2239,9 +2255,16 @@ pub const Parser = struct {
         node.* = ObjectInitNode.init(self.gc.allocator, null);
         node.node.location = start_location;
 
+        const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+        defer self.gc.allocator.free(qualifier);
+        var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+        defer qualified_name.deinit();
+        try qualified_name.writer().print("{s}.anonymous", .{qualifier});
+
         var object_def = ObjObject.ObjectDef.init(
             self.gc.allocator,
             try self.gc.copyString("anonymous"),
+            try self.gc.copyString(qualified_name.items),
             false,
         );
 
@@ -4380,9 +4403,16 @@ pub const Parser = struct {
     fn parseObjType(self: *Self) !*ObjTypeDef {
         try self.consume(.LeftBrace, "Expected `{` after `obj`");
 
+        const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+        defer self.gc.allocator.free(qualifier);
+        var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+        defer qualified_name.deinit();
+        try qualified_name.writer().print("{s}.anonymous", .{qualifier});
+
         var object_def = ObjObject.ObjectDef.init(
             self.gc.allocator,
             try self.gc.copyString("anonymous"),
+            try self.gc.copyString(qualified_name.items),
             false,
         );
 
