@@ -4175,6 +4175,8 @@ pub const Parser = struct {
                     if ((try self.resolveGlobal(prefix, Token.identifier(global.name.string))) != null) {
                         try self.reportError("Shadowed global");
                     }
+
+                    global.*.prefix = prefix;
                 }
 
                 // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
@@ -4529,7 +4531,6 @@ pub const Parser = struct {
                 if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
                     if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
-
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ObjectInstance)) {
@@ -4549,7 +4550,7 @@ pub const Parser = struct {
                         }
 
                         return index;
-                    } else {
+                    } else if (global.prefix == null) {
                         try self.reportError("A global with the same name already exists.");
                     }
                 }
