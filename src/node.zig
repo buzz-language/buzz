@@ -92,6 +92,8 @@ pub const ParseNodeType = enum(u8) {
     Import,
 };
 
+pub const ToJsonError = Allocator.Error || std.fmt.BufPrintError;
+
 pub const ParseNode = struct {
     const Self = @This();
 
@@ -107,7 +109,7 @@ pub const ParseNode = struct {
     // Does this node closes a scope
     ends_scope: ?std.ArrayList(OpCode) = null,
 
-    toJson: fn (*Self, std.ArrayList(u8).Writer) anyerror!void = stringify,
+    toJson: fn (*Self, std.ArrayList(u8).Writer) ToJsonError!void = stringify,
     toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
     toValue: fn (*Self, *GarbageCollector) anyerror!Value = val,
     isConstant: fn (*Self) bool,
@@ -176,7 +178,7 @@ pub const ParseNode = struct {
         }
     }
 
-    fn stringify(self: *Self, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(self: *Self, out: std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("\"type_def\": \"");
         if (self.type_def) |type_def| {
             try type_def.toString(out);
@@ -266,7 +268,7 @@ pub const ExpressionNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Expression\", ", .{});
@@ -374,7 +376,7 @@ pub const NamedVariableNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -465,7 +467,7 @@ pub const NumberNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Number\", \"constant\": ", .{});
@@ -534,7 +536,7 @@ pub const BooleanNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Boolean\", \"constant\": \"{}\", ", .{self.constant});
@@ -595,7 +597,7 @@ pub const StringLiteralNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -656,7 +658,7 @@ pub const PatternNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Pattern\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -767,7 +769,7 @@ pub const StringNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"String\", \"elements\": [");
@@ -844,7 +846,7 @@ pub const NullNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("{\"node\": \"Null\", ");
 
         try ParseNode.stringify(node, out);
@@ -941,7 +943,7 @@ pub const ListNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"List\", \"items\": [");
@@ -1080,7 +1082,7 @@ pub const MapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Map\", \"items\": [");
@@ -1190,7 +1192,7 @@ pub const UnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unwrap\", \"unwrapped\": ");
@@ -1280,7 +1282,7 @@ pub const ForceUnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForceUnwrap\", \"unwrapped\": ");
@@ -1357,7 +1359,7 @@ pub const IsNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Is\", \"left\": ");
@@ -1490,7 +1492,7 @@ pub const UnaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unary\", \"left\": ");
@@ -2007,7 +2009,7 @@ pub const BinaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Binary\", \"left\": ");
@@ -2186,7 +2188,7 @@ pub const SubscriptNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Subscript\", \"subscripted\": ");
@@ -2376,7 +2378,7 @@ pub const FunctionNode = struct {
         return current_function;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -2526,7 +2528,7 @@ pub const YieldNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Yield\", \"expression\": ");
@@ -2603,7 +2605,7 @@ pub const ResolveNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resolve\", \"fiber\": ");
@@ -2680,7 +2682,7 @@ pub const ResumeNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resume\", \"fiber\": ");
@@ -2752,7 +2754,7 @@ pub const AsyncCallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"AsyncCall\", \"call\": ");
@@ -3183,7 +3185,7 @@ pub const CallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Call\"");
@@ -3308,7 +3310,7 @@ pub const FunDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
@@ -3400,7 +3402,7 @@ pub const VarDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -3525,7 +3527,7 @@ pub const EnumNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Enum\", \"cases\": [");
@@ -3632,7 +3634,7 @@ pub const ThrowNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Throw\", \"error_value\": ");
@@ -3697,7 +3699,7 @@ pub const BreakNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("{\"node\": \"Break\" }");
     }
 
@@ -3752,7 +3754,7 @@ pub const ContinueNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("{\"node\": \"Continue\" }");
     }
 
@@ -3849,7 +3851,7 @@ pub const IfNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"If\", \"condition\": ");
@@ -3944,7 +3946,7 @@ pub const ReturnNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Return\", ");
@@ -4067,7 +4069,7 @@ pub const ForNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
@@ -4301,7 +4303,7 @@ pub const ForEachNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForEach\", ");
@@ -4426,7 +4428,7 @@ pub const WhileNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"While\", \"condition\": ");
@@ -4533,7 +4535,7 @@ pub const DoUntilNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"DoUntil\", \"condition\": ");
@@ -4616,7 +4618,7 @@ pub const BlockNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Block\", \"statements\": [");
@@ -4712,7 +4714,7 @@ pub const SuperNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", \"this\": ", .{self.identifier.lexeme});
@@ -4867,7 +4869,7 @@ pub const DotNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Dot\", \"callee\": ");
@@ -5032,7 +5034,7 @@ pub const ObjectInitNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectInit\", \"properties\": {");
@@ -5200,7 +5202,7 @@ pub const ObjectDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectDeclaration\", \"methods\": {");
@@ -5308,7 +5310,7 @@ pub const ExportNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Export\", \"identifier\": \"{s}\", ", .{self.identifier.lexeme});
@@ -5384,7 +5386,7 @@ pub const ImportNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) anyerror!void {
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string.?});

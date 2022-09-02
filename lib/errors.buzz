@@ -1,0 +1,118 @@
+enum FileSystemError {
+    AccessDenied,
+    BadPathName,
+    DeviceBusy,
+    DiskQuota,
+    FileBusy,
+    FileSystem,
+    FileTooBig,
+    InputOutput,
+    InvalidHandle,
+    InvalidUtf8,
+    IsDir,
+    LinkQuotaExceeded,
+    NameTooLong,
+    NoDevice,
+    NoSpaceLeft,
+    NotDir,
+    NotSupported,
+    PathAlreadyExists,
+    PipeBusy,
+    ProcessFdQuotaExceeded,
+    ReadOnlyFileSystem,
+    RenameAcrossMountPoints,
+    SharingViolation,
+    SymLinkLoop,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    WouldBlock,
+    FileLocksNotSupported,
+}
+
+enum ExecError {
+    CurrentWorkingDirectoryUnlinked,
+    ResourceLimitReached,
+    WaitAbandoned,
+    WaitTimeOut,
+    InvalidFileDescriptor,
+    PermissionDenied,
+    InvalidExe,
+    InvalidUserId,
+    InvalidName,
+    TooBig,
+    ChildExecFailed,
+}
+
+enum SocketError {
+    AddressFamilyNotSupported,
+    AddressInUse,
+    AddressNotAvailable,
+    AddressNotResolved,
+    AlreadyBound,
+    AlreadyConnected,
+    BlockedByFirewall,
+    ConnectionAborted,
+    ConnectionPending,
+    ConnectionRefused,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    FileDescriptorNotASocket,
+    FileNotFound,
+    HostLacksNetworkAddresses,
+    InvalidProtocolOption,
+    NameServerFailure,
+    NetworkSubsystemFailed,
+    NetworkUnreachable,
+    OperationNotSupported,
+    PermissionDenied,
+    ProcessFdQuotaExceeded,
+    ProtocolFailure,
+    ProtocolFamilyNotAvailable,
+    ProtocolNotSupported,
+    ServiceUnavailable,
+    SocketNotBound,
+    SocketNotListening,
+    SocketTypeNotSupported,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    TemporaryNameServerFailure,
+    TimeoutTooBig,
+    UnknownHostName,
+    WouldBlock,
+}
+
+object FileNotFoundError {}
+
+enum ReadWriteError {
+    OperationAborted,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    StreamTooLong,
+    NotOpenForWriting,
+    LockViolation,
+}
+
+object OutOfMemoryError {}
+object CompileError {}
+object InterpretError {}
+object UnexpectedError {}
+object InvalidArgumentError {}
+object OverflowError {}
+object UnderflowError {}
+object NotYetImplementedError {}
+
+export FileSystemError;
+export ExecError;
+export SocketError;
+export FileNotFoundError;
+export ReadWriteError;
+export OutOfMemoryError;
+export CompileError;
+export InterpretError;
+export UnexpectedError;
+export InvalidArgumentError;
+export OverflowError;
+export UnderflowError;
+export NotYetImplementedError;

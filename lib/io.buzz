@@ -1,17 +1,17 @@
-object FileNotFoundError {}
+import "lib/errors";
 
 || @private
-extern fun FileOpen(str filename, num mode) > num !> FileNotFoundError, str;
+extern fun FileOpen(str filename, num mode) > num !> FileNotFoundError, FileSystemError, UnexpectedError;
 || @private
 extern fun FileClose(num fd) > void;
 || @private
-extern fun FileReadAll(num fd) > str !> str;
+extern fun FileReadAll(num fd) > str !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileReadLine(num fd) > str? !> str;
+extern fun FileReadLine(num fd) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileRead(num fd, num n) > str? !> str;
+extern fun FileRead(num fd, num n) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
 || @private
-extern fun FileWrite(num fd, str bytes) > void !> str;
+extern fun FileWrite(num fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
 || @private
 extern fun getStdIn() > num;
 || @private
@@ -35,7 +35,7 @@ object File {
     || @param filename Path of file to open
     || @param mode Mode with which to open it
     || @return opened file
-    static fun open(str filename, FileMode mode) > File !> FileNotFoundError, str {
+    static fun open(str filename, FileMode mode) > File !> FileNotFoundError, FileSystemError, UnexpectedError {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
@@ -47,24 +47,24 @@ object File {
     }
 
     || Reads file until `EOF`
-    fun readAll() > str !> str {
+    fun readAll() > str !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadAll(this.fd);
     }
 
     || Reads next line, returns null if nothing to read
-    fun readLine() > str? !> str {
+    fun readLine() > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadLine(this.fd);
     }
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
-    fun read(num n) > str? !> str {
+    fun read(num n) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
         return FileRead(this.fd, n: n);
     }
 
     || Write bytes
     || @param bytes string to write
-    fun write(str bytes) > void !> str {
+    fun write(str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError {
         FileWrite(this.fd, bytes: bytes);
     }
 }
@@ -76,8 +76,13 @@ const File stdout = File { fd = getStdOut() };
 || stderr
 const File stderr = File { fd = getStdErr() };
 
+|| Run a buzz file
+|| @param filename path to buzz file
+extern fun runFile(str filename) > void !> CompileError, InterpretError, OutOfMemoryError, FileSystemError, ReadWriteError;
+
 export FileMode;
 export File;
 export stdin;
 export stdout;
 export stderr;
+export runFile;

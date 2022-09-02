@@ -1,7 +1,10 @@
+import "lib/std";
+import "lib/errors";
+
 || Parse `source` and return the abstract syntax tree in JSON
 || @param source the buzz source
 || @param script name (used to fetch eventual extern functions)
 || @return AST as JSON
-extern fun ast(str source, str scriptName) > str !> str;
+extern fun ast(str source, str scriptName) > str !> OutOfMemoryError, CompileError;
 
 export ast;

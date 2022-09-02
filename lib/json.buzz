@@ -1,5 +1,9 @@
 import "lib/std";
 
+object JsonParseError {
+    str? message = null,
+}
+
 || Parse JSON string into a `Json` tree
 || @private
 object JsonParser {
@@ -40,9 +44,9 @@ object JsonParser {
         return true;
     }
 
-    fun consume(str expected) > void !> str {
+    fun consume(str expected) > void !> JsonParseError, str {
         if (!this.match(expected)) {
-            throw "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}";
+            throw JsonParseError{ message = "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}" };
         }
     }
 
@@ -58,11 +62,11 @@ object JsonParser {
         }
     }
 
-    fun next() > Json !> str {
+    fun next() > Json !> JsonParseError, str {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
-            throw "Could not parse JSON: end of string";
+            throw JsonParseError{ message = "Could not parse JSON: end of string" };
         }
 
         const str char = this.advance() ?? "\00";
@@ -85,10 +89,10 @@ object JsonParser {
             return Json{};
         }
 
-        throw "Could not parse JSON: unexpected character `{char}` at offset {this.offset}";
+        throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
     }
 
-    fun array() > [Json] !> str {
+    fun array() > [Json] !> JsonParseError, str {
         [Json] array = <Json>[];
 
         while (true) {
@@ -112,7 +116,7 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str, Json} !> str {
+    fun map() > {str, Json} !> JsonParseError, str {
         {str, Json} map = <str, Json>{};
 
         while (true) {
@@ -145,7 +149,7 @@ object JsonParser {
         return map;
     }
 
-    fun number(str parsed) > num !> str {
+    fun number(str parsed) > num !> JsonParseError, str {
         str number = parsed;
 
         while (parseNumber(this.peek() ?? "NaN") != null or this.peek() == ".") {
@@ -161,7 +165,7 @@ object JsonParser {
         num? parsed = parseNumber(number);
         
         if (parsed == null) {
-            throw "Could not parse JSON: `{number}` is not a number";
+            throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
         }
 
         return parsed!;
@@ -212,7 +216,7 @@ object Json {
     || Query the json element at `path`, if nothing matches return `Json{}`
     || @param path Path to query
     || @return Found `Json` or `Json{}` (which is `null`)
-    fun q([str] path) > Json !> str {
+    fun q([str] path) > Json !> JsonParseError, str {
         if (this.map != null) {
             if (path.len() > 1) {
                 return (this.map![path[0]] ?? Json{}).q(path.sub(1, len: null));
@@ -270,9 +274,10 @@ object Json {
     || Decode string to a Json instance
     || @param str json The JSON string
     || @return Json
-    static fun decode(str json) > Json !> str {
+    static fun decode(str json) > Json !> JsonParseError, str {
         return JsonParser{ source = json }.next();
     }
 }
 
 export Json;
+export JsonParseError;

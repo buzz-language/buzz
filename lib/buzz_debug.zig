@@ -13,22 +13,9 @@ export fn ast(vm: *api.VM) c_int {
     var source_len: usize = 0;
     const source = api.Value.bz_valueToString(vm.bz_peek(1), &source_len);
 
-    if (source_len == 0) {
-        vm.bz_throwString("Source is empty", "Source is empty".len);
-
-        return -1;
-    }
-
     var script_len: usize = 0;
     const script_name = api.Value.bz_valueToString(vm.bz_peek(0), &script_len);
 
-    if (script_len == 0) {
-        vm.bz_throwString("Script name is empty", "Script name is empty".len);
-
-        return -1;
-    }
-
-    // FIXME: should share strings between gc
     var gc = GarbageCollector.init(api.VM.allocator);
     gc.type_registry = TypeRegistry{
         .gc = &gc,
@@ -50,8 +37,14 @@ export fn ast(vm: *api.VM) c_int {
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    const root = parser.parse(source.?[0..source_len], script_name.?[0..script_len]) catch {
-        vm.bz_throwString("Could not build AST", "Could not build AST".len);
+    const root = parser.parse(source.?[0..source_len], script_name.?[0..script_len]) catch |err| {
+        switch (err) {
+            error.OutOfMemory,
+            error.Overflow,
+            error.InvalidCharacter,
+            error.NoSpaceLeft,
+            => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+        }
 
         return -1;
     };
@@ -59,15 +52,19 @@ export fn ast(vm: *api.VM) c_int {
     if (root != null) {
         var out = std.ArrayList(u8).init(api.VM.allocator);
 
-        root.?.toJson(root.?, out.writer()) catch {
-            vm.bz_throwString("Could not build AST", "Could not build AST".len);
+        root.?.toJson(root.?, out.writer()) catch |err| {
+            switch (err) {
+                error.OutOfMemory,
+                error.NoSpaceLeft,
+                => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+            }
 
             return -1;
         };
 
         vm.bz_pushString(
             api.ObjString.bz_string(vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
-                vm.bz_throwString("Could not build AST", "Could not build AST".len);
+                vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
                 return -1;
             },
@@ -76,7 +73,7 @@ export fn ast(vm: *api.VM) c_int {
         return 1;
     }
 
-    vm.bz_throwString("Could not parse buzz program", "Could not parse buzz program".len);
+    vm.bz_pushError("lib.errors.CompileError", "lib.errors.CompileError".len);
 
     return -1;
 }

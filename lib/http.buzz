@@ -1,6 +1,10 @@
 import "lib/std";
 import "lib/os";
 
+object HttpParseError {
+    str? message = null,
+}
+
 object Request {
     str method,
     {str, str} headers,
@@ -8,13 +12,13 @@ object Request {
     num contentLength = 0,
     str? body = null,
 
-    static fun parse(str raw) > Request !> str {
+    static fun parse(str raw) > Request !> HttpParseError, str {
         print(raw);
         [str] lines = raw.split("\n");
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
 
         if (methodAndUrl == null) {
-            throw "Could not parse request method and url";
+            throw HttpParseError{ message = "Could not parse request method and url" };
         }
 
         str method = methodAndUrl![1];
@@ -33,7 +37,7 @@ object Request {
             [str]? headerMatch = _^([^:]+): (.+)_.match(line);
 
             if (headerMatch == null) {
-                throw "Could not parse request headers";
+                throw HttpParseError{ message = "Could not parse request headers" };
             }
 
             headers[headerMatch![1]] = headerMatch![2];

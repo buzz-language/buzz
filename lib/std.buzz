@@ -18,12 +18,7 @@ extern fun print(str value) > void;
 || @return number parsed or null
 extern fun parseNumber(str string) > num?;
 
-|| Run a buzz file
-|| @param filename path to buzz file
-extern fun runFile(str filename) > void !> str;
-
 export assert;
 export print;
 export parseNumber;
-export runFile;
 export AssertError;

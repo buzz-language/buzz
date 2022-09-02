@@ -1,3 +1,5 @@
+import "lib/errors";
+
 || @return absolute value of n
 extern fun abs(num n) > num;
 
@@ -57,7 +59,7 @@ extern fun bzsqrt(num n) > num;
 extern fun bztan(num n) > num;
 
 || @return `x`^`y`
-extern fun pow(num x, num y) > num !> str;
+extern fun pow(num x, num y) > num !> OverflowError, UnderflowError;
 
 export abs;
 export acos;

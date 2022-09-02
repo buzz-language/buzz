@@ -4,7 +4,7 @@ const native_endian = @import("builtin").target.cpu.arch.endian();
 
 export fn BufferNew(vm: *api.VM) c_int {
     var buffer = api.VM.allocator.create(Buffer) catch {
-        vm.bz_throwString("Could not create buffer", "Could not create buffer".len);
+        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
@@ -15,7 +15,7 @@ export fn BufferNew(vm: *api.VM) c_int {
 
         return 1;
     } else {
-        vm.bz_throwString("Could not create buffer", "Could not create buffer".len);
+        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     }
@@ -182,10 +182,9 @@ export fn BufferWrite(vm: *api.VM) c_int {
     }
 
     buffer.write(bytes.?[0..len]) catch |err| {
-        if (err == Buffer.Error.WriteWhileReading) {
-            vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
-        } else {
-            vm.bz_throwString("Could not write bytes", "Could not write bytes".len);
+        switch (err) {
+            Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+            error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
         return -1;
@@ -211,10 +210,9 @@ export fn BufferWriteBoolean(vm: *api.VM) c_int {
     const value = vm.bz_peek(0).bz_valueToBool();
 
     buffer.writeBool(value) catch |err| {
-        if (err == Buffer.Error.WriteWhileReading) {
-            vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
-        } else {
-            vm.bz_throwString("Could not write boolean", "Could not write boolean".len);
+        switch (err) {
+            Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+            error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
         return -1;
@@ -229,19 +227,27 @@ export fn BufferReadNumber(vm: *api.VM) c_int {
     const is_integer = buffer.read(1);
     if (is_integer) |uis_integer| {
         if (uis_integer[0] == 1) {
-            if (buffer.readInteger() catch {
-                vm.bz_throwString("Could not read number", "Could not read number".len);
+            if (buffer.readInteger() catch |err| {
+                switch (err) {
+                    error.EndOfStream => {
+                        vm.bz_pushNull();
 
-                return -1;
+                        return 1;
+                    },
+                }
             }) |value| {
                 vm.bz_pushInteger(value);
 
                 return 1;
             }
-        } else if (buffer.readFloat() catch {
-            vm.bz_throwString("Could not read number", "Could not read number".len);
+        } else if (buffer.readFloat() catch |err| {
+            switch (err) {
+                error.EndOfStream => {
+                    vm.bz_pushNull();
 
-            return -1;
+                    return 1;
+                },
+            }
         }) |value| {
             vm.bz_pushFloat(value);
 
@@ -259,20 +265,18 @@ export fn BufferWriteNumber(vm: *api.VM) c_int {
 
     if (number.bz_valueIsInteger()) {
         buffer.writeInteger(number.bz_valueToInteger()) catch |err| {
-            if (err == Buffer.Error.WriteWhileReading) {
-                vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
-            } else {
-                vm.bz_throwString("Could not write number", "Could not write number".len);
+            switch (err) {
+                Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+                error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
             }
 
             return -1;
         };
     } else {
         buffer.writeFloat(number.bz_valueToFloat()) catch |err| {
-            if (err == Buffer.Error.WriteWhileReading) {
-                vm.bz_throwString("Can't write to buffer while it's being read", "Can't write to buffer while it's being read".len);
-            } else {
-                vm.bz_throwString("Could not write number", "Could not write number".len);
+            switch (err) {
+                Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+                error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
             }
 
             return -1;
@@ -312,7 +316,8 @@ export fn BufferBuffer(vm: *api.VM) c_int {
     if (api.ObjString.bz_string(vm, if (buffer.buffer.items.len > 0) @ptrCast([*]const u8, buffer.buffer.items) else null, buffer.buffer.items.len)) |objstring| {
         vm.bz_pushString(objstring);
     } else {
-        vm.bz_throwString("Could not get buffer", "Could not get buffer".len);
+        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+
         return -1;
     }
 

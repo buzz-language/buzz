@@ -1,4 +1,5 @@
 import "lib/std";
+import "lib/io";
 
 test "runFile" {
     runFile("tests/utils/testing.buzz");

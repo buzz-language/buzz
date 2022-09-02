@@ -11,6 +11,7 @@ const Value = _value.Value;
 const valueToString = _value.valueToString;
 const ObjString = _obj.ObjString;
 const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjObject = _obj.ObjObject;
 const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -340,6 +341,14 @@ export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void 
     );
 }
 
+export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void {
+    const enum_set = ObjEnum.cast(bz_getQualified(self, qualified_name, name_len).?.Obj).?;
+
+    self.push(
+        bz_getEnumCase(enum_set, self, case, case_len).?.toValue(),
+    );
+}
+
 export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ?*Value {
     for (self.globals.items) |*global| {
         if (global.* == .Obj) {
@@ -378,5 +387,28 @@ export fn bz_valueToObject(value: *Value) *ObjObject {
 }
 
 export fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void {
+    vm.push(payload.toValue());
+}
+
+export fn bz_getEnumCase(self: *ObjEnum, vm: *VM, case: [*]const u8, len: usize) ?*ObjEnumInstance {
+    var case_index: usize = 0;
+
+    for (self.type_def.resolved_type.?.Enum.cases.items) |enum_case, index| {
+        if (std.mem.eql(u8, case[0..len], enum_case)) {
+            case_index = index;
+            break;
+        }
+    }
+
+    return vm.gc.allocateObject(
+        ObjEnumInstance,
+        ObjEnumInstance{
+            .enum_ref = self,
+            .case = @intCast(u8, case_index),
+        },
+    ) catch null;
+}
+
+export fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void {
     vm.push(payload.toValue());
 }

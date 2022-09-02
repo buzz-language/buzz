@@ -1,27 +1,29 @@
-import "lib/math" as math;
+import "lib/errors";
+
+object WriteWhileReadingError {}
 
 || @private
-extern fun BufferNew() > ud !> str;
+extern fun BufferNew() > ud !> OutOfMemoryError;
 || @private
 extern fun BufferDeinit(ud userdata) > void;
 || @private
 extern fun BufferRead(ud userdata, num n) > str?;
 || @private
-extern fun BufferWrite(ud userdata, str bytes) > void !> str;
+extern fun BufferWrite(ud userdata, str bytes) > void !> OutOfMemoryError, WriteWhileReadingError;
 || @private
 extern fun BufferReadBoolean(ud userdata) > bool?;
 || @private
-extern fun BufferWriteBoolean(ud userdata, bool b) > void !> str;
+extern fun BufferWriteBoolean(ud userdata, bool b) > void !> OutOfMemoryError, WriteWhileReadingError;
 || @private
-extern fun BufferWriteNumber(ud userdata, num n) > str !> str;
+extern fun BufferWriteNumber(ud userdata, num n) > str !> OutOfMemoryError, WriteWhileReadingError;
 || @private
-extern fun BufferReadNumber(ud userdata) > num? !> str;
+extern fun BufferReadNumber(ud userdata) > num?;
 || @private
 extern fun BufferLen(ud userdata) > num;
 || @private
 extern fun BufferCursor(ud userdata) > num;
 || @private
-extern fun BufferBuffer(ud userdata) > str !> str;
+extern fun BufferBuffer(ud userdata) > str !> OutOfMemoryError;
 || @private
 extern fun BufferEmpty(ud userdata) > void;
 
@@ -31,7 +33,7 @@ object Buffer {
     ud buffer,
 
     || @return A new `Buffer`
-    static fun init() > Buffer !> str {
+    static fun init() > Buffer !> OutOfMemoryError {
         return Buffer{
             buffer = BufferNew()
         };
@@ -51,7 +53,7 @@ object Buffer {
 
     || Writes a string
     || @param bytes Bytes to write
-    fun write(str bytes) > void !> str {
+    fun write(str bytes) > void !> OutOfMemoryError, WriteWhileReadingError {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
@@ -63,19 +65,19 @@ object Buffer {
 
     || Writes a boolean
     || @param boolean Boolean to write
-    fun writeBoolean(bool boolean) > void !> str {
+    fun writeBoolean(bool boolean) > void !> OutOfMemoryError, WriteWhileReadingError {
         BufferWriteBoolean(this.buffer, b: boolean);
     }
 
     || Reads a number
     || @return Read number or `null` if nothing to read
-    fun readNumber() > num? !> str {
+    fun readNumber() > num? {
         return BufferReadNumber(this.buffer);
     }
 
     || Writes a number
     || @param number Number to write
-    fun writeNumber(num number) > void !> str {
+    fun writeNumber(num number) > void !> OutOfMemoryError, WriteWhileReadingError {
         BufferWriteNumber(this.buffer, n: number);
     }
 
@@ -94,9 +96,10 @@ object Buffer {
         BufferEmpty(this.buffer);
     }
 
-    fun getBuffer() > str !> str {
+    fun getBuffer() > str !> OutOfMemoryError {
         return BufferBuffer(this.buffer);
     }
 }
 
 export Buffer;
+export WriteWhileReadingError;

@@ -4173,7 +4173,7 @@ pub const Parser = struct {
 
                     // Search for name collision
                     if ((try self.resolveGlobal(prefix, Token.identifier(global.name.string))) != null) {
-                        try self.reportError("Shadowed global");
+                        try self.reportErrorFmt("Shadowed global `{s}`", .{global.name.string});
                     }
 
                     global.*.prefix = prefix;

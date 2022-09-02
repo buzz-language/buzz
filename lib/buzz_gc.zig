@@ -9,7 +9,7 @@ export fn allocated(vm: *api.VM) c_int {
 
 export fn collect(vm: *api.VM) c_int {
     if (!vm.bz_collect()) {
-        vm.bz_throwString("Could not collect", "Could not collect".len);
+        vm.bz_pushError("lib.gc.CollectError", "lib.gc.CollectError".len);
 
         return -1;
     }

@@ -144,8 +144,11 @@ export fn pow(vm: *api.VM) c_int {
         );
     } else {
         vm.bz_pushInteger(
-            std.math.powi(i64, n_i.?, p_i.?) catch {
-                vm.bz_throwString("Could not get pow", "Could not get pow".len);
+            std.math.powi(i64, n_i.?, p_i.?) catch |err| {
+                switch (err) {
+                    error.Overflow => vm.bz_pushError("lib.std.Overflow", "lib.std.Overflow".len),
+                    error.Underflow => vm.bz_pushError("lib.std.Underflow", "lib.std.Underflow".len),
+                }
 
                 return -1;
             },

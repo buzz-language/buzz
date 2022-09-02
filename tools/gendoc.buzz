@@ -3,6 +3,7 @@ import "lib/debug";
 import "lib/json";
 import "lib/io";
 import "lib/fs";
+import "lib/errors";
 
 object Declaration {
     str declarationType,
@@ -87,7 +88,7 @@ object Declaration {
     }
 }
 
-fun extractDeclarations([Json] statements) > [Declaration] !> str {
+fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError, str {
     [Declaration] declarations = <Declaration>[];
 
     foreach (num index, Json statement in statements) {
@@ -136,7 +137,7 @@ fun extractDeclarations([Json] statements) > [Declaration] !> str {
     return declarations;
 }
 
-fun getDeclarations(str path) > [Declaration] !> str {
+fun getDeclarations(str path) > [Declaration] !> FileNotFoundError, OutOfMemoryError, AssertError, FileSystemError, UnexpectedError, ReadWriteError, CompileError, JsonParseError, str {
     File file = File.open(path, mode: FileMode.read);
 
     str source = ast(
@@ -162,7 +163,7 @@ fun genMarkdownDoc([Declaration] declarations) > str {
     return out;
 }
 
-fun main([str] args) > void !> str {
+fun main([str] args) > void !> FileSystemError, FileNotFoundError, OutOfMemoryError, AssertError, ReadWriteError, InvalidArgumentError, UnexpectedError, CompileError, JsonParseError, str {
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {

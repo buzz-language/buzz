@@ -1,14 +1,15 @@
 import "lib/os" as os;
+import "lib/errors";
 
 || Returns current directory absolute path
 || @return current directory
-fun currentDirectory() > str !> str {
+fun currentDirectory() > str !> FileSystemError, OutOfMemoryError, InvalidArgumentError {
     str? dir = os.env("PWD");
 
     if (dir != null) {
         return dir!;
     } else {
-        throw "Could not get current directory";
+        throw FileSystemError.BadPathName;
     }
 
     | TODO: should not be required since there's throw in the else branch
@@ -17,20 +18,20 @@ fun currentDirectory() > str !> str {
 
 || Creates directory path
 || @param path directory to create
-extern fun makeDirectory(str path) > void !> str;
+extern fun makeDirectory(str path) > void !> FileSystemError, FileNotFoundError, UnexpectedError;
 
 || Deletes directory or file at path
 || @param path direcotry/file to delete
-extern fun delete(str path) > void !> str;
+extern fun delete(str path) > void !> FileSystemError, FileNotFoundError, UnexpectedError;
 
 || Moves/renames file
 || @param source file to move
 || @param destination where to move it
-extern fun move(str source, str destination) > void !> str;
+extern fun move(str source, str destination) > void !> FileSystemError, FileNotFoundError, UnexpectedError, OutOfMemoryError;
 
 || List files under path
 || @param path directory to list
-extern fun list(str path) > [str] !> str;
+extern fun list(str path) > [str] !> FileSystemError, OutOfMemoryError, UnexpectedError, FileNotFoundError;
 
 export currentDirectory;
 export makeDirectory;

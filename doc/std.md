@@ -8,12 +8,13 @@
 - [math](#math)
 - [buffer](#buffer)
 - [os](#os)
+- [errors](#errors)
 - [fs](#fs)
 - [io](#io)
 - [json](#json)
 ## debug
 
-### ` fun ast(str source, str scriptName) > str !> str`
+### ` fun ast(str source, str scriptName) > str !> lib.errors.OutOfMemoryError, lib.errors.CompileError`
 Parse `source` and return the abstract syntax tree in JSON
 - **`script`:** name (used to fetch eventual extern functions)
 
@@ -21,15 +22,19 @@ Parse `source` and return the abstract syntax tree in JSON
 **Returns:**  AST as JSON
 ## gc
 
+### ` object lib.gc.CollectError`
+
 ### ` fun allocated() > num`
 Returns the number of allocated bytes
 
 **Returns:**  allocated bytes
-### ` fun collect() > void !> str`
+### ` fun collect() > void !> lib.gc.CollectError`
 Triggers a GC sweep
 ## std
 
-### ` fun assert(bool condition, str message) > void !> str`
+### ` object lib.std.AssertError`
+
+### ` fun assert(bool condition, str message) > void !> lib.std.AssertError`
 If condition is false throw error with given message
 - **`message`:** message printed if `condition` is false
 
@@ -43,13 +48,9 @@ Parse number, returns false if string does not represent a number
 
 
 **Returns:**  number parsed or null
-### ` fun runFile(str filename) > void !> str`
-Run a buzz file
-- **`filename`:** path to buzz file
-
 ## http
 
-### ` object Request`
+### ` object lib.http.Request`
 
 ## math
 
@@ -117,13 +118,15 @@ Convert degree to radian
 
 
 **Returns:**  tan of n
-### ` fun pow(num x, num y) > num !> str`
+### ` fun pow(num x, num y) > num !> lib.errors.OverflowError, lib.errors.UnderflowError`
 
 
 **Returns:**  `x`^`y`
 ## buffer
 
-### ` object Buffer`
+### ` object lib.buffer.WriteWhileReadingError`
+
+### ` object lib.buffer.Buffer`
 Read and write data to a string buffer
 
 #### ` fun len() > num`
@@ -142,17 +145,17 @@ Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
-#### ` fun init() > Buffer !> str`
+#### ` fun init() > lib.buffer.Buffer !> lib.errors.OutOfMemoryError`
 
 
 **Returns:**  A new `Buffer`
 
-#### ` fun write(str bytes) > void !> str`
+#### ` fun write(str bytes) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
 Writes a string
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeNumber(num number) > void !> str`
+#### ` fun writeNumber(num number) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
 Writes a number
 - **`number`:** Number to write
 
@@ -165,18 +168,18 @@ Frees the buffer TODO: with finalizers we could do this automatically when the o
 
 **Returns:**  Position of the reading cursor
 
-#### ` fun readNumber() > num? !> str`
+#### ` fun readNumber() > num?`
 Reads a number
 
 **Returns:**  Read number or `null` if nothing to read
 
-#### ` fun getBuffer() > str !> str`
+#### ` fun getBuffer() > str !> lib.errors.OutOfMemoryError`
 
 
 #### ` fun empty() > void`
 Empties the buffer
 
-#### ` fun writeBoolean(bool boolean) > void !> str`
+#### ` fun writeBoolean(bool boolean) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
 Writes a boolean
 - **`boolean`:** Boolean to write
 
@@ -186,15 +189,15 @@ Writes a boolean
 
 
 **Returns:**  epoch time in ms
-### ` fun env(str key) > str? !> str`
+### ` fun env(str key) > str? !> lib.errors.OutOfMemoryError, lib.errors.InvalidArgumentError`
 Returns environment variable under `key`
 - **`key`:** environment variable name
 
-### ` fun tmpDir() > str !> str`
+### ` fun tmpDir() > str !> lib.errors.OutOfMemoryError`
 
 
 **Returns:**  path to system temp directory
-### ` fun tmpFilename(str? prefix) > str !> str`
+### ` fun tmpFilename(str? prefix) > str !> lib.errors.OutOfMemoryError`
 
 - **`prefix`:** prefix to the temp file name
 
@@ -204,18 +207,18 @@ Returns environment variable under `key`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### ` fun execute([str] command) > num !> str`
+### ` fun execute([str] command) > num !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
 Execute command and return its exit code
 - **`command`:** command to execute
 
 
 **Returns:**  exit code of the command
-### ` enum SocketProtocol`
+### ` enum lib.os.SocketProtocol`
 Protocols supported over a socket
-### ` object Socket`
+### ` object lib.os.Socket`
 A socket
 
-#### ` fun receive(num n) > str? !> str`
+#### ` fun receive(num n) > str? !> lib.errors.InvalidArgumentError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
 Receive at most `n` bytes from the socket
 - **`n`:** How many bytes we're prepare to receive
 
@@ -225,40 +228,40 @@ Receive at most `n` bytes from the socket
 #### ` fun close() > void`
 Close the socket
 
-#### ` fun receiveAll() > str? !> str`
+#### ` fun receiveAll() > str? !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
 Receive from socket until it's closed
 
 **Returns:**  The bytes received or null if nothing to read
 
-#### ` fun send(str bytes) > void !> str`
+#### ` fun send(str bytes) > void !> lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
 Send bytes on the socket
 - **`bytes`:** Bytes to send
 
 
-#### ` fun connect(str address, num port, SocketProtocol protocol) > Socket !> str`
+#### ` fun connect(str address, num port, lib.os.SocketProtocol protocol) > lib.os.Socket !> lib.errors.InvalidArgumentError, lib.errors.SocketError, lib.errors.NotYetImplementedError`
 Opens a socket
 - **`protocol`:** Protocol to use
 
 
 **Returns:**  A new `Socket` opened and ready to use
 
-#### ` fun receiveLine() > str? !> str`
+#### ` fun receiveLine() > str? !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
 Receive from socket until it's closed or a linefeed is received
 
 **Returns:**  The bytes received or null if nothing to read
 
-### ` object TcpServer`
+### ` object lib.os.TcpServer`
 A TCP Server
 
 
-#### ` fun init(str address, num port, bool reuseAddr) > TcpServer !> str`
+#### ` fun init(str address, num port, bool reuseAddr) > lib.os.TcpServer !> lib.errors.SocketError, lib.errors.UnexpectedError, lib.errors.InvalidArgumentError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError`
 Starts a TCP server
 - **`reuseAddr`:** Wether we want to accept multiple connections
 
 
 **Returns:**  New `TcpServer` bound to `<address>:<port>`
 
-#### ` fun accept() > Socket !> str`
+#### ` fun accept() > lib.os.Socket !> lib.errors.SocketError, lib.errors.UnexpectedError`
 Accept a new connection
 
 **Returns:**  Socket opened with the client
@@ -266,55 +269,83 @@ Accept a new connection
 #### ` fun close() > void`
 Close server
 
+## errors
+
+### ` enum lib.errors.FileSystemError`
+
+### ` enum lib.errors.ExecError`
+
+### ` enum lib.errors.SocketError`
+
+### ` object lib.errors.FileNotFoundError`
+
+### ` enum lib.errors.ReadWriteError`
+
+### ` object lib.errors.OutOfMemoryError`
+
+### ` object lib.errors.CompileError`
+
+### ` object lib.errors.InterpretError`
+
+### ` object lib.errors.UnexpectedError`
+
+### ` object lib.errors.InvalidArgumentError`
+
+### ` object lib.errors.OverflowError`
+
+### ` object lib.errors.UnderflowError`
+
+### ` object lib.errors.NotYetImplementedError`
+
 ## fs
 
-### ` fun currentDirectory() > str !> str`
+### ` fun currentDirectory() > str !> lib.errors.FileSystemError, lib.errors.OutOfMemoryError, lib.errors.InvalidArgumentError`
 Returns current directory absolute path
 
 **Returns:**  current directory
-### ` fun makeDirectory(str path) > void !> str`
+### ` fun makeDirectory(str path) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError`
 Creates directory path
 - **`path`:** directory to create
 
-### ` fun delete(str path) > void !> str`
+### ` fun delete(str path) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError`
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### ` fun move(str source, str destination) > void !> str`
+### ` fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError, lib.errors.OutOfMemoryError`
 Moves/renames file
 - **`destination`:** where to move it
 
-### ` fun list(str path) > [str] !> str`
+### ` fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.OutOfMemoryError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
 List files under path
 - **`path`:** directory to list
 
 ## io
 
-### ` enum FileMode`
+### ` enum lib.io.FileMode`
 File mode with which you can open a file
-### ` object File`
+### ` object lib.io.File`
 Object to manipulate an opened file
 
 #### ` fun close() > void`
 Close file
 
-#### ` fun read(num n) > str? !> str`
+#### ` fun read(num n) > str? !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.InvalidArgumentError, lib.errors.UnexpectedError`
 Reads `n` bytes, returns null if nothing to read
 - **`n`:** how many bytes to read
 
 
-#### ` fun readAll() > str !> str`
+#### ` fun readAll() > str !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
 Reads file until `EOF`
 
-#### ` fun readLine() > str? !> str`
+#### ` fun readLine() > str? !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
 Reads next line, returns null if nothing to read
 
-#### ` fun write(str bytes) > void !> str`
+#### ` fun write(str bytes) > void !> lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
 Write bytes
 - **`bytes`:** string to write
 
 
-#### ` fun open(str filename, FileMode mode) > File !> str`
+#### ` fun open(str filename, lib.io.FileMode mode) > lib.io.File !> lib.errors.FileNotFoundError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
 Open file
 - **`mode`:** Mode with which to open it
 
@@ -323,15 +354,21 @@ Open file
 
 #### ` num fd`
 File descriptor
-### `stdin File`
+### `stdin lib.io.File`
 stdin
-### `stdout File`
+### `stdout lib.io.File`
 stdout
-### `stderr File`
+### `stderr lib.io.File`
 stderr
+### ` fun runFile(str filename) > void !> lib.errors.CompileError, lib.errors.InterpretError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.ReadWriteError`
+Run a buzz file
+- **`filename`:** path to buzz file
+
 ## json
 
-### ` object Json`
+### ` object lib.json.JsonParseError`
+
+### ` object lib.json.Json`
 Utility object to manage data from a JSON string
 
 #### ` num? number`
@@ -340,10 +377,10 @@ When wrapped data is a number
 #### ` str? string`
 When wrapped data is a string
 
-#### ` {str, Json}? map`
+#### ` {str, lib.json.Json}? map`
 When wrapped data is an object, object property values are themselves wrapped in a `Json`
 
-#### ` [Json]? list`
+#### ` [lib.json.Json]? list`
 When wrapped data is a list, list elements are themselves warpped in a `Json`
 
 #### ` fun encode() > str`
@@ -356,14 +393,14 @@ Encode to a JSON string
 
 **Returns:**  wrapped data number value or `0` if not a number
 
-#### ` fun decode(str json) > Json !> str`
+#### ` fun decode(str json) > lib.json.Json !> lib.json.JsonParseError, str`
 Decode string to a Json instance
 - **`str`:** json The JSON string
 
 
 **Returns:**  Json
 
-#### ` fun listValue() > [Json]`
+#### ` fun listValue() > [lib.json.Json]`
 
 
 **Returns:**  wrapped data list value or empty list if not a list
@@ -378,12 +415,12 @@ Decode string to a Json instance
 
 **Returns:**  wrapped data string value or empty string if not a string
 
-#### ` fun mapValue() > {str, Json}`
+#### ` fun mapValue() > {str, lib.json.Json}`
 
 
 **Returns:**  wrapped data map value or empty map if not a map
 
-#### ` fun q([str] path) > Json !> str`
+#### ` fun q([str] path) > lib.json.Json !> lib.json.JsonParseError, str`
 Query the json element at `path`, if nothing matches return `Json{}`
 - **`path`:** Path to query
 
