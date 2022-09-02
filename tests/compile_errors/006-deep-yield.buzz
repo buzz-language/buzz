@@ -1,0 +1,15 @@
+| Bad function yield type
+import "lib/std";
+
+fun one() > void > str? {
+    yield "hello";
+}
+
+fun two() > void {
+    one();
+}
+
+test "Deep yield" {
+    fib<void, str?> fiber = &two();
+    print(resume fiber ?? "nope");
+}

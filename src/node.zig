@@ -2503,6 +2503,19 @@ pub const YieldNode = struct {
 
         var self = Self.cast(node).?; // self
 
+        const current_function_typedef = codegen.current.?.function_node.node.type_def.?.resolved_type.?.Function;
+        const current_function_type = current_function_typedef.function_type;
+        switch (current_function_type) {
+            .Script,
+            .ScriptEntryPoint,
+            .EntryPoint,
+            .Catch,
+            .Test,
+            .Extern,
+            => try codegen.reportErrorAt(node.location, "Can't yield here"),
+            else => {},
+        }
+
         _ = try self.expression.toByteCode(self.expression, codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_YIELD);
@@ -2805,6 +2818,7 @@ pub const CallNode = struct {
             try codegen.reportPlaceholder(self.callee.type_def.?.resolved_type.?.Placeholder);
         }
 
+        // Find out if call is invoke or regular call
         var invoked = false;
         var invoked_on: ?ObjTypeDef.Type = null;
 
@@ -2841,6 +2855,22 @@ pub const CallNode = struct {
             return null;
         }
 
+        // Function being called and current function should have matching yield type unless the current function is an entrypoint
+        const current_function_typedef = codegen.current.?.function_node.node.type_def.?.resolved_type.?.Function;
+        const current_function_type = current_function_typedef.function_type;
+        const current_function_yield_type = current_function_typedef.yield_type;
+        const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
+        switch (current_function_type) {
+            // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
+            .Function, .Method, .Anonymous => {
+                if (!current_function_yield_type.eql(yield_type)) {
+                    try codegen.reportTypeCheckAt(current_function_yield_type, yield_type, "Bad function yield type", node.location);
+                }
+            },
+            else => {},
+        }
+
+        // Arguments
         const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;
         const defaults = callee_type.?.resolved_type.?.Function.defaults;
         const arg_keys = args.keys();
