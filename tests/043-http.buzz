@@ -13,7 +13,7 @@ test "Request parsing" {
     Request request = Request.parse(raw);
 
     assert(request.method == "GET", message: "Could parse method");
-    assert(request.url == "/?hello=1", message: "Could parse url");
+    assert(request.path == "/?hello=1", message: "Could parse url");
     assert(request.headers.size() == 5, message: "Could parse headers");
     assert(request.headers["Host"] == "127.0.0.1:8080", message: "Could parse headers");
 }

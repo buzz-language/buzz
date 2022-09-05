@@ -8,9 +8,20 @@ object HttpParseError {
 object Request {
     str method,
     {str, str} headers,
-    str url,
+    str path,
     num contentLength = 0,
     str? body = null,
+
+    fun toString() > str {
+        str result = "{this.method} {this.path} HTTP/1.1\r\n";
+        foreach (str key, str value in this.headers) {
+            result = result + "{key}: {value}\r\n";
+        }
+
+        result = result + "{this.body ?? ""}\r\n";
+
+        return result;
+    }
 
     static fun parse(str raw) > Request !> HttpParseError, str {
         print(raw);
@@ -18,11 +29,11 @@ object Request {
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
 
         if (methodAndUrl == null) {
-            throw HttpParseError{ message = "Could not parse request method and url" };
+            throw HttpParseError{ message = "Could not parse request method and path" };
         }
 
         str method = methodAndUrl![1];
-        str url = methodAndUrl![2];
+        str path = methodAndUrl![2];
 
         {str, str} headers = <str, str>{};
         num contentLength = 0;
@@ -54,7 +65,7 @@ object Request {
 
         return Request{
             method = method,
-            url = url,
+            path = path,
             headers = headers,
             contentLength = contentLength,
             body = body,
