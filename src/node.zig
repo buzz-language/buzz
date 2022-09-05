@@ -2281,6 +2281,36 @@ pub const FunctionNode = struct {
 
         function.type_def = node.type_def.?;
 
+        // Check for any remaining placeholders in function signature
+        if (function.type_def.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(function.type_def.resolved_type.?.Placeholder);
+        } else {
+            const function_def = function.type_def.resolved_type.?.Function;
+
+            if (function_def.return_type.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(function_def.return_type.resolved_type.?.Placeholder);
+            }
+
+            if (function_def.yield_type.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(function_def.yield_type.resolved_type.?.Placeholder);
+            }
+
+            var it = function_def.parameters.iterator();
+            while (it.next()) |kv| {
+                if (kv.value_ptr.*.def_type == .Placeholder) {
+                    try codegen.reportPlaceholder(kv.value_ptr.*.resolved_type.?.Placeholder);
+                }
+            }
+
+            if (function_def.error_types) |error_types| {
+                for (error_types) |error_type| {
+                    if (error_type.def_type == .Placeholder) {
+                        try codegen.reportPlaceholder(error_type.resolved_type.?.Placeholder);
+                    }
+                }
+            }
+        }
+
         // First chunk constant is the empty string
         _ = try function.chunk.addConstant(null, Value{
             .Obj = (try codegen.gc.copyString("")).toObj(),
