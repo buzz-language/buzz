@@ -1347,6 +1347,13 @@ pub const IsNode = struct {
 
         var self = Self.cast(node).?;
 
+        assert(self.constant == .Obj);
+        assert(self.constant.Obj.obj_type == .Type);
+
+        if (ObjTypeDef.cast(self.constant.Obj).?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(ObjTypeDef.cast(self.constant.Obj).?.resolved_type.?.Placeholder);
+        }
+
         _ = try self.left.toByteCode(self.left, codegen, breaks);
 
         try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
