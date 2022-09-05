@@ -2548,6 +2548,19 @@ pub const YieldNode = struct {
             else => {},
         }
 
+        if (node.type_def == null) {
+            try codegen.reportErrorAt(node.location, "Unknown type.");
+        } else if (node.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
+        } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.yield_type.eql(node.type_def.?)) {
+            try codegen.reportTypeCheckAt(
+                codegen.current.?.function.?.type_def.resolved_type.?.Function.yield_type,
+                node.type_def.?,
+                "Bad yield value",
+                node.location,
+            );
+        }
+
         _ = try self.expression.toByteCode(self.expression, codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_YIELD);
