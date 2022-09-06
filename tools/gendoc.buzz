@@ -4,6 +4,7 @@ import "lib/json";
 import "lib/io";
 import "lib/fs";
 import "lib/errors";
+import "lib/buffer";
 
 object Declaration {
     str declarationType,
@@ -137,7 +138,17 @@ fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError, st
     return declarations;
 }
 
-fun getDeclarations(str path) > [Declaration] !> FileNotFoundError, OutOfMemoryError, AssertError, FileSystemError, UnexpectedError, ReadWriteError, CompileError, JsonParseError, str {
+fun getDeclarations(str path) > [Declaration] 
+    !> FileNotFoundError,
+       OutOfMemoryError,
+       AssertError,
+       FileSystemError,
+       UnexpectedError,
+       ReadWriteError,
+       CompileError,
+       JsonParseError,
+       WriteWhileReadingError,
+       str {
     File file = File.open(path, mode: FileMode.read);
 
     str source = ast(
@@ -163,7 +174,18 @@ fun genMarkdownDoc([Declaration] declarations) > str {
     return out;
 }
 
-fun main([str] args) > void !> FileSystemError, FileNotFoundError, OutOfMemoryError, AssertError, ReadWriteError, InvalidArgumentError, UnexpectedError, CompileError, JsonParseError, str {
+    fun main([str] args) > void
+        !> FileSystemError,
+           FileNotFoundError,
+           OutOfMemoryError,
+           AssertError,
+           ReadWriteError,
+           InvalidArgumentError,
+           UnexpectedError,
+           CompileError,
+           JsonParseError,
+           WriteWhileReadingError,
+           str {
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {

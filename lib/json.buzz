@@ -1,4 +1,6 @@
 import "lib/std";
+import "lib/buffer";
+import "lib/errors";
 
 object JsonParseError {
     str? message = null,
@@ -62,7 +64,7 @@ object JsonParser {
         }
     }
 
-    fun next() > Json !> JsonParseError, str {
+    fun next() > Json !> JsonParseError, OutOfMemoryError, WriteWhileReadingError, str {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
@@ -92,7 +94,7 @@ object JsonParser {
         throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
     }
 
-    fun array() > [Json] !> JsonParseError, str {
+    fun array() > [Json] !> JsonParseError, WriteWhileReadingError, OutOfMemoryError, str {
         [Json] array = <Json>[];
 
         while (true) {
@@ -116,7 +118,7 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str, Json} !> JsonParseError, str {
+    fun map() > {str, Json} !> JsonParseError, OutOfMemoryError, WriteWhileReadingError, str {
         {str, Json} map = <str, Json>{};
 
         while (true) {
@@ -171,21 +173,25 @@ object JsonParser {
         return parsed!;
     }
 
-    fun string() > str {
+    fun string() > str !> OutOfMemoryError, WriteWhileReadingError {
         str? char = this.advance();
-        str string = "";
+        Buffer string = Buffer.init();
         
         while (char != null and char != "\"") {
             if (char == "\\" and this.match("\"")) {
-                string = string + "\"";
+                string.write("\"");
             } else {
-                string = string + char!;
+                string.write(char!);
             }
 
             char = this.advance();
         }
 
-        return string;
+        str result = string.getBuffer();
+
+        string.deinit();
+
+        return result;
     }
 }
 
@@ -274,7 +280,7 @@ object Json {
     || Decode string to a Json instance
     || @param str json The JSON string
     || @return Json
-    static fun decode(str json) > Json !> JsonParseError, str {
+    static fun decode(str json) > Json !> JsonParseError, OutOfMemoryError, WriteWhileReadingError, str {
         return JsonParser{ source = json }.next();
     }
 }
