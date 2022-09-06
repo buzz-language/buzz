@@ -86,6 +86,14 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
     return offset + 1;
 }
 
+fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+    const jump: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+
+    print("{}\t{} -> {}", .{ code, offset, jump });
+
+    return offset + 1;
+}
+
 pub fn dumpStack(vm: *VM) !void {
     print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
@@ -195,8 +203,9 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE,
-        .OP_TRY,
         => jumpInstruction(instruction, chunk, true, offset),
+
+        .OP_TRY => tryInstruction(instruction, chunk, offset),
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 

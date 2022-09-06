@@ -1,45 +1,10 @@
 import "lib/std";
 
-enum(str) MyErrors {
-    failed = "Something failed",
-    bad = "Something bad",
-    ohno = "Oh no!",
-}
-
-enum(str) OtherErrors {
-    failed = "Something failed",
-    bad = "Something bad",
-    ohno = "Oh no!",
-}
-
-fun willFail() > num !> MyErrors {
-    throw MyErrors.failed;
+fun willFail() > num !> str {
+    throw "i'm failing";
     return 1;
-}
-
-fun willFailToo() > num !> OtherErrors {
-    throw OtherErrors.failed;
-    return 1;
-}
-
-fun willIndirectlyFail() > num !> MyErrors {
-    | let error forward to caller
-    return willFail();
 }
 
 test "Inline catch clauses" {
-    | assert((willFail() catch null) == null, message: "error or null");
     assert((willFail() catch 0) == 0, message: "error or default value");
-
-    assert((willFail() catch {
-        (MyErrors error) -> 0,
-    }) == 0, message: "caught the right error");
-
-    assert((willFailToo() catch {
-        (OtherErrors error) -> 0,
-    }) == 0, message: "caught the right error");
-
-    assert((willIndirectlyFail() catch {
-        (MyErrors error) -> 0,
-    }) == 0, message: "caught indirect error");
 }

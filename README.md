@@ -354,18 +354,6 @@ fun willFail() > num !> MyErrors, OtherErrors, str {
 | Use default value in case of any error
 num result = willFail() catch 0;
 
-| Have different value for each error type
-| Note: will be removed (https://github.com/giann/buzz/issues/76)
-num result = willFail() catch {
-    | Those are functions not blocks
-    (MyErrors e) -> 0,
-    (OtherErrors e) -> 1,
-    default {
-        | Something unexpected
-        os.exit(1);
-    }
-}
-
 | Try catch works as you would expect
 try {
     willFail();

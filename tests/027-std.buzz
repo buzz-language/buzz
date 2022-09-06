@@ -9,11 +9,11 @@ test "runFile" {
 
 test "run non existent file" {
     bool errorRaised = false;
-    runFile("tests/utils/testingsldkfj.buzz") catch {
-        default {
-            errorRaised = true;
-        }
-    };
+    try {
+        runFile("tests/utils/testingsldkfj.buzz");
+    } catch {
+        errorRaised = true;
+    }
 
     assert(errorRaised, message: "Non existent file raised an error");
 }

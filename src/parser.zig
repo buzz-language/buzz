@@ -2995,7 +2995,7 @@ pub const Parser = struct {
             // so we keep a reference to it here
             .callable_type = callee.type_def,
             .arguments = try self.argumentList(),
-            .catches = try self.inlineCatch(),
+            .catch_default = try self.inlineCatch(),
         };
 
         // Note: callee.node.type_def has been populated with the member being referenced
@@ -4054,35 +4054,12 @@ pub const Parser = struct {
         return &self.endFrame().node;
     }
 
-    fn inlineCatch(self: *Self) ![]*ParseNode {
-        var catches = std.ArrayList(*ParseNode).init(self.gc.allocator);
+    fn inlineCatch(self: *Self) !?*ParseNode {
         if (try self.match(.Catch)) {
-            // Catch closures
-            if (try self.match(.LeftBrace)) {
-                var catch_count: u8 = 0;
-                while (!self.check(.RightBrace) and !self.check(.Eof)) {
-                    try catches.append(try self.function(null, .Catch, null));
-
-                    catch_count += 1;
-
-                    if (catch_count > 255) {
-                        try self.reportError("Maximum catch closures is 255.");
-
-                        return catches.items;
-                    }
-
-                    if (self.check(.Comma) or !self.check(.RightBrace)) {
-                        try self.consume(.Comma, "Expected `,` between catch closures.");
-                    }
-                }
-
-                try self.consume(.RightBrace, "Expected `}` after catch closures.");
-            } else {
-                try catches.append(try self.expression(false));
-            }
+            return try self.expression(false);
         }
 
-        return catches.items;
+        return null;
     }
 
     // `test` is just like a function but we don't parse arguments and we don't care about its return type
