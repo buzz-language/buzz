@@ -3003,6 +3003,8 @@ pub const Parser = struct {
         // Node type is Function or Native return type or nothing/placeholder
         node.node.type_def = if (callee.type_def != null and callee.type_def.?.def_type == .Function)
             callee.type_def.?.resolved_type.?.Function.return_type
+        else if (callee.type_def != null and callee.type_def.?.def_type == .Enum)
+            try (try callee.type_def.?.toInstance(self.gc.allocator, &self.gc.type_registry)).cloneOptional(&self.gc.type_registry)
         else
             null;
 

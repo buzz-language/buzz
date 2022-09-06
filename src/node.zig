@@ -3023,6 +3023,37 @@ pub const CallNode = struct {
             try codegen.reportPlaceholder(self.callee.type_def.?.resolved_type.?.Placeholder);
         }
 
+        // This is not a call but an Enum(value)
+        if (self.callee.type_def.?.def_type == .Enum) {
+            if (self.async_call) {
+                try codegen.reportErrorAt(self.callee.end_location, "Can't be wrapped in a fiber");
+            }
+
+            if (self.catch_default != null) {
+                try codegen.reportErrorAt(self.callee.end_location, "Doesn't raise any error");
+            }
+
+            if (self.arguments.count() > 1) {
+                try codegen.reportErrorAt(self.callee.end_location, "Enum instanciation expect only value");
+            } else if (self.arguments.count() == 0) {
+                try codegen.reportErrorAt(self.callee.end_location, "Enum instanciation expect value");
+
+                return null;
+            }
+
+            const value = self.arguments.get(self.arguments.keys()[0]).?;
+
+            if (value.type_def.?.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
+            }
+
+            _ = try self.callee.toByteCode(self.callee, codegen, breaks);
+            _ = try value.toByteCode(value, codegen, breaks);
+            try codegen.emitOpCode(value.location, .OP_GET_ENUM_CASE_FROM_VALUE);
+
+            return null;
+        }
+
         // Find out if call is invoke or regular call
         var invoked = false;
         var invoked_on: ?ObjTypeDef.Type = null;

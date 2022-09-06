@@ -170,6 +170,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_YIELD,
         .OP_RESOLVE,
         .OP_TRY_END,
+        .OP_GET_ENUM_CASE_FROM_VALUE,
         => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),

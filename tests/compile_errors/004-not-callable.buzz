@@ -1,10 +1,5 @@
 | Can't be called
-enum Yo {
-    mo,
-    jo,
-    lo,
-}
-
 test "Can't be called" {
-    Yo("mo");
+    num yo = 12;
+    yo("mo");
 }

@@ -812,6 +812,30 @@ pub const VM = struct {
                     self.push(enum_case.enum_ref.cases.items[enum_case.case]);
                 },
 
+                .OP_GET_ENUM_CASE_FROM_VALUE => {
+                    var case_value = self.pop();
+                    var enum_: *ObjEnum = ObjEnum.cast(self.pop().Obj).?;
+
+                    var found = false;
+                    for (enum_.cases.items) |case, index| {
+                        if (valueEql(case, case_value)) {
+                            var enum_case: *ObjEnumInstance = try self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
+                                .enum_ref = enum_,
+                                .case = @intCast(u8, index),
+                            });
+
+                            self.push(Value{ .Obj = enum_case.toObj() });
+                            found = true;
+
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        self.push(Value{ .Null = {} });
+                    }
+                },
+
                 .OP_OBJECT => {
                     var object: *ObjObject = try self.gc.allocateObject(
                         ObjObject,

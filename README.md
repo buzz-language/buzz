@@ -198,6 +198,10 @@ enum(str) Locale {
 }
 
 Locale.fr.value == "fr";
+
+| Create enum instance from its value
+Locale? locale = Locale("fr");
+locale == Locale.fr
 ```
 
 ### Control flow
