@@ -5,11 +5,11 @@ extern fun FileOpen(str filename, num mode) > num !> FileNotFoundError, FileSyst
 || @private
 extern fun FileClose(num fd) > void;
 || @private
-extern fun FileReadAll(num fd) > str !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadAll(num fd) > str !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileReadLine(num fd) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadLine(num fd) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileRead(num fd, num n) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
+extern fun FileRead(num fd, num n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
 || @private
 extern fun FileWrite(num fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
 || @private
@@ -47,18 +47,18 @@ object File {
     }
 
     || Reads file until `EOF`
-    fun readAll() > str !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError {
+    fun readAll() > str !> ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadAll(this.fd);
     }
 
     || Reads next line, returns null if nothing to read
-    fun readLine() > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, UnexpectedError {
+    fun readLine() > str? !> ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadLine(this.fd);
     }
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
-    fun read(num n) > str? !> OutOfMemoryError, ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
+    fun read(num n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
         return FileRead(this.fd, n: n);
     }
 
@@ -78,7 +78,7 @@ const File stderr = File { fd = getStdErr() };
 
 || Run a buzz file
 || @param filename path to buzz file
-extern fun runFile(str filename) > void !> CompileError, InterpretError, OutOfMemoryError, FileSystemError, ReadWriteError;
+extern fun runFile(str filename) > void !> CompileError, InterpretError, FileSystemError, ReadWriteError;
 
 export FileMode;
 export File;

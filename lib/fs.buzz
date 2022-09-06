@@ -3,7 +3,7 @@ import "lib/errors";
 
 || Returns current directory absolute path
 || @return current directory
-fun currentDirectory() > str !> FileSystemError, OutOfMemoryError, InvalidArgumentError {
+fun currentDirectory() > str !> FileSystemError, InvalidArgumentError {
     str? dir = os.env("PWD");
 
     if (dir != null) {
@@ -27,11 +27,11 @@ extern fun delete(str path) > void !> FileSystemError, FileNotFoundError, Unexpe
 || Moves/renames file
 || @param source file to move
 || @param destination where to move it
-extern fun move(str source, str destination) > void !> FileSystemError, FileNotFoundError, UnexpectedError, OutOfMemoryError;
+extern fun move(str source, str destination) > void !> FileSystemError, FileNotFoundError, UnexpectedError;
 
 || List files under path
 || @param path directory to list
-extern fun list(str path) > [str] !> FileSystemError, OutOfMemoryError, UnexpectedError, FileNotFoundError;
+extern fun list(str path) > [str] !> FileSystemError, UnexpectedError, FileNotFoundError;
 
 export currentDirectory;
 export makeDirectory;

@@ -5,6 +5,6 @@ import "lib/errors";
 || @param source the buzz source
 || @param script name (used to fetch eventual extern functions)
 || @return AST as JSON
-extern fun ast(str source, str scriptName) > str !> OutOfMemoryError, CompileError;
+extern fun ast(str source, str scriptName) > str !> CompileError;
 
 export ast;

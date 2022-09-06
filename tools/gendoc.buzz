@@ -89,7 +89,7 @@ object Declaration {
     }
 }
 
-fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError, str {
+fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
     [Declaration] declarations = <Declaration>[];
 
     foreach (num index, Json statement in statements) {
@@ -140,15 +140,13 @@ fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError, st
 
 fun getDeclarations(str path) > [Declaration] 
     !> FileNotFoundError,
-       OutOfMemoryError,
        AssertError,
        FileSystemError,
        UnexpectedError,
        ReadWriteError,
        CompileError,
        JsonParseError,
-       WriteWhileReadingError,
-       str {
+       WriteWhileReadingError {
     File file = File.open(path, mode: FileMode.read);
 
     str source = ast(
@@ -157,12 +155,19 @@ fun getDeclarations(str path) > [Declaration]
     );
     file.close();
 
-    Json root = Json.decode(source);
+    Json? root = null;
+    
+    try {
+        root = Json.decode(source);
+    } catch (JsonParseError error) {
+        print("{error.message}");
+        print(source);
+    }
 
     | Root must be a function
-    assert(root.q(["node"]).string == "Function", message: "Expected root node to be a function");
+    assert(root!.q(["node"]).string == "Function", message: "Expected root node to be a function");
 
-    return extractDeclarations(root.q(["body", "statements"]).listValue());
+    return extractDeclarations(root!.q(["body", "statements"]).listValue());
 }
 
 fun genMarkdownDoc([Declaration] declarations) > str {
@@ -177,15 +182,13 @@ fun genMarkdownDoc([Declaration] declarations) > str {
     fun main([str] args) > void
         !> FileSystemError,
            FileNotFoundError,
-           OutOfMemoryError,
            AssertError,
            ReadWriteError,
            InvalidArgumentError,
            UnexpectedError,
            CompileError,
            JsonParseError,
-           WriteWhileReadingError,
-           str {
+           WriteWhileReadingError {
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {

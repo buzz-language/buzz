@@ -1863,7 +1863,7 @@ pub const Parser = struct {
                 const type_def = try self.parseTypeDef();
 
                 _ = try self.parseVariable(
-                    type_def,
+                    try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
                     true, // function arguments are constant
                     "Expected error identifier",
                 );

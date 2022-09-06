@@ -5,14 +5,14 @@ extern fun time() > num;
 
 || Returns environment variable under `key`
 || @param key environment variable name
-extern fun env(str key) > str? !> OutOfMemoryError, InvalidArgumentError;
+extern fun env(str key) > str? !> InvalidArgumentError;
 
 || @return path to system temp directory
-extern fun tmpDir() > str !> OutOfMemoryError;
+extern fun tmpDir() > str;
 
 || @param prefix prefix to the temp file name
 || @return a temporary file name in system tmp dir
-extern fun tmpFilename(str? prefix) > str !> OutOfMemoryError;
+extern fun tmpFilename(str? prefix) > str;
 
 || Exit program with `exitCode`
 || @param exitCode exit code
@@ -21,7 +21,7 @@ extern fun buzzExit(num exitCode) > void;
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-extern fun execute([str] command) > num !> OutOfMemoryError, FileSystemError, UnexpectedError, FileNotFoundError;
+extern fun execute([str] command) > num !> FileSystemError, UnexpectedError, FileNotFoundError;
 
 export time;
 export env;
@@ -35,17 +35,17 @@ extern fun SocketConnect(str address, num port, num protocol) > num !> InvalidAr
 || @private
 extern fun SocketClose(num fd) > void;
 || @private
-extern fun SocketRead(num fd, num n) > str? !> InvalidArgumentError, OutOfMemoryError, FileSystemError, ReadWriteError, UnexpectedError;
+extern fun SocketRead(num fd, num n) > str? !> InvalidArgumentError, FileSystemError, ReadWriteError, UnexpectedError;
 || @private
 extern fun SocketWrite(num fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
 || @private
-extern fun SocketServerStart(str address, num port, bool reuseAddr) > num !> InvalidArgumentError, SocketError, OutOfMemoryError, UnexpectedError, FileSystemError;
+extern fun SocketServerStart(str address, num port, bool reuseAddr) > num !> InvalidArgumentError, SocketError, UnexpectedError, FileSystemError;
 || @private
 extern fun SocketServerAccept(num fd, bool reuseAddr) > num !> SocketError, UnexpectedError;
 || @private
-extern fun SocketReadLine(num fd) > str? !> OutOfMemoryError, FileSystemError, UnexpectedError, ReadWriteError;
+extern fun SocketReadLine(num fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 || @private
-extern fun SocketReadAll(num fd) > str? !> OutOfMemoryError, FileSystemError, UnexpectedError, ReadWriteError;
+extern fun SocketReadAll(num fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 
 || Protocols supported over a socket
 enum SocketProtocol {
@@ -78,19 +78,19 @@ object Socket {
     || Receive at most `n` bytes from the socket
     || @param n How many bytes we're prepare to receive
     || @return The bytes received or null if nothing to read
-    fun receive(num n) > str? !> InvalidArgumentError, OutOfMemoryError, FileSystemError, ReadWriteError, UnexpectedError {
+    fun receive(num n) > str? !> InvalidArgumentError, FileSystemError, ReadWriteError, UnexpectedError {
         return SocketRead(this.fd, n: n);
     }
 
     || Receive from socket until it's closed or a linefeed is received
     || @return The bytes received or null if nothing to read
-    fun receiveLine() > str? !> OutOfMemoryError, FileSystemError, UnexpectedError, ReadWriteError {
+    fun receiveLine() > str? !> FileSystemError, UnexpectedError, ReadWriteError {
         return SocketReadLine(this.fd);
     }
 
     || Receive from socket until it's closed
     || @return The bytes received or null if nothing to read
-    fun receiveAll() > str? !> OutOfMemoryError, FileSystemError, UnexpectedError, ReadWriteError {
+    fun receiveAll() > str? !> FileSystemError, UnexpectedError, ReadWriteError {
         return SocketReadAll(this.fd);
     }
 
@@ -113,7 +113,7 @@ object TcpServer {
     || @param port Port to listen on
     || @param reuseAddr Wether we want to accept multiple connections
     || @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(str address, num port, bool reuseAddr) > TcpServer !> SocketError, UnexpectedError, InvalidArgumentError, OutOfMemoryError, FileSystemError {
+    static fun init(str address, num port, bool reuseAddr) > TcpServer !> SocketError, UnexpectedError, InvalidArgumentError, FileSystemError {
         return TcpServer{
             serverSocket = Socket{
                 fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),

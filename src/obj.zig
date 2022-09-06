@@ -498,13 +498,13 @@ pub const ObjPattern = struct {
         }
 
         if (mem.eql(u8, method, "match")) {
-            const native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]? !> str");
+            const native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
 
             try parser.gc.objpattern_memberDefs.put("match", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "matchAll")) {
-            const native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]? !> str");
+            const native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]?");
 
             try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
 
@@ -988,7 +988,7 @@ pub const ObjString = struct {
             return native_type;
         }
         if (mem.eql(u8, method, "trim")) {
-            const native_type = try parser.parseTypeDefFrom("Function trim() > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function trim() > str");
 
             try parser.gc.objstring_memberDefs.put("trim", native_type);
 
@@ -1018,37 +1018,37 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
-            const native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str");
 
             try parser.gc.objstring_memberDefs.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
-            const native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str] !> str");
+            const native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str]");
 
             try parser.gc.objstring_memberDefs.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            const native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str");
 
             try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
-            const native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "encodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str");
 
             try parser.gc.objstring_memberDefs.put("encodeBase64", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "decodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str !> str");
+            const native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str");
 
             try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
 

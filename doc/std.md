@@ -14,7 +14,7 @@
 - [json](#json)
 ## debug
 
-### ` fun ast(str source, str scriptName) > str !> lib.errors.OutOfMemoryError, lib.errors.CompileError`
+### ` fun ast(str source, str scriptName) > str !> lib.errors.CompileError`
 Parse `source` and return the abstract syntax tree in JSON
 - **`script`:** name (used to fetch eventual extern functions)
 
@@ -145,17 +145,17 @@ Reads `n` bytes
 
 **Returns:**  Read bytes or `null` if nothing to read
 
-#### ` fun init() > lib.buffer.Buffer !> lib.errors.OutOfMemoryError`
+#### ` fun init() > lib.buffer.Buffer`
 
 
 **Returns:**  A new `Buffer`
 
-#### ` fun write(str bytes) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
+#### ` fun write(str bytes) > void !> lib.buffer.WriteWhileReadingError`
 Writes a string
 - **`bytes`:** Bytes to write
 
 
-#### ` fun writeNumber(num number) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
+#### ` fun writeNumber(num number) > void !> lib.buffer.WriteWhileReadingError`
 Writes a number
 - **`number`:** Number to write
 
@@ -173,13 +173,13 @@ Reads a number
 
 **Returns:**  Read number or `null` if nothing to read
 
-#### ` fun getBuffer() > str !> lib.errors.OutOfMemoryError`
+#### ` fun getBuffer() > str`
 
 
 #### ` fun empty() > void`
 Empties the buffer
 
-#### ` fun writeBoolean(bool boolean) > void !> lib.errors.OutOfMemoryError, lib.buffer.WriteWhileReadingError`
+#### ` fun writeBoolean(bool boolean) > void !> lib.buffer.WriteWhileReadingError`
 Writes a boolean
 - **`boolean`:** Boolean to write
 
@@ -189,15 +189,15 @@ Writes a boolean
 
 
 **Returns:**  epoch time in ms
-### ` fun env(str key) > str? !> lib.errors.OutOfMemoryError, lib.errors.InvalidArgumentError`
+### ` fun env(str key) > str? !> lib.errors.InvalidArgumentError`
 Returns environment variable under `key`
 - **`key`:** environment variable name
 
-### ` fun tmpDir() > str !> lib.errors.OutOfMemoryError`
+### ` fun tmpDir() > str`
 
 
 **Returns:**  path to system temp directory
-### ` fun tmpFilename(str? prefix) > str !> lib.errors.OutOfMemoryError`
+### ` fun tmpFilename(str? prefix) > str`
 
 - **`prefix`:** prefix to the temp file name
 
@@ -207,7 +207,7 @@ Returns environment variable under `key`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### ` fun execute([str] command) > num !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
+### ` fun execute([str] command) > num !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
 Execute command and return its exit code
 - **`command`:** command to execute
 
@@ -218,7 +218,7 @@ Protocols supported over a socket
 ### ` object lib.os.Socket`
 A socket
 
-#### ` fun receive(num n) > str? !> lib.errors.InvalidArgumentError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
+#### ` fun receive(num n) > str? !> lib.errors.InvalidArgumentError, lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
 Receive at most `n` bytes from the socket
 - **`n`:** How many bytes we're prepare to receive
 
@@ -228,7 +228,7 @@ Receive at most `n` bytes from the socket
 #### ` fun close() > void`
 Close the socket
 
-#### ` fun receiveAll() > str? !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
+#### ` fun receiveAll() > str? !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
 Receive from socket until it's closed
 
 **Returns:**  The bytes received or null if nothing to read
@@ -245,7 +245,7 @@ Opens a socket
 
 **Returns:**  A new `Socket` opened and ready to use
 
-#### ` fun receiveLine() > str? !> lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
+#### ` fun receiveLine() > str? !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.ReadWriteError`
 Receive from socket until it's closed or a linefeed is received
 
 **Returns:**  The bytes received or null if nothing to read
@@ -254,7 +254,7 @@ Receive from socket until it's closed or a linefeed is received
 A TCP Server
 
 
-#### ` fun init(str address, num port, bool reuseAddr) > lib.os.TcpServer !> lib.errors.SocketError, lib.errors.UnexpectedError, lib.errors.InvalidArgumentError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError`
+#### ` fun init(str address, num port, bool reuseAddr) > lib.os.TcpServer !> lib.errors.SocketError, lib.errors.UnexpectedError, lib.errors.InvalidArgumentError, lib.errors.FileSystemError`
 Starts a TCP server
 - **`reuseAddr`:** Wether we want to accept multiple connections
 
@@ -299,7 +299,7 @@ Close server
 
 ## fs
 
-### ` fun currentDirectory() > str !> lib.errors.FileSystemError, lib.errors.OutOfMemoryError, lib.errors.InvalidArgumentError`
+### ` fun currentDirectory() > str !> lib.errors.FileSystemError, lib.errors.InvalidArgumentError`
 Returns current directory absolute path
 
 **Returns:**  current directory
@@ -311,11 +311,11 @@ Creates directory path
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### ` fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError, lib.errors.OutOfMemoryError`
+### ` fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError`
 Moves/renames file
 - **`destination`:** where to move it
 
-### ` fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.OutOfMemoryError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
+### ` fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError`
 List files under path
 - **`path`:** directory to list
 
@@ -329,15 +329,15 @@ Object to manipulate an opened file
 #### ` fun close() > void`
 Close file
 
-#### ` fun read(num n) > str? !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.InvalidArgumentError, lib.errors.UnexpectedError`
+#### ` fun read(num n) > str? !> lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.InvalidArgumentError, lib.errors.UnexpectedError`
 Reads `n` bytes, returns null if nothing to read
 - **`n`:** how many bytes to read
 
 
-#### ` fun readAll() > str !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
+#### ` fun readAll() > str !> lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
 Reads file until `EOF`
 
-#### ` fun readLine() > str? !> lib.errors.OutOfMemoryError, lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
+#### ` fun readLine() > str? !> lib.errors.ReadWriteError, lib.errors.FileSystemError, lib.errors.UnexpectedError`
 Reads next line, returns null if nothing to read
 
 #### ` fun write(str bytes) > void !> lib.errors.FileSystemError, lib.errors.ReadWriteError, lib.errors.UnexpectedError`
@@ -360,7 +360,7 @@ stdin
 stdout
 ### `stderr lib.io.File`
 stderr
-### ` fun runFile(str filename) > void !> lib.errors.CompileError, lib.errors.InterpretError, lib.errors.OutOfMemoryError, lib.errors.FileSystemError, lib.errors.ReadWriteError`
+### ` fun runFile(str filename) > void !> lib.errors.CompileError, lib.errors.InterpretError, lib.errors.FileSystemError, lib.errors.ReadWriteError`
 Run a buzz file
 - **`filename`:** path to buzz file
 

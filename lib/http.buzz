@@ -23,7 +23,7 @@ object Request {
         return result;
     }
 
-    static fun parse(str raw) > Request !> HttpParseError, str {
+    static fun parse(str raw) > Request !> HttpParseError {
         print(raw);
         [str] lines = raw.split("\n");
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
