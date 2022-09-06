@@ -64,6 +64,9 @@ pub const CallFrame = struct {
 
     // Line in source code where the call occured
     call_site: ?usize,
+
+    // Offset at which error can be handled (means we're in a try block)
+    try_ip: ?usize = null,
 };
 
 pub const Fiber = struct {
@@ -759,6 +762,9 @@ pub const VM = struct {
 
                 .OP_IMPORT => try self.import(self.peek(1), self.peek(0)),
 
+                .OP_TRY => self.currentFrame().?.try_ip = @intCast(usize, arg),
+                .OP_TRY_END => self.currentFrame().?.try_ip = null,
+
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
 
                 .OP_LIST => {
@@ -1247,6 +1253,19 @@ pub const VM = struct {
             var frame: *CallFrame = self.currentFrame().?;
             try stack.append(frame.*);
 
+            // Are we in a try-catch ?
+            if (frame.try_ip) |try_ip| {
+                // Push error and jump to start of the catch clauses
+                self.push(payload);
+
+                frame.ip = try_ip;
+
+                // As soon as we step into catch clauses, we're not in a try-catch block anymore
+                frame.try_ip = null;
+
+                return;
+            }
+
             // Pop frame
             self.closeUpValues(&frame.slots[0]);
             self.current_fiber.frame_count -= 1;
@@ -1284,14 +1303,10 @@ pub const VM = struct {
                 self.push(error_value);
 
                 return;
-            } else {
-                // Are we in a try function?
-                // TODO: we can accept inline catch to be functions but not the try block
-                // Call catch closure or continue unwinding frames to find one
-                if (try self.handleError(payload, frame.error_handlers)) {
-                    stack.deinit();
-                    break;
-                }
+            } else if (try self.handleError(payload, frame.error_handlers)) {
+                // Error was handled, stop unwinding frames
+                stack.deinit();
+                break;
             }
         }
     }
@@ -1551,8 +1566,17 @@ pub const VM = struct {
                 }
             }
 
-            // No error handler or default value was triggered so forward the error
-            try self.throw(Error.Custom, self.peek(0));
+            // Error was not handled are we in a try-catch ?
+            var frame = self.currentFrame().?;
+            if (frame.try_ip) |try_ip| {
+                frame.ip = try_ip;
+
+                // As soon as we step into catch clauses, we're not in a try-catch block anymore
+                frame.try_ip = null;
+            } else {
+                // No error handler or default value was triggered so forward the error
+                try self.throw(Error.Custom, self.peek(0));
+            }
         }
     }
 

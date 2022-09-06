@@ -91,6 +91,7 @@ const ObjectInitNode = _node.ObjectInitNode;
 const ObjectDeclarationNode = _node.ObjectDeclarationNode;
 const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
+const TryNode = _node.TryNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
 const TypeRegistry = _obj.TypeRegistry;
@@ -161,6 +162,8 @@ pub const Frame = struct {
     function_node: *FunctionNode,
     function: ?*ObjFunction = null,
     constants: std.ArrayList(Value),
+
+    in_try: bool = false,
 };
 
 pub const ObjectCompiler = struct {
@@ -291,6 +294,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Class
         .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Try
         .{ .prefix = null, .infix = null, .precedence = .None }, // Catch
         .{ .prefix = null, .infix = null, .precedence = .None }, // Test
         .{ .prefix = null, .infix = null, .precedence = .None }, // Import
@@ -1231,6 +1235,9 @@ pub const Parser = struct {
         } else if (try self.match(.Return)) {
             assert(!hanging);
             return try self.returnStatement();
+        } else if (try self.match(.Try)) {
+            assert(!hanging);
+            return try self.tryStatement();
         } else if (try self.match(.Break)) {
             assert(!hanging);
             return try self.breakStatement(loop_scope);
@@ -1821,6 +1828,72 @@ pub const Parser = struct {
         var node = try self.gc.allocator.create(ReturnNode);
         node.* = ReturnNode{
             .value = value,
+        };
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn tryStatement(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        if (self.current.?.in_try) {
+            try self.reportError("Nested `try` statement are not allowed");
+        }
+
+        self.current.?.in_try = true;
+
+        try self.consume(.LeftBrace, "Expected `{` after `try`");
+
+        self.beginScope();
+        var body = try self.block(null);
+        body.ends_scope = try self.endScope();
+
+        var clauses = std.AutoArrayHashMap(*ObjTypeDef, *ParseNode).init(self.gc.allocator);
+        var unconditional_clause: ?*ParseNode = null;
+        while (try self.match(.Catch)) {
+            if (try self.match(.LeftParen)) {
+                if (unconditional_clause != null) {
+                    try self.reportError("Catch clause not allowed after unconditional catch");
+                }
+
+                self.beginScope();
+
+                const type_def = try self.parseTypeDef();
+
+                _ = try self.parseVariable(
+                    type_def,
+                    true, // function arguments are constant
+                    "Expected error identifier",
+                );
+                self.markInitialized();
+
+                try self.consume(.RightParen, "Expected `)` after error identifier");
+                try self.consume(.LeftBrace, "Expected `{`");
+
+                var catch_block = try self.block(null);
+                catch_block.ends_scope = try self.endScope();
+
+                try clauses.put(type_def, catch_block);
+            } else if (unconditional_clause == null) {
+                try self.consume(.LeftBrace, "Expected `{` after `catch`");
+
+                self.beginScope();
+                unconditional_clause = try self.block(null);
+                unconditional_clause.?.ends_scope = try self.endScope();
+            } else {
+                try self.reportError("Expected `(` after `catch`");
+            }
+        }
+
+        self.current.?.in_try = false;
+
+        var node = try self.gc.allocator.create(TryNode);
+        node.* = TryNode{
+            .body = body,
+            .clauses = clauses,
+            .unconditional_clause = unconditional_clause,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;

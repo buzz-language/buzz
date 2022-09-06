@@ -68,6 +68,8 @@ pub const OpCode = enum(u8) {
     OP_RESOLVE,
     OP_YIELD,
 
+    OP_TRY,
+    OP_TRY_END,
     OP_THROW,
 
     OP_RETURN,

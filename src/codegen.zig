@@ -33,6 +33,8 @@ pub const Frame = struct {
     function: ?*ObjFunction = null,
     return_counts: bool = false,
     return_emitted: bool = false,
+
+    try_should_handle: ?std.AutoHashMap(*ObjTypeDef, void) = null,
 };
 
 pub const CodeGen = struct {
@@ -109,7 +111,7 @@ pub const CodeGen = struct {
     pub fn emitLoop(self: *Self, location: Token, loop_start: usize) !void {
         const offset: usize = self.currentCode() - loop_start + 1;
         if (offset > 16777215) {
-            try self.reportError("Loop body to large.");
+            try self.reportError("Loop body too large.");
         }
 
         try self.emitCodeArg(location, .OP_LOOP, @intCast(u24, offset));
@@ -130,7 +132,7 @@ pub const CodeGen = struct {
             assert(loop_start != null);
             const loop_offset: usize = offset - loop_start.? + 1;
             if (loop_offset > 16777215) {
-                try self.reportError("Loop body to large.");
+                try self.reportError("Loop body too large.");
             }
 
             self.current.?.function.?.chunk.code.items[offset] =
@@ -146,7 +148,23 @@ pub const CodeGen = struct {
         const jump: usize = self.currentCode() - offset - 1;
 
         if (jump > 16777215) {
-            try self.reportError("Jump to large.");
+            try self.reportError("Jump too large.");
+        }
+
+        const original: u32 = self.current.?.function.?.chunk.code.items[offset];
+        const instruction: u8 = @intCast(u8, original >> 24);
+
+        self.current.?.function.?.chunk.code.items[offset] =
+            (@intCast(u32, instruction) << 24) | @intCast(u32, jump);
+    }
+
+    pub fn patchTry(self: *Self, offset: usize) !void {
+        assert(offset < self.currentCode());
+
+        const jump: usize = self.currentCode();
+
+        if (jump > 16777215) {
+            try self.reportError("Try block too large.");
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];

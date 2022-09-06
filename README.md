@@ -324,7 +324,6 @@ obj{ str name, num age } info = getInfo();
 ### Errors
 
 Functions must specify which error they can raise with `!> type1, type2, ...`. Error can't be raised in the global scope. `test` function can ignore errors.
-Error must either be handled with a `catch` clause matching the possible errors type or by adding those error types to the function signature.
 
 ```buzz
 enum(str) MyErrors {
@@ -355,14 +354,25 @@ fun willFail() > num !> MyErrors, OtherErrors, str {
 | Use default value in case of any error
 num result = willFail() catch 0;
 
-| Handle different type of errors
+| Have different value for each error type
+| Note: will be removed (https://github.com/giann/buzz/issues/76)
 num result = willFail() catch {
+    | Those are functions not blocks
     (MyErrors e) -> 0,
     (OtherErrors e) -> 1,
     default {
         | Something unexpected
         os.exit(1);
     }
+}
+
+| Try catch works as you would expect
+try {
+    willFail();
+} catch (str error) {
+    print("Caught error {error}");
+} catch {
+    print("Catches everything");
 }
 ```
 

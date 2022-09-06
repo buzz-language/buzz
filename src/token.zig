@@ -151,6 +151,7 @@ pub const TokenType = enum {
     Class, // class
     Enum, // enum
     Throw, // throw
+    Try, // try
     Catch, // catch
     Test, // test
     Import, // import
@@ -213,6 +214,7 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "enum", .Enum },
     .{ "throw", .Throw },
     .{ "catch", .Catch },
+    .{ "try", .Try },
     .{ "test", .Test },
     .{ "Function", .Function },
     .{ "import", .Import },

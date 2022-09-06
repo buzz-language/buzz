@@ -90,6 +90,7 @@ pub const ParseNodeType = enum(u8) {
     While,
     Export,
     Import,
+    Try,
 };
 
 pub const ToJsonError = Allocator.Error || std.fmt.BufPrintError;
@@ -2232,6 +2233,157 @@ pub const SubscriptNode = struct {
     }
 };
 
+pub const TryNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Try,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    body: *ParseNode,
+    clauses: std.AutoArrayHashMap(*ObjTypeDef, *ParseNode),
+    unconditional_clause: ?*ParseNode,
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        const self = Self.cast(node).?;
+
+        codegen.current.?.try_should_handle = std.AutoHashMap(*ObjTypeDef, void).init(codegen.gc.allocator);
+        defer {
+            codegen.current.?.try_should_handle.?.deinit();
+            codegen.current.?.try_should_handle = null;
+        }
+
+        // OP_TRY notifies runtime that we're handling error at offset
+        const try_jump = try codegen.emitJump(node.location, .OP_TRY);
+
+        _ = try self.body.toByteCode(self.body, codegen, breaks);
+
+        // Jump reached if no error was raised
+        const no_error_jump = try codegen.emitJump(self.body.end_location, .OP_JUMP);
+
+        var exit_jumps = std.ArrayList(usize).init(codegen.gc.allocator);
+        defer exit_jumps.deinit();
+
+        try codegen.patchTry(try_jump);
+        for (self.clauses.keys()) |error_type| {
+            const clause = self.clauses.get(error_type).?;
+
+            // We assume the error is on top of the stack
+            try codegen.emitOpCode(clause.location, .OP_COPY); // Copy error value since its argument to the catch clause
+            try codegen.emitConstant(clause.location, error_type.toValue());
+            try codegen.emitOpCode(clause.location, .OP_IS);
+            // If error type does not match, jump to next catch clause
+            const next_clause_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+            // Pop `is` result
+            try codegen.emitOpCode(clause.location, .OP_POP);
+
+            // Clause block will pop error value since its declared as a local in it
+            _ = try clause.toByteCode(clause, codegen, breaks);
+
+            // After handling the error, jump over next clauses
+            try exit_jumps.append(try codegen.emitJump(self.node.location, .OP_JUMP));
+
+            try codegen.patchJump(next_clause_jump);
+            // Pop `is` result
+            try codegen.emitOpCode(clause.location, .OP_POP);
+        }
+
+        if (self.unconditional_clause) |unconditional_clause| {
+            // Clause block will pop error value since its declared as a local in it
+            _ = try unconditional_clause.toByteCode(unconditional_clause, codegen, breaks);
+
+            // Unconditional catch is always the last one so no jump required here
+        }
+
+        // Tell runtime we're not in a try block anymore
+        try codegen.emitOpCode(node.location, .OP_TRY_END);
+        // Uncaught error, throw the error again
+        try codegen.emitOpCode(node.location, .OP_THROW);
+
+        // Patch exit jumps
+        for (exit_jumps.items) |exit_jump| {
+            try codegen.patchJump(exit_jump);
+        }
+
+        try codegen.patchJump(no_error_jump);
+
+        // OP_TRY_END notifies runtime that we're not in a try block anymore
+        try codegen.emitOpCode(node.location, .OP_TRY_END);
+
+        // Did we handle all errors not specified in current function signature?
+        var it = codegen.current.?.try_should_handle.?.iterator();
+        while (it.next()) |kv| {
+            if (self.unconditional_clause == null and self.clauses.get(kv.key_ptr.*) == null) {
+                const err_str = try kv.key_ptr.*.toStringAlloc(codegen.gc.allocator);
+                defer codegen.gc.allocator.free(err_str);
+
+                try codegen.reportErrorFmt(node.location, "Error type `{s}` not handled", .{err_str});
+            }
+        }
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Try\", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll(",\"body\": ");
+
+        try self.body.toJson(self.body, out);
+
+        try out.writeAll(",\"unconditional_clause\": ");
+
+        if (self.unconditional_clause) |clause| {
+            try clause.toJson(clause, out);
+        } else {
+            try out.writeAll("null");
+        }
+
+        try out.writeAll(",\"clauses\": {");
+        // TODO
+        try out.writeAll("}");
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Try) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
 pub const FunctionNode = struct {
     const Self = @This();
 
@@ -3132,10 +3284,16 @@ pub const CallNode = struct {
                             }
 
                             if (!handled_by_current) {
-                                const err_str = try error_type.toStringAlloc(codegen.gc.allocator);
-                                defer codegen.gc.allocator.free(err_str);
+                                if (codegen.current.?.try_should_handle != null) {
+                                    // In a try catch remember to check that we handle that error when finishing parsing the try-catch
+                                    try codegen.current.?.try_should_handle.?.put(error_type, {});
+                                } else {
+                                    // Not in a try-catch, error is not handled
+                                    const err_str = try error_type.toStringAlloc(codegen.gc.allocator);
+                                    defer codegen.gc.allocator.free(err_str);
 
-                                try codegen.reportErrorFmt(node.location, "Error type `{s}` not handled", .{err_str});
+                                    try codegen.reportErrorFmt(node.location, "Error type `{s}` not handled", .{err_str});
+                                }
                             }
                         }
                     }
@@ -3654,9 +3812,7 @@ pub const ThrowNode = struct {
             try codegen.reportPlaceholder(self.error_value.type_def.?.resolved_type.?.Placeholder);
         } else {
             const current_error_types = codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types;
-            if (current_error_types == null) {
-                try codegen.reportErrorAt(node.location, "Error not expected in current function");
-            } else {
+            if (current_error_types != null) {
                 var found_match = false;
                 for (current_error_types.?) |error_type| {
                     if (error_type.eql(self.error_value.type_def.?)) {
@@ -3666,10 +3822,16 @@ pub const ThrowNode = struct {
                 }
 
                 if (!found_match) {
-                    const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
-                    defer codegen.gc.allocator.free(error_str);
+                    if (codegen.current.?.try_should_handle != null) {
+                        // In a try catch remember to check that we handle that error when finishing parsing the try-catch
+                        try codegen.current.?.try_should_handle.?.put(self.error_value.type_def.?, {});
+                    } else {
+                        // Not in a try-catch and function signature does not expect this error type
+                        const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
+                        defer codegen.gc.allocator.free(error_str);
 
-                    try codegen.reportErrorFmt(node.location, "Error type `{s}` not expected", .{error_str});
+                        try codegen.reportErrorFmt(node.location, "Error type `{s}` not expected", .{error_str});
+                    }
                 }
             }
         }

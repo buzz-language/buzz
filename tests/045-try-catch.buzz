@@ -1,0 +1,53 @@
+import "lib/std";
+
+fun willFail() > void !> str {
+    throw "Yolo";
+}
+
+fun partialCatch() > void !> str, AssertError {
+    try {
+        willFail();
+
+        throw 12;
+    } catch (num error) {
+        assert(false, message: "unreachable");
+    }
+}
+
+fun returnFromCatch() > num {
+    try {
+        willFail();
+
+        return 12;
+    } catch (str error) {
+        return 21;
+    }
+
+    return 31;
+}
+
+test "Try catch" {
+    str setme = "";
+
+    try {
+        setme = "yes";
+
+        willFail();
+
+        partialCatch();
+
+        assert(false, message: "unreachable");
+    } catch (str error) {
+        str local = "a local in catch clause";
+
+        assert(error == "Yolo", message: "caught error");
+    } catch (num error) {
+        assert(false, message: "unreachable");
+    } catch {
+        assert(false, message: "unreachable");
+    }
+
+    assert(setme == "yes", message: "error was handled and code continues");
+
+    assert(returnFromCatch() == 21, message: "return from catch clause works");
+}

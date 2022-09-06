@@ -161,6 +161,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_RESUME,
         .OP_YIELD,
         .OP_RESOLVE,
+        .OP_TRY_END,
         => simpleInstruction(instruction, offset),
 
         .OP_SWAP => bytesInstruction(instruction, chunk, offset),
@@ -192,7 +193,10 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_CONSTANT,
         => try constantInstruction(instruction, chunk, offset),
 
-        .OP_JUMP, .OP_JUMP_IF_FALSE => jumpInstruction(instruction, chunk, true, offset),
+        .OP_JUMP,
+        .OP_JUMP_IF_FALSE,
+        .OP_TRY,
+        => jumpInstruction(instruction, chunk, true, offset),
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
