@@ -1600,12 +1600,24 @@ pub const Parser = struct {
 
         try self.consume(.LeftParen, "Expected `(` after `if`.");
 
+        self.beginScope();
         var condition: *ParseNode = try self.expression(false);
+
+        var unwrapped_identifier = false;
+        if (try self.match(.Arrow)) {
+            _ = try self.parseVariable(
+                try condition.type_def.?.cloneNonOptional(&self.gc.type_registry),
+                true,
+                "Expected optional unwrap identifier",
+            );
+            self.markInitialized();
+
+            unwrapped_identifier = true;
+        }
 
         try self.consume(.RightParen, "Expected `)` after `if` condition.");
 
         try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
-        self.beginScope();
         var body = try self.block(loop_scope);
         body.ends_scope = try self.endScope();
 
@@ -1625,6 +1637,7 @@ pub const Parser = struct {
         var node = try self.gc.allocator.create(IfNode);
         node.* = IfNode{
             .condition = condition,
+            .unwrapped_identifier = unwrapped_identifier,
             .body = body,
             .else_branch = else_branch,
         };

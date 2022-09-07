@@ -1,0 +1,14 @@
+import "lib/std";
+
+test "If arrow" {
+    num? opt = null;
+    str? optS = "hello";
+
+    if (opt -> unwrapped) {
+        assert(false, message: "unreachable");
+    }
+
+    if (optS -> unwrapped) {
+        assert(unwrapped == "hello", message: "Could if-arrow unwrap");
+    }
+}

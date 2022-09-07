@@ -3932,6 +3932,7 @@ pub const IfNode = struct {
     },
 
     condition: *ParseNode,
+    unwrapped_identifier: bool,
     body: *ParseNode,
     else_branch: ?*ParseNode = null,
 
@@ -3956,12 +3957,18 @@ pub const IfNode = struct {
             try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
-        if (self.condition.type_def.?.def_type != .Bool) {
-            try codegen.reportErrorAt(self.condition.location, "`if` condition must be bool");
+        if (self.unwrapped_identifier) {
+            if (!self.condition.type_def.?.optional) {
+                try codegen.reportErrorAt(self.condition.location, "Expected optional");
+            }
+        } else {
+            if (self.condition.type_def.?.def_type != .Bool) {
+                try codegen.reportErrorAt(self.condition.location, "`if` condition must be bool");
+            }
         }
 
         // If condition is a constant expression, no need to generate branches
-        if (self.condition.isConstant(self.condition)) {
+        if (self.condition.isConstant(self.condition) and !self.unwrapped_identifier) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
             if (condition.Boolean) {
@@ -3977,6 +3984,12 @@ pub const IfNode = struct {
         }
 
         _ = try self.condition.toByteCode(self.condition, codegen, breaks);
+        if (self.unwrapped_identifier) {
+            try codegen.emitOpCode(self.condition.location, .OP_COPY);
+            try codegen.emitOpCode(self.condition.location, .OP_NULL);
+            try codegen.emitOpCode(self.condition.location, .OP_EQUAL);
+            try codegen.emitOpCode(self.condition.location, .OP_NOT);
+        }
 
         const then_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
         try codegen.emitOpCode(self.node.location, .OP_POP);
@@ -3986,6 +3999,10 @@ pub const IfNode = struct {
         const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
         try codegen.patchJump(then_jump);
+        if (self.unwrapped_identifier) {
+            // Since we did not enter the if block, we did not pop the unwrapped local
+            try codegen.emitOpCode(self.node.location, .OP_POP);
+        }
         try codegen.emitOpCode(self.node.location, .OP_POP);
 
         if (self.else_branch) |else_branch| {

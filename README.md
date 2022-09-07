@@ -134,6 +134,13 @@ str unwrapped = aStringOrNull!;
 [num]? optList = null;
 
 print(optList?.len()); | -> null
+
+| If unwrap
+if (aStringOrNull -> aString) {
+    print("{aString} is not null");
+} else {
+    print("aString was null");
+}
 ```
 
 ### Functions
