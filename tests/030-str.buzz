@@ -33,3 +33,8 @@ test "base64" {
     assert("hello world".encodeBase64() == "aGVsbG8gd29ybGQ=", message: "could encode in b64");
     assert("aGVsbG8gd29ybGQ=".decodeBase64() == "hello world", message: "could encode in b64");
 }
+
+test "upper/lower" {
+    assert("hello world!".upper() == "HELLO WORLD!", message: "upper");
+    assert("HellO WorlD!".lower() == "hello world!", message: "lower");
+}

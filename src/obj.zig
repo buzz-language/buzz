@@ -886,7 +886,7 @@ pub const ObjString = struct {
     }
 
     pub fn decodeBase64(vm: *VM) c_int {
-        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
@@ -921,6 +921,78 @@ pub const ObjString = struct {
         return 1;
     }
 
+    pub fn upper(vm: *VM) c_int {
+        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        if (str.string.len == 0) {
+            vm.push(str.toValue());
+
+            return 1;
+        }
+
+        var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
+            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+        defer vm.gc.allocator.free(new_str);
+
+        for (str.string) |char, index| {
+            switch (char) {
+                'a'...'z' => new_str[index] = std.ascii.toUpper(char),
+                else => new_str[index] = char,
+            }
+        }
+
+        var obj_string = vm.gc.copyString(new_str) catch {
+            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        vm.push(obj_string.toValue());
+
+        return 1;
+    }
+
+    pub fn lower(vm: *VM) c_int {
+        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+
+        if (str.string.len == 0) {
+            vm.push(str.toValue());
+
+            return 1;
+        }
+
+        var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
+            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+        defer vm.gc.allocator.free(new_str);
+
+        for (str.string) |char, index| {
+            switch (char) {
+                'A'...'Z' => new_str[index] = std.ascii.toLower(char),
+                else => new_str[index] = char,
+            }
+        }
+
+        var obj_string = vm.gc.copyString(new_str) catch {
+            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+            return -1;
+        };
+
+        vm.push(obj_string.toValue());
+
+        return 1;
+    }
+
     pub fn rawMember(method: []const u8) ?NativeFn {
         if (mem.eql(u8, method, "len")) {
             return len;
@@ -946,6 +1018,10 @@ pub const ObjString = struct {
             return encodeBase64;
         } else if (mem.eql(u8, method, "decodeBase64")) {
             return decodeBase64;
+        } else if (mem.eql(u8, method, "upper")) {
+            return upper;
+        } else if (mem.eql(u8, method, "lower")) {
+            return lower;
         }
 
         return null;
@@ -1051,6 +1127,18 @@ pub const ObjString = struct {
             const native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str");
 
             try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "upper")) {
+            const native_type = try parser.parseTypeDefFrom("Function upper() > str");
+
+            try parser.gc.objstring_memberDefs.put("upper", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "lower")) {
+            const native_type = try parser.parseTypeDefFrom("Function lower() > str");
+
+            try parser.gc.objstring_memberDefs.put("lower", native_type);
 
             return native_type;
         }

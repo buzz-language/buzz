@@ -15,6 +15,12 @@ For std lib documentation see [here](std.md).
 ### `fun len() > num`
 **Returns:** Length of the string
 
+### `fun upper() > str`
+**Returns:** Uppercased string
+
+### `fun lower() > str`
+**Returns:** Lowercased string
+
 ### `fun trim() > str`
 **Returns:** Trimmed string
 
