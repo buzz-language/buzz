@@ -203,7 +203,6 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "type", .Type },
     .{ "bool", .Bool },
     .{ "pat", .Pat },
-    .{ "xor", .Xor },
     .{ "do", .Do },
     .{ "until", .Until },
     .{ "is", .Is },

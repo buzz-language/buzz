@@ -3898,7 +3898,7 @@ pub const Parser = struct {
         if (function_type == .Test) {
             try self.consume(.String, "Expected `str` after `test`.");
             function_node.test_message = try self.string(false);
-        } else if (function_type != .Catch or !(try self.match(.Default))) {
+        } else {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
             var arity: usize = 0;
@@ -3907,10 +3907,6 @@ pub const Parser = struct {
                     arity += 1;
                     if (arity > 255) {
                         try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
-                    }
-
-                    if (function_type == .Catch and arity > 1) {
-                        try self.reportErrorAtCurrent("`catch` clause can't have more than one parameter.");
                     }
 
                     var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
@@ -3972,7 +3968,7 @@ pub const Parser = struct {
 
         // Parse return type
         var parsed_return_type = false;
-        if (function_type != .Test and (function_type != .Catch or self.check(.Greater))) {
+        if (function_type != .Test) {
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
             const return_type = try self.parseTypeDef();

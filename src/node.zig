@@ -2622,7 +2622,6 @@ pub const FunctionNode = struct {
         const function_name: []const u8 = switch (function_type) {
             .EntryPoint => "main",
             .ScriptEntryPoint, .Script => file_name_or_name orelse "<script>",
-            .Catch => "<catch>",
             else => file_name_or_name orelse "???",
         };
 
@@ -2701,7 +2700,6 @@ pub const YieldNode = struct {
             .Script,
             .ScriptEntryPoint,
             .EntryPoint,
-            .Catch,
             .Test,
             .Extern,
             => try codegen.reportErrorAt(node.location, "Can't yield here"),

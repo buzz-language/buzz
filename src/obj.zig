@@ -1247,7 +1247,6 @@ pub const ObjFunction = struct {
         Script, // Imported script
         ScriptEntryPoint, // main script
         EntryPoint, // main function
-        Catch,
         Test,
         Anonymous,
         Extern,
