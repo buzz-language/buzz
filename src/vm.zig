@@ -1278,7 +1278,9 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Raise the runtime error
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{try valueToStringAlloc(self.gc.allocator, payload)});
+                const value_str = try valueToStringAlloc(self.gc.allocator, payload);
+                defer self.gc.allocator.free(value_str);
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str});
 
                 for (stack.items) |stack_frame| {
                     std.debug.print("\tat {s}", .{stack_frame.closure.function.name.string});

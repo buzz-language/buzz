@@ -3,6 +3,8 @@ import "lib/io";
 import "lib/json";
 import "lib/os" as os;
 import "lib/debug" as debug;
+import "lib/errors";
+import "lib/buffer";
 
 object LspState {
     | TODO: Maybe bad to keep this in memory
@@ -39,7 +41,7 @@ enum(num) SymbolKind {
     TypeParameter = 26,
 }
 
-fun readContentLength() > num? {
+fun readContentLength() > num? !> ReadWriteError, FileSystemError, UnexpectedError, InvalidArgumentError, str {
     while (true) {
         str? header = stdin.readLine();
 
@@ -68,7 +70,7 @@ fun readContentLength() > num? {
     return null;
 }
 
-fun respond(str? strId, num? numId, Json result) > void {
+fun respond(str? strId, num? numId, Json result) > void !> FileSystemError, ReadWriteError, UnexpectedError {
     const Json response = Json{
         map = {
             "jsonrpc": Json{ string = "2.0" },
@@ -83,7 +85,7 @@ fun respond(str? strId, num? numId, Json result) > void {
     stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
 }
 
-fun withinNode(Json node, str uri, num line, num column) > bool {
+fun withinNode(Json node, str uri, num line, num column) > bool !> JsonParseError {
     const str script = node.q(["location", "script"]).stringValue();
     const num startLine = node.q(["location", "start_line"]).number ?? -1;
     const num startColumn = node.q(["location", "start_column"]).number ?? -1;
@@ -96,7 +98,7 @@ fun withinNode(Json node, str uri, num line, num column) > bool {
 }
 
 | Go down the ast tree to find the smallest node under `line`:`column`
-fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void {
+fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void !> JsonParseError {
     if (!withinNode(root, uri: uri, line: line, column: column)) {
         return;
     }
@@ -691,7 +693,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
 }
 
 | Search symbol with a list of statements without going into a deeper scope
-fun findSymbolInScope([Json] statements, str symbol) > Json? {
+fun findSymbolInScope([Json] statements, str symbol) > Json? !> JsonParseError {
     foreach (num i, Json statement in statements) {
         const str statementType = statement.q(["node"]).stringValue();
 
@@ -708,7 +710,7 @@ fun findSymbolInScope([Json] statements, str symbol) > Json? {
 }
 
 | Climp up ast tree from the leaf to find its declaration
-fun findSymbol([Json] trail, str symbol) > Json? {
+fun findSymbol([Json] trail, str symbol) > Json? !> JsonParseError {
     for (num i = trail.len() - 1; i >= 0; i = i - 1) {
         Json node = trail[i];
         const str nodeType = node.q(["node"]).stringValue();
@@ -732,7 +734,7 @@ fun findSymbol([Json] trail, str symbol) > Json? {
 }
 
 | Climp up ast tree from the leaf to find its declaration
-fun findDeclaration([Json] trail) > Json? {
+fun findDeclaration([Json] trail) > Json? !> JsonParseError, AssertError, FileSystemError, ReadWriteError, UnexpectedError {
     assert(trail.len() >= 2, message: "Trail should not be empty");
 
     stderr.write("Searching in trail: ");
@@ -763,7 +765,7 @@ fun findDeclaration([Json] trail) > Json? {
     return null;
 }
 
-fun getAst(LspState state, str filename) > Json {
+fun getAst(LspState state, str filename) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError {
     if (!filename.startsWith("file://")) {
         stderr.write("Could not handle filename: {filename}\n");
         return Json{};
@@ -793,7 +795,7 @@ fun getAst(LspState state, str filename) > Json {
     return state.ast[filename]!;
 }
 
-fun getSymbolsAt(Json node, [Json] declarations) > void {
+fun getSymbolsAt(Json node, [Json] declarations) > void !> JsonParseError {
     const str ndType = node.q(["node"]).stringValue();
 
     if (ndType == "Function") {
@@ -932,7 +934,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
 }
 
-fun getSymbols(LspState state, {str, Json} request) > Json {
+fun getSymbols(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError {
     const Json ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "");
 
     [Json] declarations = <Json>[];
@@ -942,7 +944,7 @@ fun getSymbols(LspState state, {str, Json} request) > Json {
     return Json{ list = declarations };
 }
 
-fun locationToRange(Json location) > Json {
+fun locationToRange(Json location) > Json !> JsonParseError {
     const num startLine = location.q(["start_line"]).number ?? -1;
     const num startColumn = location.q(["start_column"]).number ?? -1;
     const num endLine = location.q(["end_line"]).number ?? -1;
@@ -966,7 +968,7 @@ fun locationToRange(Json location) > Json {
     };
 }
 
-fun gotoDefinition(LspState state, {str, Json} request) > Json {
+fun gotoDefinition(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, AssertError, FileSystemError, FileNotFoundError, UnexpectedError, CompileError, WriteWhileReadingError {
     const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? <str, Json>{};
     str uri = textDocument["uri"]?.stringValue() ?? "";
     const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? <str, Json>{};
@@ -1034,7 +1036,7 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     "textDocument/documentSymbol": getSymbols,
 };
 
-fun main([str] args) > void {
+fun main([str] args) > void !> ReadWriteError, JsonParseError, FileSystemError, UnexpectedError, str, InvalidArgumentError, WriteWhileReadingError {
     LspState state = LspState{
         sources = <str, str>{},
         ast = <str, Json>{},

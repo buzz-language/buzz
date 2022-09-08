@@ -2296,7 +2296,11 @@ pub const TryNode = struct {
             try codegen.emitOpCode(clause.location, .OP_POP);
 
             // Clause block will pop error value since its declared as a local in it
+            // We don't catch things is the catch clause
+            const previous = codegen.current.?.try_should_handle;
+            codegen.current.?.try_should_handle = null;
             _ = try clause.toByteCode(clause, codegen, breaks);
+            codegen.current.?.try_should_handle = previous;
 
             // After handling the error, jump over next clauses
             try exit_jumps.append(try codegen.emitJump(self.node.location, .OP_JUMP));
@@ -2309,7 +2313,11 @@ pub const TryNode = struct {
         if (self.unconditional_clause) |unconditional_clause| {
             // pop error because its not a local of this clause
             try codegen.emitOpCode(unconditional_clause.location, .OP_POP);
+            // We don't catch things is the catch clause
+            const previous = codegen.current.?.try_should_handle;
+            codegen.current.?.try_should_handle = null;
             _ = try unconditional_clause.toByteCode(unconditional_clause, codegen, breaks);
+            codegen.current.?.try_should_handle = previous;
 
             try exit_jumps.append(try codegen.emitJump(self.node.location, .OP_JUMP));
         }
@@ -3218,7 +3226,7 @@ pub const CallNode = struct {
             }
         }
 
-        // Catch clauses
+        // Catch clause
         const error_types = callee_type.?.resolved_type.?.Function.error_types;
         if (self.catch_default) |catch_default| {
             if (error_types == null or error_types.?.len == 0) {
@@ -3239,6 +3247,38 @@ pub const CallNode = struct {
                 }
 
                 _ = try catch_default.toByteCode(catch_default, codegen, breaks);
+            }
+        } else if (error_types) |errors| {
+            if (codegen.current.?.enclosing != null and codegen.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
+                var not_handled = std.ArrayList(*ObjTypeDef).init(codegen.gc.allocator);
+                defer not_handled.deinit();
+                for (errors) |error_type| {
+                    var handled = false;
+
+                    if (codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types) |handled_types| {
+                        for (handled_types) |handled_type| {
+                            if (error_type.eql(handled_type)) {
+                                handled = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!handled) {
+                        if (codegen.current.?.try_should_handle != null) {
+                            try codegen.current.?.try_should_handle.?.put(error_type, {});
+                        } else {
+                            try not_handled.append(error_type);
+                        }
+                    }
+                }
+
+                for (not_handled.items) |error_type| {
+                    const error_str = try error_type.toStringAlloc(codegen.gc.allocator);
+                    defer codegen.gc.allocator.free(error_str);
+
+                    try codegen.reportErrorFmt(node.location, "Error `{s}` is not handled", .{error_str});
+                }
             }
         }
 

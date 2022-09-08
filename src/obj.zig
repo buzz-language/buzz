@@ -1906,9 +1906,6 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
-                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -1923,7 +1920,6 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2043,9 +2039,6 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "sub")) {
-                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
-                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -2075,7 +2068,6 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2125,9 +2117,6 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "join")) {
-                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
-                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
@@ -2143,7 +2132,6 @@ pub const ObjList = struct {
                         .def_type = .String,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2496,9 +2484,6 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
-                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
-                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.key_type,
@@ -2518,7 +2503,6 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2534,9 +2518,6 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
-                var error_types = std.ArrayList(*ObjTypeDef).init(parser.gc.allocator);
-                try error_types.append(try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
                 var list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.value_type,
@@ -2556,7 +2537,6 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .error_types = error_types.items,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
