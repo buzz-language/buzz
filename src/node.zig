@@ -2619,7 +2619,7 @@ pub const FunctionNode = struct {
         try out.writeAll("}");
     }
 
-    pub fn init(parser: *Parser, function_type: FunctionType, file_name_or_name: ?[]const u8) !Self {
+    pub fn init(parser: *Parser, function_type: FunctionType, script_name: []const u8, name: ?[]const u8) !Self {
         var self = Self{
             .body = try parser.gc.allocator.create(BlockNode),
             .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.gc.allocator),
@@ -2629,12 +2629,13 @@ pub const FunctionNode = struct {
 
         const function_name: []const u8 = switch (function_type) {
             .EntryPoint => "main",
-            .ScriptEntryPoint, .Script => file_name_or_name orelse "<script>",
-            else => file_name_or_name orelse "???",
+            .ScriptEntryPoint, .Script => name orelse script_name,
+            else => name orelse "???",
         };
 
         const function_def = ObjFunction.FunctionDef{
             .name = try parser.gc.copyString(function_name),
+            .script_name = try parser.gc.copyString(script_name),
             .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),

@@ -1305,6 +1305,7 @@ pub const ObjFunction = struct {
         const FunctionDefSelf = @This();
 
         name: *ObjString,
+        script_name: *ObjString,
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
         error_types: ?[]const *ObjTypeDef = null,
@@ -1316,6 +1317,7 @@ pub const ObjFunction = struct {
 
         pub fn mark(self: *FunctionDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
+            try gc.markObj(self.script_name.toObj());
             try gc.markObj(self.return_type.toObj());
             try gc.markObj(self.yield_type.toObj());
 
@@ -1915,6 +1917,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("append"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -1945,6 +1948,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("at"), at_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -1972,6 +1976,7 @@ pub const ObjList = struct {
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("len"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2013,6 +2018,7 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("next"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2063,6 +2069,7 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sub"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2091,6 +2098,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("needle"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("indexOf"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2125,6 +2133,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("separator"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("join"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2430,6 +2439,7 @@ pub const ObjMap = struct {
 
             if (mem.eql(u8, method, "size")) {
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("size"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2460,6 +2470,7 @@ pub const ObjMap = struct {
                 try parameters.put(try parser.gc.copyString("at"), self.key_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2494,6 +2505,7 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("keys"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
@@ -2528,6 +2540,7 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
+                    .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("values"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),

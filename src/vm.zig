@@ -1283,9 +1283,15 @@ pub const VM = struct {
                 std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str});
 
                 for (stack.items) |stack_frame| {
-                    std.debug.print("\tat {s}", .{stack_frame.closure.function.name.string});
+                    std.debug.print(
+                        "\tat {s} in {s}",
+                        .{
+                            stack_frame.closure.function.name.string,
+                            stack_frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                        },
+                    );
                     if (stack_frame.call_site) |call_site| {
-                        std.debug.print(":{}\n", .{call_site});
+                        std.debug.print(":{}\n", .{call_site + 1});
                     } else {
                         std.debug.print("\n", .{});
                     }

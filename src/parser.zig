@@ -367,9 +367,10 @@ pub const Parser = struct {
             self,
             function_type,
             file_name,
+            null,
         );
 
-        self.script_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
+        self.script_name = file_name;
 
         try self.beginFrame(function_type, function_node, null);
 
@@ -3864,6 +3865,7 @@ pub const Parser = struct {
         function_node.* = try FunctionNode.init(
             self,
             function_type,
+            self.script_name,
             if (name) |uname| uname.lexeme else "anonymous",
         );
         try self.beginFrame(function_type, function_node, this);
@@ -3876,6 +3878,7 @@ pub const Parser = struct {
         };
 
         var function_def = ObjFunction.FunctionDef{
+            .script_name = try self.gc.copyString(self.script_name),
             .name = if (name) |uname|
                 try self.gc.copyString(uname.lexeme)
             else
@@ -4354,6 +4357,7 @@ pub const Parser = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
+            .script_name = try self.gc.copyString(self.script_name),
             .name = name orelse try self.gc.copyString("anonymous"),
             .return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry),
             .yield_type = try yield_type.toInstance(self.gc.allocator, &self.gc.type_registry),

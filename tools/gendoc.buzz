@@ -151,17 +151,20 @@ fun getDeclarations(str path) > [Declaration]
 
     str source = ast(
         file.readAll(),
-        scriptName: path.sub(0, len: path.indexOf(".buzz")!)
+        scriptName: path.sub(0, len: path.indexOf(".buzz")!),
+        declarationsOnly: true
     );
     file.close();
 
     Json? root = null;
-    
+
     try {
         root = Json.decode(source);
     } catch (JsonParseError error) {
-        print("{error.message}");
-        print(source);
+        print(path);
+        | print(source);
+
+        throw error;
     }
 
     | Root must be a function
@@ -179,16 +182,17 @@ fun genMarkdownDoc([Declaration] declarations) > str {
     return out;
 }
 
-    fun main([str] args) > void
-        !> FileSystemError,
-           FileNotFoundError,
-           AssertError,
-           ReadWriteError,
-           InvalidArgumentError,
-           UnexpectedError,
-           CompileError,
-           JsonParseError,
-           WriteWhileReadingError {
+fun main([str] args) > void
+    !> FileSystemError,
+       FileNotFoundError,
+       AssertError,
+       ReadWriteError,
+       InvalidArgumentError,
+       UnexpectedError,
+       CompileError,
+       JsonParseError,
+       WriteWhileReadingError
+{
     {str, str} markdownDoc = <str, str>{};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {

@@ -787,7 +787,7 @@ fun getAst(LspState state, str filename) > Json !> JsonParseError, ReadWriteErro
     if (state.ast[filename] == null) {
         stderr.write("Getting ast for {filename}\n");
 
-        str astString = debug.ast(source!, scriptName: filename);
+        str astString = debug.ast(source!, scriptName: filename, declarationsOnly: false);
 
         state.ast[filename] = Json.decode(astString);
     }
