@@ -2634,6 +2634,7 @@ pub const FunctionNode = struct {
         };
 
         const function_def = ObjFunction.FunctionDef{
+            .id = ObjFunction.FunctionDef.nextId(),
             .name = try parser.gc.copyString(function_name),
             .script_name = try parser.gc.copyString(script_name),
             .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
@@ -2641,6 +2642,7 @@ pub const FunctionNode = struct {
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
             .function_type = function_type,
+            .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
         };
 
         const type_def = ObjTypeDef.TypeUnion{ .Function = function_def };
@@ -3009,6 +3011,8 @@ pub const CallNode = struct {
     catch_default: ?*ParseNode = null,
     super: ?*NamedVariableNode = null,
 
+    resolved_generics: []*ObjTypeDef,
+
     fn constant(_: *ParseNode) bool {
         return false;
     }
@@ -3098,24 +3102,42 @@ pub const CallNode = struct {
             return null;
         }
 
+        const function_type = try callee_type.?.populateGenerics(
+            callee_type.?.resolved_type.?.Function.id,
+            self.resolved_generics,
+            &codegen.gc.type_registry,
+        );
+
+        if (function_type.resolved_type.?.Function.generic_types.count() > self.resolved_generics.len) {
+            try codegen.reportErrorAt(node.location, "Missing generic types");
+        } else if (function_type.resolved_type.?.Function.generic_types.count() < self.resolved_generics.len) {
+            try codegen.reportErrorAt(node.location, "Too many generic types");
+        }
+
+        const yield_type = function_type.resolved_type.?.Function.yield_type;
+
         // Function being called and current function should have matching yield type unless the current function is an entrypoint
         const current_function_typedef = codegen.current.?.function_node.node.type_def.?.resolved_type.?.Function;
         const current_function_type = current_function_typedef.function_type;
         const current_function_yield_type = current_function_typedef.yield_type;
-        const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
         switch (current_function_type) {
             // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
                 if (!current_function_yield_type.eql(yield_type)) {
-                    try codegen.reportTypeCheckAt(current_function_yield_type, yield_type, "Bad function yield type", node.location);
+                    try codegen.reportTypeCheckAt(
+                        current_function_yield_type,
+                        yield_type,
+                        "Bad function yield type",
+                        node.location,
+                    );
                 }
             },
             else => {},
         }
 
         // Arguments
-        const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = callee_type.?.resolved_type.?.Function.parameters;
-        const defaults = callee_type.?.resolved_type.?.Function.defaults;
+        const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = function_type.resolved_type.?.Function.parameters;
+        const defaults = function_type.resolved_type.?.Function.defaults;
         const arg_keys = args.keys();
         const arg_count = arg_keys.len;
 
@@ -3228,7 +3250,7 @@ pub const CallNode = struct {
         }
 
         // Catch clause
-        const error_types = callee_type.?.resolved_type.?.Function.error_types;
+        const error_types = function_type.resolved_type.?.Function.error_types;
         if (self.catch_default) |catch_default| {
             if (error_types == null or error_types.?.len == 0) {
                 try codegen.reportErrorAt(node.location, "Function doesn't raise any error");
@@ -3395,7 +3417,18 @@ pub const CallNode = struct {
             try self.callee.toJson(self.callee, out);
         }
 
-        try out.writeAll(", \"arguments\": [");
+        try out.writeAll(", \"resolved_generics\": [");
+        for (self.resolved_generics) |generic, i| {
+            try out.writeAll("\"");
+            try generic.toString(out);
+            try out.writeAll("\"");
+
+            if (i < self.resolved_generics.len - 1) {
+                try out.writeAll(",");
+            }
+        }
+
+        try out.writeAll("], \"arguments\": [");
 
         for (self.arguments.keys()) |key, i| {
             const argument = self.arguments.get(key).?;

@@ -1304,6 +1304,9 @@ pub const ObjFunction = struct {
     pub const FunctionDef = struct {
         const FunctionDefSelf = @This();
 
+        var next_id: usize = 0;
+
+        id: usize,
         name: *ObjString,
         script_name: *ObjString,
         return_type: *ObjTypeDef,
@@ -1314,6 +1317,14 @@ pub const ObjFunction = struct {
         defaults: std.AutoArrayHashMap(*ObjString, Value),
         function_type: FunctionType = .Function,
         lambda: bool = false,
+
+        generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+
+        pub fn nextId() usize {
+            FunctionDefSelf.next_id += 1;
+
+            return FunctionDefSelf.next_id;
+        }
 
         pub fn mark(self: *FunctionDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
@@ -1337,6 +1348,12 @@ pub const ObjFunction = struct {
                 for (error_types) |error_item| {
                     try gc.markObj(error_item.toObj());
                 }
+            }
+
+            var it3 = self.generic_types.iterator();
+            while (it3.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
         }
     };
@@ -1508,29 +1525,30 @@ pub const ObjObject = struct {
         name: *ObjString,
         qualified_name: *ObjString,
         // TODO: Do i need to have two maps ?
-        fields: std.StringHashMap(*ObjTypeDef),
-        fields_defaults: std.StringHashMap(void),
-        static_fields: std.StringHashMap(*ObjTypeDef),
-        methods: std.StringHashMap(*ObjTypeDef),
+        fields: std.StringArrayHashMap(*ObjTypeDef),
+        fields_defaults: std.StringArrayHashMap(void),
+        static_fields: std.StringArrayHashMap(*ObjTypeDef),
+        methods: std.StringArrayHashMap(*ObjTypeDef),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
         placeholders: std.StringHashMap(*ObjTypeDef),
         static_placeholders: std.StringHashMap(*ObjTypeDef),
         super: ?*ObjTypeDef = null,
-        inheritable: bool = false,
         is_class: bool,
+        anonymous: bool,
 
-        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, is_class: bool) ObjectDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, is_class: bool, anonymous: bool) ObjectDefSelf {
             return ObjectDefSelf{
                 .name = name,
                 .qualified_name = qualified_name,
                 .is_class = is_class,
-                .fields = std.StringHashMap(*ObjTypeDef).init(allocator),
-                .static_fields = std.StringHashMap(*ObjTypeDef).init(allocator),
-                .fields_defaults = std.StringHashMap(void).init(allocator),
-                .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .static_fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .fields_defaults = std.StringArrayHashMap(void).init(allocator),
+                .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
                 .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .anonymous = anonymous,
             };
         }
 
@@ -1917,12 +1935,14 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("append"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -1948,6 +1968,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("at"), at_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
                     .parameters = parameters,
@@ -1958,6 +1979,7 @@ pub const ObjList = struct {
                         .resolved_type = self.item_type.resolved_type,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -1976,6 +1998,7 @@ pub const ObjList = struct {
                 var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("len"),
                     .parameters = parameters,
@@ -1986,6 +2009,7 @@ pub const ObjList = struct {
                         },
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2018,6 +2042,7 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("next"),
                     .parameters = parameters,
@@ -2030,6 +2055,7 @@ pub const ObjList = struct {
                         },
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2069,12 +2095,14 @@ pub const ObjList = struct {
                 );
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sub"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2098,6 +2126,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("needle"), self.item_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("indexOf"),
                     .parameters = parameters,
@@ -2110,6 +2139,7 @@ pub const ObjList = struct {
                         },
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2133,6 +2163,7 @@ pub const ObjList = struct {
                 try parameters.put(try parser.gc.copyString("separator"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("join"),
                     .parameters = parameters,
@@ -2141,6 +2172,7 @@ pub const ObjList = struct {
                         .def_type = .String,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2439,6 +2471,7 @@ pub const ObjMap = struct {
 
             if (mem.eql(u8, method, "size")) {
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("size"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
@@ -2447,6 +2480,7 @@ pub const ObjMap = struct {
                         .def_type = .Number,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2470,6 +2504,7 @@ pub const ObjMap = struct {
                 try parameters.put(try parser.gc.copyString("at"), self.key_type);
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
                     .parameters = parameters,
@@ -2480,6 +2515,7 @@ pub const ObjMap = struct {
                         .resolved_type = self.value_type.resolved_type,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2505,6 +2541,7 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("keys"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
@@ -2515,6 +2552,7 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2540,6 +2578,7 @@ pub const ObjMap = struct {
                 };
 
                 var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("values"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
@@ -2550,6 +2589,7 @@ pub const ObjMap = struct {
                         .resolved_type = list_def_union,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2641,6 +2681,7 @@ pub const ObjEnum = struct {
         name: *ObjString,
         qualified_name: *ObjString,
         enum_type: *ObjTypeDef,
+        // TODO: should be a slice
         cases: std.ArrayList([]const u8),
 
         pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
@@ -2751,6 +2792,7 @@ pub const ObjTypeDef = struct {
         List,
         Map,
         Function,
+        Generic,
         Type, // Something that holds a type, not an actual type
         Void,
         Fiber,
@@ -2759,12 +2801,19 @@ pub const ObjTypeDef = struct {
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
 
+    pub const GenericDef = struct {
+        // Function def id rather than pointer since we don't get a definitive pointer until the function signature is fully parsed
+        origin: usize,
+        index: usize, // Index in generic list
+    };
+
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
         Bool: void,
         Number: void,
         String: void,
         Pattern: void,
+        Generic: GenericDef,
         Type: void,
         Void: void,
         UserData: void,
@@ -2816,6 +2865,188 @@ pub const ObjTypeDef = struct {
                 unreachable;
             }
         }
+    }
+
+    pub fn populateGenerics(self: *Self, origin: usize, generics: []*ObjTypeDef, type_registry: *TypeRegistry) anyerror!*ObjTypeDef {
+        return switch (self.def_type) {
+            .Bool,
+            .Number,
+            .String,
+            .Pattern,
+            .Void,
+            .UserData,
+            .Type,
+            .Placeholder,
+            .Enum, // Enum are defined in global scope without any generic possible
+            .EnumInstance,
+            => self,
+
+            .Generic => {
+                if (self.resolved_type.?.Generic.origin == origin) {
+                    return generics[self.resolved_type.?.Generic.index];
+                } else {
+                    std.debug.print(
+                        "Generic from different origin: #{} != #{}\n",
+                        .{
+                            self.resolved_type.?.Generic.origin,
+                            origin,
+                        },
+                    );
+                }
+
+                return self;
+            },
+
+            .Fiber => {
+                const new_fiber_def = ObjFiber.FiberDef{
+                    .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(origin, generics, type_registry),
+                    .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(origin, generics, type_registry),
+                };
+
+                const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
+
+                const new_fiber = ObjTypeDef{
+                    .def_type = .Fiber,
+                    .optional = self.optional,
+                    .resolved_type = resolved,
+                };
+
+                return try type_registry.getTypeDef(new_fiber);
+            },
+            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(origin, generics, type_registry)).toInstance(type_registry.gc.allocator, type_registry),
+            .Object => {
+                // Only anonymous objects can be with generics so no need to check anything other than fields
+                const old_object_def = self.resolved_type.?.Object;
+
+                var resolved = ObjObject.ObjectDef.init(
+                    type_registry.gc.allocator,
+                    old_object_def.name,
+                    old_object_def.qualified_name,
+                    old_object_def.is_class,
+                    old_object_def.anonymous,
+                );
+
+                {
+                    var fields = std.StringArrayHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
+                    var it = old_object_def.fields.iterator();
+                    while (it.next()) |kv| {
+                        try fields.put(
+                            kv.key_ptr.*,
+                            try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                        );
+                    }
+                    resolved.fields = fields;
+                }
+
+                const resolved_type_union = ObjTypeDef.TypeUnion{ .Object = resolved };
+
+                var new_object = ObjTypeDef{
+                    .def_type = .Object,
+                    .optional = self.optional,
+                    .resolved_type = resolved_type_union,
+                };
+
+                return try type_registry.getTypeDef(new_object);
+            },
+            .List => {
+                const old_list_def = self.resolved_type.?.List;
+
+                var methods = std.StringHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
+                var it = old_list_def.methods.iterator();
+                while (it.next()) |kv| {
+                    try methods.put(
+                        kv.key_ptr.*,
+                        try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                    );
+                }
+
+                var new_list_def = ObjList.ListDef{
+                    .item_type = try old_list_def.item_type.populateGenerics(origin, generics, type_registry),
+                    .methods = methods,
+                };
+
+                var new_resolved = ObjTypeDef.TypeUnion{ .List = new_list_def };
+
+                const new_list = ObjTypeDef{
+                    .def_type = .List,
+                    .optional = self.optional,
+                    .resolved_type = new_resolved,
+                };
+
+                return try type_registry.getTypeDef(new_list);
+            },
+            .Map => {
+                const old_map_def = self.resolved_type.?.Map;
+
+                var methods = std.StringHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
+                var it = old_map_def.methods.iterator();
+                while (it.next()) |kv| {
+                    try methods.put(
+                        kv.key_ptr.*,
+                        try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                    );
+                }
+
+                var new_map_def = ObjMap.MapDef{
+                    .key_type = try old_map_def.key_type.populateGenerics(origin, generics, type_registry),
+                    .value_type = try old_map_def.value_type.populateGenerics(origin, generics, type_registry),
+                    .methods = methods,
+                };
+
+                const resolved = ObjTypeDef.TypeUnion{ .Map = new_map_def };
+
+                const new_map = ObjTypeDef{
+                    .def_type = .Map,
+                    .optional = self.optional,
+                    .resolved_type = resolved,
+                };
+
+                return try type_registry.getTypeDef(new_map);
+            },
+            .Function => {
+                const old_fun_def = self.resolved_type.?.Function;
+
+                var error_types: ?std.ArrayList(*ObjTypeDef) = null;
+                if (old_fun_def.error_types) |old_error_types| {
+                    error_types = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
+                    for (old_error_types) |error_type| {
+                        try error_types.?.append(try error_type.populateGenerics(origin, generics, type_registry));
+                    }
+                }
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(type_registry.gc.allocator);
+                {
+                    var it = old_fun_def.parameters.iterator();
+                    while (it.next()) |kv| {
+                        try parameters.put(kv.key_ptr.*, try kv.value_ptr.*.populateGenerics(origin, generics, type_registry));
+                    }
+                }
+
+                var new_fun_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .name = old_fun_def.name,
+                    .script_name = old_fun_def.script_name,
+                    .return_type = try old_fun_def.return_type.populateGenerics(origin, generics, type_registry),
+                    .yield_type = try old_fun_def.yield_type.populateGenerics(origin, generics, type_registry),
+                    .error_types = if (error_types) |types| types.items else null,
+                    .parameters = parameters,
+                    .defaults = old_fun_def.defaults,
+                    .function_type = old_fun_def.function_type,
+                    .lambda = old_fun_def.lambda,
+                    .generic_types = old_fun_def.generic_types,
+                };
+
+                const resolved = ObjTypeDef.TypeUnion{ .Function = new_fun_def };
+
+                const new_fun_type = ObjTypeDef{
+                    .def_type = .Function,
+                    .optional = self.optional,
+                    .resolved_type = resolved,
+                };
+
+                return try type_registry.getTypeDef(new_fun_type);
+            },
+        };
     }
 
     pub fn rawCloneOptional(self: *Self) ObjTypeDef {
@@ -2890,6 +3121,7 @@ pub const ObjTypeDef = struct {
 
     pub fn toString(self: *const Self, writer: std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
+            .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),
             .Bool => try writer.writeAll("bool"),
             .Number => try writer.writeAll("num"),
@@ -2907,15 +3139,65 @@ pub const ObjTypeDef = struct {
             .Object => {
                 const object_def = self.resolved_type.?.Object;
 
-                try writer.writeAll(if (object_def.is_class) "class " else "object ");
-                try writer.writeAll(object_def.qualified_name.string);
+                if (object_def.anonymous) {
+                    try writer.writeAll("obj{ ");
+                    var it = object_def.fields.iterator();
+                    var count = object_def.fields.count();
+                    var i: usize = 0;
+                    while (it.next()) |kv| {
+                        try kv.value_ptr.*.toString(writer);
+                        try writer.print(" {s}", .{kv.key_ptr.*});
+
+                        if (i < count - 1) {
+                            try writer.writeAll(", ");
+                        }
+
+                        i += 1;
+                    }
+                    try writer.writeAll(" }");
+                } else {
+                    try writer.writeAll(if (object_def.is_class) "class " else "object ");
+                    try writer.writeAll(object_def.qualified_name.string);
+                }
             },
             .Enum => {
                 try writer.writeAll("enum ");
                 try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
             },
 
-            .ObjectInstance => try writer.writeAll(self.resolved_type.?.ObjectInstance.resolved_type.?.Object.qualified_name.string),
+            .ObjectInstance => {
+                if (self.resolved_type.?.ObjectInstance.resolved_type == null or self.resolved_type.?.ObjectInstance.resolved_type.? != .Object) {
+                    std.debug.print(
+                        ">> @{} (inst) @{} (obj) is wrong\n",
+                        .{
+                            @ptrToInt(self),
+                            @ptrToInt(self.resolved_type.?.ObjectInstance),
+                        },
+                    );
+                }
+
+                const object_def = self.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+
+                if (object_def.anonymous) {
+                    try writer.writeAll(".{ ");
+                    var it = object_def.fields.iterator();
+                    var count = object_def.fields.count();
+                    var i: usize = 0;
+                    while (it.next()) |kv| {
+                        try kv.value_ptr.*.toString(writer);
+                        try writer.print(" {s}", .{kv.key_ptr.*});
+
+                        if (i < count - 1) {
+                            try writer.writeAll(", ");
+                        }
+
+                        i += 1;
+                    }
+                    try writer.writeAll(" }");
+                } else {
+                    try writer.writeAll(object_def.qualified_name.string);
+                }
+            },
             .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string),
 
             .List => {
@@ -2937,16 +3219,40 @@ pub const ObjTypeDef = struct {
                 try writer.writeAll(function_def.name.string);
                 try writer.writeAll("(");
 
-                const size = function_def.parameters.count();
-                var i: usize = 0;
-                var it = function_def.parameters.iterator();
-                while (it.next()) |kv| : (i = i + 1) {
-                    try kv.value_ptr.*.toString(writer);
-                    try writer.writeAll(" ");
-                    try writer.writeAll(kv.key_ptr.*.string);
+                {
+                    const size = function_def.generic_types.count();
+                    if (size > 0) {
+                        try writer.writeAll("<");
+                        var i: usize = 0;
+                        var it = function_def.generic_types.iterator();
+                        while (it.next()) |kv| : (i = i + 1) {
+                            try writer.print("{s}", .{kv.key_ptr.*.string});
 
-                    if (i < size - 1) {
-                        try writer.writeAll(", ");
+                            if (i < size - 1) {
+                                try writer.writeAll(", ");
+                            }
+                        }
+
+                        if (function_def.parameters.count() > 0) {
+                            try writer.writeAll(">, ");
+                        } else {
+                            try writer.writeAll(">");
+                        }
+                    }
+                }
+
+                {
+                    const size = function_def.parameters.count();
+                    var i: usize = 0;
+                    var it = function_def.parameters.iterator();
+                    while (it.next()) |kv| : (i = i + 1) {
+                        try kv.value_ptr.*.toString(writer);
+                        try writer.writeAll(" ");
+                        try writer.writeAll(kv.key_ptr.*.string);
+
+                        if (i < size - 1) {
+                            try writer.writeAll(", ");
+                        }
                     }
                 }
 
@@ -3063,11 +3369,13 @@ pub const ObjTypeDef = struct {
             .Bool,
             .Number,
             .String,
-            .Type,
             .Void,
             .Pattern,
             .UserData,
+            .Type,
             => return true,
+
+            .Generic => a.Generic.origin == b.Generic.origin and a.Generic.index == b.Generic.index,
 
             .Fiber => {
                 return a.Fiber.return_type.eql(b.Fiber.return_type) and a.Fiber.yield_type.eql(b.Fiber.yield_type);
@@ -3350,6 +3658,9 @@ pub const PlaceholderDef = struct {
     parent_relation: ?PlaceholderRelation = null,
     // Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
+
+    // If the placeholder is a function return, we need to remember eventual generic types defined in that call
+    call_generics: ?[]*ObjTypeDef = null,
 
     pub fn init(allocator: Allocator, where: Token) Self {
         return Self{

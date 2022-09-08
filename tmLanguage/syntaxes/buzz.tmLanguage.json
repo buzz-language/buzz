@@ -172,7 +172,7 @@
       ]
     },
     "builtins": {
-      "match": "\\b(assert|print|collect|allocated|File|parseNumber|FileMode|stdin|stdout|stderr|time|env|tmpDir|tmpFilename|exit|execute|allocate|collect|Error|currentDirectory|makeDirectory|delete|move|list|runFile)\\b",
+      "match": "\\b(assert|print)\\b",
       "name": "support.function.buzz"
     }
   },

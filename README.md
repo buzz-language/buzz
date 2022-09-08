@@ -169,6 +169,22 @@ Function() fn = fun () > void -> print("hello world"); | Arrow function
 fn(); | -> "hello world"
 ```
 
+#### Generics
+
+```buzz
+fun countMap(<K, V>, {K, V} map) > num {
+    return map.size();
+}
+
+{str, num} map = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+};
+
+countMap(<str, num>, map) == 3;
+```
+
 ### Enums
 
 ```buzz

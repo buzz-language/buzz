@@ -151,6 +151,8 @@ pub const Global = struct {
 pub const UpValue = struct { index: u8, is_local: bool };
 
 pub const Frame = struct {
+    const Self = @This();
+
     enclosing: ?*Frame = null,
     locals: [255]Local,
     local_count: u8 = 0,
@@ -161,9 +163,20 @@ pub const Frame = struct {
     // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: *FunctionNode,
     function: ?*ObjFunction = null,
+    generics: ?*std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = null,
     constants: std.ArrayList(Value),
 
     in_try: bool = false,
+
+    pub fn searchGeneric(self: Self, name: *ObjString) ?*ObjTypeDef {
+        if (self.generics) |generics| {
+            if (generics.get(name)) |type_def| {
+                return type_def;
+            }
+        }
+
+        return if (self.enclosing) |enclosing| enclosing.searchGeneric(name) else null;
+    }
 };
 
 pub const ObjectCompiler = struct {
@@ -778,7 +791,14 @@ pub const Parser = struct {
                         return;
                     }
 
-                    try self.resolvePlaceholder(child, placeholder.resolved_type.?.Function.return_type, false);
+                    try self.resolvePlaceholder(
+                        child,
+                        if (child_placeholder.call_generics) |call_generics|
+                            try placeholder.resolved_type.?.Function.return_type.populateGenerics(placeholder.resolved_type.?.Function.id, call_generics, &self.gc.type_registry)
+                        else
+                            placeholder.resolved_type.?.Function.return_type,
+                        false,
+                    );
                 },
                 .Yield => {
                     // Can we call the parent?
@@ -789,7 +809,10 @@ pub const Parser = struct {
 
                     try self.resolvePlaceholder(
                         child,
-                        placeholder.resolved_type.?.Function.yield_type,
+                        if (child_placeholder.call_generics) |call_generics|
+                            try placeholder.resolved_type.?.Function.yield_type.populateGenerics(placeholder.resolved_type.?.Function.id, call_generics, &self.gc.type_registry)
+                        else
+                            placeholder.resolved_type.?.Function.yield_type,
                         false,
                     );
                 },
@@ -1076,14 +1099,14 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Fib))
                 try self.varDeclaration(
-                    try self.parseFiberType(),
+                    try self.parseFiberType(null),
                     .Semicolon,
                     constant,
                     true,
                 )
             else if (try self.match(.Obj))
                 try self.varDeclaration(
-                    try self.parseObjType(),
+                    try self.parseObjType(null),
                     .Semicolon,
                     constant,
                     true,
@@ -1095,7 +1118,12 @@ pub const Parser = struct {
             else if (!constant and try self.match(.Test))
                 try self.testStatement()
             else if (try self.match(.Function))
-                try self.varDeclaration(try self.parseFunctionType(), .Semicolon, constant, true)
+                try self.varDeclaration(
+                    try self.parseFunctionType(null),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.Import))
                 try self.importStatement()
                 // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
@@ -1172,14 +1200,14 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Fib)) {
             return try self.varDeclaration(
-                try self.parseFiberType(),
+                try self.parseFiberType(null),
                 .Semicolon,
                 constant,
                 true,
             );
         } else if (try self.match(.Obj)) {
             return try self.varDeclaration(
-                try self.parseObjType(),
+                try self.parseObjType(null),
                 .Semicolon,
                 constant,
                 true,
@@ -1189,7 +1217,12 @@ pub const Parser = struct {
         } else if (try self.match(.LeftBrace)) {
             return try self.mapDeclaration(constant);
         } else if (try self.match(.Function)) {
-            return try self.varDeclaration(try self.parseFunctionType(), .Semicolon, constant, true);
+            return try self.varDeclaration(
+                try self.parseFunctionType(null),
+                .Semicolon,
+                constant,
+                true,
+            );
         } else if (try self.match(.Identifier)) {
             // A declaration with a class/object/enum type is one of those:
             // - Type variable
@@ -1294,6 +1327,7 @@ pub const Parser = struct {
             try self.gc.copyString(object_name.lexeme),
             try self.gc.copyString(qualified_object_name.items),
             is_class,
+            false,
         );
 
         var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
@@ -1314,8 +1348,6 @@ pub const Parser = struct {
         // Inherited class?
         var parent_slot: ?usize = null;
         if (is_class) {
-            object_type.resolved_type.?.Object.inheritable = true;
-
             if (try self.match(.Less)) {
                 try self.consume(.Identifier, "Expected identifier after `<`.");
 
@@ -1418,7 +1450,7 @@ pub const Parser = struct {
             } else {
                 // TODO: constant object properties
                 // const constant = try self.match(.Const);
-                const property_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+                const property_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
                 try self.consume(.Identifier, "Expected property name.");
                 const property_name = self.parser.previous_token.?.clone();
@@ -1658,7 +1690,7 @@ pub const Parser = struct {
         // Should be either VarDeclaration or expression
         var init_declarations = std.ArrayList(*VarDeclarationNode).init(self.gc.allocator);
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
-            try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, true)).?);
+            try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, true)).?);
 
             self.markInitialized();
 
@@ -1714,10 +1746,10 @@ pub const Parser = struct {
 
         self.beginScope();
 
-        var key: ?*ParseNode = try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, false);
+        var key: ?*ParseNode = try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, false);
 
         var value: ?*ParseNode = if (try self.match(.Comma))
-            try self.varDeclaration(try self.parseTypeDef(), .Nothing, false, false)
+            try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, false)
         else
             null;
 
@@ -1874,7 +1906,7 @@ pub const Parser = struct {
 
                 self.beginScope();
 
-                const type_def = try self.parseTypeDef();
+                const type_def = try self.parseTypeDef(null);
 
                 _ = try self.parseVariable(
                     try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
@@ -2140,11 +2172,11 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn parseFiberType(self: *Self) !*ObjTypeDef {
+    fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         try self.consume(.Less, "Expected `<` after `fib`");
-        const return_type = try self.parseTypeDef();
+        const return_type = try self.parseTypeDef(generic_types);
         try self.consume(.Comma, "Expected `,` after fiber return type");
-        const yield_type = try self.parseTypeDef();
+        const yield_type = try self.parseTypeDef(generic_types);
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
             try self.reportError("Expected optional type");
@@ -2168,8 +2200,8 @@ pub const Parser = struct {
         });
     }
 
-    fn parseListType(self: *Self) !*ObjTypeDef {
-        var list_item_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+    fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
+        var list_item_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
@@ -2188,15 +2220,20 @@ pub const Parser = struct {
     }
 
     fn listDeclaration(self: *Self, constant: bool) !*ParseNode {
-        return try self.varDeclaration(try self.parseListType(), .Semicolon, constant, true);
+        return try self.varDeclaration(
+            try self.parseListType(null),
+            .Semicolon,
+            constant,
+            true,
+        );
     }
 
-    fn parseMapType(self: *Self) !*ObjTypeDef {
-        var key_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+    fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
+        var key_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
         try self.consume(.Comma, "Expected `,` after key type.");
 
-        var value_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+        var value_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
         try self.consume(.RightBrace, "Expected `}` after value type.");
 
@@ -2215,7 +2252,12 @@ pub const Parser = struct {
     }
 
     fn mapDeclaration(self: *Self, constant: bool) !*ParseNode {
-        return try self.varDeclaration(try self.parseMapType(), .Semicolon, constant, true);
+        return try self.varDeclaration(
+            try self.parseMapType(null),
+            .Semicolon,
+            constant,
+            true,
+        );
     }
 
     fn enumDeclaration(self: *Self) !*ParseNode {
@@ -2228,7 +2270,7 @@ pub const Parser = struct {
         var enum_case_type: *ObjTypeDef = undefined;
         var case_type_picked: bool = false;
         if (try self.match(.LeftParen)) {
-            enum_case_type = try self.parseTypeDef();
+            enum_case_type = try self.parseTypeDef(null);
             try self.consume(.RightParen, "Expected `)` after enum type.");
 
             case_type_picked = true;
@@ -2353,6 +2395,7 @@ pub const Parser = struct {
             try self.gc.copyString("anonymous"),
             try self.gc.copyString(qualified_name.items),
             false,
+            true,
         );
 
         var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
@@ -2392,7 +2435,7 @@ pub const Parser = struct {
 
         try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
-        node.node.type_def = try object_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+        node.node.type_def = try (try self.gc.type_registry.getTypeDef(object_type)).toInstance(self.gc.allocator, &self.gc.type_registry);
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
@@ -2775,11 +2818,15 @@ pub const Parser = struct {
                     .Fiber = fiber_def,
                 };
 
-                node.node.type_def = try self.gc.type_registry.getTypeDef(ObjTypeDef{
+                node.node.type_def = try (try self.gc.type_registry.getTypeDef(ObjTypeDef{
                     .optional = try self.match(.Question),
                     .def_type = .Fiber,
                     .resolved_type = resolved_type,
-                });
+                })).populateGenerics(
+                    function_type.?.resolved_type.?.Function.id,
+                    call_node.resolved_generics,
+                    &self.gc.type_registry,
+                );
             }
         }
 
@@ -3002,17 +3049,37 @@ pub const Parser = struct {
     fn call(self: *Self, _: bool, callee: *ParseNode) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
+        const function_type = if (callee.type_def != null and callee.type_def.?.def_type == .Function)
+            callee.type_def.?
+        else
+            null;
+
+        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+        if (function_type != null and try self.match(.Less)) {
+            while (!self.check(.Greater) and !self.check(.Eof)) {
+                try resolved_generics.append(try self.parseTypeDef(null));
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+            if (!self.check(.RightParen)) {
+                try self.consume(.Comma, "Expected `,` after generic types list");
+            }
+        }
+
         var node = try self.gc.allocator.create(CallNode);
         node.* = CallNode{
             .callee = callee,
             // In the case of a dot call, callee's type will change to the function return type
             // so we keep a reference to it here
             .callable_type = callee.type_def,
+            .resolved_generics = resolved_generics.items,
             .arguments = try self.argumentList(),
             .catch_default = try self.inlineCatch(),
         };
-
-        // Note: callee.node.type_def has been populated with the member being referenced
 
         // Node type is Function or Native return type or nothing/placeholder
         node.node.type_def = if (callee.type_def != null and callee.type_def.?.def_type == .Function)
@@ -3030,6 +3097,7 @@ pub const Parser = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
                 };
+                placeholder_resolved_type.Placeholder.call_generics = resolved_generics.items;
 
                 node.node.type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -3040,6 +3108,13 @@ pub const Parser = struct {
 
                 try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
             }
+        } else if (resolved_generics.items.len > 0) {
+            // Check if return type was composed with a generic type
+            node.node.type_def = try node.node.type_def.?.populateGenerics(
+                function_type.?.resolved_type.?.Function.id,
+                resolved_generics.items,
+                &self.gc.type_registry,
+            );
         }
 
         node.node.location = start_location;
@@ -3486,7 +3561,7 @@ pub const Parser = struct {
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
         const start_location = left.location;
 
-        const constant = Value{ .Obj = (try self.parseTypeDef()).toObj() };
+        const constant = Value{ .Obj = (try self.parseTypeDef(null)).toObj() };
 
         var node = try self.gc.allocator.create(IsNode);
         node.* = IsNode{
@@ -3631,7 +3706,7 @@ pub const Parser = struct {
 
         // A lone list expression is prefixed by `<type>`
         if (self.parser.previous_token.?.token_type == .Less) {
-            item_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+            item_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
             if (try self.match(.Comma)) {
                 return try self.mapFinalise(item_type.?);
@@ -3688,7 +3763,7 @@ pub const Parser = struct {
         // A lone map expression is prefixed by `<type, type>`
         // When key_type != null, we come from list() which just parsed `<type,`
         if (key_type != null) {
-            value_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+            value_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
             try self.consume(.Greater, "Expected `>` after map type.");
             try self.consume(.LeftBrace, "Expected `{` before map entries.");
@@ -3878,6 +3953,7 @@ pub const Parser = struct {
         };
 
         var function_def = ObjFunction.FunctionDef{
+            .id = ObjFunction.FunctionDef.nextId(),
             .script_name = try self.gc.copyString(self.script_name),
             .name = if (name) |uname|
                 try self.gc.copyString(uname.lexeme)
@@ -3888,6 +3964,7 @@ pub const Parser = struct {
             .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator),
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = function_type,
+            .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator),
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
@@ -3897,13 +3974,59 @@ pub const Parser = struct {
         // We replace it with a self.gc.type_registry.getTypeDef pointer at the end
         function_node.node.type_def = &function_typedef;
 
-        // Parse argument list
+        // So any reference to a generic in the function's body can be resolved
+        self.current.?.generics = &function_node.node.type_def.?.resolved_type.?.Function.generic_types;
+
+        // Parse generic & argument list
         if (function_type == .Test) {
-            try self.consume(.String, "Expected `str` after `test`.");
+            try self.consume(.String, "Expected a string after `test`.");
             function_node.test_message = try self.string(false);
         } else {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
+            // Generics
+            if (try self.match(.Less)) {
+                var i: usize = 0;
+                while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+                    try self.consume(.Identifier, "Expected generic type identifier");
+
+                    const generic_identifier = try self.gc.copyString(self.parser.previous_token.?.lexeme);
+                    if (function_node.node.type_def.?.resolved_type.?.Function.generic_types.get(generic_identifier) == null) {
+                        const generic = ObjTypeDef.GenericDef{
+                            .origin = function_node.node.type_def.?.resolved_type.?.Function.id,
+                            .index = i,
+                        };
+                        const resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
+                        try function_node.node.type_def.?.resolved_type.?.Function.generic_types.put(
+                            generic_identifier,
+                            try self.gc.type_registry.getTypeDef(
+                                ObjTypeDef{
+                                    .def_type = .Generic,
+                                    .resolved_type = resolved_type,
+                                },
+                            ),
+                        );
+                    } else {
+                        try self.reportErrorFmt("Generic type `{s}` already defined", .{self.parser.previous_token.?.lexeme});
+                    }
+
+                    if (!self.check(.Greater)) {
+                        try self.consume(.Comma, "Expected `,` between generic types");
+                    }
+                }
+
+                if (function_node.node.type_def.?.resolved_type.?.Function.generic_types.count() == 0) {
+                    try self.reportError("Expected at least one generic type");
+                }
+
+                try self.consume(.Greater, "Expected `>` after generic types list");
+
+                if (!self.check(.RightParen)) {
+                    try self.consume(.Comma, "Expected `,` after generic types list");
+                }
+            }
+
+            // Arguments
             var arity: usize = 0;
             if (!self.check(.RightParen)) {
                 while (true) {
@@ -3912,7 +4035,7 @@ pub const Parser = struct {
                         try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
                     }
 
-                    var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+                    var param_type: *ObjTypeDef = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
                     var slot: usize = try self.parseVariable(
                         param_type,
@@ -3974,7 +4097,7 @@ pub const Parser = struct {
         if (function_type != .Test) {
             try self.consume(.Greater, "Expected `>` after function argument list.");
 
-            const return_type = try self.parseTypeDef();
+            const return_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
@@ -3983,7 +4106,7 @@ pub const Parser = struct {
 
         // Parse yield type
         if (parsed_return_type and (function_type == .Method or function_type == .Function or function_type == .Anonymous) and (try self.match(.Greater))) {
-            const yield_type = try self.parseTypeDef();
+            const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             if (!yield_type.optional and yield_type.def_type != .Void) {
                 try self.reportError("Expected optional type");
@@ -3999,7 +4122,7 @@ pub const Parser = struct {
             var error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
             const end_token: TokenType = if (function_type == .Extern) .Semicolon else .LeftBrace;
             while (!self.check(end_token) and !self.check(.Eof)) {
-                const error_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+                const error_type = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try error_types.append(error_type);
 
                 if (!self.check(end_token)) {
@@ -4316,7 +4439,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn parseFunctionType(self: *Self) !*ObjTypeDef {
+    fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         assert(self.parser.previous_token.?.token_type == .Function);
 
         var name: ?*ObjString = null;
@@ -4325,6 +4448,62 @@ pub const Parser = struct {
         }
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
+
+        var merged_generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
+        defer merged_generic_types.deinit();
+        if (parent_generic_types != null) {
+            var it = parent_generic_types.?.iterator();
+            while (it.next()) |kv| {
+                try merged_generic_types.put(kv.key_ptr.*, kv.value_ptr.*);
+            }
+        }
+
+        var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
+        if (try self.match(.Less)) {
+            var i: usize = 0;
+            while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+                try self.consume(.Identifier, "Expected generic type identifier");
+
+                const generic_identifier = try self.gc.copyString(self.parser.previous_token.?.lexeme);
+                if (generic_types.get(generic_identifier) == null) {
+                    const generic = ObjTypeDef.GenericDef{
+                        .origin = undefined,
+                        .index = i,
+                    };
+                    const resolved = ObjTypeDef.TypeUnion{ .Generic = generic };
+                    const type_def = try self.gc.type_registry.getTypeDef(
+                        ObjTypeDef{
+                            .def_type = .Generic,
+                            .resolved_type = resolved,
+                        },
+                    );
+
+                    try generic_types.put(
+                        generic_identifier,
+                        type_def,
+                    );
+                    try merged_generic_types.put(
+                        generic_identifier,
+                        type_def,
+                    );
+                } else {
+                    try self.reportErrorFmt("Generic type `{s}` already defined", .{self.parser.previous_token.?.lexeme});
+                }
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            if (generic_types.count() == 0) {
+                try self.reportError("Expected at least one generic type");
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+            if (!self.check(.RightParen)) {
+                try self.consume(.Comma, "Expected `,` after generic types list");
+            }
+        }
 
         var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
         var arity: usize = 0;
@@ -4335,7 +4514,7 @@ pub const Parser = struct {
                     try self.reportErrorAtCurrent("Can't have more than 255 parameters.");
                 }
 
-                var param_type: *ObjTypeDef = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+                var param_type: *ObjTypeDef = try (try self.parseTypeDef(merged_generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try self.consume(.Identifier, "Expected argument name");
                 var param_name: []const u8 = self.parser.previous_token.?.lexeme;
 
@@ -4347,9 +4526,9 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after function parameters.");
 
-        var return_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef() else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        var return_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef(null) else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
-        var yield_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef() else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        var yield_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef(null) else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
         var function_typedef: ObjTypeDef = .{
             .def_type = .Function,
@@ -4357,6 +4536,7 @@ pub const Parser = struct {
         };
 
         var function_def: ObjFunction.FunctionDef = .{
+            .id = ObjFunction.FunctionDef.nextId(),
             .script_name = try self.gc.copyString(self.script_name),
             .name = name orelse try self.gc.copyString("anonymous"),
             .return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry),
@@ -4364,6 +4544,7 @@ pub const Parser = struct {
             .parameters = parameters,
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = .Anonymous,
+            .generic_types = generic_types,
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
@@ -4415,7 +4596,7 @@ pub const Parser = struct {
 
         _ = try self.advance();
 
-        const parsed_type = try self.parseTypeDef();
+        const parsed_type = try self.parseTypeDef(null);
 
         // Restore normal scanner and parser state
         self.scanner = scanner;
@@ -4425,7 +4606,7 @@ pub const Parser = struct {
         return parsed_type;
     }
 
-    fn parseTypeDef(self: *Self) anyerror!*ObjTypeDef {
+    fn parseTypeDef(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) anyerror!*ObjTypeDef {
         if (try self.match(.Str)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
         } else if (try self.match(.Pat)) {
@@ -4443,23 +4624,35 @@ pub const Parser = struct {
         } else if (try self.match(.Type)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.LeftBracket)) {
-            return self.parseListType();
+            return self.parseListType(generic_types);
         } else if (try self.match(.LeftBrace)) {
-            return self.parseMapType();
+            return self.parseMapType(generic_types);
         } else if (try self.match(.Function)) {
-            return try self.parseFunctionType();
+            return try self.parseFunctionType(generic_types);
         } else if (try self.match(.Fib)) {
-            return try self.parseFiberType();
+            return try self.parseFiberType(generic_types);
         } else if (try self.match(.Obj)) {
-            return try self.parseObjType();
+            return try self.parseObjType(generic_types);
         } else if ((try self.match(.Identifier))) {
-            const user_type = self.globals.items[try self.parseUserType()].type_def;
-
-            if (try self.match(.Question)) {
-                return try user_type.cloneOptional(&self.gc.type_registry);
+            var user_type: ?*ObjTypeDef = null;
+            // Is it a generic type defined in enclosing functions?
+            if (self.current.?.searchGeneric(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
+                user_type = generic_type;
+            } else if (generic_types != null) {
+                // Is it generic type defined in a function signature being parsed?
+                if (generic_types.?.get(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
+                    user_type = generic_type;
+                }
             }
 
-            return user_type;
+            // Is it a user defined type (object, enum, etc.) defined in global scope?
+            user_type = user_type orelse self.globals.items[try self.parseUserType()].type_def;
+
+            if (try self.match(.Question)) {
+                return try user_type.?.cloneOptional(&self.gc.type_registry);
+            }
+
+            return user_type.?;
         } else {
             try self.reportErrorAtCurrent("Expected type definition.");
 
@@ -4467,7 +4660,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parseObjType(self: *Self) !*ObjTypeDef {
+    fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         try self.consume(.LeftBrace, "Expected `{` after `obj`");
 
         const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
@@ -4481,6 +4674,7 @@ pub const Parser = struct {
             try self.gc.copyString("anonymous"),
             try self.gc.copyString(qualified_name.items),
             false,
+            true,
         );
 
         var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
@@ -4495,7 +4689,7 @@ pub const Parser = struct {
         var fields = std.StringHashMap(void).init(self.gc.allocator);
         defer fields.deinit();
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            const property_type = try (try self.parseTypeDef()).toInstance(self.gc.allocator, &self.gc.type_registry);
+            const property_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
             try self.consume(.Identifier, "Expected property name.");
             const property_name = self.parser.previous_token.?.clone();

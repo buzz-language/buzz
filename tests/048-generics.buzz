@@ -1,0 +1,91 @@
+import "lib/std";
+
+fun count(<T>, [T] list) > num {
+    return list.len();
+}
+
+test "Simple generic" {
+    assert(count(<num>, [1, 2, 3]) == 3, message: "could use generics");
+}
+
+fun extractList(<T>, obj{ [T] list } data) > [T] {
+    return data.list;
+}
+
+test "Generic within anonymous object" {
+    [num] list = [1, 2, 3];
+
+    assert(extractList(<num>, .{ list = list }) == list, message: "could use generic within anonymous object");
+}
+
+fun countMap(<K, V>, {K, V} map) > num {
+    return map.size();
+}
+
+test "Multiple generic types" {
+    {str, num} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    assert(countMap(<str, num>, map) == 3, message: "could use multiple generic types");
+}
+
+fun extractMap(<K, V>, obj{ {K, V} map } data) > {K, V} {
+    return data.map;
+}
+
+test "Generic within anonymous object and map" {
+    {str, num} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    assert(extractMap(<str, num>, .{ map = map }) == map, message: "could use generic within anonymous object");
+}
+
+fun countShuffleGenerics(<A, B>) > Function([A] a, [B] b) > num {
+    return fun ([A] a, [B] b) > num -> a.len() + b.len();
+}
+
+test "Generic in lambda function definition" {
+    [str] a = ["one", "two", "three"];
+    [num] b = [1, 2, 3];
+
+    assert(countShuffleGenerics(<str, num>)(a, b: b) == 6, message: "could use generic in lambda function definition");
+}
+
+fun doubleGeneric(<A, B>, Function(<C, D>) > num lambda) > num {
+    return lambda(<A, B>);
+}
+
+test "Generic with generic lambda parameter" {
+    assert(doubleGeneric(<str, num>, fun (<D, E>) > num -> 12) == 12, message: "could defined multiple generics");
+}
+
+fun genericReturn(<T>, T value) > T {
+    return value;
+}
+
+test "generic return" {
+    num number = genericReturn(<num>, 12);
+}
+
+fun fiber(<T>, [T] data) > void > T? {
+    foreach (num i, T element in data) {
+        yield element;
+    }
+}
+
+test "Generic with fibers" {
+    fib<void, num?> f = &fiber(<num>, [1, 2, 3]);
+
+    num sum = 0;
+    while (!f.over()) {
+        sum = sum + resume f ?? 0;
+    }
+
+    assert(sum == 6, message: "could user generic in fiber definition");
+}
