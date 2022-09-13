@@ -787,7 +787,7 @@ fun getAst(LspState state, str filename) > Json !> JsonParseError, ReadWriteErro
     if (state.ast[filename] == null) {
         stderr.write("Getting ast for {filename}\n");
 
-        str astString = debug.ast(source!, scriptName: filename, declarationsOnly: false);
+        str astString = debug.ast(source!, scriptName: filename);
 
         state.ast[filename] = Json.decode(astString);
     }
@@ -937,7 +937,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void !> JsonParseError {
 fun getSymbols(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError {
     const Json ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "");
 
-    [Json] declarations = <Json>[];
+    [Json] declarations = [<Json>];
     
     getSymbolsAt(ast, declarations: declarations);
 
@@ -969,18 +969,18 @@ fun locationToRange(Json location) > Json !> JsonParseError {
 }
 
 fun gotoDefinition(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, AssertError, FileSystemError, FileNotFoundError, UnexpectedError, CompileError, WriteWhileReadingError {
-    const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? <str, Json>{};
+    const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Json>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
-    const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? <str, Json>{};
+    const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Json>};
     const num line = position["line"]?.numberValue() ?? 0;
     const num column = position["character"]?.numberValue() ?? 0;
 
     Json ast = getAst(state, filename: uri);
 
     | Skip entry point
-    [Json] roots = ast.q(["body", "statements"]).list ?? <Json>[];
+    [Json] roots = ast.q(["body", "statements"]).list ?? [<Json>];
     foreach (num i, Json root in roots) {
-        [Json] trail = <Json>[ast];
+        [Json] trail = [ast];
         
         findNodeUnder(trail, root: root, uri: uri, line: line, column: column);
         
@@ -1038,8 +1038,8 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
 
 fun main([str] args) > void !> ReadWriteError, JsonParseError, FileSystemError, UnexpectedError, str, InvalidArgumentError, WriteWhileReadingError {
     LspState state = LspState{
-        sources = <str, str>{},
-        ast = <str, Json>{},
+        sources = {<str, str>},
+        ast = {<str, Json>},
     };
 
     while (true) {

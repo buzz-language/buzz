@@ -23,13 +23,13 @@ object Declaration {
         declarationType = declarationType,
         typeDef = typeDef,
         docblock = docblock,
-        subDeclarations = subDeclarations ?? <str, Declaration>{},
+        subDeclarations = subDeclarations ?? {<str, Declaration>},
     }
 
     | Split docblock by @ instructions
     static fun handleDocblock(str docblock) > {str, str} {
         const pat atPattern = _@([^@ ]+)(\s+[^\n@]+)?_;
-        {str, str} out = <str, str>{};
+        {str, str} out = {<str, str>};
 
         foreach (num i, str line in docblock.split("\n")) {
             [str]? at = atPattern.match(line);
@@ -90,7 +90,7 @@ object Declaration {
 }
 
 fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
-    [Declaration] declarations = <Declaration>[];
+    [Declaration] declarations = [<Declaration>];
 
     foreach (num index, Json statement in statements) {
         {str, Json} statementMap = statement.mapValue();
@@ -151,8 +151,7 @@ fun getDeclarations(str path) > [Declaration]
 
     str source = ast(
         file.readAll(),
-        scriptName: path.sub(0, len: path.indexOf(".buzz")!),
-        declarationsOnly: true
+        scriptName: path.sub(0, len: path.indexOf(".buzz")!)
     );
     file.close();
 
@@ -193,7 +192,7 @@ fun main([str] args) > void
        JsonParseError,
        WriteWhileReadingError
 {
-    {str, str} markdownDoc = <str, str>{};
+    {str, str} markdownDoc = {<str, str>};
     foreach (num i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {
             [Declaration] declarations = getDeclarations("lib/{file}");

@@ -9,7 +9,7 @@ object Node {
     static fun init(str? tag, {str, str}? attributes, [Node]? children, str? textContent) > Node {
         return Node{
             tag = tag ?? "",
-            attributes = attributes ?? <str, str>{},
+            attributes = attributes ?? {<str, str>},
             children = children,
             textContent = textContent
         };
@@ -30,7 +30,7 @@ object Node {
         if (this.children != null and this.children!.len() > 0) {
             out = "{out}>";
 
-            foreach (num i, Node node in this.children ?? <Node>[]) {
+            foreach (num i, Node node in this.children ?? [<Node>]) {
                 out = "{out}{node.gen()}";
             }
 

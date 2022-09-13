@@ -35,7 +35,7 @@ object Request {
         str method = methodAndUrl![1];
         str path = methodAndUrl![2];
 
-        {str, str} headers = <str, str>{};
+        {str, str} headers = {<str, str>};
         num contentLength = 0;
         num lineOffset = 0;
         foreach (num i, str line in lines.sub(1, len: null)) {

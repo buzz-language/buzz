@@ -6,12 +6,12 @@ test "Maps" {
         "bye": 2,
     };
 
-    <num, bool>{1: true, 2: false};
+    {<num, bool>, 1: true, 2: false};
 
     assert(map["bye"] is num?, message: "yeah");
 
     assert(map["bye"] == 2, message: "map subscript");
-    assert((<num, bool>{1: true, 2: false})[2] == false, message: "map expression subscript");
+    assert(({1: true, 2: false})[2] == false, message: "map expression subscript");
 
     assert(map.remove("hello") == 1, message: "removed element");
     | assert(map["hello"] == null, message: "removed element");
@@ -19,16 +19,18 @@ test "Maps" {
 }
 
 test "map merge" {
-    {str, num} map = <str, num>{"one": 1, "two": 22} + <str, num>{"three": 3, "two": 2};
+    {str, num} map = {"one": 1, "two": 22} + {"three": 3, "two": 2};
 
     assert(map["two"] == 2, message: "map merge");
     assert(map.size() == 3, message: "map merge");
 }
 
 test "map.keys" {
-    assert(<str, num>{"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
+    assert({"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
 }
 
 test "map.values" {
-    assert(<str, num>{"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
+    assert({"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
+
+    assert({<str, str>}.keys().len() == 0, message: "yo empty map");
 }

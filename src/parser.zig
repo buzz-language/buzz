@@ -221,7 +221,7 @@ pub const Parser = struct {
         Factor, // /, *, %
         Unary, // +, ++, -, --, !
         Call, // call(), dot.ref, sub[script], optUnwrap?
-        Primary, // literal, (grouped expression), super.ref, identifier, <type>[alist], <a, map>{...}
+        Primary, // literal, (grouped expression), super.ref, identifier, [<type>, alist], {<a, map>, ...}
     };
 
     const ParseFn = fn (*Parser, bool) anyerror!*ParseNode;
@@ -245,7 +245,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Comma
         .{ .prefix = null, .infix = null, .precedence = .None }, // Semicolon
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Greater
-        .{ .prefix = list, .infix = binary, .precedence = .Comparison }, // Less
+        .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Less
         .{ .prefix = null, .infix = binary, .precedence = .Term }, // Plus
         .{ .prefix = unary, .infix = binary, .precedence = .Term }, // Minus
         .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Star
@@ -794,7 +794,12 @@ pub const Parser = struct {
                     try self.resolvePlaceholder(
                         child,
                         if (child_placeholder.call_generics) |call_generics|
-                            try placeholder.resolved_type.?.Function.return_type.populateGenerics(placeholder.resolved_type.?.Function.id, call_generics, &self.gc.type_registry)
+                            try placeholder.resolved_type.?.Function.return_type.populateGenerics(
+                                placeholder.resolved_type.?.Function.id,
+                                call_generics,
+                                &self.gc.type_registry,
+                                null,
+                            )
                         else
                             placeholder.resolved_type.?.Function.return_type,
                         false,
@@ -810,7 +815,12 @@ pub const Parser = struct {
                     try self.resolvePlaceholder(
                         child,
                         if (child_placeholder.call_generics) |call_generics|
-                            try placeholder.resolved_type.?.Function.yield_type.populateGenerics(placeholder.resolved_type.?.Function.id, call_generics, &self.gc.type_registry)
+                            try placeholder.resolved_type.?.Function.yield_type.populateGenerics(
+                                placeholder.resolved_type.?.Function.id,
+                                call_generics,
+                                &self.gc.type_registry,
+                                null,
+                            )
                         else
                             placeholder.resolved_type.?.Function.yield_type,
                         false,
@@ -1135,7 +1145,7 @@ pub const Parser = struct {
                 null;
 
             if (node == null) {
-                try self.reportError("No declaration or statement.");
+                try self.reportError("Expected declaration or import/export statement");
             } else if (docblock != null) {
                 node.?.docblock = docblock;
             }
@@ -2220,6 +2230,11 @@ pub const Parser = struct {
     }
 
     fn listDeclaration(self: *Self, constant: bool) !*ParseNode {
+        if (self.check(.Less) and self.current.?.scope_depth > 0) {
+            // Its a list expression
+            return try self.expressionStatement(true);
+        }
+
         return try self.varDeclaration(
             try self.parseListType(null),
             .Semicolon,
@@ -2252,6 +2267,11 @@ pub const Parser = struct {
     }
 
     fn mapDeclaration(self: *Self, constant: bool) !*ParseNode {
+        if (self.check(.Less) and self.current.?.scope_depth > 0) {
+            // Its a map expression
+            return try self.expressionStatement(true);
+        }
+
         return try self.varDeclaration(
             try self.parseMapType(null),
             .Semicolon,
@@ -2533,7 +2553,6 @@ pub const Parser = struct {
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
-            std.debug.print("Last token is {}\n", .{self.parser.previous_token.?.token_type});
             try self.reportError("Expected expression.");
 
             // TODO: find a way to continue or catch that error
@@ -2826,6 +2845,7 @@ pub const Parser = struct {
                     function_type.?.resolved_type.?.Function.id,
                     call_node.resolved_generics,
                     &self.gc.type_registry,
+                    null,
                 );
             }
         }
@@ -3114,6 +3134,7 @@ pub const Parser = struct {
                 function_type.?.resolved_type.?.Function.id,
                 resolved_generics.items,
                 &self.gc.type_registry,
+                null,
             );
         }
 
@@ -3704,31 +3725,35 @@ pub const Parser = struct {
         var items = std.ArrayList(*ParseNode).init(self.gc.allocator);
         var item_type: ?*ObjTypeDef = null;
 
-        // A lone list expression is prefixed by `<type>`
-        if (self.parser.previous_token.?.token_type == .Less) {
+        // A list expression can specify its type `[<num>, ...]`
+        if (try self.match(.Less)) {
             item_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
-            if (try self.match(.Comma)) {
-                return try self.mapFinalise(item_type.?);
-            }
-
             try self.consume(.Greater, "Expected `>` after list type.");
-            try self.consume(.LeftBracket, "Expected `[` after list type.");
         }
 
-        while (!(try self.match(.RightBracket)) and !(try self.match(.Eof))) {
-            var actual_item: *ParseNode = try self.expression(false);
+        if (item_type == null or try self.match(.Comma)) {
+            while (!(try self.match(.RightBracket)) and !(try self.match(.Eof))) {
+                var actual_item: *ParseNode = try self.expression(false);
 
-            try items.append(actual_item);
+                try items.append(actual_item);
 
-            item_type = item_type orelse actual_item.type_def;
+                item_type = item_type orelse actual_item.type_def;
 
-            if (!self.check(.RightBracket)) {
-                try self.consume(.Comma, "Expected `,` after list item.");
+                if (!self.check(.RightBracket)) {
+                    try self.consume(.Comma, "Expected `,` after list item.");
+                }
             }
+        } else {
+            try self.consume(.RightBracket, "Expected `}`");
         }
 
-        assert(item_type != null);
+        // Either item type was specified with `<type>` or the list is not empty and we could infer it
+        if (item_type == null) {
+            try self.reportError("List item type can't be infered");
+
+            item_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        }
 
         var list_def = ObjList.ListDef.init(self.gc.allocator, item_type.?);
 
@@ -3751,45 +3776,51 @@ pub const Parser = struct {
     }
 
     fn map(self: *Self, _: bool) anyerror!*ParseNode {
-        return try self.mapFinalise(null);
-    }
-
-    fn mapFinalise(self: *Self, parsed_key_type: ?*ObjTypeDef) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
         var value_type: ?*ObjTypeDef = null;
-        var key_type: ?*ObjTypeDef = parsed_key_type;
+        var key_type: ?*ObjTypeDef = null;
 
-        // A lone map expression is prefixed by `<type, type>`
-        // When key_type != null, we come from list() which just parsed `<type,`
-        if (key_type != null) {
+        // A map expression can specify its type `{<str, str>, ...}`
+        if (try self.match(.Less)) {
+            key_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
+
+            try self.consume(.Comma, "Expected `,` after key type");
+
             value_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
             try self.consume(.Greater, "Expected `>` after map type.");
-            try self.consume(.LeftBrace, "Expected `{` before map entries.");
         }
 
         var keys = std.ArrayList(*ParseNode).init(self.gc.allocator);
         var values = std.ArrayList(*ParseNode).init(self.gc.allocator);
 
-        while (!(try self.match(.RightBrace)) and !(try self.match(.Eof))) {
-            var key: *ParseNode = try self.expression(false);
-            try self.consume(.Colon, "Expected `:` after key.");
-            var value: *ParseNode = try self.expression(false);
+        if (key_type == null or try self.match(.Comma)) {
+            while (!(try self.match(.RightBrace)) and !(try self.match(.Eof))) {
+                var key: *ParseNode = try self.expression(false);
+                try self.consume(.Colon, "Expected `:` after key.");
+                var value: *ParseNode = try self.expression(false);
 
-            try keys.append(key);
-            try values.append(value);
+                try keys.append(key);
+                try values.append(value);
 
-            key_type = key_type orelse key.type_def;
-            value_type = value_type orelse value.type_def;
+                key_type = key_type orelse key.type_def;
+                value_type = value_type orelse value.type_def;
 
-            if (!self.check(.RightBrace)) {
-                try self.consume(.Comma, "Expected `,` after map entry.");
+                if (!self.check(.RightBrace)) {
+                    try self.consume(.Comma, "Expected `,` after map entry.");
+                }
             }
+        } else {
+            try self.consume(.RightBrace, "Expected `}`");
         }
 
-        assert(key_type != null);
-        assert(value_type != null);
+        if (key_type == null and value_type == null) {
+            try self.reportError("Map key and value type can't be infered");
+
+            key_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+            value_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        }
 
         var map_def = ObjMap.MapDef.init(self.gc.allocator, key_type.?, value_type.?);
 

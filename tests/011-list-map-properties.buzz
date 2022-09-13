@@ -7,8 +7,9 @@ object Hey {
 
 test "List and Map as Object properties" {
     Hey hey = Hey{
-        ages = <num>[1, 2, 3],
-        names = <num, str>{
+        ages = [<num>, 1, 2, 3],
+        names = {
+            <num, str>,
             1: "hello"
         },
     };

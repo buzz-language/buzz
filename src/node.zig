@@ -3106,6 +3106,7 @@ pub const CallNode = struct {
             callee_type.?.resolved_type.?.Function.id,
             self.resolved_generics,
             &codegen.gc.type_registry,
+            null,
         );
 
         if (function_type.resolved_type.?.Function.generic_types.count() > self.resolved_generics.len) {

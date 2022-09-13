@@ -95,7 +95,7 @@ object JsonParser {
     }
 
     fun array() > [Json] !> JsonParseError, WriteWhileReadingError {
-        [Json] array = <Json>[];
+        [Json] array = [<Json>];
 
         while (true) {
             this.skipWhitespaces();
@@ -119,7 +119,7 @@ object JsonParser {
     }
 
     fun map() > {str, Json} !> JsonParseError, WriteWhileReadingError {
-        {str, Json} map = <str, Json>{};
+        {str, Json} map = {<str, Json>};
 
         while (true) {
             this.skipWhitespaces();
@@ -215,9 +215,9 @@ object Json {
     || @return wrapped data number value or `0` if not a number
     fun numberValue() > num -> this.number ?? 0
     || @return wrapped data map value or empty map if not a map
-    fun mapValue() > {str, Json} -> this.map ?? <str, Json>{}
+    fun mapValue() > {str, Json} -> this.map ?? {<str, Json>}
     || @return wrapped data list value or empty list if not a list
-    fun listValue() > [Json] -> this.list ?? <Json>[]
+    fun listValue() > [Json] -> this.list ?? [<Json>]
 
     || Query the json element at `path`, if nothing matches return `Json{}`
     || @param path Path to query

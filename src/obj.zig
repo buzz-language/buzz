@@ -2867,7 +2867,22 @@ pub const ObjTypeDef = struct {
         }
     }
 
-    pub fn populateGenerics(self: *Self, origin: usize, generics: []*ObjTypeDef, type_registry: *TypeRegistry) anyerror!*ObjTypeDef {
+    pub fn populateGenerics(self: *Self, origin: usize, generics: []*Self, type_registry: *TypeRegistry, visited: ?*std.AutoHashMap(*Self, void)) anyerror!*Self {
+        var visited_nodes = if (visited == null) std.AutoHashMap(*Self, void).init(type_registry.gc.allocator) else null;
+        defer {
+            if (visited == null) {
+                visited_nodes.?.deinit();
+            }
+        }
+
+        var visited_ptr = visited orelse &visited_nodes.?;
+
+        if (visited_ptr.get(self) != null) {
+            return self;
+        }
+
+        try visited_ptr.put(self, {});
+
         return switch (self.def_type) {
             .Bool,
             .Number,
@@ -2899,8 +2914,18 @@ pub const ObjTypeDef = struct {
 
             .Fiber => {
                 const new_fiber_def = ObjFiber.FiberDef{
-                    .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(origin, generics, type_registry),
-                    .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(origin, generics, type_registry),
+                    .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
+                    .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
@@ -2913,7 +2938,7 @@ pub const ObjTypeDef = struct {
 
                 return try type_registry.getTypeDef(new_fiber);
             },
-            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(origin, generics, type_registry)).toInstance(type_registry.gc.allocator, type_registry),
+            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(origin, generics, type_registry, visited_ptr)).toInstance(type_registry.gc.allocator, type_registry),
             .Object => {
                 // Only anonymous objects can be with generics so no need to check anything other than fields
                 const old_object_def = self.resolved_type.?.Object;
@@ -2932,7 +2957,12 @@ pub const ObjTypeDef = struct {
                     while (it.next()) |kv| {
                         try fields.put(
                             kv.key_ptr.*,
-                            try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                            try kv.value_ptr.*.populateGenerics(
+                                origin,
+                                generics,
+                                type_registry,
+                                visited_ptr,
+                            ),
                         );
                     }
                     resolved.fields = fields;
@@ -2956,12 +2986,22 @@ pub const ObjTypeDef = struct {
                 while (it.next()) |kv| {
                     try methods.put(
                         kv.key_ptr.*,
-                        try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                        try kv.value_ptr.*.populateGenerics(
+                            origin,
+                            generics,
+                            type_registry,
+                            visited_ptr,
+                        ),
                     );
                 }
 
                 var new_list_def = ObjList.ListDef{
-                    .item_type = try old_list_def.item_type.populateGenerics(origin, generics, type_registry),
+                    .item_type = try old_list_def.item_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
                     .methods = methods,
                 };
 
@@ -2983,13 +3023,28 @@ pub const ObjTypeDef = struct {
                 while (it.next()) |kv| {
                     try methods.put(
                         kv.key_ptr.*,
-                        try kv.value_ptr.*.populateGenerics(origin, generics, type_registry),
+                        try kv.value_ptr.*.populateGenerics(
+                            origin,
+                            generics,
+                            type_registry,
+                            visited_ptr,
+                        ),
                     );
                 }
 
                 var new_map_def = ObjMap.MapDef{
-                    .key_type = try old_map_def.key_type.populateGenerics(origin, generics, type_registry),
-                    .value_type = try old_map_def.value_type.populateGenerics(origin, generics, type_registry),
+                    .key_type = try old_map_def.key_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
+                    .value_type = try old_map_def.value_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
                     .methods = methods,
                 };
 
@@ -3010,7 +3065,12 @@ pub const ObjTypeDef = struct {
                 if (old_fun_def.error_types) |old_error_types| {
                     error_types = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
                     for (old_error_types) |error_type| {
-                        try error_types.?.append(try error_type.populateGenerics(origin, generics, type_registry));
+                        try error_types.?.append(try error_type.populateGenerics(
+                            origin,
+                            generics,
+                            type_registry,
+                            visited_ptr,
+                        ));
                     }
                 }
 
@@ -3018,7 +3078,15 @@ pub const ObjTypeDef = struct {
                 {
                     var it = old_fun_def.parameters.iterator();
                     while (it.next()) |kv| {
-                        try parameters.put(kv.key_ptr.*, try kv.value_ptr.*.populateGenerics(origin, generics, type_registry));
+                        try parameters.put(
+                            kv.key_ptr.*,
+                            try kv.value_ptr.*.populateGenerics(
+                                origin,
+                                generics,
+                                type_registry,
+                                visited_ptr,
+                            ),
+                        );
                     }
                 }
 
@@ -3026,8 +3094,18 @@ pub const ObjTypeDef = struct {
                     .id = ObjFunction.FunctionDef.nextId(),
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
-                    .return_type = try old_fun_def.return_type.populateGenerics(origin, generics, type_registry),
-                    .yield_type = try old_fun_def.yield_type.populateGenerics(origin, generics, type_registry),
+                    .return_type = try old_fun_def.return_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
+                    .yield_type = try old_fun_def.yield_type.populateGenerics(
+                        origin,
+                        generics,
+                        type_registry,
+                        visited_ptr,
+                    ),
                     .error_types = if (error_types) |types| types.items else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,

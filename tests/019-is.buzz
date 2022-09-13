@@ -27,8 +27,8 @@ test "`is` operator" {
     assert(MyEnum.one is MyEnum, message: "`is` for an enum instance");
     assert(myFun is Function(num id) > num, message: "`is` for a function");
 
-    assert(<num>[1,2,3] is [num], message: "`is` on a list");
-    assert(<str, num>{"one": 1} is {str, num}, message: "`is` on a map");
+    assert([<num>, 1,2,3] is [num], message: "`is` on a list");
+    assert({<str, num>, "one": 1} is {str, num}, message: "`is` on a map");
     | TODO: should be `Function(MyObj) > bool`
     assert(MyObj{}.bound is Function() > bool, message: "`is` on bound method");
 }
