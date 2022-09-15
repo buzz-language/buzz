@@ -1299,7 +1299,10 @@ pub const Parser = struct {
             try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
 
             var node = try self.gc.allocator.create(ThrowNode);
-            node.* = .{ .error_value = error_value };
+            node.* = .{
+                .error_value = error_value,
+                .unconditional = self.current.?.scope_depth == 1,
+            };
             node.node.location = start_location;
             node.node.end_location = self.parser.previous_token.?;
 
@@ -1884,6 +1887,7 @@ pub const Parser = struct {
         var node = try self.gc.allocator.create(ReturnNode);
         node.* = ReturnNode{
             .value = value,
+            .unconditional = self.current.?.scope_depth == 1,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;

@@ -3799,6 +3799,7 @@ pub const ThrowNode = struct {
     },
 
     error_value: *ParseNode,
+    unconditional: bool,
 
     fn constant(_: *ParseNode) bool {
         return false;
@@ -3816,6 +3817,10 @@ pub const ThrowNode = struct {
         _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
+
+        if (self.unconditional) {
+            codegen.current.?.return_emitted = true;
+        }
 
         assert(self.error_value.type_def != null);
         if (self.error_value.type_def.?.def_type == .Placeholder) {
@@ -4138,6 +4143,7 @@ pub const ReturnNode = struct {
     },
 
     value: ?*ParseNode,
+    unconditional: bool,
 
     fn constant(_: *ParseNode) bool {
         return false;
@@ -4156,7 +4162,9 @@ pub const ReturnNode = struct {
 
         var self = Self.cast(node).?;
 
-        codegen.current.?.return_emitted = true;
+        if (self.unconditional) {
+            codegen.current.?.return_emitted = true;
+        }
 
         if (self.value) |value| {
             if (value.type_def == null) {

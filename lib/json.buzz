@@ -272,9 +272,9 @@ object Json {
             }
 
             return json + "]";
-        } else {
-            return "null";
         }
+
+        return "null";
     }
 
     || Decode string to a Json instance

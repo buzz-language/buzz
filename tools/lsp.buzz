@@ -707,6 +707,8 @@ fun findSymbolInScope([Json] statements, str symbol) > Json? !> JsonParseError {
             }
         }
     }
+
+    return null;
 }
 
 | Climp up ast tree from the leaf to find its declaration
@@ -765,10 +767,9 @@ fun findDeclaration([Json] trail) > Json? !> JsonParseError, AssertError, FileSy
     return null;
 }
 
-fun getAst(LspState state, str filename) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError {
+fun getAst(LspState state, str filename) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError, str {
     if (!filename.startsWith("file://")) {
-        stderr.write("Could not handle filename: {filename}\n");
-        return Json{};
+        throw "Not a file url: {filename}";
     }
 
     | Dismiss "file://" prefix
@@ -934,7 +935,9 @@ fun getSymbolsAt(Json node, [Json] declarations) > void !> JsonParseError {
     }
 }
 
-fun getSymbols(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError {
+fun getSymbols(LspState state, {str, Json} request)
+    > Json 
+    !> JsonParseError, ReadWriteError, FileSystemError, FileNotFoundError, CompileError, UnexpectedError, WriteWhileReadingError, str {
     const Json ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "");
 
     [Json] declarations = [<Json>];
@@ -968,7 +971,9 @@ fun locationToRange(Json location) > Json !> JsonParseError {
     };
 }
 
-fun gotoDefinition(LspState state, {str, Json} request) > Json !> JsonParseError, ReadWriteError, AssertError, FileSystemError, FileNotFoundError, UnexpectedError, CompileError, WriteWhileReadingError {
+fun gotoDefinition(LspState state, {str, Json} request)
+    > Json 
+    !> JsonParseError, ReadWriteError, AssertError, FileSystemError, FileNotFoundError, UnexpectedError, CompileError, WriteWhileReadingError, str {
     const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Json>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
     const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Json>};
@@ -1073,4 +1078,17 @@ fun main([str] args) > void !> ReadWriteError, JsonParseError, FileSystemError, 
             result: result,
         );
     }
+}
+
+test "documentSymbol" {
+    LspState state = LspState{
+        sources = {<str, str>},
+        ast = {<str, Json>},
+    };
+
+    {str, Json} request = Json.decode(
+        "\{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/documentSymbol\",\"params\":\{\"textDocument\":\{\"uri\":\"file:///Users/giann/git/buzz/lib/json.buzz\"}}}"
+    ).mapValue();
+
+    print(handlers["textDocument/documentSymbol"]!(state, request: request).encode());
 }
