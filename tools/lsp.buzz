@@ -85,20 +85,24 @@ fun respond(str? strId, num? numId, Json result) > void !> FileSystemError, Read
     stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
 }
 
-fun withinNode(Json node, str uri, num line, num column) > bool !> JsonParseError {
+fun withinNode(Json node, str uri, num line, num column) > bool !> JsonParseError, FileSystemError, ReadWriteError, UnexpectedError {
     const str script = node.q(["location", "script"]).stringValue();
     const num startLine = node.q(["location", "start_line"]).number ?? -1;
     const num startColumn = node.q(["location", "start_column"]).number ?? -1;
     const num endLine = node.q(["location", "end_line"]).number ?? -1;
     const num endColumn = node.q(["location", "end_column"]).number ?? -1;
 
-    return uri.endsWith(script)
+    const bool result = uri.endsWith(script)
         and line >= startLine and line <= endLine
         and (endLine != startLine or ((column - 1) >= startColumn and (column - 1) <= endColumn));
+
+    stderr.write("is {uri}:{line}:{column} within {node.q(["node"]).stringValue()} {script}:{startLine}:{startColumn} - {endLine}:{endColumn} -> {result}\n");
+
+    return result;
 }
 
 | Go down the ast tree to find the smallest node under `line`:`column`
-fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void !> JsonParseError {
+fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void !> JsonParseError, FileSystemError, ReadWriteError, UnexpectedError {
     if (!withinNode(root, uri: uri, line: line, column: column)) {
         return;
     }
@@ -412,7 +416,14 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
     }
     
     if (node == "ObjectInit") {
+        const Json objectRef = root.q(["object"]);
         const [Json] properties = root.q(["properties"]).listValue();
+
+        if (withinNode(objectRef, uri: uri, line: line, column: column)) {
+            findNodeUnder(trail, root: objectRef, root: objectRef, uri: uri, line: line, column: column);
+
+            return;
+        }
         
         foreach (num i, Json property in properties) {
             if (withinNode(property, uri: uri, line: line, column: column)) {
@@ -448,7 +459,6 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
     if (node == "Call") {
         const Json? callee = root.mapValue()["callee"];
         const [Json] arguments = root.q(["arguments"]).listValue();
-        const [Json] catches = root.q(["catches"]).listValue();
 
         if (callee != null and withinNode(callee!, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: callee!, uri: uri, line: line, column: column);
@@ -457,16 +467,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
         }
 
         foreach (num i, Json argument in arguments) {
-            if (withinNode(argument, uri: uri, line: line, column: column)) {
-                findNodeUnder(trail, root: argument, uri: uri, line: line, column: column);
-
-                return;
-            }
-        }
-
-        foreach (num i, Json catche in catches) {
-            if (withinNode(catche, uri: uri, line: line, column: column)) {
-                findNodeUnder(trail, root: catche, uri: uri, line: line, column: column);
+            const Json argNode = argument.q(["value"]);
+            if (withinNode(argNode, uri: uri, line: line, column: column)) {
+                findNodeUnder(trail, root: argNode, uri: uri, line: line, column: column);
 
                 return;
             }
@@ -958,13 +961,13 @@ fun locationToRange(Json location) > Json !> JsonParseError {
             "start": Json{
                 map = {
                     "line": Json{ number = startLine },
-                    "character": Json{ number = startColumn - 1 },
+                    "character": Json{ number = startColumn },
                 }
             },
             "end": Json{
                 map = {
                     "line": Json{ number = endLine },
-                    "character": Json{ number = endColumn - 1 },
+                    "character": Json{ number = endColumn },
                 }
             }
         }

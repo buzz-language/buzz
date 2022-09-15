@@ -3071,8 +3071,6 @@ pub const Parser = struct {
     }
 
     fn call(self: *Self, _: bool, callee: *ParseNode) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
         const function_type = if (callee.type_def != null and callee.type_def.?.def_type == .Function)
             callee.type_def.?
         else
@@ -3142,7 +3140,7 @@ pub const Parser = struct {
             );
         }
 
-        node.node.location = start_location;
+        node.node.location = callee.location;
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;

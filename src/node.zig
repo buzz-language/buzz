@@ -5300,7 +5300,14 @@ pub const ObjectInitNode = struct {
             try entry.value_ptr.*.toJson(entry.value_ptr.*, out);
         }
 
-        try out.writeAll("}, ");
+        try out.writeAll("}, \"object\": ");
+
+        if (self.object) |object| {
+            try object.toJson(object, out);
+        } else {
+            try out.writeAll("null");
+        }
+        try out.writeAll(", ");
 
         try ParseNode.stringify(node, out);
 
