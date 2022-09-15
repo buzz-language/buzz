@@ -187,7 +187,7 @@ object JsonParser {
             char = this.advance();
         }
 
-        str result = string.getBuffer();
+        str result = string.toString();
 
         string.deinit();
 

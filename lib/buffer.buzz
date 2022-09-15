@@ -96,7 +96,7 @@ object Buffer {
         BufferEmpty(this.buffer);
     }
 
-    fun getBuffer() > str {
+    fun toString() > str {
         return BufferBuffer(this.buffer);
     }
 }

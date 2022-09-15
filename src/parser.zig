@@ -624,7 +624,7 @@ pub const Parser = struct {
             try writer.print(" {s}\n\u{001b}[0m", .{line});
 
             if (l == token.line) {
-                try writer.writeByteNTimes(' ', token.column - 1 + prefix_len);
+                try writer.writeByteNTimes(' ', (if (token.column > 0) token.column - 1 else 0) + prefix_len);
                 try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
             }
 

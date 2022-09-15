@@ -901,8 +901,9 @@ fun getSymbolsAt(Json node, [Json] declarations) > void !> JsonParseError {
     }
     
     if (ndType == "If") {
+        getSymbolsAt(node.q(["condition"]), declarations: declarations);
         getSymbolsAt(node.q(["body"]), declarations: declarations);
-        getSymbolsAt(node.q(["else_branch"]), declarations: declarations);
+        getSymbolsAt(node.q(["else"]), declarations: declarations);
 
         return;
     }

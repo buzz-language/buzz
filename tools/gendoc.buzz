@@ -32,13 +32,11 @@ object Declaration {
         {str, str} out = {<str, str>};
 
         foreach (num i, str line in docblock.split("\n")) {
-            [str]? at = atPattern.match(line);
-
-            if (at != null) {
-                if (at!.len() > 2) {
-                    out[at![1]] = at![2];
+            if (atPattern.match(line) -> at) {
+                if (at.len() > 2) {
+                    out[at[1]] = at[2];
                 } else {
-                    out[at![1]] = "";
+                    out[at[1]] = "";
                 }
             } else {
                 out["unspecified"] = (out["unspecified"] ?? "") + line;
@@ -48,44 +46,42 @@ object Declaration {
         return out;
     }
 
-    fun toMarkdown(str? heading) > str {
+    fun toMarkdown(str? heading, Buffer out) > void !> WriteWhileReadingError {
         const pat atParamPattern = _([^\s]+)\s+(.+)_;
 
-        str out = "\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n";
+        out.write("\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n");
 
         if (this.docblock == null) {
-            return out;
+            return;
         }
 
-        {str, str} processed = Declaration.handleDocblock(this.docblock!);
+        {str, str} processed = Declaration.handleDocblock(this.docblock ?? "");
 
         | Ignore things marked with @private
         if (processed["private"] != null) {
-            return "";
+            return;
         }
 
-        out = out + (processed["unspecified"] ?? "");
+        out.write(processed["unspecified"] ?? "");
 
         foreach (str instruction, str content in processed) {
             if (instruction == "param") {
                 [str]? param = atParamPattern.match(content);
 
-                out = out + "\n- ";
+                out.write("\n- ");
                 if (param != null) {
-                    out = "{out}**`{param![1]}`:** {param![2]}\n";
+                    out.write("**`{param![1]}`:** {param![2]}\n");
                 } else {
-                    out = "{out}{content}\n";
+                    out.write("{out}{content}\n");
                 }
             } else if (instruction == "return") {
-                out = "{out}\n\n**Returns:** {content}";
+                out.write("\n\n**Returns:** {content}");
             }
         }
 
         foreach (str key, Declaration decl in this.subDeclarations) {
-            out = "{out}\n{decl.toMarkdown("####")}";
+            out.write("\n{decl.toMarkdown("####", out: out)}");
         }
-
-        return out;
     }
 }
 
@@ -160,10 +156,9 @@ fun getDeclarations(str path) > [Declaration]
     try {
         root = Json.decode(source);
     } catch (JsonParseError error) {
-        print(path);
-        | print(source);
+        print("Could not decode ast of for {path}");
 
-        throw error;
+        return [<Declaration>];
     }
 
     | Root must be a function
@@ -172,13 +167,10 @@ fun getDeclarations(str path) > [Declaration]
     return extractDeclarations(root!.q(["body", "statements"]).listValue());
 }
 
-fun genMarkdownDoc([Declaration] declarations) > str {
-    str out = "";
+fun genMarkdownDoc([Declaration] declarations, Buffer out) > void !> WriteWhileReadingError {
     foreach (num i, Declaration decl in declarations) {
-        out = "{out}{decl.toMarkdown("###")}";
+        out.write("{decl.toMarkdown("###", out: out)}");
     }
-
-    return out;
 }
 
 fun main([str] args) > void
@@ -197,7 +189,14 @@ fun main([str] args) > void
         if (file.endsWith(".buzz")) {
             [Declaration] declarations = getDeclarations("lib/{file}");
 
-            markdownDoc[file] = genMarkdownDoc(declarations);
+            if (declarations.len() > 0) {
+                Buffer out = Buffer.init();
+
+                genMarkdownDoc(declarations, out: out);
+                markdownDoc[file] = out.toString();
+
+                out.deinit();
+            }
         }
     }
 

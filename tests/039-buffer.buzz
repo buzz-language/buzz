@@ -17,7 +17,7 @@ test "Reading and writing in a buffer" {
         158, 239, 167, 198, 75, 89, 147, 64,                  | 1238.324
         1,                                                    | true
     ];
-    foreach (num i, str char in buffer.getBuffer()) {
+    foreach (num i, str char in buffer.toString()) {
         assert(expected[i] == char.byte(0), message: "Buffer has expected content");
     }
 

@@ -1,4 +1,5 @@
 import "lib/std";
+import "lib/buffer";
 
 object Node {
     str tag,
@@ -15,54 +16,77 @@ object Node {
         };
     }
 
-    fun gen() > str {
+    fun gen(Buffer out) > void !> WriteWhileReadingError {
         | Empty tag is the text node
         if (this.tag == "") {
-            return this.textContent ?? "";
+            out.write(this.textContent ?? "");
+
+            return;
         }
 
-        str out = "<{this.tag}";
+        out.write("<{this.tag}");
 
         foreach (str name, str value in this.attributes) {
-            out = "{out} {name}=\"{value}\"";
+            out.write(" {name}=\"{value}\"");
         }
 
-        if (this.children != null and this.children!.len() > 0) {
-            out = "{out}>";
+        if (this.children -> children) {
+            if (children.len() > 0) {
+                out.write(">");
 
-            foreach (num i, Node node in this.children ?? [<Node>]) {
-                out = "{out}{node.gen()}";
+                foreach (num i, Node node in children) {
+                    node.gen(out);
+                }
+
+                out.write("</{this.tag}>");
+
+                return;
             }
-
-            return "{out}</{this.tag}>";
         }
 
-        return "{out}/>";
+        out.write("/>");
     }
 }
 
-fun text(str content) > Node -> Node.init(tag: "", textContent: content);
+fun br({str, str}? attributes) > Node
+    -> Node.init(tag: "br", attributes: attributes);
+
+fun div({str, str}? attributes, [Node]? children, str? textContent) > Node
+    -> Node.init(tag: "div", attributes: attributes, children: children, textContent: textContent);
+
+fun text(str content) > Node
+    -> Node.init(tag: "", textContent: content);
+
+| etc.
 
 export Node;
 export text;
+export div;
+export br;
 
 test "html" {
-    assert(text("hello world").gen() == "hello world", message: "text node");
+    Buffer out = Buffer.init();
+    text("hello world").gen(out);
+
+    assert(out.toString() == "hello world", message: "text node");
+
+    out.deinit();
+
+    out = Buffer.init();
+    div(
+        children: [
+            text("hello world"),
+            br(),
+        ],
+        attributes: {
+            "data-id": "012bfef"
+        },
+    ).gen(out);
 
     assert(
-        Node.init(
-            "div",
-            children: [
-                Node.init(
-                    "",
-                    textContent: "hello world",
-                ),
-                Node.init("br"),
-            ],
-            attributes: {
-                "data-id": "012bfef"
-            },
-        ).gen() == "<div \"data-id\"=\"012bfef\">hello world<br/></div>",
+        out.toString() == "<div data-id=\"012bfef\">hello world<br/></div>",
         message: "Could gen simple html"
     );
+
+    out.deinit();
 }
