@@ -2899,14 +2899,6 @@ pub const ObjTypeDef = struct {
             .Generic => {
                 if (self.resolved_type.?.Generic.origin == origin) {
                     return generics[self.resolved_type.?.Generic.index];
-                } else {
-                    std.debug.print(
-                        "Generic from different origin: #{} != #{}\n",
-                        .{
-                            self.resolved_type.?.Generic.origin,
-                            origin,
-                        },
-                    );
                 }
 
                 return self;
@@ -2996,12 +2988,12 @@ pub const ObjTypeDef = struct {
                 }
 
                 var new_list_def = ObjList.ListDef{
-                    .item_type = try old_list_def.item_type.populateGenerics(
+                    .item_type = try (try old_list_def.item_type.populateGenerics(
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    ),
+                    )).toInstance(type_registry.gc.allocator, type_registry),
                     .methods = methods,
                 };
 

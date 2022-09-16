@@ -4563,6 +4563,19 @@ pub const Parser = struct {
 
         var yield_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef(null) else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
+        var error_types: ?std.ArrayList(*ObjTypeDef) = null;
+        if (try self.match(.BangGreater)) {
+            error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+            while (!self.check(.Eof)) {
+                const error_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                try error_types.?.append(error_type);
+
+                if (!self.check(.Comma)) {
+                    break;
+                }
+            }
+        }
+
         var function_typedef: ObjTypeDef = .{
             .def_type = .Function,
             .optional = try self.match(.Question),
@@ -4578,6 +4591,7 @@ pub const Parser = struct {
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = .Anonymous,
             .generic_types = generic_types,
+            .error_types = if (error_types != null) error_types.?.items else null,
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
