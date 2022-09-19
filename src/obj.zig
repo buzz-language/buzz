@@ -3369,6 +3369,11 @@ pub const ObjTypeDef = struct {
     }
 
     pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
+        // Avoid placeholder double links like: Object Placeholder -> Instance -> Instance
+        if (self.def_type == .Placeholder and self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
+            return self;
+        }
+
         var instance_type = try type_registry.getTypeDef(
             switch (self.def_type) {
                 .Object => object: {
