@@ -11,8 +11,8 @@ enum PackageError {
 
 object Author {
     str name,
-    str? url,
-    str? email,
+    str? url = null,
+    str? email = null,
 
     static fun init(Json json) > Author !> JsonParseError {
         return Author{
@@ -118,8 +118,8 @@ object Package {
     [Author] authors,
     SemVer version,
 
-    {str, Dependency} dependencies,
-    {str, Dependency} devDependencies,
+    {str, Dependency} dependencies = {<str, Dependency>},
+    {str, Dependency} devDependencies = {<str, Dependency>},
 
     static fun init(Json json) > Package !> PackageError, JsonParseError {
         return Package{

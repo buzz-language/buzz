@@ -2883,7 +2883,11 @@ pub const ObjTypeDef = struct {
 
         try visited_ptr.put(self, {});
 
-        return switch (self.def_type) {
+        if (generics.len == 0) {
+            return self;
+        }
+
+        const result = switch (self.def_type) {
             .Bool,
             .Number,
             .String,
@@ -2896,15 +2900,15 @@ pub const ObjTypeDef = struct {
             .EnumInstance,
             => self,
 
-            .Generic => {
+            .Generic => generic: {
                 if (self.resolved_type.?.Generic.origin == origin) {
-                    return generics[self.resolved_type.?.Generic.index];
+                    break :generic generics[self.resolved_type.?.Generic.index];
                 }
 
-                return self;
+                break :generic self;
             },
 
-            .Fiber => {
+            .Fiber => fiber: {
                 const new_fiber_def = ObjFiber.FiberDef{
                     .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(
                         origin,
@@ -2928,10 +2932,10 @@ pub const ObjTypeDef = struct {
                     .resolved_type = resolved,
                 };
 
-                return try type_registry.getTypeDef(new_fiber);
+                break :fiber try type_registry.getTypeDef(new_fiber);
             },
             .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(origin, generics, type_registry, visited_ptr)).toInstance(type_registry.gc.allocator, type_registry),
-            .Object => {
+            .Object => object: {
                 // Only anonymous objects can be with generics so no need to check anything other than fields
                 const old_object_def = self.resolved_type.?.Object;
 
@@ -2968,9 +2972,9 @@ pub const ObjTypeDef = struct {
                     .resolved_type = resolved_type_union,
                 };
 
-                return try type_registry.getTypeDef(new_object);
+                break :object try type_registry.getTypeDef(new_object);
             },
-            .List => {
+            .List => list: {
                 const old_list_def = self.resolved_type.?.List;
 
                 var methods = std.StringHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
@@ -3005,9 +3009,9 @@ pub const ObjTypeDef = struct {
                     .resolved_type = new_resolved,
                 };
 
-                return try type_registry.getTypeDef(new_list);
+                break :list try type_registry.getTypeDef(new_list);
             },
-            .Map => {
+            .Map => map: {
                 const old_map_def = self.resolved_type.?.Map;
 
                 var methods = std.StringHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
@@ -3048,9 +3052,9 @@ pub const ObjTypeDef = struct {
                     .resolved_type = resolved,
                 };
 
-                return try type_registry.getTypeDef(new_map);
+                break :map try type_registry.getTypeDef(new_map);
             },
-            .Function => {
+            .Function => function: {
                 const old_fun_def = self.resolved_type.?.Function;
 
                 var error_types: ?std.ArrayList(*ObjTypeDef) = null;
@@ -3072,12 +3076,12 @@ pub const ObjTypeDef = struct {
                     while (it.next()) |kv| {
                         try parameters.put(
                             kv.key_ptr.*,
-                            try kv.value_ptr.*.populateGenerics(
+                            try (try kv.value_ptr.*.populateGenerics(
                                 origin,
                                 generics,
                                 type_registry,
                                 visited_ptr,
-                            ),
+                            )).toInstance(type_registry.gc.allocator, type_registry),
                         );
                     }
                 }
@@ -3086,18 +3090,18 @@ pub const ObjTypeDef = struct {
                     .id = ObjFunction.FunctionDef.nextId(),
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
-                    .return_type = try old_fun_def.return_type.populateGenerics(
+                    .return_type = try (try old_fun_def.return_type.populateGenerics(
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    ),
-                    .yield_type = try old_fun_def.yield_type.populateGenerics(
+                    )).toInstance(type_registry.gc.allocator, type_registry),
+                    .yield_type = try (try old_fun_def.yield_type.populateGenerics(
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    ),
+                    )).toInstance(type_registry.gc.allocator, type_registry),
                     .error_types = if (error_types) |types| types.items else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
@@ -3114,9 +3118,13 @@ pub const ObjTypeDef = struct {
                     .resolved_type = resolved,
                 };
 
-                return try type_registry.getTypeDef(new_fun_type);
+                break :function try type_registry.getTypeDef(new_fun_type);
             },
         };
+
+        _ = visited_ptr.remove(self);
+
+        return result;
     }
 
     pub fn rawCloneOptional(self: *Self) ObjTypeDef {
