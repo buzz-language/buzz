@@ -14,7 +14,7 @@ object Author {
     str? url = null,
     str? email = null,
 
-    static fun init(Json json) > Author !> JsonParseError {
+    static fun fromJson(Json json) > Author !> JsonParseError {
         return Author{
             name = json.q(["name"]).stringValue(),
             url = json.q(["url"]).string,
@@ -121,7 +121,7 @@ object Package {
     {str, Dependency} dependencies = {<str, Dependency>},
     {str, Dependency} devDependencies = {<str, Dependency>},
 
-    static fun init(Json json) > Package !> PackageError, JsonParseError {
+    static fun fromJson(Json json) > Package !> PackageError, JsonParseError {
         return Package{
             name = json.q(["name"]).stringValue(),
             publisher = json.q(["publisher"]).stringValue(),

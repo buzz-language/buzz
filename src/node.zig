@@ -68,6 +68,7 @@ pub const ParseNodeType = enum(u8) {
     Pattern,
     Boolean,
     Null,
+    Void,
     List,
     Map,
     Super,
@@ -861,6 +862,61 @@ pub const NullNode = struct {
 
     pub fn cast(node: *ParseNode) ?*Self {
         if (node.node_type != .Null) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const VoidNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Void,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    fn constant(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+        return Value{ .Void = {} };
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_VOID);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+        try out.writeAll("{\"node\": \"Void\", ");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Void) {
             return null;
         }
 

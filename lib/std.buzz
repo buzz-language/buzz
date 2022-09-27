@@ -1,11 +1,15 @@
-object AssertError {}
+object AssertError {
+    str? message = null
+}
 
 || If condition is false throw error with given message
 || @param condition assert condition
 || @param message message printed if `condition` is false
 fun assert(bool condition, str message) > void !> AssertError {
     if (!condition) {
-        throw AssertError{};
+        throw AssertError{
+            message = message
+        };
     }
 }
 

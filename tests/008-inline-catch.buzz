@@ -5,6 +5,14 @@ fun willFail() > num !> str {
     return 1;
 }
 
+fun willFailVoid() > void !> str {
+    throw "i'm failing";
+}
+
 test "Inline catch clauses" {
     assert((willFail() catch 0) == 0, message: "error or default value");
+}
+
+test "Inline catch void" {
+    willFailVoid() catch void;
 }

@@ -55,6 +55,7 @@ const BooleanNode = _node.BooleanNode;
 const StringLiteralNode = _node.StringLiteralNode;
 const StringNode = _node.StringNode;
 const NullNode = _node.NullNode;
+const VoidNode = _node.VoidNode;
 const PatternNode = _node.PatternNode;
 const ListNode = _node.ListNode;
 const MapNode = _node.MapNode;
@@ -320,7 +321,7 @@ pub const Parser = struct {
         .{ .prefix = super, .infix = null, .precedence = .None }, // Extern
         .{ .prefix = null, .infix = null, .precedence = .None }, // Eof
         .{ .prefix = null, .infix = null, .precedence = .None }, // Error
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Void
+        .{ .prefix = literal, .infix = null, .precedence = .None }, // Void
         .{ .prefix = null, .infix = null, .precedence = .None }, // Docblock
         .{ .prefix = pattern, .infix = null, .precedence = .None }, // Pattern
         .{ .prefix = null, .infix = null, .precedence = .None }, // pat
@@ -2985,6 +2986,20 @@ pub const Parser = struct {
                 var node = try self.gc.allocator.create(NullNode);
 
                 node.* = NullNode{};
+
+                node.node.type_def = try self.gc.type_registry.getTypeDef(.{
+                    .def_type = .Void,
+                });
+
+                node.node.location = start_location;
+                node.node.end_location = self.parser.previous_token.?;
+
+                return &node.node;
+            },
+            .Void => {
+                var node = try self.gc.allocator.create(VoidNode);
+
+                node.* = VoidNode{};
 
                 node.node.type_def = try self.gc.type_registry.getTypeDef(.{
                     .def_type = .Void,
