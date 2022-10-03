@@ -3,6 +3,9 @@
   "name": "buzz",
   "patterns": [
     {
+      "include": "#functions"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -174,6 +177,18 @@
     "builtins": {
       "match": "\\b(assert|print)\\b",
       "name": "support.function.buzz"
+    },
+    "functions": {
+      "name": "meta.function.buzz",
+      "match": "\\b(fun)\\b \\b([a-zA-Z][a-zA-Z0-9]*)\\b\\(",
+      "captures": {
+        "1": {
+          "name": "keyword.control.buzz"
+        },
+        "2": {
+          "name": "entity.name.function.buzz meta.definition.function.buzz"
+        }
+      }
     }
   },
   "scopeName": "source.buzz"
