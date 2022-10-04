@@ -25,6 +25,7 @@ test "break properly jumps and closes scope" {
                 break;
             }
         }
+        str randomLocalAfterBreak = "after break";
     }
 
     str anotherRandomLocal = "bye there";

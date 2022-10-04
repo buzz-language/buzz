@@ -30,6 +30,8 @@ test "Try catch" {
     str setme = "";
 
     try {
+        str local = "i'm local to this try block";
+
         setme = "yes";
 
         willFail();

@@ -2,6 +2,7 @@ import "lib/std";
 import "lib/os" as os;
 import "lib/fs" as fs;
 import "lib/json";
+import "lib/io";
 
 enum PackageError {
     couldNotFetchPackage,
@@ -115,8 +116,9 @@ object Package {
     str publisher,
     str? displayName,
     str description,
-    [Author] authors,
+    [Author] authors = [<Author>],
     SemVer version,
+    [str] targets = [<str>],
 
     {str, Dependency} dependencies = {<str, Dependency>},
     {str, Dependency} devDependencies = {<str, Dependency>},
@@ -130,9 +132,14 @@ object Package {
             authors = map(
                 <Json, Author>,
                 source: json.q(["authors"]).listValue(),
-                transform: fun (Json author) > Author -> Author.init(author) catch Author{ name = "unknown" }
+                transform: fun (Json author) > Author -> Author.fromJson(author) catch Author{ name = "unknown" }
             ),
             version = SemVer.parse(json.q(["version"]).stringValue()),
+            targets = map(
+                <Json, str>,
+                source: json.q(["targets"]).listValue(),
+                transform: fun (Json target) > str -> target.stringValue()
+            )
         };
     }
 
@@ -146,5 +153,28 @@ object Package {
         foreach (str name, Dependency dep in this.devDependencies) {
             dep.fetch();
         }
+    }
+}
+
+test "Test package" {
+    try {
+        File file = File.open("tools/buzz.json", mode: FileMode.read);
+
+        str source = file.readAll();
+
+        file.close();
+
+        Package package = Package.fromJson(Json.decode(source));
+
+        print(
+            "name: {package.name}\n"
+            + "publisher: {package.publisher}\n"
+            + "description: {package.description}\n"
+            + "version: {package.version.toString()}\n"
+            + "authors: {package.authors.join(", ")}\n"
+            + "targets: {package.targets.join(", ")}\n"
+        );
+    } catch (JsonParseError jsonError) {
+        print(jsonError.message ?? "json error");
     }
 }

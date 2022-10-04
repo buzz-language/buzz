@@ -67,6 +67,8 @@ pub const CallFrame = struct {
 
     // Offset at which error can be handled (means we're in a try block)
     try_ip: ?usize = null,
+    // Top when try block started
+    try_top: ?[*]Value = null,
 };
 
 pub const Fiber = struct {
@@ -536,6 +538,25 @@ pub const VM = struct {
                     },
                 );
             }
+
+            // We're at the start of catch clauses because an error was thrown
+            // We must close the try block scope
+            if (current_frame.try_ip == current_frame.ip - 1) {
+                assert(current_frame.try_top != null);
+                const err = self.pop();
+
+                // Close scope
+                self.closeUpValues(@ptrCast(*Value, current_frame.try_top.?));
+                self.current_fiber.stack_top = current_frame.try_top.?;
+
+                // Put error back on stack
+                self.push(err);
+
+                // As soon as we step into catch clauses, we're not in a try-catch block anymore
+                current_frame.try_ip = null;
+                current_frame.try_top = null;
+            }
+
             switch (instruction) {
                 .OP_NULL => self.push(Value{ .Null = {} }),
                 .OP_VOID => self.push(Value{ .Void = {} }),
@@ -741,8 +762,15 @@ pub const VM = struct {
 
                 .OP_IMPORT => try self.import(self.peek(1), self.peek(0)),
 
-                .OP_TRY => self.currentFrame().?.try_ip = @intCast(usize, arg),
-                .OP_TRY_END => self.currentFrame().?.try_ip = null,
+                .OP_TRY => {
+                    self.currentFrame().?.try_ip = @intCast(usize, arg);
+                    // We will close scope up to this top if an error is thrown
+                    self.currentFrame().?.try_top = self.current_fiber.stack_top;
+                },
+                .OP_TRY_END => {
+                    self.currentFrame().?.try_ip = null;
+                    self.currentFrame().?.try_top = null;
+                },
 
                 .OP_THROW => try self.throw(Error.Custom, self.pop()),
 
@@ -1263,9 +1291,6 @@ pub const VM = struct {
 
                 frame.ip = try_ip;
 
-                // As soon as we step into catch clauses, we're not in a try-catch block anymore
-                frame.try_ip = null;
-
                 return;
             }
 
@@ -1555,9 +1580,6 @@ pub const VM = struct {
             var frame = self.currentFrame().?;
             if (frame.try_ip) |try_ip| {
                 frame.ip = try_ip;
-
-                // As soon as we step into catch clauses, we're not in a try-catch block anymore
-                frame.try_ip = null;
             } else {
                 // No error handler or default value was triggered so forward the error
                 try self.throw(Error.Custom, self.peek(0));

@@ -56,7 +56,7 @@ object JsonParser {
         while (true) {
             const str? char = this.peek();
 
-            if (char == " " or char == "\r" or char == "\t") {
+            if (char == " " or char == "\r" or char == "\t" or char == "\n") {
                 this.advance();
             } else {
                 return;

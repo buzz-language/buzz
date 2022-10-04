@@ -3244,16 +3244,6 @@ pub const ObjTypeDef = struct {
             },
 
             .ObjectInstance => {
-                if (self.resolved_type.?.ObjectInstance.resolved_type == null or self.resolved_type.?.ObjectInstance.resolved_type.? != .Object) {
-                    std.debug.print(
-                        ">> @{} (inst) @{} (obj) is wrong\n",
-                        .{
-                            @ptrToInt(self),
-                            @ptrToInt(self.resolved_type.?.ObjectInstance),
-                        },
-                    );
-                }
-
                 const object_def = self.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                 if (object_def.anonymous) {
