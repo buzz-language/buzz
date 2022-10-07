@@ -355,7 +355,7 @@ obj{ str name, num age } info = getInfo();
 
 ### Errors
 
-Functions must specify which error they can raise with `!> type1, type2, ...`. Error can't be raised in the global scope. `test` function can ignore errors.
+Functions must specify which error they can raise with `!> type1, type2, ...`. Error can't be raised in the global scope. `test` functions ignore errors.
 
 ```buzz
 enum(str) MyErrors {
@@ -394,6 +394,10 @@ try {
 } catch {
     print("Catches everything");
 }
+
+| Throwing an object instance with a `message` field will print the message
+throw .{ message = "Something's wrong" } | -> Error: Something's wrong
+throw SomeObject{ number = 12 }          | -> Error: object instance 0x1feb12 `SomeObject`
 ```
 
 ### Import/Export

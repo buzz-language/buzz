@@ -1,0 +1,4 @@
+| Hello world
+test "Throwing an object instance with a message field" {
+    throw .{ message = "Hello world" };
+}

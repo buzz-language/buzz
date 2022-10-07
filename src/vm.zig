@@ -1303,7 +1303,15 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Raise the runtime error
-                const value_str = try valueToStringAlloc(self.gc.allocator, payload);
+                // If object instance, does it have a str `message` field ?
+                var processed_payload = payload;
+                if (payload == .Obj) {
+                    if (ObjObjectInstance.cast(payload.Obj)) |instance| {
+                        processed_payload = instance.fields.get(try self.gc.allocateString("message")) orelse payload;
+                    }
+                }
+
+                const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
                 defer self.gc.allocator.free(value_str);
                 std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str});
 

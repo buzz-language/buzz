@@ -157,29 +157,25 @@ object Package {
 }
 
 test "Test package" {
-    try {
-        Package package = Package.fromJson(
-            Json.decode(
-                `\{
-                    "name": "test",
-                    "publisher": "giann",
-                    "description": "A test package",
-                    "version": "0.0.1",
-                    "authors": ["giann"],
-                    "targets": ["src/main.buzz"]
-                }`
-            )
-        );
+    Package package = Package.fromJson(
+        Json.decode(
+            `\{
+                "name": "test",
+                "publisher": "giann",
+                "description": "A test package",
+                "version": "0.0.1",
+                "authors": ["giann"],
+                "targets": ["src/main.buzz"]
+            }`
+        )
+    );
 
-        print(
-            "name: {package.name}\n"
-            + "publisher: {package.publisher}\n"
-            + "description: {package.description}\n"
-            + "version: {package.version.toString()}\n"
-            + "authors: {package.authors.join(", ")}\n"
-            + "targets: {package.targets.join(", ")}\n"
-        );
-    } catch (JsonParseError jsonError) {
-        print(jsonError.message ?? "json error");
-    }
+    print(
+        "name: {package.name}\n"
+        + "publisher: {package.publisher}\n"
+        + "description: {package.description}\n"
+        + "version: {package.version.toString()}\n"
+        + "authors: {package.authors.join(", ")}\n"
+        + "targets: {package.targets.join(", ")}\n"
+    );
 }

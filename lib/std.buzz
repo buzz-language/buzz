@@ -1,5 +1,5 @@
 object AssertError {
-    str? message = null
+    str message
 }
 
 || If condition is false throw error with given message
