@@ -9,7 +9,6 @@ test "foreach on list" {
         sum = sum + item;
     }
 
-    print("{sum}");
     assert(sum == 6, message: "foreach on list");
 }
 

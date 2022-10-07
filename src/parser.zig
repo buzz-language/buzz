@@ -4142,18 +4142,18 @@ pub const Parser = struct {
 
         // Parse return type
         var parsed_return_type = false;
-        if (function_type != .Test) {
-            try self.consume(.Greater, "Expected `>` after function argument list.");
-
+        if (function_type != .Test and try self.match(.Greater)) {
             const return_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
             parsed_return_type = true;
+        } else if (function_type != .Anonymous and function_type != .Test) {
+            try self.reportError("Expected `>` after function argument list.");
         }
 
         // Parse yield type
-        if (parsed_return_type and (function_type == .Method or function_type == .Function or function_type == .Anonymous) and (try self.match(.Greater))) {
+        if (parsed_return_type and (function_type == .Method or function_type == .Function) and (try self.match(.Greater))) {
             const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             if (!yield_type.optional and yield_type.def_type != .Void) {

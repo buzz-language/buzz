@@ -132,13 +132,13 @@ object Package {
             authors = map(
                 <Json, Author>,
                 source: json.q(["authors"]).listValue(),
-                transform: fun (Json author) > Author -> Author.fromJson(author) catch Author{ name = "unknown" }
+                transform: fun (Json author) -> Author.fromJson(author) catch Author{ name = "unknown" }
             ),
             version = SemVer.parse(json.q(["version"]).stringValue()),
             targets = map(
                 <Json, str>,
                 source: json.q(["targets"]).listValue(),
-                transform: fun (Json target) > str -> target.stringValue()
+                transform: fun (Json target) -> target.stringValue()
             )
         };
     }
