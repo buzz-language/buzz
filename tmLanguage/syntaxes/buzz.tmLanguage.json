@@ -15,6 +15,9 @@
       "include": "#strings"
     },
     {
+      "include": "#multiline-strings"
+    },
+    {
       "include": "#punctuation"
     },
     {
@@ -98,6 +101,9 @@
               "include": "#strings"
             },
             {
+              "include": "#multiline-strings"
+            },
+            {
               "include": "#patterns"
             }
           ]
@@ -119,6 +125,20 @@
       "name": "string.quoted.double.buzz",
       "begin": "\"",
       "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.buzz",
+          "match": "\\\\."
+        },
+        {
+          "include": "#string-interp"
+        }
+      ]
+    },
+    "multiline-strings": {
+      "name": "string.multiline.buzz",
+      "begin": "`",
+      "end": "`",
       "patterns": [
         {
           "name": "constant.character.escape.buzz",

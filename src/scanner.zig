@@ -133,7 +133,8 @@ pub const Scanner = struct {
             },
             ':' => return self.makeToken(.Colon, null, null, null),
             '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
-            '\"' => return self.string(),
+            '"' => return self.string(false),
+            '`' => return self.string(true),
             '|' => return try self.docblock(),
             '_' => return try self.pattern(),
 
@@ -312,11 +313,12 @@ pub const Scanner = struct {
         );
     }
 
-    fn string(self: *Self) !Token {
+    fn string(self: *Self, multiline: bool) !Token {
+        const delimiter = if (multiline) @intCast(u8, '`') else @intCast(u8, '"');
         var in_interp: bool = false;
         var interp_depth: usize = 0;
-        while ((self.peek() != '"' or in_interp) and !self.isEOF()) {
-            if (self.peek() == '\n') {
+        while ((self.peek() != delimiter or in_interp) and !self.isEOF()) {
+            if (self.peek() == '\n' and !multiline) {
                 return self.makeToken(.Error, "Unterminated string.", null, null);
             } else if (self.peek() == '{') {
                 if (!in_interp) {
@@ -334,7 +336,7 @@ pub const Scanner = struct {
                         in_interp = false;
                     }
                 }
-            } else if (self.peek() == '\\' and self.peekNext() == '"') {
+            } else if (self.peek() == '\\' and self.peekNext() == delimiter) {
                 // Escaped string delimiter, go past it
                 _ = self.advance();
             } else if (self.peek() == '\\' and self.peekNext() == '{') {

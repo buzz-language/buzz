@@ -158,13 +158,18 @@ object Package {
 
 test "Test package" {
     try {
-        File file = File.open("tools/buzz.json", mode: FileMode.read);
-
-        str source = file.readAll();
-
-        file.close();
-
-        Package package = Package.fromJson(Json.decode(source));
+        Package package = Package.fromJson(
+            Json.decode(
+                `\{
+                    "name": "test",
+                    "publisher": "giann",
+                    "description": "A test package",
+                    "version": "0.0.1",
+                    "authors": ["giann"],
+                    "targets": ["src/main.buzz"]
+                }`
+            )
+        );
 
         print(
             "name: {package.name}\n"

@@ -1,8 +1,0 @@
-{
-  "name": "test",
-  "publisher": "giann",
-  "description": "A test package",
-  "version": "0.0.1",
-  "authors": ["giann"],
-  "targets": ["src/main.buzz"]
-}

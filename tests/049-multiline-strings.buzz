@@ -1,0 +1,17 @@
+import "lib/std";
+import "lib/json";
+
+test "Multiline strings" {
+    str multi = `\{
+        "some": "json",
+        "yes": {3 + 12},
+        {`
+            "another": "one"
+        `}
+    }`;
+
+    Json json = Json.decode(multi);
+
+    assert(json.q(["yes"]).number == 15, message: "multiline string is valid");
+    assert(json.q(["another"]).string == "one", message: "multiline string is valid");
+}

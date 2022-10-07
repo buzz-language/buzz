@@ -62,6 +62,11 @@ From cloned buzz repository:
 bool aBoolean = true;
 | Immutable sequence of bytes
 str aString = "hello world";
+str multiline = `
+    i'm on several
+    lines
+    yes
+`;
 | Numbers are either internally i64 or f64 and are coerced from one to the other as needed
 num aNumber = 23;
 aNumber = 0b110;
