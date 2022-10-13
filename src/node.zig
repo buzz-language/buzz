@@ -54,6 +54,7 @@ pub const ParseNodeType = enum(u8) {
     VarDeclaration,
     FunDeclaration,
     ObjectDeclaration,
+    ProtocolDeclaration,
     Binary,
     Unary,
     Subscript,
@@ -983,7 +984,12 @@ pub const ListNode = struct {
             if (item.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(item.type_def.?.resolved_type.?.Placeholder);
             } else if (!item_type.eql(item.type_def.?)) {
-                try codegen.reportTypeCheckAt(item_type, item.type_def.?, "Bad list type", item.location);
+                try codegen.reportTypeCheckAt(
+                    item_type,
+                    item.type_def.?,
+                    "Bad list type",
+                    item.location,
+                );
             } else {
                 _ = try item.toByteCode(item, codegen, breaks);
 
@@ -2396,7 +2402,7 @@ pub const TryNode = struct {
         // Did we handle all errors not specified in current function signature?
         var it = codegen.current.?.try_should_handle.?.iterator();
         while (it.next()) |kv| {
-            if (self.unconditional_clause == null and self.clauses.get(kv.key_ptr.*) == null) {
+            if (self.unconditional_clause == null and self.clauses.get(try kv.key_ptr.*.toParentType(codegen.gc.allocator, &codegen.gc.type_registry)) == null) {
                 const err_str = try kv.key_ptr.*.toStringAlloc(codegen.gc.allocator);
                 defer codegen.gc.allocator.free(err_str);
 
@@ -3368,7 +3374,7 @@ pub const CallNode = struct {
                 // zig fmt: off
                 const call_arg_count = if (!invoked and self.super == null) @intCast(u8, arguments_order_ref.items.len)
                     else
-                        if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 
+                        if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 
                         else @intCast(u8, self.arguments.count());
                 // zig fmt: on
 
@@ -3403,7 +3409,7 @@ pub const CallNode = struct {
 
                 try codegen.emitTwo(
                     self.node.location,
-                    if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                    if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                     if (self.catch_default != null) 1 else 0,
                 );
 
@@ -3443,7 +3449,7 @@ pub const CallNode = struct {
         } else {
             try codegen.emitTwo(
                 self.node.location,
-                if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catch_default != null) 1 else 0,
             );
         }
@@ -4067,6 +4073,7 @@ pub const IfNode = struct {
 
     condition: *ParseNode,
     unwrapped_identifier: bool,
+    casted_type: ?*ObjTypeDef,
     body: *ParseNode,
     else_branch: ?*ParseNode = null,
 
@@ -4095,14 +4102,14 @@ pub const IfNode = struct {
             if (!self.condition.type_def.?.optional) {
                 try codegen.reportErrorAt(self.condition.location, "Expected optional");
             }
-        } else {
+        } else if (self.casted_type == null) {
             if (self.condition.type_def.?.def_type != .Bool) {
                 try codegen.reportErrorAt(self.condition.location, "`if` condition must be bool");
             }
         }
 
         // If condition is a constant expression, no need to generate branches
-        if (self.condition.isConstant(self.condition) and !self.unwrapped_identifier) {
+        if (self.condition.isConstant(self.condition) and !self.unwrapped_identifier and self.casted_type == null) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
             if (condition.Boolean) {
@@ -4123,6 +4130,10 @@ pub const IfNode = struct {
             try codegen.emitOpCode(self.condition.location, .OP_NULL);
             try codegen.emitOpCode(self.condition.location, .OP_EQUAL);
             try codegen.emitOpCode(self.condition.location, .OP_NOT);
+        } else if (self.casted_type) |casted_type| {
+            try codegen.emitOpCode(self.condition.location, .OP_COPY);
+            try codegen.emitConstant(self.condition.location, casted_type.toValue());
+            try codegen.emitOpCode(self.condition.location, .OP_IS);
         }
 
         const then_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
@@ -5102,6 +5113,7 @@ pub const DotNode = struct {
         // zig fmt: off
         if (callee_type.def_type != .ObjectInstance
             and callee_type.def_type != .Object
+            and callee_type.def_type != .ProtocolInstance
             and callee_type.def_type != .Enum
             and callee_type.def_type != .EnumInstance
             and callee_type.def_type != .List
@@ -5141,6 +5153,13 @@ pub const DotNode = struct {
                         try codegen.emitCodeArg(node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
                     }
 
+                    _ = try call.node.toByteCode(&call.node, codegen, breaks);
+                } else {
+                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                }
+            },
+            .ProtocolInstance => {
+                if (self.call) |call| {
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
                     try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
@@ -5430,7 +5449,41 @@ pub const ObjectDeclarationNode = struct {
         var self = Self.cast(node).?;
 
         const object_type = node.type_def.?;
-        const name_constant = try codegen.makeConstant(object_type.resolved_type.?.Object.name.toValue());
+        const object_def = object_type.resolved_type.?.Object;
+
+        // Check object conforms to declared protocols
+        var protocol_it = object_def.conforms_to.iterator();
+        while (protocol_it.next()) |kv| {
+            const protocol_type_def = kv.key_ptr.*;
+
+            if (protocol_type_def.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(protocol_type_def.resolved_type.?.Placeholder);
+            } else {
+                const protocol_def = protocol_type_def.resolved_type.?.Protocol;
+
+                var method_it = protocol_def.methods.iterator();
+                while (method_it.next()) |mkv| {
+                    if (self.methods.get(mkv.key_ptr.*)) |method| {
+                        if (method.type_def.?.def_type == .Placeholder) {
+                            try codegen.reportPlaceholder(method.type_def.?.resolved_type.?.Placeholder);
+                        } else if (!mkv.value_ptr.*.eql(method.type_def.?)) {
+                            try codegen.reportTypeCheckAt(mkv.value_ptr.*, method.type_def.?, "Method not conforming to protocol", method.location);
+                        }
+                    } else {
+                        try codegen.reportErrorFmt(
+                            self.node.location,
+                            "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
+                            .{
+                                protocol_def.name.string,
+                                try mkv.value_ptr.*.toStringAlloc(codegen.gc.allocator),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        const name_constant = try codegen.makeConstant(object_def.name.toValue());
         const object_type_constant = try codegen.makeConstant(object_type.toValue());
 
         // Put  object on the stack and define global with it
@@ -5462,7 +5515,7 @@ pub const ObjectDeclarationNode = struct {
                 try codegen.reportPlaceholder(member.type_def.?.resolved_type.?.Placeholder);
             }
 
-            const is_static = object_type.resolved_type.?.Object.static_fields.get(member_name) != null;
+            const is_static = object_def.static_fields.get(member_name) != null;
 
             _ = try member.toByteCode(member, codegen, breaks);
             try codegen.emitCodeArg(self.node.location, if (is_static) .OP_PROPERTY else .OP_METHOD, member_name_constant);
@@ -5474,8 +5527,8 @@ pub const ObjectDeclarationNode = struct {
             const member_name = kv.key_ptr.*;
             const member = kv.value_ptr.*;
             const member_name_constant: u24 = try codegen.identifierConstant(member_name);
-            const is_static = object_type.resolved_type.?.Object.static_fields.get(member_name) != null;
-            const property_type = object_type.resolved_type.?.Object.fields.get(member_name) orelse object_type.resolved_type.?.Object.static_fields.get(member_name);
+            const is_static = object_def.static_fields.get(member_name) != null;
+            const property_type = object_def.fields.get(member_name) orelse object_def.static_fields.get(member_name);
 
             assert(property_type != null);
 
@@ -5584,6 +5637,62 @@ pub const ObjectDeclarationNode = struct {
 
     pub fn cast(node: *ParseNode) ?*Self {
         if (node.node_type != .ObjectDeclaration) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const ProtocolDeclarationNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .ObjectDeclaration,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+    },
+
+    // Nothing here because protocol only make sense at compile time
+    // The only revelant thing is the node type_def
+
+    fn constant(_: *ParseNode) bool {
+        return false;
+    }
+
+    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        _ = try node.generate(codegen, breaks);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+        try out.writeAll("{\"node\": \"ProtocolDeclaration\", ");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .ProtocolDeclaration) {
             return null;
         }
 

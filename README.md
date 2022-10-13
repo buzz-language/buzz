@@ -49,7 +49,8 @@ From cloned buzz repository:
 - [Functions](#functions)
 - [Enums](#enums)
 - [Control flow](#control-flow)
-- [Objects and Classes](#objects-and-classes)
+- [Objects](#objects)
+- [Protocols](#protocols)
 - [Errors](#errors)
 - [Import/Export](#import/export)
 - [Fibers](#fibers)
@@ -287,7 +288,7 @@ foreach (num value in fibonnaciFib) {
 }
 ```
 
-### Objects and Classes
+### Objects
 
 An `object` is like a class except it can't be inherited from and can't inherit from anything:
 
@@ -303,7 +304,7 @@ object Person {
         print("Hello {this.name}");
     }
 
-    | Object and classes don't have constructor but you can implement one with a static method
+    | Object don't have constructor but you can implement one with a static method
     static init(str name, num age) > Person {
         Person.population = Person.population + 1;
 
@@ -329,6 +330,56 @@ fun getInfo() > obj{ str name, num age } {
 | ...
 
 obj{ str name, num age } info = getInfo();
+```
+
+### Protocols
+
+A `protocol` defines a set of methods. Objects can conform to any number of them:
+```buzz
+protocol Translatable {
+    fun translate(dx: num, dy: num) > void;
+}
+
+protocol Printable {
+    fun print() > void;
+}
+
+object(Translatable, Printable) Point {
+    num x,
+    num y,
+
+    fun translate(dx: num, dy: num) > void {
+        this.x = this.x + dx;
+        this.y = this.y + dy;
+    }
+
+    fun print() > void {
+        print("Point ({this.x}, {this.y})");
+    }
+}
+
+object(Printable) Line {
+    Point start,
+    Point end,
+
+    fun print() > void {
+        print("Line ({this.start.x}, {this.start.y}) ({this.end.x}, {this.end.y})");
+    }
+}
+
+| ...
+
+[Printable] elements = [
+    Point{ x = 0, y = 0 },
+    Line{
+        start = Point{ x = 10, y = 10 },
+        end = Point{ x = 15, y = 12 },
+    },
+];
+
+foreach (num i, Printable element in elements) {
+    element.print();
+}
 ```
 
 ### Errors

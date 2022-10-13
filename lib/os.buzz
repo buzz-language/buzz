@@ -31,7 +31,7 @@ export buzzExit as exit;
 export execute;
 
 || @private
-extern fun SocketConnect(str address, num port, num protocol) > num !> InvalidArgumentError, SocketError, NotYetImplementedError;
+extern fun SocketConnect(str address, num port, num netProtocol) > num !> InvalidArgumentError, SocketError, NotYetImplementedError;
 || @private
 extern fun SocketClose(num fd) > void;
 || @private
@@ -64,9 +64,9 @@ object Socket {
     || @param port Port to which to connect
     || @param protocol Protocol to use
     || @return A new `Socket` opened and ready to use
-    static fun connect(str address, num port, SocketProtocol protocol) > Socket !> InvalidArgumentError, SocketError, NotYetImplementedError {
+    static fun connect(str address, num port, SocketProtocol netProtocol) > Socket !> InvalidArgumentError, SocketError, NotYetImplementedError {
         return Socket{
-            fd = SocketConnect(address, port: port, protocol: protocol.value),
+            fd = SocketConnect(address, port: port, netProtocol: netProtocol.value),
         };
     }
 

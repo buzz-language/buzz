@@ -149,6 +149,7 @@ pub const TokenType = enum {
     Object, // object
     Obj, // obj
     Class, // class
+    Protocol, // protocol
     Enum, // enum
     Throw, // throw
     Try, // try
@@ -210,6 +211,7 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "obj", .Obj },
     .{ "static", .Static },
     .{ "class", .Class },
+    .{ "protocol", .Protocol },
     .{ "enum", .Enum },
     .{ "throw", .Throw },
     .{ "catch", .Catch },

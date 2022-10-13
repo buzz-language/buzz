@@ -90,6 +90,7 @@ const DotNode = _node.DotNode;
 const FunDeclarationNode = _node.FunDeclarationNode;
 const ObjectInitNode = _node.ObjectInitNode;
 const ObjectDeclarationNode = _node.ObjectDeclarationNode;
+const ProtocolDeclarationNode = _node.ProtocolDeclarationNode;
 const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
 const TryNode = _node.TryNode;
@@ -306,6 +307,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Object
         .{ .prefix = null, .infix = null, .precedence = .None }, // Obj
         .{ .prefix = null, .infix = null, .precedence = .None }, // Class
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Protocol
         .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
         .{ .prefix = null, .infix = null, .precedence = .None }, // Try
@@ -783,7 +785,18 @@ pub const Parser = struct {
                     try self.resolvePlaceholder(child, try placeholder.cloneNonOptional(&self.gc.type_registry), false);
                 },
                 .Instance => {
-                    try self.resolvePlaceholder(child, try placeholder.toInstance(self.gc.allocator, &self.gc.type_registry), false);
+                    try self.resolvePlaceholder(
+                        child,
+                        try placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
+                        false,
+                    );
+                },
+                .Parent => {
+                    try self.resolvePlaceholder(
+                        child,
+                        try placeholder.toParentType(self.gc.allocator, &self.gc.type_registry),
+                        false,
+                    );
                 },
                 .Call => {
                     // Can we call the parent?
@@ -1063,6 +1076,8 @@ pub const Parser = struct {
                 // TODO: unplugged for now, remove completely once we're sure we don't want classes
                 // else if (!constant and try self.match(.Class))
                 //     try self.objectDeclaration(true)
+            else if (!constant and try self.match(.Protocol))
+                try self.protocolDeclaration()
             else if (!constant and try self.match(.Enum))
                 try self.enumDeclaration()
             else if (!constant and try self.match(.Fun))
@@ -1323,6 +1338,34 @@ pub const Parser = struct {
 
         const start_location = self.parser.previous_token.?;
 
+        // Conforms to protocols?
+        var protocols = std.AutoHashMap(*ObjTypeDef, void).init(self.gc.allocator);
+        var protocol_count: usize = 0;
+        if (try self.match(.LeftParen)) {
+            while (!self.check(.RightParen) and !self.check(.Eof)) : (protocol_count += 1) {
+                if (protocol_count > 255) {
+                    try self.reportError("Can't conform to more than 255 protocols");
+                }
+
+                try self.consume(.Identifier, "Expected protocol identifier");
+
+                const protocol_slot = try self.parseUserType();
+                const protocol = self.globals.items[protocol_slot].type_def;
+
+                if (protocols.get(protocol) != null) {
+                    try self.reportErrorFmt("Already conforming to `{s}`.", .{protocol.resolved_type.?.Protocol.name.string});
+                }
+
+                try protocols.put(protocol, {});
+
+                if (!(try self.match(.Comma))) {
+                    break;
+                }
+            }
+
+            try self.consume(.RightParen, "Expected `)` after protocols list");
+        }
+
         // Get object name
         try self.consume(.Identifier, "Expected object name.");
         const object_name: Token = self.parser.previous_token.?.clone();
@@ -1344,6 +1387,9 @@ pub const Parser = struct {
             is_class,
             false,
         );
+
+        object_def.conforms_to.deinit();
+        object_def.conforms_to = protocols;
 
         var resolved_type = ObjTypeDef.TypeUnion{ .Object = object_def };
 
@@ -1407,6 +1453,7 @@ pub const Parser = struct {
 
             if (try self.match(.Fun)) {
                 var method_node: *ParseNode = try self.method(
+                    false,
                     if (static) object_placeholder else try object_placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
                 );
 
@@ -1582,14 +1629,109 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn method(self: *Self, this: *ObjTypeDef) !*ParseNode {
+    fn method(self: *Self, abstract: bool, this: *ObjTypeDef) !*ParseNode {
         try self.consume(.Identifier, "Expected method name.");
 
         return try self.function(
             self.parser.previous_token.?.clone(),
-            .Method,
+            if (abstract) .Abstract else .Method,
             this,
         );
+    }
+
+    fn protocolDeclaration(self: *Self) !*ParseNode {
+        if (self.current.?.scope_depth > 0) {
+            try self.reportError("Protocol must be defined at top-level.");
+        }
+
+        const start_location = self.parser.previous_token.?;
+
+        // Get protocol name
+        try self.consume(.Identifier, "Expected protocol name.");
+        const protocol_name: Token = self.parser.previous_token.?.clone();
+
+        // Qualified name to avoid cross script collision
+        const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+        defer self.gc.allocator.free(qualifier);
+        var qualified_protocol_name = std.ArrayList(u8).init(self.gc.allocator);
+        defer qualified_protocol_name.deinit();
+        try qualified_protocol_name.writer().print("{s}.{s}", .{ qualifier, protocol_name.lexeme });
+
+        // Create a placeholder for self-reference which will be resolved at the end when declaring the object
+        var protocol_placeholder = self.globals.items[try self.declarePlaceholder(protocol_name, null)].type_def;
+
+        var protocol_def = ObjObject.ProtocolDef.init(
+            self.gc.allocator,
+            try self.gc.copyString(protocol_name.lexeme),
+            try self.gc.copyString(qualified_protocol_name.items),
+        );
+
+        var resolved_type = ObjTypeDef.TypeUnion{ .Protocol = protocol_def };
+
+        // Create type
+        var protocol_type: ObjTypeDef = .{
+            .def_type = .Protocol,
+            .resolved_type = resolved_type,
+        };
+
+        self.beginScope();
+
+        // Body
+        try self.consume(.LeftBrace, "Expected `{` before protocol body.");
+
+        var fields = std.StringHashMap(void).init(self.gc.allocator);
+        defer fields.deinit();
+        var methods = std.StringHashMap(*ParseNode).init(self.gc.allocator);
+        var docblocks = std.StringHashMap(?Token).init(self.gc.allocator);
+        while (!self.check(.RightBrace) and !self.check(.Eof)) {
+            const docblock: ?Token = if (try self.match(.Docblock)) self.parser.previous_token.? else null;
+
+            try self.consume(.Fun, "Expected method definition");
+
+            var method_node: *ParseNode = try self.method(
+                true,
+                try protocol_placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
+            );
+
+            try self.consume(.Semicolon, "Expected `;` after method definition");
+
+            var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
+
+            if (fields.get(method_name) != null) {
+                try self.reportError("A method with that name already exists.");
+            }
+
+            try protocol_type.resolved_type.?.Protocol.methods.put(
+                method_name,
+                method_node.type_def.?,
+            );
+
+            try fields.put(method_name, {});
+            try methods.put(method_name, method_node);
+            try docblocks.put(method_name, docblock);
+        }
+
+        try self.consume(.RightBrace, "Expected `}` after protocol body.");
+
+        var node = try self.gc.allocator.create(ProtocolDeclarationNode);
+        node.node.ends_scope = try self.endScope();
+
+        _ = try self.declareVariable(
+            &protocol_type, // Should resolve protocol_placeholder and be discarded
+            protocol_name,
+            true, // Protocol is always constant
+        );
+
+        assert(!protocol_type.optional);
+
+        self.markInitialized();
+
+        node.* = ProtocolDeclarationNode{};
+        node.node.type_def = protocol_placeholder;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !*ParseNode {
@@ -1652,6 +1794,7 @@ pub const Parser = struct {
         var condition: *ParseNode = try self.expression(false);
 
         var unwrapped_identifier = false;
+        var casted_type: ?*ObjTypeDef = null;
         if (try self.match(.Arrow)) {
             _ = try self.parseVariable(
                 try condition.type_def.?.cloneNonOptional(&self.gc.type_registry),
@@ -1661,6 +1804,15 @@ pub const Parser = struct {
             self.markInitialized();
 
             unwrapped_identifier = true;
+        } else if (try self.match(.As)) {
+            casted_type = try self.parseTypeDef(null);
+
+            _ = try self.parseVariable(
+                casted_type.?,
+                true,
+                "Expected casted identifier",
+            );
+            self.markInitialized();
         }
 
         try self.consume(.RightParen, "Expected `)` after `if` condition.");
@@ -1686,6 +1838,7 @@ pub const Parser = struct {
         node.* = IfNode{
             .condition = condition,
             .unwrapped_identifier = unwrapped_identifier,
+            .casted_type = casted_type,
             .body = body,
             .else_branch = else_branch,
         };
@@ -3418,7 +3571,7 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    try self.reportErrorFmt("Property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
+                    try self.reportErrorFmt("Property `{s}` does not exists in object `{s}`", .{ member_name, obj_def.name.string });
                 }
 
                 // If its a field or placeholder, we can assign to it
@@ -3438,6 +3591,31 @@ pub const Parser = struct {
                     node.node.type_def = node.call.?.node.type_def;
                 } else {
                     node.node.type_def = property_type;
+                }
+            },
+            .ProtocolInstance => {
+                var protocol: *ObjTypeDef = callee.type_def.?.resolved_type.?.ProtocolInstance;
+                var protocol_def: ObjObject.ProtocolDef = protocol.resolved_type.?.Protocol;
+
+                var method_type: ?*ObjTypeDef = protocol_def.methods.get(member_name);
+
+                // Else create placeholder
+                if (method_type == null) {
+                    try self.reportErrorFmt("Method `{s}` does not exists in protocol `{s}`", .{ member_name, protocol_def.name.string });
+                }
+
+                // Only call is allowed
+                if (try self.match(.LeftParen)) {
+                    // `call` will look to the parent node for the function definition
+                    node.node.type_def = method_type;
+                    node.member_type_def = method_type;
+
+                    node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                    // Node type is the return type of the call
+                    node.node.type_def = node.call.?.node.type_def;
+                } else {
+                    node.node.type_def = method_type;
                 }
             },
             .Enum => {
@@ -3751,17 +3929,29 @@ pub const Parser = struct {
         }
 
         if (item_type == null or try self.match(.Comma)) {
+            var common_type: ?*ObjTypeDef = null;
             while (!(try self.match(.RightBracket)) and !(try self.match(.Eof))) {
                 var actual_item: *ParseNode = try self.expression(false);
 
                 try items.append(actual_item);
 
-                item_type = item_type orelse actual_item.type_def;
+                if (item_type == null) {
+                    if (common_type == null) {
+                        common_type = actual_item.type_def;
+                    } else if (actual_item.type_def) |actual_type_def| {
+                        if (!common_type.?.eql(actual_type_def) and common_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                            common_type = common_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_type;
+                            common_type = try common_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        }
+                    }
+                }
 
                 if (!self.check(.RightBracket)) {
                     try self.consume(.Comma, "Expected `,` after list item.");
                 }
             }
+
+            item_type = item_type orelse common_type;
         } else {
             try self.consume(.RightBracket, "Expected `}`");
         }
@@ -3814,6 +4004,8 @@ pub const Parser = struct {
         var values = std.ArrayList(*ParseNode).init(self.gc.allocator);
 
         if (key_type == null or try self.match(.Comma)) {
+            var common_key_type: ?*ObjTypeDef = null;
+            var common_value_type: ?*ObjTypeDef = null;
             while (!(try self.match(.RightBrace)) and !(try self.match(.Eof))) {
                 var key: *ParseNode = try self.expression(false);
                 try self.consume(.Colon, "Expected `:` after key.");
@@ -3822,13 +4014,35 @@ pub const Parser = struct {
                 try keys.append(key);
                 try values.append(value);
 
-                key_type = key_type orelse key.type_def;
-                value_type = value_type orelse value.type_def;
+                if (key_type == null) {
+                    if (common_key_type == null) {
+                        common_key_type = key.type_def;
+                    } else if (key.type_def) |actual_type_def| {
+                        if (!common_key_type.?.eql(actual_type_def) and common_key_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                            common_key_type = common_key_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_key_type;
+                            common_key_type = try common_key_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        }
+                    }
+                }
+
+                if (value_type == null) {
+                    if (common_value_type == null) {
+                        common_value_type = value.type_def;
+                    } else if (value.type_def) |actual_type_def| {
+                        if (!common_value_type.?.eql(actual_type_def) and common_value_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                            common_value_type = common_value_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_value_type;
+                            common_value_type = try common_value_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        }
+                    }
+                }
 
                 if (!self.check(.RightBrace)) {
                     try self.consume(.Comma, "Expected `,` after map entry.");
                 }
             }
+
+            key_type = key_type orelse common_key_type;
+            value_type = value_type orelse common_value_type;
         } else {
             try self.consume(.RightBrace, "Expected `}`");
         }
@@ -4200,7 +4414,7 @@ pub const Parser = struct {
                 function_node.node.type_def.?.resolved_type.?.Function.return_type = function_node.arrow_expr.?.type_def.?;
                 parsed_return_type = true;
             }
-        } else if (function_type != .Extern) {
+        } else if (function_type != .Extern and function_type != .Abstract) {
             if (!parsed_return_type) {
                 function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
                 parsed_return_type = true;

@@ -1250,6 +1250,7 @@ pub const ObjFunction = struct {
         Test,
         Anonymous,
         Extern,
+        Abstract, // for protocol method, so we don't parse a body
     };
 
     obj: Obj = .{ .obj_type = .Function },
@@ -1420,13 +1421,17 @@ pub const ObjObjectInstance = struct {
     }
 
     fn is(self: *Self, instance_type: ?*ObjTypeDef, type_def: *ObjTypeDef) bool {
-        const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
+        if (type_def.def_type == .Object) {
+            const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
 
-        if (type_def.def_type != .Object) {
-            return false;
+            return object_def == type_def or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
+        } else if (type_def.def_type == .Protocol) {
+            const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
+
+            return object_def.resolved_type.?.Object.conforms_to.get(type_def) != null;
         }
 
-        return object_def == type_def or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
+        return false;
     }
 };
 
@@ -1519,6 +1524,36 @@ pub const ObjObject = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
+    pub const ProtocolDef = struct {
+        const ProtocolDefSelf = @This();
+
+        name: *ObjString,
+        qualified_name: *ObjString,
+        methods: std.StringArrayHashMap(*ObjTypeDef),
+
+        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
+            return ProtocolDefSelf{
+                .name = name,
+                .qualified_name = qualified_name,
+                .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *ProtocolDefSelf) void {
+            self.methods.deinit();
+        }
+
+        pub fn mark(self: *ProtocolDefSelf, gc: *GarbageCollector) !void {
+            try gc.markObj(self.name.toObj());
+            try gc.markObj(self.qualified_name.toObj());
+
+            var it = self.methods.iterator();
+            while (it.next()) |kv| {
+                try gc.markObj(kv.value_ptr.*.toObj());
+            }
+        }
+    };
+
     pub const ObjectDef = struct {
         const ObjectDefSelf = @This();
 
@@ -1536,6 +1571,7 @@ pub const ObjObject = struct {
         super: ?*ObjTypeDef = null,
         is_class: bool,
         anonymous: bool,
+        conforms_to: std.AutoHashMap(*ObjTypeDef, void),
 
         pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, is_class: bool, anonymous: bool) ObjectDefSelf {
             return ObjectDefSelf{
@@ -1549,6 +1585,7 @@ pub const ObjObject = struct {
                 .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .anonymous = anonymous,
+                .conforms_to = std.AutoHashMap(*ObjTypeDef, void).init(allocator),
             };
         }
 
@@ -1559,6 +1596,19 @@ pub const ObjObject = struct {
             self.methods.deinit();
             self.placeholders.deinit();
             self.static_placeholders.deinit();
+            self.conforms_to.deinit();
+        }
+
+        // Do they both conform to a common protocol?
+        pub fn both_conforms(self: ObjectDefSelf, other: ObjectDefSelf) ?*ObjTypeDef {
+            var it = self.conforms_to.iterator();
+            while (it.next()) |kv| {
+                if (other.conforms_to.get(kv.key_ptr.*) != null) {
+                    return kv.key_ptr.*;
+                }
+            }
+
+            return null;
         }
 
         pub fn mark(self: *ObjectDefSelf, gc: *GarbageCollector) !void {
@@ -1592,6 +1642,11 @@ pub const ObjObject = struct {
 
             if (self.super) |super| {
                 try gc.markObj(super.toObj());
+            }
+
+            var it7 = self.conforms_to.iterator();
+            while (it7.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
             }
         }
     };
@@ -2787,6 +2842,8 @@ pub const ObjTypeDef = struct {
         Pattern,
         ObjectInstance,
         Object,
+        Protocol,
+        ProtocolInstance,
         Enum,
         EnumInstance,
         List,
@@ -2822,10 +2879,12 @@ pub const ObjTypeDef = struct {
         // For those we check that the value is an instance of, because those are user defined types
         ObjectInstance: *ObjTypeDef,
         EnumInstance: *ObjTypeDef,
+        ProtocolInstance: *ObjTypeDef,
 
         // Those are never equal
         Object: ObjObject.ObjectDef,
         Enum: ObjEnum.EnumDef,
+        Protocol: ObjObject.ProtocolDef,
 
         // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
         List: ObjList.ListDef,
@@ -2851,6 +2910,8 @@ pub const ObjTypeDef = struct {
                 try gc.markObj(resolved.EnumInstance.toObj());
             } else if (resolved.* == .Object) {
                 try resolved.Object.mark(gc);
+            } else if (resolved.* == .Protocol) {
+                try resolved.Protocol.mark(gc);
             } else if (resolved.* == .Enum) {
                 try resolved.Enum.mark(gc);
             } else if (resolved.* == .Function) {
@@ -2898,6 +2959,8 @@ pub const ObjTypeDef = struct {
             .Placeholder,
             .Enum, // Enum are defined in global scope without any generic possible
             .EnumInstance,
+            .Protocol,
+            .ProtocolInstance,
             => self,
 
             .Generic => generic: {
@@ -3238,6 +3301,11 @@ pub const ObjTypeDef = struct {
                     try writer.writeAll(object_def.qualified_name.string);
                 }
             },
+            .Protocol => {
+                const protocol_def = self.resolved_type.?.Protocol;
+
+                try writer.print("protocol {s}", .{protocol_def.qualified_name.string});
+            },
             .Enum => {
                 try writer.writeAll("enum ");
                 try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
@@ -3265,6 +3333,11 @@ pub const ObjTypeDef = struct {
                 } else {
                     try writer.writeAll(object_def.qualified_name.string);
                 }
+            },
+            .ProtocolInstance => {
+                const protocol_def = self.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
+
+                try writer.writeAll(protocol_def.qualified_name.string);
             },
             .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string),
 
@@ -3366,6 +3439,37 @@ pub const ObjTypeDef = struct {
         return Value{ .Obj = self.toObj() };
     }
 
+    pub fn toParentType(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
+        return switch (self.def_type) {
+            .ObjectInstance => self.resolved_type.?.ObjectInstance,
+            .ProtocolInstance => self.resolved_type.?.ProtocolInstance,
+            .EnumInstance => self.resolved_type.?.EnumInstance,
+            .Placeholder => placeholder: {
+                if (self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
+                    return self.resolved_type.?.Placeholder.parent.?;
+                }
+
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(
+                        allocator,
+                        self.resolved_type.?.Placeholder.where.clone(),
+                    ),
+                };
+                placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
+
+                const placeholder = try type_registry.getTypeDef(Self{
+                    .def_type = .Placeholder,
+                    .resolved_type = placeholder_resolved_type,
+                });
+
+                try PlaceholderDef.link(self, placeholder, .Parent);
+
+                break :placeholder placeholder;
+            },
+            else => self,
+        };
+    }
+
     pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
         // Avoid placeholder double links like: Object Placeholder -> Instance -> Instance
         if (self.def_type == .Placeholder and self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
@@ -3375,7 +3479,9 @@ pub const ObjTypeDef = struct {
         var instance_type = try type_registry.getTypeDef(
             switch (self.def_type) {
                 .Object => object: {
-                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .ObjectInstance = try self.cloneNonOptional(type_registry) };
+                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                        .ObjectInstance = try self.cloneNonOptional(type_registry),
+                    };
 
                     break :object Self{
                         .optional = self.optional,
@@ -3383,8 +3489,21 @@ pub const ObjTypeDef = struct {
                         .resolved_type = resolved_type,
                     };
                 },
+                .Protocol => protocol: {
+                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                        .ProtocolInstance = try self.cloneNonOptional(type_registry),
+                    };
+
+                    break :protocol Self{
+                        .optional = self.optional,
+                        .def_type = .ProtocolInstance,
+                        .resolved_type = resolved_type,
+                    };
+                },
                 .Enum => enum_instance: {
-                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{ .EnumInstance = try self.cloneNonOptional(type_registry) };
+                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                        .EnumInstance = try self.cloneNonOptional(type_registry),
+                    };
 
                     break :enum_instance Self{
                         .optional = self.optional,
@@ -3433,12 +3552,12 @@ pub const ObjTypeDef = struct {
     }
 
     // Compare two type definitions
-    pub fn eqlTypeUnion(a: TypeUnion, b: TypeUnion) bool {
-        if (@as(Type, a) != @as(Type, b)) {
+    pub fn eqlTypeUnion(expected: TypeUnion, actual: TypeUnion) bool {
+        if (@as(Type, expected) != @as(Type, actual) and (expected != .ProtocolInstance or actual != .ObjectInstance)) {
             return false;
         }
 
-        return switch (a) {
+        return switch (expected) {
             .Bool,
             .Number,
             .String,
@@ -3448,48 +3567,56 @@ pub const ObjTypeDef = struct {
             .Type,
             => return true,
 
-            .Generic => a.Generic.origin == b.Generic.origin and a.Generic.index == b.Generic.index,
+            .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
 
             .Fiber => {
-                return a.Fiber.return_type.eql(b.Fiber.return_type) and a.Fiber.yield_type.eql(b.Fiber.yield_type);
+                return expected.Fiber.return_type.eql(actual.Fiber.return_type) and expected.Fiber.yield_type.eql(actual.Fiber.yield_type);
             },
 
             .ObjectInstance => {
-                return a.ObjectInstance.eql(b.ObjectInstance) or instanceEqlTypeUnion(a.ObjectInstance, b.ObjectInstance);
+                return expected.ObjectInstance.eql(actual.ObjectInstance) or instanceEqlTypeUnion(expected.ObjectInstance, actual.ObjectInstance);
             },
-            .EnumInstance => return a.EnumInstance.eql(b.EnumInstance),
+            .ProtocolInstance => {
+                if (actual == .ProtocolInstance) {
+                    return expected.ProtocolInstance.eql(actual.ProtocolInstance) or instanceEqlTypeUnion(expected.ProtocolInstance, actual.ProtocolInstance);
+                } else {
+                    assert(actual == .ObjectInstance);
+                    return actual.ObjectInstance.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance) != null;
+                }
+            },
+            .EnumInstance => return expected.EnumInstance.eql(actual.EnumInstance),
 
-            .Object, .Enum => false, // Those are never equal even if definition is the same
+            .Object, .Protocol, .Enum => false, // Those are never equal even if definition is the same
 
-            .List => return a.List.item_type.eql(b.List.item_type),
-            .Map => return a.Map.key_type.eql(b.Map.key_type) and a.Map.value_type.eql(b.Map.value_type),
+            .List => return expected.List.item_type.eql(actual.List.item_type),
+            .Map => return expected.Map.key_type.eql(actual.Map.key_type) and expected.Map.value_type.eql(actual.Map.value_type),
             .Function => {
                 // Compare return type
-                if (!a.Function.return_type.eql(b.Function.return_type)) {
+                if (!expected.Function.return_type.eql(actual.Function.return_type)) {
                     return false;
                 }
 
                 // Compare yield type
-                if (!a.Function.yield_type.eql(b.Function.yield_type)) {
+                if (!expected.Function.yield_type.eql(actual.Function.yield_type)) {
                     return false;
                 }
 
                 // Compare arity
-                if (a.Function.parameters.count() != b.Function.parameters.count()) {
+                if (expected.Function.parameters.count() != actual.Function.parameters.count()) {
                     return false;
                 }
 
                 // Compare parameters (we ignore argument names and only compare types)
-                const a_keys: []*ObjString = a.Function.parameters.keys();
-                const b_keys: []*ObjString = b.Function.parameters.keys();
+                const a_keys: []*ObjString = expected.Function.parameters.keys();
+                const b_keys: []*ObjString = actual.Function.parameters.keys();
 
                 if (a_keys.len != b_keys.len) {
                     return false;
                 }
 
                 for (a_keys) |_, index| {
-                    if (!a.Function.parameters.get(a_keys[index]).?
-                        .eql(b.Function.parameters.get(b_keys[index]).?))
+                    if (!expected.Function.parameters.get(a_keys[index]).?
+                        .eql(actual.Function.parameters.get(b_keys[index]).?))
                     {
                         return false;
                     }
@@ -3503,20 +3630,18 @@ pub const ObjTypeDef = struct {
     }
 
     // Compare two type definitions
-    pub fn eql(self: *Self, other: *Self) bool {
+    pub fn eql(expected: *Self, actual: *Self) bool {
         // zig fmt: off
-        const type_eql: bool = self.def_type == other.def_type
-            and (
-                (self.resolved_type == null and other.resolved_type == null)
-                    or eqlTypeUnion(self.resolved_type.?, other.resolved_type.?)
-            );
+        const type_eql: bool = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
+            or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
-        return self == other
-            or (self.optional and other.def_type == .Void) // Void is equal to any optional type
+        // FIXME: previous comment should be wrong now? we do share type_registries between fibers and this should be enough ?
+        return expected == actual
+            or (expected.optional and actual.def_type == .Void) // Void is equal to any optional type
             or (
-                (type_eql or other.def_type == .Placeholder or self.def_type == .Placeholder)
-                and (self.optional or !other.optional)
+                (type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder)
+                and (expected.optional or !actual.optional)
             );
         // zig fmt: on
     }
@@ -3718,6 +3843,7 @@ pub const PlaceholderDef = struct {
         FieldAccess,
         Assignment,
         Instance,
+        Parent,
         Optional,
         Unwrap,
     };

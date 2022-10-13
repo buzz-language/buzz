@@ -1,0 +1,78 @@
+import "lib/std";
+
+protocol Comparable {
+    fun greater(Comparable than) > bool;
+}
+
+protocol Nameable {
+    fun rename(str name) > void;
+}
+
+object(Comparable, Nameable) Person {
+    str name,
+    num age,
+
+    fun greater(Comparable than) > bool {
+        if (than as Person other) {
+            return this.age > other.age;
+        }
+
+        throw "Can't compare to {than}";
+    }
+
+    fun rename(str name) > void {
+        this.name = name;
+    }
+}
+
+object(Nameable) Pet {
+    str name,
+
+    fun rename(str name) > void {
+        this.name = name;
+    }
+}
+
+test "Protocols" {
+    Person joe = Person{
+        name = "Joe",
+        age = 25,
+    };
+
+    Person bob = Person{
+        name = "Bob",
+        age = 56,
+    };
+
+    Pet bandit = Pet{
+        name = "bandit",
+    };
+
+    assert(bob.greater(joe), message: "could implement protocol");
+
+    Nameable nameable = bandit;
+    nameable = joe;
+
+    [Nameable] nameables = [bandit, joe];
+    [str] newNames = ["Chili", "Nick"];
+    foreach (num i, Nameable item in nameables) {
+        item.rename(newNames[i]);
+    }
+
+    assert(bandit.name == "Chili", message: "could call protocol method");
+    assert(joe.name == "Nick", message: "could call protocol method");
+
+    {Nameable, bool} map = {
+        bandit: true,
+        joe: false,
+    };
+
+    assert(map[joe] == false, message: "could hold protocol as map key");
+
+    {str, Nameable} mapValue = {
+        "bandit": bandit,
+        "joe": joe,
+    };
+
+    assert(mapValue["joe"] == joe, message: "could hold protocol as map value");
+}
