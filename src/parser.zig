@@ -1060,8 +1060,9 @@ pub const Parser = struct {
 
             const node = if (!constant and try self.match(.Object))
                 try self.objectDeclaration(false)
-            else if (!constant and try self.match(.Class))
-                try self.objectDeclaration(true)
+                // TODO: unplugged for now, remove completely once we're sure we don't want classes
+                // else if (!constant and try self.match(.Class))
+                //     try self.objectDeclaration(true)
             else if (!constant and try self.match(.Enum))
                 try self.enumDeclaration()
             else if (!constant and try self.match(.Fun))

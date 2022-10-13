@@ -315,28 +315,6 @@ object Person {
 }
 ```
 
-`class` act like you would expect. They don't have the central place they have in other languages (tbh we may end up removing them):
-
-```buzz
-class Form {
-    num x,
-    num y,
-
-    fun toString() > str {
-        return "({this.x}, {this.y})";
-    }
-}
-
-| `Circle` inherits from `Form`
-class Circle < Form {
-    num radius,
-
-    fun toString() > str {
-        return "center: {super.toString()}, radius: {this.radius}";
-    }
-}
-```
-
 #### Anonymous objects
 
 ```buzz

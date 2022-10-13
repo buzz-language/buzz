@@ -10,7 +10,7 @@ fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewh
     address["country"] = "US";
 }
 
-class A {
+object A {
     [num] list = [1, 2, 3],
     {str, [num]} map = { "yo": [1, 2, 3] },
 }

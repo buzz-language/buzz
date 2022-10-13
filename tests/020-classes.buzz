@@ -1,61 +1,63 @@
 import "lib/std";
 
-class Form {
-    num x,
-    num y,
+test "pass" {}
 
-    fun toString() > str {
-        return "({this.x}, {this.y})";
-    }
-}
+| class Form {
+|     num x,
+|     num y,
 
-class Circle < Form {
-    num radius,
+|     fun toString() > str {
+|         return "({this.x}, {this.y})";
+|     }
+| }
 
-    fun toString() > str {
-        return "center: {super.toString()}, radius: {this.radius}";
-    }
-}
+| class Circle < Form {
+|     num radius,
 
-test "Inheritance & polymorphism" {
-    Circle circle = Circle {
-        x = 0,
-        y = 0,
-        radius = 10,
-    };
+|     fun toString() > str {
+|         return "center: {super.toString()}, radius: {this.radius}";
+|     }
+| }
 
-    assert(circle is Circle, message: "of course");
-    assert(circle is Form, message: "inheritance baby");
-    assert(circle.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
-}
+| test "Inheritance & polymorphism" {
+|     Circle circle = Circle {
+|         x = 0,
+|         y = 0,
+|         radius = 10,
+|     };
 
-test "Downcast" {
-    Circle circle = Circle {
-        x = 0,
-        y = 0,
-        radius = 10,
-    };
+|     assert(circle is Circle, message: "of course");
+|     assert(circle is Form, message: "inheritance baby");
+|     assert(circle.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
+| }
 
-    Form form = circle;
+| test "Downcast" {
+|     Circle circle = Circle {
+|         x = 0,
+|         y = 0,
+|         radius = 10,
+|     };
 
-    assert(form.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
-}
+|     Form form = circle;
 
-class Oval < Circle {
-    num constraint,
+|     assert(form.toString() == "center: (0, 0), radius: 10", message: "polymorphism");
+| }
 
-    fun toString() > str {
-        return "{super.toString()}, constraint: {this.constraint}";
-    }
-}
+| class Oval < Circle {
+|     num constraint,
 
-test "More than one level of inheritance" {
-    Oval oval = Oval {
-        x = 6,
-        y = 3,
-        radius = 23,
-        constraint = 4,
-    };
+|     fun toString() > str {
+|         return "{super.toString()}, constraint: {this.constraint}";
+|     }
+| }
 
-    print(oval.toString());
-}
+| test "More than one level of inheritance" {
+|     Oval oval = Oval {
+|         x = 6,
+|         y = 3,
+|         radius = 23,
+|         constraint = 4,
+|     };
+
+|     print(oval.toString());
+| }
