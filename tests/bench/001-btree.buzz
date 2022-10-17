@@ -26,6 +26,8 @@ fun itemCheck(Node tree) > num {
     } else {
         return 1;
     }
+
+    return 0;
 }
 
 fun main([str] args) > void !> OverflowError, UnderflowError {
