@@ -152,6 +152,10 @@ pub const GarbageCollector = struct {
     objPatternPool: std.ArrayList(*ObjPattern),
     objFiberPool: std.ArrayList(*ObjFiber),
 
+    full_collection_count: usize = 0,
+    light_collection_count: usize = 0,
+    max_allocated: usize = 0,
+
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
@@ -227,6 +231,10 @@ pub const GarbageCollector = struct {
     pub fn allocate(self: *Self, comptime T: type) !*T {
         self.bytes_allocated += @sizeOf(T);
 
+        if (self.bytes_allocated > self.max_allocated) {
+            self.max_allocated = self.bytes_allocated;
+        }
+
         if (self.bytes_allocated > self.next_gc and !Config.debug_turn_off_gc) {
             try self.collectGarbage();
         }
@@ -242,6 +250,10 @@ pub const GarbageCollector = struct {
 
     pub fn allocateMany(self: *Self, comptime T: type, count: usize) ![]T {
         self.bytes_allocated += (@sizeOf(T) * count);
+
+        if (self.bytes_allocated > self.max_allocated) {
+            self.max_allocated = self.bytes_allocated;
+        }
 
         if (self.bytes_allocated > self.next_gc and !Config.debug_turn_off_gc) {
             try self.collectGarbage();
@@ -903,6 +915,12 @@ pub const GarbageCollector = struct {
         try traceReference(self);
 
         try sweep(self, mode);
+
+        if (mode == .Full) {
+            self.full_collection_count += 1;
+        } else {
+            self.light_collection_count += 1;
+        }
 
         self.next_gc = self.bytes_allocated * Config.gc.next_gc_ratio;
         self.next_full_gc = self.next_gc * Config.gc.next_full_gc_ratio;
