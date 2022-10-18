@@ -494,6 +494,7 @@ export fn SocketServerStart(vm: *api.VM) c_int {
 
     server.listen(list.addrs[0]) catch |err| {
         switch (err) {
+            error.NoDevice => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoDevice", "NoDevice".len),
             error.AlreadyConnected => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AlreadyConnected", "AlreadyConnected".len),
             error.SocketNotBound => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketNotBound", "SocketNotBound".len),
             error.AddressNotAvailable => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotAvailable", "AddressNotAvailable".len),

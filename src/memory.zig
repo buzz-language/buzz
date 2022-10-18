@@ -79,6 +79,13 @@ pub const TypeRegistry = struct {
     pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
         return self.registry.get(name);
     }
+
+    pub fn mark(self: *Self) !void {
+        var it = self.registry.iterator();
+        while (it.next()) |kv| {
+            try self.gc.markObj(kv.value_ptr.*.toObj());
+        }
+    }
 };
 
 // Sticky Mark Bits Generational GC basic idea:
@@ -122,6 +129,7 @@ pub const GarbageCollector = struct {
     // next_gc == next_full_gc at first so the first cycle is a full gc
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
+    last_gc: ?Mode = null,
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
@@ -629,6 +637,9 @@ pub const GarbageCollector = struct {
     }
 
     fn markRoots(self: *Self, vm: *VM) !void {
+        // FIXME: We should not need this, but we don't know how to prevent collection before the VM actually starts making reference to them
+        try self.type_registry.mark();
+
         try self.markMethods();
 
         // Mark import registry
@@ -712,7 +723,7 @@ pub const GarbageCollector = struct {
             return;
         }
 
-        const mode: Mode = if (self.bytes_allocated > self.next_full_gc) .Full else .Young;
+        const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
         if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("-- gc starts mode {}, {} bytes, {} objects\n", .{ mode, self.bytes_allocated, self.objects.len });
@@ -752,6 +763,7 @@ pub const GarbageCollector = struct {
 
         self.next_gc = self.bytes_allocated * Config.gc.next_gc_ratio;
         self.next_full_gc = self.next_gc * Config.gc.next_full_gc_ratio;
+        self.last_gc = mode;
 
         if (Config.debug_gc or Config.debug_gc_light) {
             std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });

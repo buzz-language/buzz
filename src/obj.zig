@@ -2923,7 +2923,7 @@ pub const ObjTypeDef = struct {
             } else if (resolved.* == .Fiber) {
                 try resolved.Fiber.mark(gc);
             } else if (resolved.* == .Placeholder) {
-                unreachable;
+                // unreachable;
             }
         }
     }
@@ -3250,7 +3250,9 @@ pub const ObjTypeDef = struct {
         return non_optional;
     }
 
-    pub fn deinit(_: *Self) void {}
+    pub fn deinit(_: *Self) void {
+        // FIXME
+    }
 
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var str = std.ArrayList(u8).init(allocator);
