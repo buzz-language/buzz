@@ -9,7 +9,11 @@ const _codegen = @import("./codegen.zig");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
+const valueToStringAlloc = _value.valueToStringAlloc;
 const ObjString = _obj.ObjString;
+const ObjPattern = _obj.ObjPattern;
+const ObjMap = _obj.ObjMap;
+const ObjUpValue = _obj.ObjUpValue;
 const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjObject = _obj.ObjObject;
@@ -109,6 +113,180 @@ export fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8 {
     len.* = string.len;
 
     return if (string.len > 0) if (string.len > 0) @ptrCast([*]const u8, string) else null else null;
+}
+
+/// Dump value
+export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
+    const value = value_ptr.*;
+
+    switch (value) {
+        .Boolean,
+        .Float,
+        .Integer,
+        .Null,
+        .Void,
+        => {
+            const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
+            defer vm.gc.allocator.free(string);
+
+            std.debug.print("{s}", .{string});
+        },
+
+        .Obj => {
+            switch (value.Obj.obj_type) {
+                .Type,
+                .Closure,
+                .Function,
+                .Bound,
+                .Native,
+                .UserData,
+                .Fiber,
+                .EnumInstance,
+                => {
+                    const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
+                    defer vm.gc.allocator.free(string);
+
+                    std.debug.print("{s}", .{string});
+                },
+
+                .UpValue => {
+                    const upvalue = ObjUpValue.cast(value.Obj).?;
+
+                    bz_valueDump(if (upvalue.closed != null) &upvalue.closed.? else upvalue.location, vm);
+                },
+
+                .String => {
+                    const string = ObjString.cast(value.Obj).?;
+
+                    std.debug.print("\"{s}\"", .{string.string});
+                },
+
+                .Pattern => {
+                    const pattern = ObjPattern.cast(value.Obj).?;
+
+                    std.debug.print("_{s}_", .{pattern.source});
+                },
+
+                .List => {
+                    const list = ObjList.cast(value.Obj).?;
+
+                    std.debug.print("[ ", .{});
+                    for (list.items.items) |item| {
+                        bz_valueDump(&item, vm);
+                        std.debug.print(", ", .{});
+                    }
+                    std.debug.print("]", .{});
+                },
+
+                .Map => {
+                    const map = ObjMap.cast(value.Obj).?;
+
+                    std.debug.print("{{ ", .{});
+                    var it = map.map.iterator();
+                    while (it.next()) |kv| {
+                        const key = _value.hashableToValue(kv.key_ptr.*);
+
+                        bz_valueDump(&key, vm);
+                        std.debug.print(": ", .{});
+                        bz_valueDump(kv.value_ptr, vm);
+                        std.debug.print(", ", .{});
+                    }
+                    std.debug.print("}}", .{});
+                },
+
+                .Enum => {
+                    const enumeration = ObjEnum.cast(value.Obj).?;
+                    const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
+
+                    std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
+                    for (enum_type_def.cases.items) |case, i| {
+                        std.debug.print("{s} -> ", .{case});
+                        bz_valueDump(&enumeration.cases.items[i], vm);
+                        std.debug.print(", ", .{});
+                    }
+                    std.debug.print("}}", .{});
+                },
+
+                .Object => {
+                    const object = ObjObject.cast(value.Obj).?;
+                    const object_def = object.type_def.resolved_type.?.Object;
+
+                    std.debug.print("object", .{});
+                    if (object_def.conforms_to.count() > 0) {
+                        std.debug.print("(", .{});
+                        var it = object_def.conforms_to.iterator();
+                        while (it.next()) |kv| {
+                            std.debug.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
+                        }
+                        std.debug.print(")", .{});
+                    }
+
+                    std.debug.print("{s} {{ ", .{object_def.name.string});
+
+                    var it = object_def.static_fields.iterator();
+                    while (it.next()) |kv| {
+                        const static_field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
+                        defer vm.gc.allocator.free(static_field_type_str);
+
+                        std.debug.print("static {s} {s}", .{ static_field_type_str, kv.key_ptr.* });
+
+                        var static_it = object.static_fields.iterator();
+                        while (static_it.next()) |static_kv| {
+                            if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
+                                std.debug.print(" = ", .{});
+                                bz_valueDump(&static_kv.value_ptr.*, vm);
+                                break;
+                            }
+                        }
+
+                        std.debug.print(", ", .{});
+                    }
+
+                    it = object_def.fields.iterator();
+                    while (it.next()) |kv| {
+                        const field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
+                        defer vm.gc.allocator.free(field_type_str);
+
+                        std.debug.print("{s} {s}", .{ field_type_str, kv.key_ptr.* });
+
+                        var field_it = object.fields.iterator();
+                        while (field_it.next()) |field_kv| {
+                            if (std.mem.eql(u8, field_kv.key_ptr.*.string, kv.key_ptr.*)) {
+                                std.debug.print(" = ", .{});
+                                bz_valueDump(&field_kv.value_ptr.*, vm);
+                                break;
+                            }
+                        }
+
+                        std.debug.print(", ", .{});
+                    }
+
+                    it = object_def.methods.iterator();
+                    while (it.next()) |kv| {
+                        const method_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
+                        defer vm.gc.allocator.free(method_type_str);
+
+                        std.debug.print("{s}, ", .{method_type_str});
+                    }
+
+                    std.debug.print("}}", .{});
+                },
+
+                .ObjectInstance => {
+                    const object_instance = ObjObjectInstance.cast(value.Obj).?;
+
+                    std.debug.print("{s}{{ ", .{if (object_instance.object) |object| object.type_def.resolved_type.?.Object.name.string else "."});
+                    var it = object_instance.fields.iterator();
+                    while (it.next()) |kv| {
+                        std.debug.print("{s} = ", .{kv.key_ptr.*.string});
+                        bz_valueDump(kv.value_ptr, vm);
+                        std.debug.print(", ", .{});
+                    }
+                    std.debug.print("}}", .{});
+                },
+            }
+        },
+    }
 }
 
 /// Converts a value to a float

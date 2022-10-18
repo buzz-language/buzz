@@ -9,6 +9,14 @@ const _memory = @import("../src/memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 
+export fn dump(vm: *api.VM) c_int {
+    vm.bz_peek(0).bz_valueDump(vm);
+
+    std.debug.print("\n", .{});
+
+    return 0;
+}
+
 export fn ast(vm: *api.VM) c_int {
     var source_len: usize = 0;
     const source = api.Value.bz_valueToString(vm.bz_peek(1), &source_len);

@@ -9,3 +9,58 @@ test "Get AST" {
 
     print(jsonAST.encode());
 }
+
+enum MyEnum {
+    One,
+    Two,
+    Three,
+}
+
+enum(str) MyStringEnum {
+    One,
+    Two,
+    Three,
+}
+
+object Data {
+    [num] data,
+}
+
+object MyObject {
+    str name,
+    num age = 12,
+    Data data,
+
+    static fun init(str name, num age) > MyObject {
+        return MyObject{
+            name = name,
+            age = age,
+            data = Data{ data = [<num>] },
+        };
+    }
+}
+
+test "dump" {
+    [num] list = [1, 2, 3, 4];
+    {str, num} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    MyObject instance = MyObject{
+        name = "joe",
+        age = 35,
+        data = Data{
+            data = list
+        },
+    };
+
+    debug.dump(<[num]>, list);
+    debug.dump(<{str, num}>, map);
+    debug.dump(<MyObject>, instance);
+    debug.dump(<MyStringEnum>, MyStringEnum.One);
+    debug.dump(<MyEnum>, MyEnum.One);
+    debug.dump(<str>, "hello world");
+    debug.dump(<pat>, _hello .*_);
+}

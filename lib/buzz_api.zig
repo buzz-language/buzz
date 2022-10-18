@@ -50,6 +50,7 @@ pub const Value = opaque {
     pub extern fn bz_valueToUserData(value: *Value) *UserData;
     pub extern fn bz_valueIsInteger(value: *Value) bool;
     pub extern fn bz_valueIsFloat(value: *Value) bool;
+    pub extern fn bz_valueDump(value: *Value, vm: *VM) void;
 };
 
 pub const ObjTypeDef = opaque {

@@ -580,7 +580,7 @@ pub const VM = struct {
                 .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
                 .OP_CONSTANT => self.push(self.readConstant(arg)),
                 .OP_TO_STRING => {
-                    var str = try valueToStringAlloc(self.gc.allocator, self.pop());
+                    const str = try valueToStringAlloc(self.gc.allocator, self.pop());
                     defer self.gc.allocator.free(str);
                     self.push(
                         Value{
