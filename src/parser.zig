@@ -2621,11 +2621,9 @@ pub const Parser = struct {
     }
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
         var node = try self.gc.allocator.create(ObjectInitNode);
         node.* = ObjectInitNode.init(self.gc.allocator, object);
-        node.node.location = start_location;
+        node.node.location = object.location;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             try self.consume(.Identifier, "Expected property name");
@@ -5143,7 +5141,7 @@ pub const Parser = struct {
             }
         }
 
-        if (self.globals.items.len == 255) {
+        if (self.globals.items.len == std.math.maxInt(u24)) {
             try self.reportError("Too many global variables.");
             return 0;
         }

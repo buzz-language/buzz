@@ -136,7 +136,6 @@ fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
 
 fun getDeclarations(str path) > [Declaration] 
     !> FileNotFoundError,
-       AssertError,
        FileSystemError,
        UnexpectedError,
        ReadWriteError,
@@ -176,7 +175,6 @@ fun genMarkdownDoc([Declaration] declarations, Buffer out) > void !> WriteWhileR
 fun main([str] args) > void
     !> FileSystemError,
        FileNotFoundError,
-       AssertError,
        ReadWriteError,
        InvalidArgumentError,
        UnexpectedError,

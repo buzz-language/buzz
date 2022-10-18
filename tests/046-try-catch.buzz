@@ -4,7 +4,7 @@ fun willFail() > void !> str {
     throw "Yolo";
 }
 
-fun partialCatch() > void !> str, AssertError {
+fun partialCatch() > void !> str {
     try {
         willFail();
 

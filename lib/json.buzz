@@ -222,7 +222,7 @@ object Json {
     || Query the json element at `path`, if nothing matches return `Json{}`
     || @param path Path to query
     || @return Found `Json` or `Json{}` (which is `null`)
-    fun q([str] path) > Json !> JsonParseError {
+    fun q([str] path) > Json {
         if (this.map != null) {
             if (path.len() > 1) {
                 return (this.map![path[0]] ?? Json{}).q(path.sub(1, len: null));

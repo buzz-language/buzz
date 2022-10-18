@@ -31,10 +31,8 @@ Returns the number of allocated bytes
 Triggers a GC sweepvoid
 ## std
 
-### ` object lib.std.AssertError`
-void
-### ` fun assert(bool condition, str message) > void !> lib.std.AssertError`
-If condition is false throw error with given message
+### ` fun assert(bool condition, str message) > void`
+If condition is false print message and exit program
 - **`message`:** message printed if `condition` is false
 void
 ### ` fun print(str value) > void`

@@ -1,15 +1,13 @@
-object AssertError {
-    str message
-}
+import "lib/os" as os;
 
-|| If condition is false throw error with given message
+|| If condition is false print message and exit program
 || @param condition assert condition
 || @param message message printed if `condition` is false
-fun assert(bool condition, str message) > void !> AssertError {
+fun assert(bool condition, str message) > void {
     if (!condition) {
-        throw AssertError{
-            message = message
-        };
+        | TODO: debug.getTrace
+        print("Assert failed: {message}");
+        os.exit(1);
     }
 }
 
@@ -25,4 +23,3 @@ extern fun parseNumber(str string) > num?;
 export assert;
 export print;
 export parseNumber;
-export AssertError;
