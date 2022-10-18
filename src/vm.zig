@@ -1307,7 +1307,7 @@ pub const VM = struct {
                 var processed_payload = payload;
                 if (payload == .Obj) {
                     if (ObjObjectInstance.cast(payload.Obj)) |instance| {
-                        processed_payload = instance.fields.get(try self.gc.allocateString("message")) orelse payload;
+                        processed_payload = instance.fields.get(try self.gc.copyString("message")) orelse payload;
                     }
                 }
 

@@ -134,24 +134,6 @@ pub const GarbageCollector = struct {
     objstring_members: std.AutoHashMap(*ObjString, *ObjNative),
     objstring_memberDefs: std.StringHashMap(*ObjTypeDef),
 
-    // Objects pools
-    objStringPool: std.ArrayList(*ObjString),
-    objTypeDefPool: std.ArrayList(*ObjTypeDef),
-    objUpValuePool: std.ArrayList(*ObjUpValue),
-    objClosurePool: std.ArrayList(*ObjClosure),
-    objFunctionPool: std.ArrayList(*ObjFunction),
-    objObjectInstancePool: std.ArrayList(*ObjObjectInstance),
-    objObjectPool: std.ArrayList(*ObjObject),
-    objListPool: std.ArrayList(*ObjList),
-    objMapPool: std.ArrayList(*ObjMap),
-    objEnumPool: std.ArrayList(*ObjEnum),
-    objEnumInstancePool: std.ArrayList(*ObjEnumInstance),
-    objBoundMethodPool: std.ArrayList(*ObjBoundMethod),
-    objNativePool: std.ArrayList(*ObjNative),
-    objUserDataPool: std.ArrayList(*ObjUserData),
-    objPatternPool: std.ArrayList(*ObjPattern),
-    objFiberPool: std.ArrayList(*ObjFiber),
-
     full_collection_count: usize = 0,
     light_collection_count: usize = 0,
     max_allocated: usize = 0,
@@ -170,23 +152,6 @@ pub const GarbageCollector = struct {
             .objpattern_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .objstring_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objstring_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
-
-            .objStringPool = std.ArrayList(*ObjString).init(allocator),
-            .objTypeDefPool = std.ArrayList(*ObjTypeDef).init(allocator),
-            .objUpValuePool = std.ArrayList(*ObjUpValue).init(allocator),
-            .objClosurePool = std.ArrayList(*ObjClosure).init(allocator),
-            .objFunctionPool = std.ArrayList(*ObjFunction).init(allocator),
-            .objObjectInstancePool = std.ArrayList(*ObjObjectInstance).init(allocator),
-            .objObjectPool = std.ArrayList(*ObjObject).init(allocator),
-            .objListPool = std.ArrayList(*ObjList).init(allocator),
-            .objMapPool = std.ArrayList(*ObjMap).init(allocator),
-            .objEnumPool = std.ArrayList(*ObjEnum).init(allocator),
-            .objEnumInstancePool = std.ArrayList(*ObjEnumInstance).init(allocator),
-            .objBoundMethodPool = std.ArrayList(*ObjBoundMethod).init(allocator),
-            .objNativePool = std.ArrayList(*ObjNative).init(allocator),
-            .objUserDataPool = std.ArrayList(*ObjUserData).init(allocator),
-            .objPatternPool = std.ArrayList(*ObjPattern).init(allocator),
-            .objFiberPool = std.ArrayList(*ObjFiber).init(allocator),
         };
     }
 
@@ -209,23 +174,6 @@ pub const GarbageCollector = struct {
         self.objpattern_memberDefs.deinit();
         self.objstring_members.deinit();
         self.objstring_memberDefs.deinit();
-
-        self.objStringPool.deinit();
-        self.objTypeDefPool.deinit();
-        self.objUpValuePool.deinit();
-        self.objClosurePool.deinit();
-        self.objFunctionPool.deinit();
-        self.objObjectInstancePool.deinit();
-        self.objObjectPool.deinit();
-        self.objListPool.deinit();
-        self.objMapPool.deinit();
-        self.objEnumPool.deinit();
-        self.objEnumInstancePool.deinit();
-        self.objBoundMethodPool.deinit();
-        self.objNativePool.deinit();
-        self.objUserDataPool.deinit();
-        self.objPatternPool.deinit();
-        self.objFiberPool.deinit();
     }
 
     pub fn allocate(self: *Self, comptime T: type) !*T {
@@ -265,31 +213,7 @@ pub const GarbageCollector = struct {
     pub fn allocateObject(self: *Self, comptime T: type, data: T) !*T {
         // var before: usize = self.bytes_allocated;
 
-        var recycled: ?*T = switch (T) {
-            ObjString => if (self.objStringPool.items.len > 0) self.objStringPool.pop() else null,
-            ObjTypeDef => if (self.objTypeDefPool.items.len > 0) self.objTypeDefPool.pop() else null,
-            ObjUpValue => if (self.objUpValuePool.items.len > 0) self.objUpValuePool.pop() else null,
-            ObjClosure => if (self.objClosurePool.items.len > 0) self.objClosurePool.pop() else null,
-            ObjFunction => if (self.objFunctionPool.items.len > 0) self.objFunctionPool.pop() else null,
-            ObjObjectInstance => if (self.objObjectInstancePool.items.len > 0) self.objObjectInstancePool.pop() else null,
-            ObjObject => if (self.objObjectPool.items.len > 0) self.objObjectPool.pop() else null,
-            ObjList => if (self.objListPool.items.len > 0) self.objListPool.pop() else null,
-            ObjMap => if (self.objMapPool.items.len > 0) self.objMapPool.pop() else null,
-            ObjEnum => if (self.objEnumPool.items.len > 0) self.objEnumPool.pop() else null,
-            ObjEnumInstance => if (self.objEnumInstancePool.items.len > 0) self.objEnumInstancePool.pop() else null,
-            ObjBoundMethod => if (self.objBoundMethodPool.items.len > 0) self.objBoundMethodPool.pop() else null,
-            ObjNative => if (self.objNativePool.items.len > 0) self.objNativePool.pop() else null,
-            ObjUserData => if (self.objUserDataPool.items.len > 0) self.objUserDataPool.pop() else null,
-            ObjPattern => if (self.objPatternPool.items.len > 0) self.objPatternPool.pop() else null,
-            ObjFiber => if (self.objFiberPool.items.len > 0) self.objFiberPool.pop() else null,
-            else => null,
-        };
-
-        if (Config.debug_gc and recycled != null) {
-            std.debug.print("Recycled @{}\n", .{@ptrToInt(recycled.?)});
-        }
-
-        var obj: *T = recycled orelse try self.allocate(T);
+        var obj: *T = try self.allocate(T);
         obj.* = data;
 
         var object: *Obj = switch (T) {
@@ -333,20 +257,16 @@ pub const GarbageCollector = struct {
     }
 
     pub fn allocateString(self: *Self, chars: []const u8) !*ObjString {
-        if (self.strings.get(chars)) |interned| {
-            return interned;
-        } else {
-            var string: *ObjString = try allocateObject(
-                self,
-                ObjString,
-                ObjString{ .string = chars },
-            );
+        var string: *ObjString = try allocateObject(
+            self,
+            ObjString,
+            ObjString{ .string = chars },
+        );
 
-            // std.debug.print("allocated new string @{} `{s}`\n", .{ @ptrToInt(&string.obj), string.string });
-            try self.strings.put(string.string, string);
+        // std.debug.print("allocated new string @{} `{s}`\n", .{ @ptrToInt(&string.obj), string.string });
+        try self.strings.put(string.string, string);
 
-            return string;
-        }
+        return string;
     }
 
     pub fn copyString(self: *Self, chars: []const u8) !*ObjString {
@@ -507,26 +427,14 @@ pub const GarbageCollector = struct {
                 // Remove it from interned strings
                 _ = self.strings.remove(obj_string.string);
 
-                // Pool can't be larger than 10% of total allocated memory
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjString)) * 0.1);
-                if (self.objStringPool.items.len < pool_threshold) {
-                    try self.objStringPool.append(obj_string);
-                } else {
-                    freeMany(self, u8, obj_string.string);
-                    free(self, ObjString, obj_string);
-                }
+                freeMany(self, u8, obj_string.string);
+                free(self, ObjString, obj_string);
             },
             .Pattern => {
                 var obj_pattern = ObjPattern.cast(obj).?;
+                pcre.pcre_free.?(obj_pattern.pattern);
 
-                // Pool can't be larger than 10% of total allocated memory
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjPattern)) * 0.1);
-                if (self.objPatternPool.items.len < pool_threshold) {
-                    try self.objPatternPool.append(obj_pattern);
-                } else {
-                    pcre.pcre_free.?(obj_pattern.pattern);
-                    free(self, ObjPattern, obj_pattern);
-                }
+                free(self, ObjPattern, obj_pattern);
             },
             .Type => {
                 var obj_typedef = ObjTypeDef.cast(obj).?;
@@ -543,14 +451,9 @@ pub const GarbageCollector = struct {
                     }
                 }
 
-                // Pool can't be larger than 10% of total allocated memory
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjTypeDef)) * 0.1);
-                if (self.objTypeDefPool.items.len < pool_threshold) {
-                    try self.objTypeDefPool.append(obj_typedef);
-                } else {
-                    obj_typedef.deinit();
-                    free(self, ObjTypeDef, obj_typedef);
-                }
+                obj_typedef.deinit();
+
+                free(self, ObjTypeDef, obj_typedef);
             },
             .UpValue => {
                 var obj_upvalue = ObjUpValue.cast(obj).?;
@@ -560,133 +463,58 @@ pub const GarbageCollector = struct {
                     }
                 }
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjUpValue)) * 0.1);
-                if (self.objUpValuePool.items.len < pool_threshold) {
-                    try self.objUpValuePool.append(obj_upvalue);
-                } else {
-                    free(self, ObjUpValue, obj_upvalue);
-                }
+                free(self, ObjUpValue, obj_upvalue);
             },
             .Closure => {
                 var obj_closure = ObjClosure.cast(obj).?;
+                obj_closure.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjClosure)) * 0.1);
-                if (self.objClosurePool.items.len < pool_threshold) {
-                    try self.objClosurePool.append(obj_closure);
-                } else {
-                    obj_closure.deinit();
-                    free(self, ObjClosure, obj_closure);
-                }
+                free(self, ObjClosure, obj_closure);
             },
             .Function => {
                 var obj_function = ObjFunction.cast(obj).?;
+                obj_function.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjFunction)) * 0.1);
-                if (self.objFunctionPool.items.len < pool_threshold) {
-                    try self.objFunctionPool.append(obj_function);
-                } else {
-                    obj_function.deinit();
-                    free(self, ObjFunction, obj_function);
-                }
+                free(self, ObjFunction, obj_function);
             },
             .ObjectInstance => {
                 var obj_objectinstance = ObjObjectInstance.cast(obj).?;
+                obj_objectinstance.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjObjectInstance)) * 0.1);
-                if (self.objObjectInstancePool.items.len < pool_threshold) {
-                    try self.objObjectInstancePool.append(obj_objectinstance);
-                } else {
-                    obj_objectinstance.deinit();
-                    free(self, ObjObjectInstance, obj_objectinstance);
-                }
+                free(self, ObjObjectInstance, obj_objectinstance);
             },
             .Object => {
                 var obj_object = ObjObject.cast(obj).?;
+                obj_object.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjObject)) * 0.1);
-                if (self.objObjectPool.items.len < pool_threshold) {
-                    try self.objObjectPool.append(obj_object);
-                } else {
-                    obj_object.deinit();
-                    free(self, ObjObject, obj_object);
-                }
+                free(self, ObjObject, obj_object);
             },
             .List => {
                 var obj_list = ObjList.cast(obj).?;
+                obj_list.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjList)) * 0.1);
-                if (self.objListPool.items.len < pool_threshold) {
-                    try self.objListPool.append(obj_list);
-                } else {
-                    obj_list.deinit();
-                    free(self, ObjList, obj_list);
-                }
+                free(self, ObjList, obj_list);
             },
             .Map => {
                 var obj_map = ObjMap.cast(obj).?;
+                obj_map.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjMap)) * 0.1);
-                if (self.objMapPool.items.len < pool_threshold) {
-                    try self.objMapPool.append(obj_map);
-                } else {
-                    obj_map.deinit();
-                    free(self, ObjMap, obj_map);
-                }
+                free(self, ObjMap, obj_map);
             },
             .Enum => {
                 var obj_enum = ObjEnum.cast(obj).?;
+                obj_enum.deinit();
 
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjEnum)) * 0.1);
-                if (self.objEnumPool.items.len < pool_threshold) {
-                    try self.objEnumPool.append(obj_enum);
-                } else {
-                    obj_enum.deinit();
-                    free(self, ObjEnum, obj_enum);
-                }
+                free(self, ObjEnum, obj_enum);
             },
-            .EnumInstance => {
-                var obj_enuminstance = ObjEnumInstance.cast(obj).?;
-
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjEnumInstance)) * 0.1);
-                if (self.objEnumInstancePool.items.len < pool_threshold) {
-                    try self.objEnumInstancePool.append(obj_enuminstance);
-                } else {
-                    free(self, ObjEnumInstance, ObjEnumInstance.cast(obj).?);
-                }
-            },
-            .Bound => {
-                var obj_boundmethod = ObjBoundMethod.cast(obj).?;
-
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjBoundMethod)) * 0.1);
-                if (self.objBoundMethodPool.items.len < pool_threshold) {
-                    try self.objBoundMethodPool.append(obj_boundmethod);
-                } else {
-                    free(self, ObjBoundMethod, ObjBoundMethod.cast(obj).?);
-                }
-            },
-            .Native => {
-                var obj_native = ObjNative.cast(obj).?;
-
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjNative)) * 0.1);
-                if (self.objNativePool.items.len < pool_threshold) {
-                    try self.objNativePool.append(obj_native);
-                } else {
-                    free(self, ObjNative, ObjNative.cast(obj).?);
-                }
-            },
-            .UserData => {
-                var obj_userdata = ObjUserData.cast(obj).?;
-
-                const pool_threshold = @floatToInt(usize, @intToFloat(f64, self.bytes_allocated / @sizeOf(ObjUserData)) * 0.1);
-                if (self.objUserDataPool.items.len < pool_threshold) {
-                    try self.objUserDataPool.append(obj_userdata);
-                } else {
-                    free(self, ObjUserData, ObjUserData.cast(obj).?);
-                }
-            },
+            .EnumInstance => free(self, ObjEnumInstance, ObjEnumInstance.cast(obj).?),
+            .Bound => free(self, ObjBoundMethod, ObjBoundMethod.cast(obj).?),
+            .Native => free(self, ObjNative, ObjNative.cast(obj).?),
+            .UserData => free(self, ObjUserData, ObjUserData.cast(obj).?),
             .Fiber => {
                 var obj_fiber = ObjFiber.cast(obj).?;
                 obj_fiber.fiber.deinit();
+
                 free(self, ObjFiber, obj_fiber);
             },
         }
