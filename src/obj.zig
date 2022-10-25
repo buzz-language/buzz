@@ -295,11 +295,7 @@ pub const ObjFiber = struct {
     };
 };
 
-pub const pcre_struct = switch (builtin.os.tag) {
-    .linux, .freebsd, .openbsd => pcre.struct_real_pcre,
-    .macos, .tvos, .watchos, .ios => pcre.struct_real_pcre8_or_16,
-    else => unreachable,
-};
+pub const pcre_struct = pcre.pcre;
 
 // Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
 pub const ObjPattern = struct {

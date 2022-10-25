@@ -21,6 +21,29 @@ fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
 }
 
+fn print_usage(params: []const clap.Param(clap.Help)) !void {
+    std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
+
+    try clap.usage(
+        std.io.getStdErr().writer(),
+        clap.Help,
+        params,
+    );
+
+    std.debug.print("\n\n", .{});
+
+    try clap.help(
+        std.io.getStdErr().writer(),
+        clap.Help,
+        params,
+        .{
+            .description_on_new_line = false,
+            .description_indent = 4,
+            .spacing_between_parameters = 0,
+        },
+    );
+}
+
 const RunFlavor = enum {
     Run,
     Test,
@@ -136,26 +159,7 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.help) {
-        std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
-
-        try clap.usage(
-            std.io.getStdErr().writer(),
-            clap.Help,
-            &params,
-        );
-
-        std.debug.print("\n\n", .{});
-
-        try clap.help(
-            std.io.getStdErr().writer(),
-            clap.Help,
-            &params,
-            .{
-                .description_on_new_line = false,
-                .description_indent = 4,
-                .spacing_between_parameters = 0,
-            },
-        );
+        try print_usage(&params);
 
         std.os.exit(0);
     }
@@ -181,6 +185,11 @@ pub fn main() !void {
             allocator.free(pos);
         }
         positionals.deinit();
+    }
+
+    if (res.positionals.len <= 0) {
+        try print_usage(&params);
+        std.os.exit(1);
     }
 
     const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else RunFlavor.Run;
