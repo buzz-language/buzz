@@ -91,13 +91,15 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
             const parsing_ms: f64 = @intToFloat(f64, parsing_time) / 1000000;
             const codegen_ms: f64 = @intToFloat(f64, codegen_time) / 1000000;
             const running_ms: f64 = @intToFloat(f64, running_time) / 1000000;
+            const gc_ms: f64 = @intToFloat(f64, gc.gc_time) / 1000000;
             std.debug.print(
-                "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\u{001b}[0m\n",
+                "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\u{001b}[0m\n",
                 .{
                     parsing_ms,
                     codegen_ms,
                     running_ms,
                     parsing_ms + codegen_ms + running_ms,
+                    gc_ms,
                     gc.full_collection_count,
                     gc.light_collection_count,
                     gc.max_allocated,

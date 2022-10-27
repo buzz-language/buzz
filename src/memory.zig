@@ -146,6 +146,8 @@ pub const GarbageCollector = struct {
     light_collection_count: usize = 0,
     max_allocated: usize = 0,
 
+    gc_time: usize = 0,
+
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
@@ -185,6 +187,8 @@ pub const GarbageCollector = struct {
     }
 
     pub fn allocate(self: *Self, comptime T: type) !*T {
+        var timer = std.time.Timer.start() catch unreachable;
+
         self.bytes_allocated += @sizeOf(T);
 
         if (self.bytes_allocated > self.max_allocated) {
@@ -201,10 +205,13 @@ pub const GarbageCollector = struct {
             std.debug.print("Allocated @{} {}\n", .{ @ptrToInt(allocated), T });
         }
 
+        self.gc_time += timer.read();
         return allocated;
     }
 
     pub fn allocateMany(self: *Self, comptime T: type, count: usize) ![]T {
+        var timer = std.time.Timer.start() catch unreachable;
+
         self.bytes_allocated += (@sizeOf(T) * count);
 
         if (self.bytes_allocated > self.max_allocated) {
@@ -215,6 +222,7 @@ pub const GarbageCollector = struct {
             try self.collectGarbage();
         }
 
+        self.gc_time += timer.read();
         return try self.allocator.alloc(T, count);
     }
 
@@ -293,6 +301,8 @@ pub const GarbageCollector = struct {
     }
 
     fn free(self: *Self, comptime T: type, pointer: *T) void {
+        var timer = std.time.Timer.start() catch unreachable;
+
         if (Config.debug_gc) {
             std.debug.print("Going to free {*}\n", .{pointer});
         }
@@ -306,9 +316,13 @@ pub const GarbageCollector = struct {
                 .{ self.bytes_allocated + @sizeOf(T), @sizeOf(T), self.bytes_allocated },
             );
         }
+
+        self.gc_time += timer.read();
     }
 
     fn freeMany(self: *Self, comptime T: type, pointer: []const T) void {
+        var timer = std.time.Timer.start() catch unreachable;
+
         if (Config.debug_gc) {
             std.debug.print("Going to free slice {*} `{s}`\n", .{ pointer, pointer });
         }
@@ -327,6 +341,8 @@ pub const GarbageCollector = struct {
                 },
             );
         }
+
+        self.gc_time += timer.read();
     }
 
     pub fn markObjDirty(self: *Self, obj: *Obj) !void {
@@ -716,7 +732,7 @@ pub const GarbageCollector = struct {
     }
 
     pub fn collectGarbage(self: *Self) !void {
-        // var timer = std.time.Timer.start() catch unreachable;
+        var timer = std.time.Timer.start() catch unreachable;
 
         // Don't collect until a VM is actually running
         if (self.active_vms.count() == 0) {
@@ -769,5 +785,7 @@ pub const GarbageCollector = struct {
             std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
         }
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
+
+        self.gc_time += timer.read();
     }
 };
