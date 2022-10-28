@@ -168,7 +168,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_TO_STRING,
         .OP_INSTANCE,
         .OP_FOREACH,
-        .OP_GET_SUPER,
         .OP_RESUME,
         .OP_YIELD,
         .OP_RESOLVE,
@@ -201,7 +200,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_PROPERTY,
         .OP_GET_PROPERTY,
         .OP_SET_PROPERTY,
-        .OP_INHERIT,
         .OP_CONSTANT,
         => try constantInstruction(instruction, chunk, offset),
 
@@ -213,13 +211,10 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
-        .OP_SUPER_INVOKE,
-        .OP_INVOKE,
-        => try invokeInstruction(instruction, chunk, offset),
+        .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
         .OP_CALL,
         .OP_ROUTINE,
         .OP_INVOKE_ROUTINE,
-        .OP_SUPER_INVOKE_ROUTINE,
         => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {

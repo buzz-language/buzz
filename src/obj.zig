@@ -1424,7 +1424,7 @@ pub const ObjObjectInstance = struct {
         if (type_def.def_type == .Object) {
             const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
 
-            return object_def == type_def or (object_def.resolved_type.?.Object.super != null and self.is(object_def.resolved_type.?.Object.super.?, type_def));
+            return object_def == type_def;
         } else if (type_def.def_type == .Protocol) {
             const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
 
@@ -1451,8 +1451,6 @@ pub const ObjObject = struct {
     fields: std.AutoHashMap(*ObjString, Value),
     /// Object static fields
     static_fields: std.AutoHashMap(*ObjString, Value),
-    /// Optional super class
-    super: ?*ObjObject = null,
 
     pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
         return Self{
@@ -1496,9 +1494,6 @@ pub const ObjObject = struct {
         while (it3.next()) |kv| {
             try gc.markObj(kv.key_ptr.*.toObj());
             try gc.markValue(kv.value_ptr.*);
-        }
-        if (self.super) |usuper| {
-            try gc.markObj(usuper.toObj());
         }
     }
 
@@ -1568,16 +1563,13 @@ pub const ObjObject = struct {
         // That information is available only when the placeholder is resolved
         placeholders: std.StringHashMap(*ObjTypeDef),
         static_placeholders: std.StringHashMap(*ObjTypeDef),
-        super: ?*ObjTypeDef = null,
-        is_class: bool,
         anonymous: bool,
         conforms_to: std.AutoHashMap(*ObjTypeDef, void),
 
-        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, is_class: bool, anonymous: bool) ObjectDefSelf {
+        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, anonymous: bool) ObjectDefSelf {
             return ObjectDefSelf{
                 .name = name,
                 .qualified_name = qualified_name,
-                .is_class = is_class,
                 .fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
                 .static_fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
                 .fields_defaults = std.StringArrayHashMap(void).init(allocator),
@@ -1638,10 +1630,6 @@ pub const ObjObject = struct {
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
                 try gc.markObj(kv.value_ptr.*.toObj());
-            }
-
-            if (self.super) |super| {
-                try gc.markObj(super.toObj());
             }
 
             var it7 = self.conforms_to.iterator();
@@ -3006,7 +2994,6 @@ pub const ObjTypeDef = struct {
                     type_registry.gc.allocator,
                     old_object_def.name,
                     old_object_def.qualified_name,
-                    old_object_def.is_class,
                     old_object_def.anonymous,
                 );
 
@@ -3299,7 +3286,7 @@ pub const ObjTypeDef = struct {
                     }
                     try writer.writeAll(" }");
                 } else {
-                    try writer.writeAll(if (object_def.is_class) "class " else "object ");
+                    try writer.writeAll("object ");
                     try writer.writeAll(object_def.qualified_name.string);
                 }
             },
@@ -3546,13 +3533,6 @@ pub const ObjTypeDef = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    pub fn instanceEqlTypeUnion(a: *ObjTypeDef, b: *ObjTypeDef) bool {
-        assert(a.def_type == .Object);
-        assert(b.def_type == .Object);
-
-        return a == b or (b.resolved_type.?.Object.super != null and instanceEqlTypeUnion(a, b.resolved_type.?.Object.super.?));
-    }
-
     // Compare two type definitions
     pub fn eqlTypeUnion(expected: TypeUnion, actual: TypeUnion) bool {
         if (@as(Type, expected) != @as(Type, actual) and (expected != .ProtocolInstance or actual != .ObjectInstance)) {
@@ -3576,11 +3556,11 @@ pub const ObjTypeDef = struct {
             },
 
             .ObjectInstance => {
-                return expected.ObjectInstance.eql(actual.ObjectInstance) or instanceEqlTypeUnion(expected.ObjectInstance, actual.ObjectInstance);
+                return expected.ObjectInstance.eql(actual.ObjectInstance) or expected.ObjectInstance == actual.ObjectInstance;
             },
             .ProtocolInstance => {
                 if (actual == .ProtocolInstance) {
-                    return expected.ProtocolInstance.eql(actual.ProtocolInstance) or instanceEqlTypeUnion(expected.ProtocolInstance, actual.ProtocolInstance);
+                    return expected.ProtocolInstance.eql(actual.ProtocolInstance) or expected.ProtocolInstance == actual.ProtocolInstance;
                 } else {
                     assert(actual == .ObjectInstance);
                     return actual.ObjectInstance.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance) != null;
@@ -3841,7 +3821,6 @@ pub const PlaceholderDef = struct {
         Yield,
         Subscript,
         Key,
-        SuperFieldAccess,
         FieldAccess,
         Assignment,
         Instance,

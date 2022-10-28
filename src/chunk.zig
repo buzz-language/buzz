@@ -24,7 +24,6 @@ pub const OpCode = enum(u8) {
     OP_SET_UPVALUE,
     OP_GET_SUBSCRIPT,
     OP_SET_SUBSCRIPT,
-    OP_GET_SUPER,
 
     OP_EQUAL,
     OP_IS,
@@ -59,14 +58,12 @@ pub const OpCode = enum(u8) {
 
     OP_CALL,
     OP_INVOKE,
-    OP_SUPER_INVOKE,
 
     OP_CLOSURE,
     OP_CLOSE_UPVALUE,
 
     OP_ROUTINE,
     OP_INVOKE_ROUTINE,
-    OP_SUPER_INVOKE_ROUTINE,
     OP_RESUME,
     OP_RESOLVE,
     OP_YIELD,
@@ -79,7 +76,6 @@ pub const OpCode = enum(u8) {
 
     OP_OBJECT,
     OP_INSTANCE,
-    OP_INHERIT,
     OP_METHOD,
     OP_PROPERTY,
     OP_GET_PROPERTY,

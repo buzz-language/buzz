@@ -164,12 +164,6 @@ pub const Fiber = struct {
                     if (self.has_catch_value) vm.pop() else null,
                 );
             },
-            .OP_SUPER_INVOKE_ROUTINE => { // | receiver | super | ...args | ?catch |
-                const catch_value = if (self.has_catch_value) vm.pop() else null;
-
-                const super_class: *ObjObject = ObjObject.cast(vm.pop().Obj).?;
-                try vm.invokeFromObject(super_class, self.method.?, self.arg_count, catch_value);
-            },
             else => unreachable,
         }
 
@@ -656,18 +650,14 @@ pub const VM = struct {
                     self.push(obj_fiber.toValue());
                 },
 
-                .OP_INVOKE_ROUTINE,
-                .OP_SUPER_INVOKE_ROUTINE,
-                => {
+                .OP_INVOKE_ROUTINE => {
                     const method: *ObjString = self.readString(arg);
                     const arg_instruction: u32 = self.readInstruction();
                     const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
                     const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
 
-                    // - 2 because of super
-                    const extra: usize = if (instruction == .OP_SUPER_INVOKE_ROUTINE) 1 else 0;
-                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1 - extra;
-                    const stack_len = arg_count + catch_count + 1 + extra;
+                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
+                    const stack_len = arg_count + catch_count + 1;
                     const stack_slice = stack_ptr[0..stack_len];
 
                     var fiber = try self.gc.allocator.create(Fiber);
@@ -735,18 +725,6 @@ pub const VM = struct {
                         arg_count,
                         if (catch_count > 0) self.pop() else null,
                     );
-                },
-
-                .OP_SUPER_INVOKE => {
-                    const method: *ObjString = self.readString(arg);
-
-                    const arg_instruction: u32 = self.readInstruction();
-                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
-                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
-
-                    const catch_value = if (catch_count > 0) self.pop() else null;
-                    const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
-                    try self.invokeFromObject(super_class, method, arg_count, catch_value);
                 },
 
                 .OP_RETURN => {
@@ -877,19 +855,6 @@ pub const VM = struct {
                     self.push(Value{ .Obj = object.toObj() });
                 },
 
-                .OP_INHERIT => {
-                    const obj = self.pop().Obj;
-                    ObjObject.cast(obj).?.super = ObjObject.cast(self.currentGlobals().items[arg].Obj).?;
-                    try self.gc.markObjDirty(obj);
-                },
-
-                .OP_GET_SUPER => {
-                    const name: *ObjString = self.readString(arg);
-                    const super_class: *ObjObject = ObjObject.cast(self.pop().Obj).?;
-
-                    try self.bindMethod(super_class.methods.get(name).?, null);
-                },
-
                 .OP_INSTANCE => try self.instanciateObject(self.pop().Obj),
 
                 .OP_METHOD => try self.defineMethod(self.readString(arg)),
@@ -918,8 +883,6 @@ pub const VM = struct {
                             } else if (instance.object) |object| {
                                 if (object.methods.get(name)) |method| {
                                     try self.bindMethod(method, null);
-                                } else if (object.super) |super| {
-                                    try self.getSuperField(name, super);
                                 } else {
                                     unreachable;
                                 }
@@ -1700,11 +1663,6 @@ pub const VM = struct {
 
         // If not anonymous, set default fields
         if (ObjObject.cast(object_or_type)) |object| {
-            // Set instance fields with super classes default values
-            if (object.super) |super| {
-                try self.superDefaults(instance, super);
-            }
-
             // Set instance fields with default values
             var it = object.fields.iterator();
             while (it.next()) |kv| {
@@ -1713,31 +1671,6 @@ pub const VM = struct {
         }
 
         self.push(instance.toValue());
-    }
-
-    // TODO: superDefaults and getSuperField could be replaced by specialized opcodes to avoid having to walk up the chain of inheritance
-
-    fn superDefaults(self: *Self, instance: *ObjObjectInstance, super: *ObjObject) VM.Error!void {
-        if (super.super) |super_super| {
-            try self.superDefaults(instance, super_super);
-        }
-
-        var it = super.fields.iterator();
-        while (it.next()) |kv| {
-            try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
-        }
-    }
-
-    fn getSuperField(self: *Self, name: *ObjString, super: *ObjObject) VM.Error!void {
-        if (super.static_fields.get(name)) |static| {
-            _ = self.pop(); // Pop instance
-            self.push(static);
-        }
-        if (super.methods.get(name)) |method| {
-            try self.bindMethod(method, null);
-        } else if (super.super) |super_super| {
-            try self.getSuperField(name, super_super);
-        }
     }
 
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {

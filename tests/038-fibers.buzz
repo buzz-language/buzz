@@ -68,53 +68,6 @@ test "Closed upvalue in fiber" {
     assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
 }
 
-| TODO: unplugged for now, remove completely once we're sure we don't want classes
-| class Parent {
-|     fun say(str wat) > str -> wat
-| }
-
-| class FiberObj < Parent {
-|     str name = "Joe",
-
-|     fun sayHello() > str {
-|         return "Hello {this.name}";
-|     }
-
-|     fun saySuperHello() > str {
-|         return resolve &super.say("Hello {this.name}");
-|     }
-
-|     fun countUpTo(num n) > str > num? {
-|         for (num i = 0; i < n; i = i + 1) {
-|             yield i;
-|         }
-
-|         return "Counting is done Mr {this.name}";
-|     }
-| }
-
-| test "Invoke in a routine" {
-|     FiberObj fiberObj = FiberObj{};
-
-|     assert(resolve &fiberObj.sayHello() == "Hello Joe", message: "Could invoke inside a routine");
-
-|     fib<str, num?> counter = &fiberObj.countUpTo(10);
-
-|     num sum = 0;
-|     while (!counter.over()) {
-|         sum = sum + resume counter ?? 0;
-|     }
-|     assert(counter.over(), message: "Fiber should be over now");
-|     assert(resolve counter == "Counting is done Mr Joe", message: "Fiber is over we get its return value");
-|     assert(sum == 45, message: "Sum is good");
-| }
-
-| test "Super invoke in a routine" {
-|     FiberObj fiberObj = FiberObj{};
-
-|     assert(fiberObj.saySuperHello() == "Hello Joe", message: "Could invoke inside a routine");
-| }
-
 test "Wrapping call inside complex expressions" {
     {str, Function() > str} map = {
         "hello": fun () > str -> "hello world",

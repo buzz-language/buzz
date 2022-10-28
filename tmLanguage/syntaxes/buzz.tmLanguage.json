@@ -62,7 +62,7 @@
         },
         {
           "name": "keyword.declaration.dart",
-          "match": "\\b(enum|object|class|protocol)\\b"
+          "match": "\\b(enum|object|protocol)\\b"
         },
         {
           "name": "constant.language.buzz",
@@ -70,7 +70,7 @@
         },
         {
           "name": "variable.language.this.buzz",
-          "match": "\\b(this|super)\\b"
+          "match": "\\b(this)\\b"
         },
         {
           "name": "storage.type.built-in.primitive.buzz",

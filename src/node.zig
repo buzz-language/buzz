@@ -72,7 +72,6 @@ pub const ParseNodeType = enum(u8) {
     Void,
     List,
     Map,
-    Super,
     Dot,
     ObjectInit,
     Throw,
@@ -3076,7 +3075,6 @@ pub const CallNode = struct {
     callable_type: ?*ObjTypeDef,
     arguments: std.AutoArrayHashMap(*ObjString, *ParseNode),
     catch_default: ?*ParseNode = null,
-    super: ?*NamedVariableNode = null,
 
     resolved_generics: []*ObjTypeDef,
 
@@ -3148,13 +3146,12 @@ pub const CallNode = struct {
             invoked_on = field_accessed.?.def_type;
         }
 
-        if (!invoked and self.super == null and invoked_on == null) {
+        if (!invoked and invoked_on == null) {
             _ = try self.callee.toByteCode(self.callee, codegen, breaks);
         }
 
         const callee_type = switch (self.callee.node_type) {
             .Dot => DotNode.cast(self.callee).?.member_type_def,
-            .Super => SuperNode.cast(self.callee).?.member_type_def,
             else => self.callee.type_def,
         };
 
@@ -3375,11 +3372,11 @@ pub const CallNode = struct {
 
         // This is an async call, create a fiber
         if (self.async_call) {
-            if (!invoked and self.super == null) {
+            if (!invoked) {
                 // zig fmt: off
-                const call_arg_count = if (!invoked and self.super == null) @intCast(u8, arguments_order_ref.items.len)
+                const call_arg_count = if (!invoked) @intCast(u8, arguments_order_ref.items.len)
                     else
-                        if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 
+                        if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, self.arguments.count()) + 1 
                         else @intCast(u8, self.arguments.count());
                 // zig fmt: on
 
@@ -3401,20 +3398,11 @@ pub const CallNode = struct {
                         .OP_INVOKE_ROUTINE,
                         try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
                     );
-                } else if (self.super) |super| {
-                    // Push super as a new local
-                    _ = try super.node.toByteCode(&super.node, codegen, breaks);
-
-                    try codegen.emitCodeArg(
-                        self.node.location,
-                        .OP_SUPER_INVOKE_ROUTINE,
-                        try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
-                    );
                 }
 
                 try codegen.emitTwo(
                     self.node.location,
-                    if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                    if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                     if (self.catch_default != null) 1 else 0,
                 );
 
@@ -3433,18 +3421,9 @@ pub const CallNode = struct {
                 .OP_INVOKE,
                 try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
             );
-        } else if (self.super) |super| {
-            // Push super as a new local
-            _ = try super.node.toByteCode(&super.node, codegen, breaks);
-
-            try codegen.emitCodeArg(
-                self.node.location,
-                .OP_SUPER_INVOKE,
-                try codegen.identifierConstant(SuperNode.cast(self.callee).?.identifier.lexeme),
-            );
         }
 
-        if (!invoked and self.super == null) {
+        if (!invoked) {
             try codegen.emitCodeArgs(
                 self.node.location,
                 .OP_CALL,
@@ -3454,7 +3433,7 @@ pub const CallNode = struct {
         } else {
             try codegen.emitTwo(
                 self.node.location,
-                if (self.super == null and (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
                 if (self.catch_default != null) 1 else 0,
             );
         }
@@ -3480,7 +3459,7 @@ pub const CallNode = struct {
             invoked_on = true;
         }
 
-        if (!invoked and self.super == null and !invoked_on) {
+        if (!invoked and !invoked_on) {
             try out.writeAll(", \"callee\": ");
             try self.callee.toJson(self.callee, out);
         }
@@ -4980,97 +4959,6 @@ pub const BlockNode = struct {
     }
 };
 
-pub const SuperNode = struct {
-    const Self = @This();
-
-    node: ParseNode = .{
-        .node_type = .Super,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
-    },
-
-    identifier: Token,
-    member_type_def: ?*ObjTypeDef = null,
-    // if call, CallNode will fetch super
-    super: ?*NamedVariableNode = null,
-    this: *NamedVariableNode,
-    call: ?*CallNode = null,
-
-    fn constant(_: *ParseNode) bool {
-        return false;
-    }
-
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
-        return GenError.NotConstant;
-    }
-
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        if (node.synchronize(codegen)) {
-            return null;
-        }
-
-        _ = try node.generate(codegen, breaks);
-
-        var self = Self.cast(node).?;
-
-        _ = try self.this.node.toByteCode(&self.this.node, codegen, breaks);
-
-        if (self.call) |call| {
-            _ = try call.node.toByteCode(&call.node, codegen, breaks);
-        } else {
-            assert(self.super != null);
-
-            _ = try self.super.?.node.toByteCode(&self.super.?.node, codegen, breaks);
-
-            try codegen.emitCodeArg(self.node.location, .OP_GET_SUPER, try codegen.identifierConstant(self.identifier.lexeme));
-        }
-
-        try node.patchOptJumps(codegen);
-        try node.endScope(codegen);
-
-        return null;
-    }
-
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
-        var self = Self.cast(node).?;
-
-        try out.print("{{\"node\": \"Super\", \"member_name\": \"{s}\", \"this\": ", .{self.identifier.lexeme});
-
-        try self.this.node.toJson(&self.this.node, out);
-        try out.writeAll(",");
-
-        if (self.super) |super| {
-            try out.writeAll("\"super\": ");
-            try super.node.toJson(&super.node, out);
-            try out.writeAll(",");
-        }
-
-        if (self.call) |call| {
-            try out.writeAll("\"call\": ");
-            try call.node.toJson(&call.node, out);
-            try out.writeAll(",");
-        }
-
-        try ParseNode.stringify(node, out);
-
-        try out.writeAll("}");
-    }
-
-    pub fn toNode(self: *Self) *ParseNode {
-        return &self.node;
-    }
-
-    pub fn cast(node: *ParseNode) ?*Self {
-        if (node.node_type != .Super) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "node", node);
-    }
-};
-
 pub const DotNode = struct {
     const Self = @This();
 
@@ -5249,17 +5137,6 @@ pub const ObjectInitNode = struct {
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
 
-    fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
-        const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
-        if (obj_def.fields.get(name)) |obj_field| {
-            return obj_field;
-        } else if (obj_def.super) |obj_super| {
-            return self.getSuperField(obj_super, name);
-        }
-
-        return null;
-    }
-
     fn checkOmittedProperty(self: *Self, codegen: *CodeGen, obj_def: ObjObject.ObjectDef, init_properties: std.StringHashMap(void)) anyerror!void {
         var it = obj_def.fields.iterator();
         while (it.next()) |kv| {
@@ -5267,10 +5144,6 @@ pub const ObjectInitNode = struct {
             if (init_properties.get(kv.key_ptr.*) == null and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
                 try codegen.reportErrorFmt(self.node.location, "Property `{s}` was not initialized and has no default value", .{kv.key_ptr.*});
             }
-        }
-
-        if (obj_def.super) |super_def| {
-            try self.checkOmittedProperty(codegen, super_def.resolved_type.?.Object, init_properties);
         }
     }
 
@@ -5307,7 +5180,7 @@ pub const ObjectInitNode = struct {
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
             try codegen.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
         } else if (node.type_def.?.def_type != .ObjectInstance) {
-            try codegen.reportErrorAt(node.location, "Expected an object or a class.");
+            try codegen.reportErrorAt(node.location, "Expected an object.");
         }
 
         const object_type = node.type_def.?.resolved_type.?.ObjectInstance;
@@ -5321,7 +5194,7 @@ pub const ObjectInitNode = struct {
             const property_name_constant: u24 = try codegen.identifierConstant(property_name);
             const value = self.properties.get(property_name).?;
 
-            if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
+            if (obj_def.fields.get(property_name)) |prop| {
                 try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
@@ -5429,7 +5302,6 @@ pub const ObjectDeclarationNode = struct {
         .isConstant = constant,
     },
 
-    parent_slot: ?usize = null,
     slot: usize,
     methods: std.StringHashMap(*ParseNode),
     properties: std.StringHashMap(?*ParseNode),
@@ -5495,16 +5367,6 @@ pub const ObjectDeclarationNode = struct {
         try codegen.emitCodeArg(self.node.location, .OP_OBJECT, name_constant);
         try codegen.emit(self.node.location, @intCast(u32, object_type_constant));
         try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(u24, self.slot));
-
-        // Does it inherits from another object/class
-        if (self.parent_slot) |parent_slot| {
-            // Put parent on the stack as the `super` local
-            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, parent_slot));
-
-            // Actually do the inheritance
-            try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, self.slot));
-            try codegen.emitCodeArg(self.node.location, .OP_INHERIT, @intCast(u24, parent_slot));
-        }
 
         // Put the object on the stack to set its fields
         try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(u24, self.slot));

@@ -148,7 +148,6 @@ pub const TokenType = enum {
     Fun, // fun
     Object, // object
     Obj, // obj
-    Class, // class
     Protocol, // protocol
     Enum, // enum
     Throw, // throw
@@ -159,7 +158,6 @@ pub const TokenType = enum {
     Export, // export
     Const, // const
     Static, // static
-    Super, // super
     From, // from
     As, // as
     Extern, // extern
@@ -196,7 +194,6 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "continue", .Continue },
     .{ "default", .Default },
     .{ "const", .Const },
-    .{ "super", .Super },
     .{ "fun", .Fun },
     .{ "in", .In },
     .{ "str", .Str },
@@ -210,7 +207,6 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "object", .Object },
     .{ "obj", .Obj },
     .{ "static", .Static },
-    .{ "class", .Class },
     .{ "protocol", .Protocol },
     .{ "enum", .Enum },
     .{ "throw", .Throw },

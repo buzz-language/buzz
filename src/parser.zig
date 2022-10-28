@@ -71,7 +71,6 @@ const AsyncCallNode = _node.AsyncCallNode;
 const ResumeNode = _node.ResumeNode;
 const ResolveNode = _node.ResolveNode;
 const YieldNode = _node.YieldNode;
-const SuperCallNode = _node.SuperCallNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const ExpressionNode = _node.ExpressionNode;
 const EnumNode = _node.EnumNode;
@@ -85,7 +84,6 @@ const ForEachNode = _node.ForEachNode;
 const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
 const BlockNode = _node.BlockNode;
-const SuperNode = _node.SuperNode;
 const DotNode = _node.DotNode;
 const FunDeclarationNode = _node.FunDeclarationNode;
 const ObjectInitNode = _node.ObjectInitNode;
@@ -223,7 +221,7 @@ pub const Parser = struct {
         Factor, // /, *, %
         Unary, // +, ++, -, --, !
         Call, // call(), dot.ref, sub[script], optUnwrap?
-        Primary, // literal, (grouped expression), super.ref, identifier, [<type>, alist], {<a, map>, ...}
+        Primary, // literal, (grouped expression), identifier, [<type>, alist], {<a, map>, ...}
     };
 
     const ParseFn = fn (*Parser, bool) anyerror!*ParseNode;
@@ -306,7 +304,6 @@ pub const Parser = struct {
         .{ .prefix = fun, .infix = null, .precedence = .None }, // Fun
         .{ .prefix = null, .infix = null, .precedence = .None }, // Object
         .{ .prefix = null, .infix = null, .precedence = .None }, // Obj
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Class
         .{ .prefix = null, .infix = null, .precedence = .None }, // Protocol
         .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
         .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
@@ -317,10 +314,9 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Export
         .{ .prefix = null, .infix = null, .precedence = .None }, // Const
         .{ .prefix = null, .infix = null, .precedence = .None }, // Static
-        .{ .prefix = super, .infix = null, .precedence = .None }, // Super
-        .{ .prefix = super, .infix = null, .precedence = .None }, // From
-        .{ .prefix = super, .infix = null, .precedence = .None }, // As
-        .{ .prefix = super, .infix = null, .precedence = .None }, // Extern
+        .{ .prefix = null, .infix = null, .precedence = .None }, // From
+        .{ .prefix = null, .infix = null, .precedence = .None }, // As
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Extern
         .{ .prefix = null, .infix = null, .precedence = .None }, // Eof
         .{ .prefix = null, .infix = null, .precedence = .None }, // Error
         .{ .prefix = literal, .infix = null, .precedence = .None }, // Void
@@ -862,26 +858,6 @@ pub const Parser = struct {
                         return;
                     }
                 },
-                .SuperFieldAccess => {
-                    if (placeholder.def_type != .ObjectInstance) {
-                        try self.reportErrorAt(placeholder_def.where, "Doesn't have super");
-                        return;
-                    }
-
-                    if (self.getSuperField(placeholder.resolved_type.?.ObjectInstance, null, child_placeholder.name.?.string)) |super_field| {
-                        try self.resolvePlaceholder(child, super_field, false);
-                    } else if (self.getSuperMethod(placeholder.resolved_type.?.ObjectInstance, null, child_placeholder.name.?.string)) |super_method| {
-                        try self.resolvePlaceholder(child, super_method, false);
-                    } else {
-                        try self.reportErrorFmt(
-                            "`{s}` doesn't have super field `{s}`",
-                            .{
-                                placeholder.resolved_type.?.ObjectInstance.resolved_type.?.Object.name.string,
-                                child_placeholder.name.?.string,
-                            },
-                        );
-                    }
-                },
                 .FieldAccess => {
                     switch (placeholder.def_type) {
                         .List => {
@@ -954,10 +930,6 @@ pub const Parser = struct {
                                 try self.resolvePlaceholder(child, field, false);
                             } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
                                 try self.resolvePlaceholder(child, method_def, true);
-                            } else if (self.getSuperField(placeholder, null, child_placeholder.name.?.string)) |super_field| {
-                                try self.resolvePlaceholder(child, super_field, false);
-                            } else if (self.getSuperMethod(placeholder, null, child_placeholder.name.?.string)) |super_method| {
-                                try self.resolvePlaceholder(child, super_method, false);
                             } else {
                                 try self.reportErrorFmt(
                                     "`{s}` has no field `{s}`",
@@ -1009,7 +981,7 @@ pub const Parser = struct {
                         return;
                     }
 
-                    // Assignment relation from a once Placeholder and now Class/Object/Enum is creating an instance
+                    // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
                     var child_type: *ObjTypeDef = try placeholder.toInstance(self.gc.allocator, &self.gc.type_registry);
 
                     // Is child type matching the parent?
@@ -1031,9 +1003,7 @@ pub const Parser = struct {
                 return;
             }
 
-            // FIXME: update this
             switch (self.parser.current_token.?.token_type) {
-                .Class,
                 .Object,
                 .Enum,
                 .Test,
@@ -1072,10 +1042,7 @@ pub const Parser = struct {
             const constant: bool = try self.match(.Const);
 
             const node = if (!constant and try self.match(.Object))
-                try self.objectDeclaration(false)
-                // TODO: unplugged for now, remove completely once we're sure we don't want classes
-                // else if (!constant and try self.match(.Class))
-                //     try self.objectDeclaration(true)
+                try self.objectDeclaration()
             else if (!constant and try self.match(.Protocol))
                 try self.protocolDeclaration()
             else if (!constant and try self.match(.Enum))
@@ -1251,7 +1218,7 @@ pub const Parser = struct {
                 true,
             );
         } else if (try self.match(.Identifier)) {
-            // A declaration with a class/object/enum type is one of those:
+            // A declaration with a object/enum type is one of those:
             // - Type variable
             // - Type? variable
             // - prefix.Type variable
@@ -1331,7 +1298,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn objectDeclaration(self: *Self, is_class: bool) !*ParseNode {
+    fn objectDeclaration(self: *Self) !*ParseNode {
         if (self.current.?.scope_depth > 0) {
             try self.reportError("Object must be defined at top-level.");
         }
@@ -1384,7 +1351,6 @@ pub const Parser = struct {
             self.gc.allocator,
             try self.gc.copyString(object_name.lexeme),
             try self.gc.copyString(qualified_object_name.items),
-            is_class,
             false,
         );
 
@@ -1405,37 +1371,7 @@ pub const Parser = struct {
         };
 
         self.current_object = object_compiler;
-
-        // Inherited class?
-        var parent_slot: ?usize = null;
-        if (is_class) {
-            if (try self.match(.Less)) {
-                try self.consume(.Identifier, "Expected identifier after `<`.");
-
-                if (std.mem.eql(u8, object_name.lexeme, self.parser.previous_token.?.lexeme)) {
-                    try self.reportError("A class can't inherit itself.");
-
-                    // Continue as if we did not parse parent
-                } else {
-                    parent_slot = try self.parseUserType();
-                    var parent: *ObjTypeDef = self.globals.items[parent_slot.?].type_def;
-
-                    object_type.resolved_type.?.Object.super = parent;
-
-                    self.beginScope();
-                    _ = try self.addLocal(
-                        Token.identifier("super"),
-                        try parent.toInstance(self.gc.allocator, &self.gc.type_registry),
-                        true,
-                    );
-                    self.markInitialized();
-                }
-            } else {
-                self.beginScope();
-            }
-        } else {
-            self.beginScope();
-        }
+        self.beginScope();
 
         // Body
         try self.consume(.LeftBrace, "Expected `{` before object body.");
@@ -1611,7 +1547,6 @@ pub const Parser = struct {
         self.markInitialized();
 
         node.* = ObjectDeclarationNode{
-            .parent_slot = parent_slot,
             .slot = slot,
             .methods = methods,
             .properties = properties,
@@ -2573,7 +2508,6 @@ pub const Parser = struct {
             self.gc.allocator,
             try self.gc.copyString("anonymous"),
             try self.gc.copyString(qualified_name.items),
-            false,
             true,
         );
 
@@ -2921,7 +2855,7 @@ pub const Parser = struct {
         };
 
         // Expression after `&` must either be a call or a dot call
-        if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null) and (callable.node_type != .Super or SuperNode.cast(callable).?.call == null)) {
+        if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null)) {
             try self.reportErrorAt(callable.location, "Expected function call after `async`");
 
             return &node.node;
@@ -2930,7 +2864,6 @@ pub const Parser = struct {
         var call_node = switch (callable.node_type) {
             .Call => CallNode.cast(callable).?,
             .Dot => DotNode.cast(callable).?.call.?,
-            .Super => SuperNode.cast(callable).?.call.?,
             else => unreachable,
         };
         call_node.async_call = true;
@@ -3355,58 +3288,6 @@ pub const Parser = struct {
         return try self.namedVariable(self.parser.previous_token.?, can_assign);
     }
 
-    fn getSuperMethod(self: *Self, root: *ObjTypeDef, object: ?*ObjTypeDef, name: []const u8) ?*ObjTypeDef {
-        if (root.def_type == .Placeholder) {
-            return null;
-        }
-
-        if (object != null and object.?.def_type == .Placeholder) {
-            return null;
-        }
-
-        if (object == null) {
-            const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
-            if (obj_def.super) |obj_super| {
-                return self.getSuperMethod(root, obj_super, name);
-            }
-        } else {
-            const obj_def: ObjObject.ObjectDef = object.?.resolved_type.?.Object;
-            if (obj_def.methods.get(name)) |obj_method| {
-                return obj_method;
-            } else if (obj_def.super) |obj_super| {
-                return self.getSuperMethod(root, obj_super, name);
-            }
-        }
-
-        return null;
-    }
-
-    fn getSuperField(self: *Self, root: *ObjTypeDef, object: ?*ObjTypeDef, name: []const u8) ?*ObjTypeDef {
-        if (root.def_type == .Placeholder) {
-            return null;
-        }
-
-        if (object != null and object.?.def_type == .Placeholder) {
-            return null;
-        }
-
-        if (object == null) {
-            const obj_def: ObjObject.ObjectDef = root.resolved_type.?.Object;
-            if (obj_def.super) |obj_super| {
-                return self.getSuperMethod(root, obj_super, name);
-            }
-        } else {
-            const obj_def: ObjObject.ObjectDef = object.?.resolved_type.?.Object;
-            if (obj_def.fields.get(name)) |obj_field| {
-                return obj_field;
-            } else if (obj_def.super) |obj_super| {
-                return self.getSuperMethod(root, obj_super, name);
-            }
-        }
-
-        return null;
-    }
-
     fn dot(self: *Self, can_assign: bool, callee: *ParseNode) anyerror!*ParseNode {
         const start_location = callee.location;
 
@@ -3537,10 +3418,10 @@ pub const Parser = struct {
                 var obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
 
                 // Is it a method
-                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name) orelse self.getSuperMethod(object, null, member_name);
+                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name);
 
                 // Is it a property
-                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name) orelse self.getSuperField(object, null, member_name);
+                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name);
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -4074,120 +3955,6 @@ pub const Parser = struct {
         node.node.type_def = map_type;
 
         return &node.node;
-    }
-
-    fn super(self: *Self, _: bool) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
-        try self.consume(.Dot, "Expected `.` after `super`.");
-        try self.consume(.Identifier, "Expected superclass method name.");
-        var member_name = self.parser.previous_token.?;
-
-        var node = try self.gc.allocator.create(SuperNode);
-        node.* = SuperNode{
-            .identifier = member_name,
-            .this = NamedVariableNode.cast(try self.namedVariable(
-                Token.identifier("this"),
-                false,
-            )).?,
-        };
-        node.node.location = self.parser.previous_token.?;
-
-        if (try self.match(.LeftParen)) {
-            var super_method: ?*ObjTypeDef = self.getSuperMethod(self.current_object.?.type_def, null, member_name.lexeme);
-
-            if (super_method == null and self.current_object.?.type_def.def_type == .Placeholder) {
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
-                };
-                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
-
-                var placeholder = try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
-                    },
-                );
-
-                try PlaceholderDef.link(
-                    try self.current_object.?.type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
-                    placeholder,
-                    .SuperFieldAccess,
-                );
-
-                super_method = placeholder;
-            }
-
-            // call will look at parent node for function definition
-            node.node.type_def = super_method;
-
-            node.call = CallNode.cast(try self.call(false, &node.node)).?;
-            node.call.?.super = NamedVariableNode.cast(try self.namedVariable(
-                Token.identifier("super"),
-                false,
-            )).?;
-
-            if (super_method != null) {
-                switch (super_method.?.def_type) {
-                    .Function => node.node.type_def = super_method.?.resolved_type.?.Function.return_type,
-                    .Placeholder => {
-                        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                            .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
-                        };
-                        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
-
-                        var placeholder = try self.gc.type_registry.getTypeDef(
-                            .{
-                                .def_type = .Placeholder,
-                                .resolved_type = placeholder_resolved_type,
-                            },
-                        );
-
-                        try PlaceholderDef.link(super_method.?, placeholder, .Call);
-
-                        node.node.type_def = placeholder;
-                    },
-                    else => unreachable,
-                }
-            }
-
-            node.member_type_def = super_method;
-            node.node.location = start_location;
-            node.node.end_location = self.parser.previous_token.?;
-
-            return &node.node;
-        } else {
-            node.super = NamedVariableNode.cast(try self.namedVariable(
-                Token.identifier("super"),
-                false,
-            )).?;
-
-            node.node.type_def = self.getSuperMethod(self.current_object.?.type_def, null, member_name.lexeme) orelse self.getSuperField(self.current_object.?.type_def, null, member_name.lexeme);
-
-            if (node.node.type_def == null and self.current_object.?.type_def.def_type == .Placeholder) {
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.gc.allocator, self.parser.previous_token.?),
-                };
-                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name.lexeme);
-
-                var placeholder = try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
-                    },
-                );
-
-                try PlaceholderDef.link(self.current_object.?.type_def, placeholder, .FieldAccess);
-
-                node.node.type_def = placeholder;
-            }
-
-            node.member_type_def = node.node.type_def;
-            node.node.location = start_location;
-            node.node.end_location = self.parser.previous_token.?;
-
-            return &node.node;
-        }
     }
 
     fn fun(self: *Self, _: bool) anyerror!*ParseNode {
@@ -4948,7 +4715,6 @@ pub const Parser = struct {
             self.gc.allocator,
             try self.gc.copyString("anonymous"),
             try self.gc.copyString(qualified_name.items),
-            false,
             true,
         );
 

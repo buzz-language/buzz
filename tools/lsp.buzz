@@ -408,32 +408,6 @@ fun findNodeUnder([Json] trail, Json root, str uri, num line, num column) > void
         return;
     }
     
-    if (node == "Super") {
-        const Json nthis = root.q(["this"]);
-        const Json? nsuper = root.mapValue()["super"];
-        const Json? call = root.mapValue()["call"];
-
-        if (withinNode(nthis, uri: uri, line: line, column: column)) {
-            findNodeUnder(trail, root: nthis, uri: uri, line: line, column: column);
-
-            return;
-        }
-
-        if (nsuper != null and withinNode(nsuper!, uri: uri, line: line, column: column)) {
-            findNodeUnder(trail, root: nsuper!, uri: uri, line: line, column: column);
-
-            return;
-        }
-
-        if (call != null and withinNode(call!, uri: uri, line: line, column: column)) {
-            findNodeUnder(trail, root: call!, uri: uri, line: line, column: column);
-
-            return;
-        }
-
-        return;
-    }
-    
     if (node == "Dot") {
         const Json callee = root.q(["callee"]);
         const Json? value = root.mapValue()["value"];
@@ -908,12 +882,9 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
     
     if (ndType == "ObjectDeclaration") {
-        pat namePattern = _(object|class) (.+)_;
+        pat namePattern = _(object) (.+)_;
         [str] match = namePattern.match(node.q(["type_def"]).stringValue())!;
         SymbolKind kind = SymbolKind.Object;
-        if (match[1] == "class") {
-            kind = SymbolKind.Class;
-        }
         str name = match[2];
 
         declarations.append(Json{
