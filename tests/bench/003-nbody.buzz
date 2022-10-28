@@ -1,0 +1,165 @@
+import "lib/std";
+import "lib/math" as math;
+
+const num pi = 3.141592653589793;
+const num solarMass = 4 * pi * pi;
+const num daysPerYear = 365.24;
+
+object Body {
+    num x,
+    num y,
+    num z,
+    num vx,
+    num vy,
+    num vz,
+    num mass,
+}
+
+fun advance([Body] bodies, num nbody, num dt) > void {
+    for (num i = 0; i < nbody; i = i + 1) {
+        Body bi = bodies[i];
+        num bix = bi.x;
+        num biy = bi.y;
+        num biz = bi.z;
+        num bimass = bi.mass;
+        num bivx = bi.vx;
+        num bivy = bi.vy;
+        num bivz = bi.vz;
+
+        for (num j = i + 1; j < nbody; j = j + 1) {
+            Body bj = bodies[j];
+            num dx = bix - bj.x;
+            num dy = biy - bj.y;
+            num dz = biz - bj.z;
+            num dist2 = dx * dx + dy * dy + dz * dz;
+            num mag = math.sqrt(dist2);
+            mag = dt / (mag * dist2);
+            num bm = bj.mass * mag;
+
+            bivx = bivx - (dx * bm);
+            bivy = bivy - (dy * bm);
+            bivz = bivz - (dz * bm);
+            bm = bimass * mag;
+            bj.vx = bj.vx + (dx * bm);
+            bj.vy = bj.vy + (dy * bm);
+            bj.vz = bj.vz + (dz * bm);
+        }
+
+        bi.vx = bivx;
+        bi.vy = bivy;
+        bi.vz = bivz;
+        bi.x = bix + dt * bivx;
+        bi.y = biy + dt * bivy;
+        bi.z = biz + dt * bivz;
+    }
+}
+
+fun energy([Body] bodies, num nbody) > num {
+    num e = 0;
+    for (num i = 0; i < nbody; i = i + 1) {
+        Body bi = bodies[i];
+        num vx = bi.vx;
+        num vy = bi.vy;
+        num vz = bi.vz;
+        num bim = bi.mass;
+        e = e + (0.5 * bim * (vx * vx + vy * vy + vz * vz));
+        for (num j = i + 1; j < nbody; j = j + 1) {
+            Body bj = bodies[j];
+            num dx = bi.x - bj.x;
+            num dy = bi.y - bj.y;
+            num dz = bi.z - bj.z;
+            num distance = math.sqrt(dx * dx + dy * dy + dz * dz);
+            e = e - ((bim * bj.mass) / distance);
+        }
+    }
+
+    return e;
+}
+
+fun offsetMomentum([Body] b, num nbody) > void {
+    num px = 0;
+    num py = 0;
+    num pz = 0;
+
+    for (num i = 0; i < nbody; i = i + 1) {
+        Body bi = b[i];
+        num bim = bi.mass;
+
+        px = px + (bi.vx * bim);
+        py = py + (bi.vy * bim);
+        pz = pz + (bi.vz * bim);
+    }
+
+    b[0].vx = -px / solarMass;
+    b[0].vy = -py / solarMass;
+    b[0].vz = -pz / solarMass;
+}
+
+fun main([str] args) > void {
+    Body sun = Body{
+        x = 0,
+        y = 0,
+        z = 0,
+        vx = 0,
+        vy = 0,
+        vz = 0,
+        mass = solarMass,
+    };
+
+    Body jupiter = Body{
+        x = 4.84143144246472090,
+        y = -1.16032004402742839,
+        z = -0.103622044471123109,
+        vx = 0.00166007664274403694 * daysPerYear,
+        vy = 0.00769901118419740425 * daysPerYear,
+        vz = -0.0000690460016972063023 * daysPerYear,
+        mass = 0.000954791938424326609 * solarMass,
+    };
+
+    Body saturn = Body{
+        x = 8.34336671824457987,
+        y = 4.12479856412430479,
+        z = -0.403523417114321381,
+        vx = -0.0027674251072686 * daysPerYear,
+        vy = 0.0049985280123492 * daysPerYear,
+        vz = 0.0000230417297573763929 * daysPerYear,
+        mass = 0.00028588598066613 * solarMass,
+    };
+
+    Body uranus = Body{
+        x = 12.894369562139,
+        y = -15.111151401699,
+        z = -0.22330757889266,
+        vx = 0.0029646013756476 * daysPerYear,
+        vy = 0.0023784717395948 * daysPerYear,
+        vz = -0.0000296589568540237556 * daysPerYear,
+        mass = 0.0000436624404335156298 * solarMass,
+    };
+
+    Body neptune = Body{
+        x = 15.379697114851,
+        y = -25.9193146099879641,
+        z = 0.179258772950371181,
+        vx = 0.00268067772490389322 * daysPerYear,
+        vy = 0.00162824170038242295 * daysPerYear,
+        vz = -0.0000951592254519715870 * daysPerYear,
+        mass = 0.0000515138902046611451 * solarMass,
+    };
+
+    [Body] bodies = [ sun, jupiter, saturn, uranus, neptune ];
+
+    num N = 1000;
+    if (args.len() > 0) {
+        N = parseNumber(args[0]) ?? 1000;
+    }
+    num nbody = bodies.len();
+
+    offsetMomentum(bodies, nbody: nbody);
+    print("{energy(bodies, nbody: nbody)}");
+
+    for (num i = 0; i < N; i = i + 1) {
+        advance(bodies, nbody: nbody, dt: 0.01);
+    }
+
+    print("{energy(bodies, nbody: nbody)}");
+}

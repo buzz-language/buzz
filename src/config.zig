@@ -1,4 +1,5 @@
 const builtin = @import("builtin");
+// TODO: use build options
 
 pub const Config = .{
     .version = "unreleased",

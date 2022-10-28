@@ -420,7 +420,7 @@ pub const VM = struct {
         self.push(try self.cloneValue(self.pop()));
     }
 
-    fn swap(self: *Self, from: u8, to: u8) void {
+    inline fn swap(self: *Self, from: u8, to: u8) void {
         var temp: Value = (self.current_fiber.stack_top - to - 1)[0];
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
