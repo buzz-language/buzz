@@ -15,3 +15,15 @@ test "Anonymous objects" {
     assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");
     assert(info is obj{ str name, num age },  message: "Type safety works with anonymous object");
 }
+
+fun getPayload(<T>, T data) > obj{ T data } {
+    return .{
+        data = data
+    };
+}
+
+test "Anonymous object with generics" {
+    obj{ num data } payload = getPayload(<num>, 42);
+
+    assert(payload.data == 42, message: "Could use anonymous object with generic");
+}
