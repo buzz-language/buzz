@@ -203,7 +203,7 @@ pub const ObjFiber = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Fiber) {
             return null;
         }
@@ -320,7 +320,7 @@ pub const ObjPattern = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Pattern) {
             return null;
         }
@@ -539,7 +539,7 @@ pub const ObjNative = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Native) {
             return null;
         }
@@ -568,7 +568,7 @@ pub const ObjUserData = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .UserData) {
             return null;
         }
@@ -596,7 +596,7 @@ pub const ObjString = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .String) {
             return null;
         }
@@ -1177,7 +1177,7 @@ pub const ObjUpValue = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .UpValue) {
             return null;
         }
@@ -1228,7 +1228,7 @@ pub const ObjClosure = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Closure) {
             return null;
         }
@@ -1294,7 +1294,7 @@ pub const ObjFunction = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Function) {
             return null;
         }
@@ -1412,7 +1412,7 @@ pub const ObjObjectInstance = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .ObjectInstance) {
             return null;
         }
@@ -1516,7 +1516,7 @@ pub const ObjObject = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Object) {
             return null;
         }
@@ -1698,7 +1698,7 @@ pub const ObjList = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .List) {
             return null;
         }
@@ -2480,7 +2480,7 @@ pub const ObjMap = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Map) {
             return null;
         }
@@ -2722,7 +2722,7 @@ pub const ObjEnum = struct {
         return &self.obj;
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Enum) {
             return null;
         }
@@ -2780,7 +2780,7 @@ pub const ObjEnumInstance = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .EnumInstance) {
             return null;
         }
@@ -2821,7 +2821,7 @@ pub const ObjBoundMethod = struct {
         return Value{ .Obj = self.toObj() };
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Bound) {
             return null;
         }
@@ -3538,7 +3538,7 @@ pub const ObjTypeDef = struct {
         return instance_type;
     }
 
-    pub fn cast(obj: *Obj) ?*Self {
+    pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Type) {
             return null;
         }

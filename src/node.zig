@@ -762,7 +762,7 @@ pub const StringNode = struct {
             }
 
             if (index >= 1) {
-                try codegen.emitOpCode(self.node.location, .OP_ADD);
+                try codegen.emitOpCode(self.node.location, .OP_ADD_STRING);
             }
         }
 
@@ -2001,7 +2001,12 @@ pub const BinaryNode = struct {
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
                 _ = try self.right.toByteCode(self.right, codegen, breaks);
-                try codegen.emitOpCode(self.node.location, .OP_ADD);
+                try codegen.emitOpCode(self.node.location, switch (left_type.def_type) {
+                    .String => .OP_ADD_STRING,
+                    .List => .OP_ADD_LIST,
+                    .Map => .OP_ADD_MAP,
+                    else => .OP_ADD,
+                });
             },
             .Minus => {
                 if (left_type.def_type != .Number) {

@@ -1067,17 +1067,232 @@ pub const VM = struct {
                     }
                 },
 
-                .OP_ADD,
-                .OP_SUBTRACT,
-                .OP_MULTIPLY,
-                .OP_DIVIDE,
-                .OP_MOD,
-                .OP_BAND,
-                .OP_BOR,
-                .OP_XOR,
-                .OP_SHL,
-                .OP_SHR,
-                => try self.binary(instruction),
+                .OP_ADD_STRING => {
+                    const right: *ObjString = ObjString.cast(self.pop().Obj).?;
+                    const left: *ObjString = ObjString.cast(self.pop().Obj).?;
+
+                    self.push(Value{ .Obj = (try left.concat(self, right)).toObj() });
+                },
+
+                .OP_ADD_LIST => {
+                    const right: *ObjList = ObjList.cast(self.pop().Obj).?;
+                    const left: *ObjList = ObjList.cast(self.pop().Obj).?;
+
+                    var new_list = std.ArrayList(Value).init(self.gc.allocator);
+                    try new_list.appendSlice(left.items.items);
+                    try new_list.appendSlice(right.items.items);
+
+                    self.push(
+                        (try self.gc.allocateObject(ObjList, ObjList{
+                            .type_def = left.type_def,
+                            .methods = left.methods,
+                            .items = new_list,
+                        })).toValue(),
+                    );
+                },
+
+                .OP_ADD_MAP => {
+                    const right: *ObjMap = ObjMap.cast(self.pop().Obj).?;
+                    const left: *ObjMap = ObjMap.cast(self.pop().Obj).?;
+
+                    var new_map = try left.map.clone();
+                    var it = right.map.iterator();
+                    while (it.next()) |entry| {
+                        try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+
+                    self.push(
+                        (try self.gc.allocateObject(ObjMap, ObjMap{
+                            .type_def = left.type_def,
+                            .methods = left.methods,
+                            .map = new_map,
+                        })).toValue(),
+                    );
+                },
+
+                .OP_ADD => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    if (right_f != null or left_f != null) {
+                        self.push(Value{
+                            .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
+                        });
+                    } else {
+                        // both integers
+                        self.push(Value{
+                            .Integer = left_i.? + right_i.?,
+                        });
+                    }
+                },
+
+                .OP_SUBTRACT => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    if (right_f != null or left_f != null) {
+                        self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
+                    } else {
+                        self.push(Value{ .Integer = left_i.? - right_i.? });
+                    }
+                },
+
+                .OP_MULTIPLY => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    if (right_f != null or left_f != null) {
+                        self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
+                    } else {
+                        self.push(Value{ .Integer = left_i.? * right_i.? });
+                    }
+                },
+
+                .OP_DIVIDE => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    self.push(
+                        Value{
+                            .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
+                        },
+                    );
+                },
+
+                .OP_MOD => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    if (right_f != null or left_f != null) {
+                        self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
+                    } else {
+                        self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
+                    }
+                },
+
+                .OP_BAND => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    self.push(Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
+                    });
+                },
+
+                .OP_BOR => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+                    self.push(Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
+                    });
+                },
+
+                .OP_XOR => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+                    self.push(Value{
+                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
+                    });
+                },
+
+                .OP_SHL => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+                    const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                    if (b < 0) {
+                        if (b * -1 > std.math.maxInt(u6)) {
+                            self.push(Value{ .Integer = 0 });
+                        } else {
+                            self.push(Value{
+                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
+                            });
+                        }
+                    } else {
+                        if (b > std.math.maxInt(u6)) {
+                            self.push(Value{ .Integer = 0 });
+                        } else {
+                            self.push(Value{
+                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
+                            });
+                        }
+                    }
+                },
+
+                .OP_SHR => {
+                    const right: Value = floatToInteger(self.pop());
+                    const left: Value = floatToInteger(self.pop());
+
+                    const right_f: ?f64 = if (right == .Float) right.Float else null;
+                    const left_f: ?f64 = if (left == .Float) left.Float else null;
+                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+                    const b = right_i orelse @floatToInt(i64, right_f.?);
+
+                    if (b < 0) {
+                        if (b * -1 > std.math.maxInt(u6)) {
+                            self.push(Value{ .Integer = 0 });
+                        } else {
+                            self.push(Value{
+                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
+                            });
+                        }
+                    } else {
+                        if (b > std.math.maxInt(u6)) {
+                            self.push(Value{ .Integer = 0 });
+                        } else {
+                            self.push(Value{
+                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
+                            });
+                        }
+                    }
+                },
 
                 .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
 
@@ -1374,166 +1589,6 @@ pub const VM = struct {
         }
 
         return false;
-    }
-
-    fn binary(self: *Self, code: OpCode) !void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
-
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-        const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
-        const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
-
-        const right_l: ?*ObjList = if (right == .Obj) ObjList.cast(right.Obj) else null;
-        const left_l: ?*ObjList = if (left == .Obj) ObjList.cast(left.Obj) else null;
-
-        const right_m: ?*ObjMap = if (right == .Obj) ObjMap.cast(right.Obj) else null;
-        const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
-
-        switch (code) {
-            .OP_BAND => {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
-                });
-            },
-            .OP_BOR => {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
-                });
-            },
-            .OP_XOR => {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
-                });
-            },
-            .OP_SHL => {
-                const b = right_i orelse @floatToInt(i64, right_f.?);
-
-                if (b < 0) {
-                    if (b * -1 > std.math.maxInt(u6)) {
-                        self.push(Value{ .Integer = 0 });
-                    } else {
-                        self.push(Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
-                        });
-                    }
-                } else {
-                    if (b > std.math.maxInt(u6)) {
-                        self.push(Value{ .Integer = 0 });
-                    } else {
-                        self.push(Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
-                        });
-                    }
-                }
-            },
-            .OP_SHR => {
-                const b = right_i orelse @floatToInt(i64, right_f.?);
-
-                if (b < 0) {
-                    if (b * -1 > std.math.maxInt(u6)) {
-                        self.push(Value{ .Integer = 0 });
-                    } else {
-                        self.push(Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
-                        });
-                    }
-                } else {
-                    if (b > std.math.maxInt(u6)) {
-                        self.push(Value{ .Integer = 0 });
-                    } else {
-                        self.push(Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
-                        });
-                    }
-                }
-            },
-            .OP_ADD => add: {
-                if (right_s != null) {
-                    self.push(Value{ .Obj = (try left_s.?.concat(self, right_s.?)).toObj() });
-                    break :add;
-                } else if (right_f != null or left_f != null) {
-                    self.push(Value{
-                        .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
-                    });
-
-                    break :add;
-                } else if (right_i != null or left_i != null) {
-                    self.push(Value{
-                        .Integer = left_i.? + right_i.?,
-                    });
-
-                    break :add;
-                } else if (right_l != null) {
-                    var new_list = std.ArrayList(Value).init(self.gc.allocator);
-                    try new_list.appendSlice(left_l.?.items.items);
-                    try new_list.appendSlice(right_l.?.items.items);
-
-                    self.push(
-                        (try self.gc.allocateObject(ObjList, ObjList{
-                            .type_def = left_l.?.type_def,
-                            .methods = left_l.?.methods,
-                            .items = new_list,
-                        })).toValue(),
-                    );
-
-                    break :add;
-                }
-
-                // map
-                var new_map = try left_m.?.map.clone();
-                var it = right_m.?.map.iterator();
-                while (it.next()) |entry| {
-                    try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
-                }
-
-                self.push(
-                    (try self.gc.allocateObject(ObjMap, ObjMap{
-                        .type_def = left_m.?.type_def,
-                        .methods = left_m.?.methods,
-                        .map = new_map,
-                    })).toValue(),
-                );
-            },
-
-            .OP_SUBTRACT => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
-                } else {
-                    self.push(Value{ .Integer = left_i.? - right_i.? });
-                }
-            },
-
-            .OP_MULTIPLY => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
-                } else {
-                    self.push(Value{ .Integer = left_i.? * right_i.? });
-                }
-            },
-
-            .OP_DIVIDE => {
-                self.push(
-                    Value{
-                        .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
-                    },
-                );
-            },
-
-            .OP_MOD => {
-                if (right_f != null or left_f != null) {
-                    self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
-                } else {
-                    self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
-                }
-            },
-
-            else => unreachable,
-        }
     }
 
     // FIXME: catch_values should be on the stack like arguments
