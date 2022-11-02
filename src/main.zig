@@ -164,10 +164,16 @@ pub fn main() !void {
 
     if (res.args.version) {
         std.debug.print(
-            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {}\n",
+            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
             .{
                 Config.version,
                 builtin.zig_version,
+                switch (builtin.mode) {
+                    .ReleaseFast => "release-fast",
+                    .ReleaseSafe => "release-safe",
+                    .ReleaseSmall => "release-small",
+                    .Debug => "debug",
+                },
             },
         );
 

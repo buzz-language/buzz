@@ -1,0 +1,65 @@
+import "lib/std";
+import "lib/io" as io;
+import "lib/errors";
+
+fun readSequence() > str !> ReadWriteError, FileSystemError, UnexpectedError {
+    bool skippedIgnoredSequences = false;
+    [str] lines = [<str>];
+    for (str? line = ""; line != null; line = io.stdin.readLine()) { | catch null doesn't work
+        if (!skippedIgnoredSequences) {
+            if (line?.startsWith(">THREE") ?? true) {
+                skippedIgnoredSequences = true;
+            }
+        } else {
+            str c = line?[0] ?? "_";
+            if (c == ">") {
+                break;
+            } else if (c != ";") {
+                lines.append(line ?? "");
+            }
+        }
+    }
+
+    return lines.join("").upper();
+}
+
+fun kfrequency(str sequence, {str, num} frequency, num k, num frame) > void {
+    for (num i = frame; i < sequence.len(); i = i + k) {
+        str c = sequence.sub(i, len: k);
+        frequency[c] = (frequency[c] ?? 0) + 1;
+    }
+}
+
+fun count(str sequence, str fragment) > void {
+    const num k = fragment.len();
+    {str, num} frequency = {<str, num>};
+    for (num frame = 0; frame < k; frame = frame + 1) {
+        kfrequency(sequence, frequency: frequency, k: k, frame: frame);
+    }
+    print("{frequency[fragment] ?? 0}\t{fragment}");
+}
+
+fun frequency(str sequence, num k) > void {
+    {str, num} frequency = {<str, num>};
+    for (num frame = 0; frame < k; frame = frame + 1) {
+        kfrequency(sequence, frequency: frequency, k: k, frame: frame);
+    }
+
+    num sum = sequence.len() - k + 1;
+    foreach (str c, num f in frequency) {
+        print("{c} {(f * 100) / sum}");
+    }
+    print("");
+}
+
+| buzz tests/bench/005-k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
+fun main([str] args) > void {
+    str sequence = readSequence() catch "";
+    frequency(sequence, k: 1);
+    frequency(sequence, k: 2);
+    count(sequence, fragment: "GGT");
+    count(sequence, fragment: "GGTA");
+    count(sequence, fragment: "GGTATT");
+    count(sequence, fragment: "GGTATTTTAATT");
+    count(sequence, fragment: "GGTATTTTAATTTATAGT");
+}
