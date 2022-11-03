@@ -1,9 +1,10 @@
 import "lib/errors";
 
 object WriteWhileReadingError {}
+object OutOfBoundError {}
 
 || @private
-extern fun BufferNew() > ud;
+extern fun BufferNew(num capacity) > ud;
 || @private
 extern fun BufferDeinit(ud userdata) > void;
 || @private
@@ -26,6 +27,10 @@ extern fun BufferCursor(ud userdata) > num;
 extern fun BufferBuffer(ud userdata) > str;
 || @private
 extern fun BufferEmpty(ud userdata) > void;
+|| @private
+extern fun BufferAt(ud userdata, num index) > num;
+|| @private
+extern fun BufferSetAt(ud userdata, num index, num value) > void;
 
 || Read and write data to a string buffer
 object Buffer {
@@ -33,9 +38,9 @@ object Buffer {
     ud buffer,
 
     || @return A new `Buffer`
-    static fun init() > Buffer {
+    static fun init(num capacity = 0) > Buffer {
         return Buffer{
-            buffer = BufferNew()
+            buffer = BufferNew(capacity)
         };
     }
 
@@ -96,10 +101,32 @@ object Buffer {
         BufferEmpty(this.buffer);
     }
 
+    || Get buffer as string
     fun toString() > str {
         return BufferBuffer(this.buffer);
+    }
+
+    || Get byte at `index`
+    fun at(num index) > num !> OutOfBoundError {
+        if (index < this.len()) {
+            return BufferAt(this.buffer, index: index);
+        }
+
+        throw OutOfBoundError{};
+    }
+
+    || Set byte at `index`
+    fun setAt(num index, num value) > void !> WriteWhileReadingError, OutOfBoundError {
+        if (index < this.len()) {
+            BufferSetAt(this.buffer, index: index, value: value);
+
+            return;
+        }
+
+        throw OutOfBoundError{};
     }
 }
 
 export Buffer;
+export OutOfBoundError;
 export WriteWhileReadingError;

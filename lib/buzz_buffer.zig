@@ -3,12 +3,18 @@ const api = @import("./buzz_api.zig");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 export fn BufferNew(vm: *api.VM) c_int {
+    const capacity = vm.bz_peek(0).bz_valueToInteger();
+
     var buffer = api.VM.allocator.create(Buffer) catch {
         vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
-    buffer.* = Buffer.init(api.VM.allocator);
+    buffer.* = Buffer.init(api.VM.allocator, @intCast(usize, capacity)) catch {
+        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+
+        return -1;
+    };
 
     if (api.ObjUserData.bz_newUserData(vm, @ptrCast(*api.UserData, buffer))) |userdata| {
         vm.bz_pushUserData(userdata);
@@ -44,14 +50,24 @@ const Buffer = struct {
         return @ptrCast(*Self, @alignCast(@alignOf(Self), userdata));
     }
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
-            .buffer = std.ArrayList(u8).init(allocator),
+    pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
+        var self = Self{
+            .buffer = try std.ArrayList(u8).initCapacity(allocator, capacity),
         };
+
+        if (capacity > 0) {
+            try self.buffer.appendNTimes(0, capacity);
+        }
+
+        return self;
     }
 
     pub fn deinit(self: *Self) void {
         self.buffer.deinit();
+    }
+
+    pub fn at(self: *Self, index: usize) u8 {
+        return self.buffer.items[index];
     }
 
     pub fn read(self: *Self, n: usize) ?[]const u8 {
@@ -72,6 +88,14 @@ const Buffer = struct {
         }
 
         try self.buffer.appendSlice(bytes);
+    }
+
+    pub fn setAt(self: *Self, index: usize, byte: u8) !void {
+        if (self.cursor > 0) {
+            return Error.WriteWhileReading;
+        }
+
+        self.buffer.items[index] = byte;
     }
 
     pub fn readBool(self: *Self) ?bool {
@@ -185,6 +209,22 @@ export fn BufferWrite(vm: *api.VM) c_int {
         switch (err) {
             Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
             error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+        }
+
+        return -1;
+    };
+
+    return 0;
+}
+
+export fn BufferSetAt(vm: *api.VM) c_int {
+    var buffer = Buffer.fromUserData(vm.bz_peek(2).bz_valueToUserData());
+    const index = vm.bz_peek(1).bz_valueToInteger();
+    const value = vm.bz_peek(0).bz_valueToInteger();
+
+    buffer.setAt(@intCast(usize, index), @intCast(u8, value)) catch |err| {
+        switch (err) {
+            Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
         }
 
         return -1;
@@ -320,6 +360,15 @@ export fn BufferBuffer(vm: *api.VM) c_int {
 
         return -1;
     }
+
+    return 1;
+}
+
+export fn BufferAt(vm: *api.VM) c_int {
+    const buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
+    const number = vm.bz_peek(0).bz_valueToInteger();
+
+    vm.bz_pushInteger(buffer.at(@intCast(usize, number)));
 
     return 1;
 }

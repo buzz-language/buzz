@@ -183,7 +183,7 @@ void makeRandomFasta(String id, String desc, Frequency fpf, int nChars, IOSink w
 main(args) {
   IOSink writer = stdout;
 
-  int n = args.length > 0 ? int.parse(args[0]) : 250;
+  int n = args.length > 0 ? int.parse(args[0]) : 1000;
 
   makeRepeatFasta("ONE", "Homo sapiens alu", ALU, n * 2, writer);
   IUB.last = 42;

@@ -4,3 +4,7 @@ test "parseNumber" {
     assert(parseNumber("12.42") == 12.42, message: "Could parse float");
     assert(parseNumber("not a number") == null, message: "Doesn't parse stupid shit");
 }
+
+test "char" {
+    assert(char(65) == "A", message: "char");
+}

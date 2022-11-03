@@ -91,7 +91,8 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, num nchars) > void !> OutOf
 
         if (bufferIndex == bufferSize) {
             print(buffer.toString().sub(0, len: bufferIndex));
-            buffer.empty();
+            buffer.deinit();
+            buffer = Buffer.init(bufferSize);
             bufferIndex = 0;
         }
 

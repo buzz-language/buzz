@@ -55,3 +55,24 @@ export fn parseNumber(vm: *api.VM) c_int {
 
     return 1;
 }
+
+export fn char(vm: *api.VM) c_int {
+    var byte = vm.bz_peek(0).bz_valueToInteger();
+
+    if (byte > 255) {
+        byte = 255;
+    } else if (byte < 0) {
+        byte = 0;
+    }
+
+    const str = [_]u8{@intCast(u8, byte)};
+
+    if (api.ObjString.bz_string(vm, str[0..], 1)) |obj_string| {
+        vm.bz_pushString(obj_string);
+
+        return 1;
+    }
+
+    vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    return -1;
+}

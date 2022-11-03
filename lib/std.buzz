@@ -20,6 +20,10 @@ extern fun print(str value) > void;
 || @return number parsed or null
 extern fun parseNumber(str string) > num?;
 
+|| Return ascii char for given byte
+extern fun char(num byte) > str;
+
 export assert;
 export print;
 export parseNumber;
+export char;
