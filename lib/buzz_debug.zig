@@ -60,7 +60,7 @@ export fn ast(vm: *api.VM) c_int {
     if (root != null) {
         var out = std.ArrayList(u8).init(api.VM.allocator);
 
-        root.?.toJson(root.?, out.writer()) catch |err| {
+        root.?.toJson(root.?, &out.writer()) catch |err| {
             switch (err) {
                 error.OutOfMemory,
                 error.NoSpaceLeft,

@@ -47,7 +47,7 @@ pub const TypeRegistry = struct {
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         var type_def_buf = std.ArrayList(u8).init(self.gc.allocator);
-        try type_def.toString(type_def_buf.writer());
+        try type_def.toString(&type_def_buf.writer());
         const type_def_str: []const u8 = type_def_buf.items;
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)

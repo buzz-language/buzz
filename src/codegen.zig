@@ -76,7 +76,7 @@ pub const CodeGen = struct {
             var out = std.ArrayList(u8).init(self.gc.allocator);
             defer out.deinit();
 
-            try root.node.toJson(&root.node, out.writer());
+            try root.node.toJson(&root.node, &out.writer());
 
             try std.io.getStdOut().writer().print("\n{s}", .{out.items});
         }
@@ -316,7 +316,7 @@ pub const CodeGen = struct {
 
     pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
         var error_message = std.ArrayList(u8).init(self.gc.allocator);
-        var writer = error_message.writer();
+        var writer = &error_message.writer();
 
         try writer.print("{s}: expected type `", .{message});
         try expected_type.toString(writer);

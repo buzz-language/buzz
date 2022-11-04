@@ -62,6 +62,7 @@ pub const ParseNodeType = enum(u8) {
     ForceUnwrap,
     Is,
     Expression,
+    Grouping,
     NamedVariable,
     Number,
     String,
@@ -94,7 +95,7 @@ pub const ParseNodeType = enum(u8) {
     Try,
 };
 
-pub const ToJsonError = Allocator.Error || std.fmt.BufPrintError;
+pub const RenderError = Allocator.Error || std.fmt.BufPrintError;
 
 pub const ParseNode = struct {
     const Self = @This();
@@ -111,22 +112,11 @@ pub const ParseNode = struct {
     // Does this node closes a scope
     ends_scope: ?std.ArrayList(OpCode) = null,
 
-    toJson: fn (*Self, std.ArrayList(u8).Writer) ToJsonError!void = stringify,
-    toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
-    toValue: fn (*Self, *GarbageCollector) anyerror!Value = val,
+    toJson: fn (*Self, *std.ArrayList(u8).Writer) RenderError!void = stringify,
+    toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction,
+    toValue: fn (*Self, *GarbageCollector) anyerror!Value,
+    render: fn (*Self, *std.ArrayList(u8).Writer, usize) RenderError!void,
     isConstant: fn (*Self) bool,
-
-    pub fn constant(_: *Self) bool {
-        return false;
-    }
-
-    fn val(_: *Self, _: *GarbageCollector) anyerror!Value {
-        return GenError.NotConstant;
-    }
-
-    fn generate(_: *Self, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        return null;
-    }
 
     // If returns true, node must be skipped
     pub fn synchronize(self: *Self, codegen: *CodeGen) bool {
@@ -180,7 +170,7 @@ pub const ParseNode = struct {
         }
     }
 
-    fn stringify(self: *Self, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(self: *Self, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("\"type_def\": \"");
         if (self.type_def) |type_def| {
             try type_def.toString(out);
@@ -231,6 +221,7 @@ pub const ExpressionNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     expression: *ParseNode,
@@ -256,9 +247,7 @@ pub const ExpressionNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         _ = try self.expression.toByteCode(self.expression, codegen, breaks);
 
@@ -270,8 +259,8 @@ pub const ExpressionNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
-        var self = Self.cast(node).?;
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Expression\", ", .{});
 
@@ -284,12 +273,102 @@ pub const ExpressionNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        // Its a statement, should be on its own line
+        try out.writeByteNTimes(' ', depth * 4);
+        try self.expression.render(self.expression, out, depth);
+        try out.writeAll(";\n");
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
 
     pub fn cast(node: *ParseNode) ?*Self {
         if (node.node_type != .Expression) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const GroupingNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Grouping,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    expression: *ParseNode,
+
+    fn constant(node: *ParseNode) bool {
+        const self = Self.cast(node).?;
+
+        return self.expression.isConstant(self.expression);
+    }
+
+    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            return self.expression.toValue(self.expression, gc);
+        }
+
+        return GenError.NotConstant;
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        const self = Self.cast(node).?;
+
+        _ = try self.expression.toByteCode(self.expression, codegen, breaks);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Grouping\", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll(",\"expression\": ");
+
+        try self.expression.toJson(self.expression, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        // Its a statement, should be on its own line
+        try out.writeAll("(");
+        try self.expression.render(self.expression, out, depth);
+        try out.writeAll(")");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Grouping) {
             return null;
         }
 
@@ -312,6 +391,7 @@ pub const NamedVariableNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     identifier: Token,
@@ -332,8 +412,6 @@ pub const NamedVariableNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -378,7 +456,7 @@ pub const NamedVariableNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -403,6 +481,16 @@ pub const NamedVariableNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll(self.identifier.lexeme);
+        if (self.value) |value| {
+            try out.writeAll(" = ");
+            try value.render(value, out, depth);
+        }
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
@@ -425,6 +513,7 @@ pub const NumberNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = cnst,
+        .render = render,
     },
 
     float_constant: ?f64,
@@ -446,12 +535,10 @@ pub const NumberNode = struct {
         }
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -469,7 +556,7 @@ pub const NumberNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Number\", \"constant\": ", .{});
@@ -485,6 +572,16 @@ pub const NumberNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        if (self.float_constant) |float| {
+            try out.print("{d}", .{float});
+        } else {
+            try out.print("{d}", .{self.integer_constant.?});
+        }
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -509,6 +606,7 @@ pub const BooleanNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = cnts,
+        .render = render,
     },
 
     constant: bool,
@@ -521,12 +619,10 @@ pub const BooleanNode = struct {
         return Value{ .Boolean = Self.cast(node).?.constant };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -538,7 +634,7 @@ pub const BooleanNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Boolean\", \"constant\": \"{}\", ", .{self.constant});
@@ -546,6 +642,16 @@ pub const BooleanNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        if (self.constant) {
+            try out.writeAll("true");
+        } else {
+            try out.writeAll("false");
+        }
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -570,6 +676,7 @@ pub const StringLiteralNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = cnst,
+        .render = render,
     },
 
     constant: *ObjString,
@@ -582,12 +689,10 @@ pub const StringLiteralNode = struct {
         return Self.cast(node).?.constant.toValue();
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -599,7 +704,7 @@ pub const StringLiteralNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -607,6 +712,18 @@ pub const StringLiteralNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        const multiline = std.mem.indexOf(u8, self.constant.string, "\n") != null;
+
+        if (multiline) {
+            try out.print("`{s}`", .{self.constant.string});
+        } else {
+            try out.print("\"{s}\"", .{self.constant.string});
+        }
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -631,6 +748,7 @@ pub const PatternNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = cnst,
+        .render = render,
     },
 
     constant: *ObjPattern,
@@ -643,12 +761,10 @@ pub const PatternNode = struct {
         return Self.cast(node).?.constant.toValue();
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -660,7 +776,7 @@ pub const PatternNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Pattern\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -668,6 +784,12 @@ pub const PatternNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.print("_{s}_", .{self.constant.source});
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -692,6 +814,7 @@ pub const StringNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     // List of nodes that will eventually be converted to strings concatened together
@@ -717,7 +840,7 @@ pub const StringNode = struct {
             defer list.deinit();
 
             var str_value = std.ArrayList(u8).init(gc.allocator);
-            var writer = str_value.writer();
+            var writer = &str_value.writer();
             for (self.elements) |element| {
                 assert(element.isConstant(element));
 
@@ -734,8 +857,6 @@ pub const StringNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -771,7 +892,7 @@ pub const StringNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"String\", \"elements\": [");
@@ -789,6 +910,34 @@ pub const StringNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        // A different token would be more efficient but it would complexify everything just for this case
+        var multiline = false;
+        for (self.elements) |element| {
+            if (element.node_type == .StringLiteral and std.mem.indexOf(u8, StringLiteralNode.cast(element).?.constant.string, "\n") != null) {
+                multiline = true;
+                break;
+            }
+        }
+
+        try out.writeAll(if (multiline) "`" else "\"");
+
+        for (self.elements) |element| {
+            if (element.node_type == .StringLiteral) {
+                try out.writeAll(StringLiteralNode.cast(element).?.constant.string);
+            } else {
+                // Interpolation
+                try out.writeAll("{");
+                try element.render(element, out, depth);
+                try out.writeAll("}");
+            }
+        }
+
+        try out.writeAll(if (multiline) "`" else "\"");
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -823,6 +972,7 @@ pub const NullNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fn constant(_: *ParseNode) bool {
@@ -833,12 +983,10 @@ pub const NullNode = struct {
         return Value{ .Null = {} };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_NULL);
 
@@ -848,12 +996,16 @@ pub const NullNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("{\"node\": \"Null\", ");
 
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(_: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        try out.writeAll("null");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -878,6 +1030,7 @@ pub const VoidNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fn constant(_: *ParseNode) bool {
@@ -888,12 +1041,10 @@ pub const VoidNode = struct {
         return Value{ .Void = {} };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_VOID);
 
@@ -903,12 +1054,16 @@ pub const VoidNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("{\"node\": \"Void\", ");
 
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(_: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        try out.writeAll("void");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -933,9 +1088,11 @@ pub const ListNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     items: []*ParseNode,
+    trailing_comma: bool,
 
     fn constant(node: *ParseNode) bool {
         const self = Self.cast(node).?;
@@ -972,8 +1129,6 @@ pub const ListNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         const item_type = self.node.type_def.?.resolved_type.?.List.item_type;
@@ -1005,7 +1160,7 @@ pub const ListNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"List\", \"items\": [");
@@ -1023,6 +1178,45 @@ pub const ListNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("[");
+        if (!self.trailing_comma) {
+            try out.writeAll(" ");
+        }
+
+        if (self.items.len == 0) {
+            try out.writeAll("<");
+            try self.node.type_def.?.resolved_type.?.List.item_type.toStringUnqualified(out);
+            try out.writeAll(">");
+        }
+
+        for (self.items) |item, i| {
+            // If trailing comma, means we want all element on its own line
+            if (self.trailing_comma) {
+                try out.writeAll("\n");
+                try out.writeByteNTimes(' ', (depth + 1) * 4);
+            }
+
+            try item.render(item, out, depth + 1);
+
+            if (i != self.items.len - 1 or self.trailing_comma) {
+                try out.writeAll(",");
+                if (!self.trailing_comma) {
+                    try out.writeAll(" ");
+                }
+            }
+        }
+
+        if (self.trailing_comma) {
+            try out.writeAll("\n");
+        } else {
+            try out.writeAll(" ");
+        }
+        try out.writeAll("]");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1047,10 +1241,12 @@ pub const MapNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     keys: []*ParseNode,
     values: []*ParseNode,
+    trailing_comma: bool,
 
     fn constant(node: *ParseNode) bool {
         const self = Self.cast(node).?;
@@ -1099,8 +1295,6 @@ pub const MapNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         const key_type = self.node.type_def.?.resolved_type.?.Map.key_type;
@@ -1144,7 +1338,7 @@ pub const MapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Map\", \"items\": [");
@@ -1172,6 +1366,49 @@ pub const MapNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("{");
+        if (!self.trailing_comma) {
+            try out.writeAll(" ");
+        }
+
+        if (self.keys.len == 0) {
+            try out.writeAll("<");
+            try self.node.type_def.?.resolved_type.?.Map.key_type.toStringUnqualified(out);
+            try out.writeAll(", ");
+            try self.node.type_def.?.resolved_type.?.Map.value_type.toStringUnqualified(out);
+            try out.writeAll(">");
+        }
+
+        for (self.keys) |key, i| {
+            // If trailing comma, means we want all element on its own line
+            if (self.trailing_comma) {
+                try out.writeAll("\n");
+                try out.writeByteNTimes(' ', (depth + 1) * 4);
+            }
+
+            try key.render(key, out, depth + 1);
+            try out.writeAll(": ");
+            try self.values[i].render(self.values[i], out, depth + 1);
+
+            if (i != self.keys.len - 1 or self.trailing_comma) {
+                try out.writeAll(",");
+                if (!self.trailing_comma) {
+                    try out.writeAll(" ");
+                }
+            }
+        }
+
+        if (self.trailing_comma) {
+            try out.writeAll("\n");
+        } else {
+            try out.writeAll(" ");
+        }
+        try out.writeAll("}");
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
@@ -1194,6 +1431,7 @@ pub const UnwrapNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     unwrapped: *ParseNode,
@@ -1220,9 +1458,7 @@ pub const UnwrapNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
             try codegen.reportPlaceholder(self.original_type.?.resolved_type.?.Placeholder);
@@ -1254,8 +1490,8 @@ pub const UnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
-        var self = Self.cast(node).?;
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unwrap\", \"unwrapped\": ");
 
@@ -1265,6 +1501,13 @@ pub const UnwrapNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.unwrapped.render(self.unwrapped, out, depth);
+        try out.writeAll("?");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1289,6 +1532,7 @@ pub const ForceUnwrapNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     unwrapped: *ParseNode,
@@ -1320,9 +1564,7 @@ pub const ForceUnwrapNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.original_type == null or self.original_type.?.def_type == .Placeholder) {
             try codegen.reportPlaceholder(self.original_type.?.resolved_type.?.Placeholder);
@@ -1344,8 +1586,8 @@ pub const ForceUnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
-        var self = Self.cast(node).?;
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForceUnwrap\", \"unwrapped\": ");
 
@@ -1355,6 +1597,13 @@ pub const ForceUnwrapNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.unwrapped.render(self.unwrapped, out, depth);
+        try out.writeAll("!");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1379,6 +1628,7 @@ pub const IsNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = cnts,
+        .render = render,
     },
 
     left: *ParseNode,
@@ -1405,8 +1655,6 @@ pub const IsNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         assert(self.constant == .Obj);
@@ -1428,7 +1676,7 @@ pub const IsNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Is\", \"left\": ");
@@ -1442,6 +1690,14 @@ pub const IsNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.left.render(self.left, out, depth);
+        try out.writeAll(" is ");
+        try ObjTypeDef.cast(self.constant.Obj).?.toStringUnqualified(out);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1466,6 +1722,7 @@ pub const UnaryNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     left: *ParseNode,
@@ -1504,8 +1761,6 @@ pub const UnaryNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -1561,7 +1816,7 @@ pub const UnaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unary\", \"left\": ");
@@ -1572,6 +1827,18 @@ pub const UnaryNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByte(switch (self.operator) {
+            .Minus => '-',
+            .Bang => '!',
+            .Bnot => '~',
+            else => unreachable,
+        });
+        try self.left.render(self.left, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1596,6 +1863,7 @@ pub const BinaryNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     left: *ParseNode,
@@ -1859,8 +2127,6 @@ pub const BinaryNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         const left_type = self.left.type_def.?;
@@ -2083,7 +2349,7 @@ pub const BinaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Binary\", \"left\": ");
@@ -2096,6 +2362,35 @@ pub const BinaryNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.left.render(self.left, out, depth);
+        try out.writeAll(switch (self.operator) {
+            .QuestionQuestion => " ?? ",
+            .Ampersand => " & ",
+            .Bor => " \\ ",
+            .Xor => " ^ ",
+            .ShiftLeft => " << ",
+            .ShiftRight => " >> ",
+            .Greater => " > ",
+            .Less => " < ",
+            .GreaterEqual => " >= ",
+            .LessEqual => " <= ",
+            .BangEqual => " != ",
+            .EqualEqual => " == ",
+            .Plus => " + ",
+            .Minus => " - ",
+            .Star => " * ",
+            .Slash => " / ",
+            .Percent => " % ",
+            .And => " and ",
+            .Or => " or ",
+            else => unreachable,
+        });
+        try self.right.render(self.right, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -2120,6 +2415,7 @@ pub const SubscriptNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     subscripted: *ParseNode,
@@ -2195,8 +2491,6 @@ pub const SubscriptNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         _ = try self.subscripted.toByteCode(self.subscripted, codegen, breaks);
@@ -2262,7 +2556,7 @@ pub const SubscriptNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Subscript\", \"subscripted\": ");
@@ -2284,6 +2578,19 @@ pub const SubscriptNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.subscripted.render(self.subscripted, out, depth);
+        try out.writeAll("[");
+        try self.index.render(self.index, out, depth);
+        try out.writeAll("]");
+        if (self.value) |value| {
+            try out.writeAll(" = ");
+            try value.render(value, out, depth);
+        }
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -2308,10 +2615,12 @@ pub const TryNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     body: *ParseNode,
     clauses: std.AutoArrayHashMap(*ObjTypeDef, *ParseNode),
+    clause_identifiers: [][]const u8,
     unconditional_clause: ?*ParseNode,
 
     fn constant(_: *ParseNode) bool {
@@ -2326,8 +2635,6 @@ pub const TryNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         const self = Self.cast(node).?;
 
@@ -2420,7 +2727,7 @@ pub const TryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Try\", ", .{});
@@ -2446,6 +2753,33 @@ pub const TryNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("try {\n");
+        try self.body.render(self.body, out, depth + 1);
+        try out.writeAll("}");
+
+        var it = self.clauses.iterator();
+        var i: usize = 0;
+        while (it.next()) |kv| : (i += 1) {
+            try out.writeAll(" catch (");
+            try kv.key_ptr.*.toStringUnqualified(out);
+            try out.print("{s}) {{\n", .{self.clause_identifiers[i]});
+            try kv.value_ptr.*.render(kv.value_ptr.*, out, depth + 1);
+            try out.writeAll("}");
+        }
+
+        if (self.unconditional_clause) |unconditional_clause| {
+            try out.writeAll(" catch {\n");
+            try unconditional_clause.render(unconditional_clause, out, depth + 1);
+            try out.writeAll("}");
+        }
+
+        try out.writeAll("\n");
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
@@ -2468,8 +2802,10 @@ pub const FunctionNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
+    static: bool = false,
     body: ?*BlockNode = null,
     arrow_expr: ?*ParseNode = null,
     native: ?*ObjNative = null,
@@ -2496,8 +2832,6 @@ pub const FunctionNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -2642,7 +2976,7 @@ pub const FunctionNode = struct {
         return current_function;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -2728,6 +3062,38 @@ pub const FunctionNode = struct {
         self.default_arguments.deinit();
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+        const function_type = node.type_def.?.resolved_type.?.Function.function_type;
+
+        if (self.test_message) |test_message| {
+            try out.writeAll("\ntest ");
+            try test_message.render(test_message, out, depth);
+        } else if (self.arrow_expr == null and function_type != .ScriptEntryPoint) {
+            // No need to print return type for arrow function
+            try out.writeAll("\n");
+            try out.writeByteNTimes(' ', depth * 4);
+            if (self.static) {
+                try out.writeAll("static ");
+            }
+            try node.type_def.?.toStringUnqualified(out);
+        }
+
+        if (self.arrow_expr) |arrow_expr| {
+            try out.writeAll(" -> ");
+            try arrow_expr.render(arrow_expr, out, depth);
+        } else if (self.body) |body| {
+            if (function_type != .ScriptEntryPoint) {
+                try out.writeAll(" {\n");
+                try body.node.render(&body.node, out, depth + 1);
+                try out.writeByteNTimes(' ', depth * 4);
+                try out.writeAll("}");
+            } else {
+                try body.node.render(&body.node, out, depth);
+            }
+        }
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
@@ -2750,6 +3116,7 @@ pub const YieldNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     expression: *ParseNode,
@@ -2766,8 +3133,6 @@ pub const YieldNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?; // self
 
@@ -2806,7 +3171,7 @@ pub const YieldNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Yield\", \"expression\": ");
@@ -2818,6 +3183,13 @@ pub const YieldNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("yield ");
+        try self.expression.render(self.expression, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -2842,6 +3214,7 @@ pub const ResolveNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fiber: *ParseNode,
@@ -2858,8 +3231,6 @@ pub const ResolveNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?; // self
 
@@ -2883,7 +3254,7 @@ pub const ResolveNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resolve\", \"fiber\": ");
@@ -2895,6 +3266,13 @@ pub const ResolveNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("resolve ");
+        try self.fiber.render(self.fiber, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -2919,6 +3297,7 @@ pub const ResumeNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fiber: *ParseNode,
@@ -2935,8 +3314,6 @@ pub const ResumeNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?; // self
 
@@ -2960,7 +3337,7 @@ pub const ResumeNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resume\", \"fiber\": ");
@@ -2972,6 +3349,13 @@ pub const ResumeNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("resume ");
+        try self.fiber.render(self.fiber, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -2996,6 +3380,7 @@ pub const AsyncCallNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     call: *ParseNode,
@@ -3012,8 +3397,6 @@ pub const AsyncCallNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?; // self
 
@@ -3032,7 +3415,7 @@ pub const AsyncCallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"AsyncCall\", \"call\": ");
@@ -3044,6 +3427,13 @@ pub const AsyncCallNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeAll("&");
+        try self.call.render(self.call, out, depth);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3068,6 +3458,7 @@ pub const CallNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     async_call: bool = false,
@@ -3075,6 +3466,7 @@ pub const CallNode = struct {
     callable_type: ?*ObjTypeDef,
     arguments: std.AutoArrayHashMap(*ObjString, *ParseNode),
     catch_default: ?*ParseNode = null,
+    trailing_comma: bool,
 
     resolved_generics: []*ObjTypeDef,
 
@@ -3090,8 +3482,6 @@ pub const CallNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -3444,7 +3834,7 @@ pub const CallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Call\"");
@@ -3506,6 +3896,60 @@ pub const CallNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        // Find out if call is invoke or regular call
+        var invoked = false;
+        var invoked_on: ?ObjTypeDef.Type = null;
+
+        if (self.callee.node_type == .Dot) {
+            const dot = DotNode.cast(self.callee).?;
+            const field_accessed = dot.callee.type_def;
+
+            invoked = field_accessed.?.def_type != .Object;
+            invoked_on = field_accessed.?.def_type;
+        }
+
+        if (!invoked and invoked_on == null) {
+            try self.callee.render(self.callee, out, depth);
+        }
+
+        try out.writeAll("(");
+        var it = self.arguments.iterator();
+        var i: usize = 0;
+        while (it.next()) |kv| : (i += 1) {
+            // If trailing comma, means we want all element on its own line
+            if (self.trailing_comma) {
+                try out.writeAll("\n");
+                try out.writeByteNTimes(' ', (depth + 1) * 4);
+            }
+
+            if (i > 0) {
+                try out.print("{s}: ", .{kv.key_ptr.*.string});
+            }
+
+            try kv.value_ptr.*.render(kv.value_ptr.*, out, depth + 1);
+
+            if (i < self.arguments.count() - 1 or self.trailing_comma) {
+                try out.writeAll(",");
+                if (!self.trailing_comma) {
+                    try out.writeAll(" ");
+                }
+            }
+        }
+        if (self.trailing_comma) {
+            try out.writeAll("\n");
+            try out.writeByteNTimes(' ', depth * 4);
+        }
+        try out.writeAll(")");
+
+        if (self.catch_default) |catch_default| {
+            try out.writeAll(" catch ");
+            try catch_default.render(catch_default, out, depth);
+        }
+    }
+
     pub fn init(allocator: Allocator, callee: *ParseNode) Self {
         return Self{
             .callee = callee,
@@ -3539,6 +3983,7 @@ pub const FunDeclarationNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     function: *FunctionNode,
@@ -3558,8 +4003,6 @@ pub const FunDeclarationNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         _ = try self.function.node.toByteCode(&self.function.node, codegen, breaks);
@@ -3574,7 +4017,7 @@ pub const FunDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
@@ -3586,6 +4029,17 @@ pub const FunDeclarationNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try self.function.node.render(&self.function.node, out, depth);
+        if (self.function.native != null or self.function.arrow_expr != null) {
+            try out.writeAll(";");
+        }
+        try out.writeAll("\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3610,15 +4064,16 @@ pub const VarDeclarationNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     name: Token,
     value: ?*ParseNode = null,
-    type_def: ?*ObjTypeDef = null,
-    type_name: ?Token = null,
+    type_def: *ObjTypeDef = null,
     constant: bool,
     slot: usize,
     slot_type: SlotType,
+    expression: bool,
 
     fn constant(_: *ParseNode) bool {
         return false;
@@ -3633,18 +4088,16 @@ pub const VarDeclarationNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         if (self.value) |value| {
             if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
-            } else if (self.type_def == null or self.type_def.?.def_type == .Placeholder) {
-                try codegen.reportPlaceholder(self.type_def.?.resolved_type.?.Placeholder);
-            } else if (!(try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).cloneNonOptional(&codegen.gc.type_registry)).eql(value.type_def.?)) {
+            } else if (self.type_def.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(self.type_def.resolved_type.?.Placeholder);
+            } else if (!(try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).cloneNonOptional(&codegen.gc.type_registry)).eql(value.type_def.?)) {
                 try codegen.reportTypeCheckAt(
-                    try self.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry),
+                    try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry),
                     value.type_def.?,
                     "Wrong variable type",
                     value.location,
@@ -3666,7 +4119,7 @@ pub const VarDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print(
@@ -3677,16 +4130,9 @@ pub const VarDeclarationNode = struct {
             },
         );
 
-        if (self.type_def) |type_def| {
-            try type_def.toString(out);
-        }
+        try self.type_def.toString(out);
 
-        try out.print(
-            " @{}\", ",
-            .{
-                if (self.type_def) |type_def| @ptrToInt(type_def) else 0,
-            },
-        );
+        try out.print(" @{}\", ", .{@ptrToInt(self.type_def)});
 
         if (self.value) |value| {
             try out.writeAll("\"value\": ");
@@ -3699,6 +4145,30 @@ pub const VarDeclarationNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        if (!self.expression) {
+            try out.writeByteNTimes(' ', depth * 4);
+        }
+
+        if (self.constant) {
+            try out.writeAll("const ");
+        }
+
+        try self.type_def.toStringUnqualified(out);
+        try out.print(" {s}", .{self.name.lexeme});
+
+        if (self.value) |value| {
+            try out.writeAll(" = ");
+            try value.render(value, out, depth);
+        }
+
+        if (!self.expression) {
+            try out.writeAll(";\n");
+        }
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3723,10 +4193,13 @@ pub const EnumNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     slot: usize,
     cases: std.ArrayList(*ParseNode),
+    picked: std.ArrayList(bool),
+    case_type_picked: bool,
 
     fn constant(_: *ParseNode) bool {
         return false;
@@ -3740,8 +4213,6 @@ pub const EnumNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -3791,7 +4262,7 @@ pub const EnumNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Enum\", \"cases\": [");
@@ -3810,14 +4281,45 @@ pub const EnumNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+        const enum_def = node.type_def.?.resolved_type.?.Enum;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("enum");
+        if (self.case_type_picked) {
+            try out.writeAll("(");
+            try enum_def.enum_type.toStringUnqualified(out);
+            try out.writeAll(")");
+        }
+        try out.print(" {s} {{\n", .{enum_def.name.string});
+        for (enum_def.cases.items) |case, i| {
+            try out.writeByteNTimes(' ', (depth + 1) * 4);
+            try out.writeAll(case);
+
+            if (self.picked.items[i]) {
+                try out.writeAll(" = ");
+                try self.cases.items[i].render(self.cases.items[i], out, depth + 1);
+            }
+
+            try out.writeAll(",\n");
+        }
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
+    }
+
     pub fn init(allocator: Allocator) Self {
         return Self{
             .cases = std.ArrayList(*ParseNode).init(allocator),
+            .picked = std.ArrayList(bool).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.cases.deinit();
+        self.picked.deinit();
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3842,6 +4344,7 @@ pub const ThrowNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     error_value: *ParseNode,
@@ -3859,8 +4362,6 @@ pub const ThrowNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -3907,7 +4408,7 @@ pub const ThrowNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Throw\", \"error_value\": ");
@@ -3919,6 +4420,15 @@ pub const ThrowNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("throw ");
+        try self.error_value.render(self.error_value, out, depth);
+        try out.writeAll(";\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3943,6 +4453,7 @@ pub const BreakNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fn constant(_: *ParseNode) bool {
@@ -3958,8 +4469,6 @@ pub const BreakNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         assert(breaks != null);
 
         // Close scope(s), then jump
@@ -3972,8 +4481,13 @@ pub const BreakNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(_: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("{\"node\": \"Break\" }");
+    }
+
+    fn render(_: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("break;\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -3998,6 +4512,7 @@ pub const ContinueNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     fn constant(_: *ParseNode) bool {
@@ -4013,8 +4528,6 @@ pub const ContinueNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         assert(breaks != null);
 
         // Close scope(s), then jump
@@ -4027,8 +4540,13 @@ pub const ContinueNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(_: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("{\"node\": \"Continue\" }");
+    }
+
+    fn render(_: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("continue;\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -4053,10 +4571,11 @@ pub const IfNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     condition: *ParseNode,
-    unwrapped_identifier: bool,
+    unwrapped_identifier: ?Token,
     casted_type: ?*ObjTypeDef,
     body: *ParseNode,
     else_branch: ?*ParseNode = null,
@@ -4074,15 +4593,13 @@ pub const IfNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
             try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
-        if (self.unwrapped_identifier) {
+        if (self.unwrapped_identifier != null) {
             if (!self.condition.type_def.?.optional) {
                 try codegen.reportErrorAt(self.condition.location, "Expected optional");
             }
@@ -4093,7 +4610,7 @@ pub const IfNode = struct {
         }
 
         // If condition is a constant expression, no need to generate branches
-        if (self.condition.isConstant(self.condition) and !self.unwrapped_identifier and self.casted_type == null) {
+        if (self.condition.isConstant(self.condition) and self.unwrapped_identifier != null and self.casted_type == null) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
             if (condition.Boolean) {
@@ -4109,7 +4626,7 @@ pub const IfNode = struct {
         }
 
         _ = try self.condition.toByteCode(self.condition, codegen, breaks);
-        if (self.unwrapped_identifier) {
+        if (self.unwrapped_identifier != null) {
             try codegen.emitOpCode(self.condition.location, .OP_COPY);
             try codegen.emitOpCode(self.condition.location, .OP_NULL);
             try codegen.emitOpCode(self.condition.location, .OP_EQUAL);
@@ -4128,7 +4645,7 @@ pub const IfNode = struct {
         const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
         try codegen.patchJump(then_jump);
-        if (self.unwrapped_identifier) {
+        if (self.unwrapped_identifier != null) {
             // Since we did not enter the if block, we did not pop the unwrapped local
             try codegen.emitOpCode(self.node.location, .OP_POP);
         }
@@ -4146,7 +4663,7 @@ pub const IfNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"If\", \"condition\": ");
@@ -4167,6 +4684,41 @@ pub const IfNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("if (");
+        try self.condition.render(self.condition, out, depth);
+        if (self.unwrapped_identifier) |unwrapped_identifier| {
+            try out.print(" -> {s}", .{unwrapped_identifier.lexeme});
+        } else if (self.casted_type) |casted_type| {
+            try out.writeAll(" -> ");
+            try casted_type.toStringUnqualified(out);
+        }
+
+        try out.writeAll(") {\n");
+        try self.body.render(self.body, out, depth + 1);
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}");
+
+        if (self.else_branch) |else_branch| {
+            try out.writeAll(" else ");
+
+            if (else_branch.node_type != .If) {
+                try out.writeAll("{\n");
+                try else_branch.render(else_branch, out, depth + 1);
+                try out.writeByteNTimes(' ', depth * 4);
+                try out.writeAll("}");
+            } else {
+                try else_branch.render(else_branch, out, depth);
+            }
+        }
+
+        try out.writeAll("\n\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -4191,6 +4743,7 @@ pub const ReturnNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     value: ?*ParseNode,
@@ -4208,8 +4761,6 @@ pub const ReturnNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -4244,7 +4795,7 @@ pub const ReturnNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Return\", ");
@@ -4258,6 +4809,20 @@ pub const ReturnNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("return");
+        if (self.value) |value| {
+            try out.writeAll(" ");
+            try value.render(value, out, depth);
+        }
+
+        try out.writeAll(";\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -4282,6 +4847,7 @@ pub const ForNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     init_declarations: std.ArrayList(*VarDeclarationNode),
@@ -4298,9 +4864,7 @@ pub const ForNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        _ = try node.generate(codegen, _breaks);
-
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).Boolean) {
             try node.patchOptJumps(codegen);
@@ -4367,7 +4931,7 @@ pub const ForNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
@@ -4400,6 +4964,39 @@ pub const ForNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("for (");
+        for (self.init_declarations.items) |decl, i| {
+            try decl.node.render(&decl.node, out, depth);
+            if (i < self.init_declarations.items.len - 1) {
+                try out.writeAll(", ");
+            }
+        }
+        try out.writeAll("; ");
+
+        try self.condition.render(self.condition, out, depth);
+        try out.writeAll("; ");
+
+        for (self.post_loop.items) |expr, i| {
+            try expr.render(expr, out, depth);
+
+            if (i < self.post_loop.items.len - 1) {
+                try out.writeAll(", ");
+            }
+        }
+
+        try out.writeAll(") {\n");
+
+        try self.body.render(self.body, out, depth + 1);
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -4436,6 +5033,7 @@ pub const ForEachNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     key: ?*VarDeclarationNode = null,
@@ -4452,8 +5050,6 @@ pub const ForEachNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        _ = try node.generate(codegen, _breaks);
-
         var self = Self.cast(node).?;
 
         // Type checking
@@ -4462,19 +5058,19 @@ pub const ForEachNode = struct {
             try codegen.reportPlaceholder(self.iterable.type_def.?.resolved_type.?.Placeholder);
         } else {
             if (self.key) |key| {
-                if (key.type_def == null or key.type_def.?.def_type == .Placeholder) {
-                    try codegen.reportPlaceholder(key.type_def.?.resolved_type.?.Placeholder);
+                if (key.type_def.def_type == .Placeholder) {
+                    try codegen.reportPlaceholder(key.type_def.resolved_type.?.Placeholder);
                 }
 
                 switch (self.iterable.type_def.?.def_type) {
                     .String, .List => {
-                        if (key.type_def.?.def_type != .Number) {
+                        if (key.type_def.def_type != .Number) {
                             try codegen.reportErrorAt(key.node.location, "Expected `num`.");
                         }
                     },
                     .Map => {
-                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(key.type_def.?)) {
-                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def.?, "Bad key type", key.node.location);
+                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(key.type_def)) {
+                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def, "Bad key type", key.node.location);
                         }
                     },
                     .Enum => try codegen.reportErrorAt(key.node.location, "No key available when iterating over enum."),
@@ -4482,42 +5078,42 @@ pub const ForEachNode = struct {
                 }
             }
 
-            if (self.value.type_def == null or self.value.type_def.?.def_type == .Placeholder) {
-                try codegen.reportPlaceholder(self.value.type_def.?.resolved_type.?.Placeholder);
+            if (self.value.type_def.def_type == .Placeholder) {
+                try codegen.reportPlaceholder(self.value.type_def.resolved_type.?.Placeholder);
             }
 
             switch (self.iterable.type_def.?.def_type) {
                 .Map => {
-                    if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.eql(self.value.type_def.?)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.eql(self.value.type_def)) {
                         try codegen.reportTypeCheckAt(
                             self.iterable.type_def.?.resolved_type.?.Map.value_type,
-                            self.value.type_def.?,
+                            self.value.type_def,
                             "Bad value type",
                             self.value.node.location,
                         );
                     }
                 },
                 .List => {
-                    if (!self.iterable.type_def.?.resolved_type.?.List.item_type.eql(self.value.type_def.?)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.List.item_type.eql(self.value.type_def)) {
                         try codegen.reportTypeCheckAt(
                             self.iterable.type_def.?.resolved_type.?.List.item_type,
-                            self.value.type_def.?,
+                            self.value.type_def,
                             "Bad value type",
                             self.value.node.location,
                         );
                     }
                 },
                 .String => {
-                    if (self.value.type_def.?.def_type != .String) {
+                    if (self.value.type_def.def_type != .String) {
                         try codegen.reportErrorAt(self.value.node.location, "Expected `str`.");
                     }
                 },
                 .Enum => {
                     const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry);
-                    if (!iterable_type.eql(self.value.type_def.?)) {
+                    if (!iterable_type.eql(self.value.type_def)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,
-                            self.value.type_def.?,
+                            self.value.type_def,
                             "Bad value type",
                             self.value.node.location,
                         );
@@ -4528,10 +5124,10 @@ pub const ForEachNode = struct {
                         codegen.gc.allocator,
                         &codegen.gc.type_registry,
                     );
-                    if (!iterable_type.eql(self.value.type_def.?)) {
+                    if (!iterable_type.eql(self.value.type_def)) {
                         try codegen.reportTypeCheckAt(
                             iterable_type,
-                            self.value.type_def.?,
+                            self.value.type_def,
                             "Bad value type",
                             self.value.node.location,
                         );
@@ -4601,7 +5197,7 @@ pub const ForEachNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForEach\", ");
@@ -4628,6 +5224,25 @@ pub const ForEachNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("foreach (");
+        if (self.key) |key| {
+            try key.node.render(&key.node, out, depth);
+            try out.writeAll(", ");
+        }
+        try self.value.node.render(&self.value.node, out, depth);
+        try out.writeAll(" in ");
+        try self.iterable.render(self.iterable, out, depth);
+        try out.writeAll(") {\n");
+        try self.block.render(self.block, out, depth + 1);
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -4664,6 +5279,7 @@ pub const WhileNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     condition: *ParseNode,
@@ -4678,8 +5294,6 @@ pub const WhileNode = struct {
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        _ = try node.generate(codegen, _breaks);
-
         var self = Self.cast(node).?;
 
         // If condition constant and false, skip the node
@@ -4726,7 +5340,7 @@ pub const WhileNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"While\", \"condition\": ");
@@ -4742,6 +5356,19 @@ pub const WhileNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("while (");
+        try self.condition.render(self.condition, out, depth);
+        try out.writeAll(") {\n");
+        try self.block.render(self.block, out, depth + 1);
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -4778,6 +5405,7 @@ pub const DoUntilNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     condition: *ParseNode,
@@ -4791,9 +5419,7 @@ pub const DoUntilNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        _ = try node.generate(codegen, _breaks);
-
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         var self = Self.cast(node).?;
 
         const loop_start: usize = codegen.currentCode();
@@ -4833,7 +5459,7 @@ pub const DoUntilNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"DoUntil\", \"condition\": ");
@@ -4849,6 +5475,18 @@ pub const DoUntilNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("do {\n");
+        try self.block.render(self.block, out, depth + 1);
+        try out.writeAll("} until (");
+        try self.condition.render(self.condition, out, depth);
+        try out.writeAll(")\n");
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -4885,6 +5523,7 @@ pub const BlockNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     statements: std.ArrayList(*ParseNode),
@@ -4902,8 +5541,6 @@ pub const BlockNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         for (self.statements.items) |statement| {
@@ -4916,7 +5553,7 @@ pub const BlockNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Block\", \"statements\": [");
@@ -4934,6 +5571,14 @@ pub const BlockNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        for (self.statements.items) |statement| {
+            try statement.render(statement, out, depth);
+        }
     }
 
     pub fn init(allocator: Allocator) Self {
@@ -4968,6 +5613,7 @@ pub const DotNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     callee: *ParseNode,
@@ -4990,8 +5636,6 @@ pub const DotNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -5084,7 +5728,7 @@ pub const DotNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Dot\", \"callee\": ");
@@ -5110,6 +5754,20 @@ pub const DotNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try self.callee.render(self.callee, out, depth);
+        try out.print(".{s}", .{self.identifier.lexeme});
+
+        if (self.value) |value| {
+            try out.writeAll(" = ");
+            try value.render(value, out, depth);
+        } else if (self.call) |call| {
+            try call.node.render(&call.node, out, depth);
+        }
+    }
+
     pub fn toNode(self: *Self) *ParseNode {
         return &self.node;
     }
@@ -5132,6 +5790,7 @@ pub const ObjectInitNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
@@ -5159,8 +5818,6 @@ pub const ObjectInitNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -5234,7 +5891,7 @@ pub const ObjectInitNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectInit\", \"properties\": {");
@@ -5264,6 +5921,34 @@ pub const ObjectInitNode = struct {
 
         try ParseNode.stringify(node, out);
 
+        try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        if (self.object) |object| {
+            try object.render(object, out, depth);
+        } else {
+            try out.writeAll(".");
+        }
+        try out.writeAll("{");
+
+        if (self.properties.count() > 0) {
+            try out.writeAll("\n");
+        }
+
+        var it = self.properties.iterator();
+        while (it.next()) |kv| {
+            try out.writeByteNTimes(' ', (depth + 1) * 4);
+            try out.print("{s} = ", .{kv.key_ptr.*});
+            try kv.value_ptr.*.render(kv.value_ptr.*, out, depth + 1);
+            try out.writeAll(",\n");
+        }
+
+        if (self.properties.count() > 0) {
+            try out.writeByteNTimes(' ', depth * 4);
+        }
         try out.writeAll("}");
     }
 
@@ -5300,9 +5985,12 @@ pub const ObjectDeclarationNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     slot: usize,
+    // All properties and methods with preserved order for buzz --fmt
+    fields: [][]const u8,
     methods: std.StringHashMap(*ParseNode),
     properties: std.StringHashMap(?*ParseNode),
     properties_type: std.StringHashMap(*ObjTypeDef),
@@ -5320,8 +6008,6 @@ pub const ObjectDeclarationNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         var self = Self.cast(node).?;
 
@@ -5432,7 +6118,7 @@ pub const ObjectDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectDeclaration\", \"methods\": {");
@@ -5488,6 +6174,62 @@ pub const ObjectDeclarationNode = struct {
         try out.writeAll("}");
     }
 
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+        const obj_def = node.type_def.?.resolved_type.?.Object;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("\nobject");
+        if (obj_def.conforms_to.count() > 0) {
+            try out.writeAll("(");
+            var it = obj_def.conforms_to.iterator();
+            var i: usize = 0;
+            while (it.next()) |kv| : (i += 1) {
+                try kv.key_ptr.*.toStringUnqualified(out);
+
+                if (i < obj_def.conforms_to.count() - 1) {
+                    try out.writeAll(", ");
+                }
+            }
+            try out.writeAll(") ");
+        }
+
+        try out.print(" {s} {{", .{obj_def.name.string});
+
+        if (self.fields.len > 0) {
+            try out.writeAll("\n");
+        }
+
+        for (self.fields) |field_name| {
+            const method = self.methods.get(field_name);
+            const property = obj_def.fields.get(field_name);
+
+            try out.writeByteNTimes(' ', (depth + 1) * 4);
+
+            if (method == null) {
+                try property.?.toStringUnqualified(out);
+                try out.print(" {s}", .{field_name});
+
+                if (self.properties.get(field_name)) |default_expr| {
+                    if (default_expr) |expr| {
+                        try out.writeAll(" = ");
+                        try expr.render(expr, out, depth + 1);
+                    }
+                }
+
+                try out.writeAll(",");
+            } else {
+                try method.?.render(method.?, out, depth + 1);
+            }
+
+            try out.writeAll("\n");
+        }
+
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
+    }
+
     pub fn init(allocator: Allocator) Self {
         return Self{
             .properties = std.StringHashMap(*ParseNode).init(allocator),
@@ -5520,6 +6262,7 @@ pub const ProtocolDeclarationNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     // Nothing here because protocol only make sense at compile time
@@ -5533,12 +6276,10 @@ pub const ProtocolDeclarationNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         if (node.synchronize(codegen)) {
             return null;
         }
-
-        _ = try node.generate(codegen, breaks);
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -5546,12 +6287,28 @@ pub const ProtocolDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         try out.writeAll("{\"node\": \"ProtocolDeclaration\", ");
 
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const protocol_def = node.type_def.?.resolved_type.?.Protocol;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.print("protocol {s} {{\n", .{protocol_def.name.string});
+        var it = protocol_def.methods.iterator();
+        while (it.next()) |kv| {
+            try out.writeByteNTimes(' ', (depth + 1) * 4);
+            try kv.value_ptr.*.toStringUnqualified(out);
+            try out.writeAll(";\n");
+        }
+        try out.writeByteNTimes(' ', depth * 4);
+        try out.writeAll("}\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -5576,6 +6333,7 @@ pub const ExportNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     identifier: Token,
@@ -5596,7 +6354,7 @@ pub const ExportNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Export\", \"identifier\": \"{s}\", ", .{self.identifier.lexeme});
@@ -5608,6 +6366,19 @@ pub const ExportNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.print("export {s}", .{self.identifier.lexeme});
+        if (self.alias) |alias| {
+            try out.print(" as {s}", .{alias.lexeme});
+        }
+
+        try out.writeAll(";\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -5632,6 +6403,7 @@ pub const ImportNode = struct {
         .toByteCode = generate,
         .toValue = val,
         .isConstant = constant,
+        .render = render,
     },
 
     imported_symbols: ?std.StringHashMap(void) = null,
@@ -5652,8 +6424,6 @@ pub const ImportNode = struct {
             return null;
         }
 
-        _ = try node.generate(codegen, breaks);
-
         var self = Self.cast(node).?;
 
         if (self.import) |import| {
@@ -5672,7 +6442,7 @@ pub const ImportNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string.?});
@@ -5708,6 +6478,33 @@ pub const ImportNode = struct {
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("import ");
+        if (self.imported_symbols) |imported_symbols| {
+            var it = imported_symbols.iterator();
+            var i: usize = 0;
+            while (it.next()) |kv| : (i += 1) {
+                try out.writeAll(kv.key_ptr.*);
+
+                if (i < imported_symbols.count() - 1) {
+                    try out.writeAll(", ");
+                }
+            }
+
+            try out.writeAll(" from ");
+        }
+        try out.print("{s}", .{self.path.lexeme});
+        if (self.prefix) |prefix| {
+            try out.print(" as {s}", .{prefix.lexeme});
+        }
+
+        try out.writeAll(";\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {

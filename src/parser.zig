@@ -73,6 +73,7 @@ const ResolveNode = _node.ResolveNode;
 const YieldNode = _node.YieldNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const ExpressionNode = _node.ExpressionNode;
+const GroupingNode = _node.GroupingNode;
 const EnumNode = _node.EnumNode;
 const ThrowNode = _node.ThrowNode;
 const BreakNode = _node.BreakNode;
@@ -1376,8 +1377,9 @@ pub const Parser = struct {
         // Body
         try self.consume(.LeftBrace, "Expected `{` before object body.");
 
-        var fields = std.StringHashMap(void).init(self.gc.allocator);
+        var fields = std.StringArrayHashMap(void).init(self.gc.allocator);
         defer fields.deinit();
+        var field_order = std.ArrayList([]const u8).init(self.gc.allocator);
         var methods = std.StringHashMap(*ParseNode).init(self.gc.allocator);
         var properties = std.StringHashMap(?*ParseNode).init(self.gc.allocator);
         var properties_type = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator);
@@ -1392,6 +1394,10 @@ pub const Parser = struct {
                     false,
                     if (static) object_placeholder else try object_placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
                 );
+
+                if (FunctionNode.cast(method_node)) |function_node| {
+                    function_node.static = static;
+                }
 
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
@@ -1441,6 +1447,7 @@ pub const Parser = struct {
                     );
                 }
 
+                try field_order.append(method_name);
                 try fields.put(method_name, {});
                 try methods.put(method_name, method_node);
                 try properties_type.put(method_name, method_node.type_def.?);
@@ -1524,6 +1531,7 @@ pub const Parser = struct {
                     }
                 }
 
+                try field_order.append(property_name.lexeme);
                 try fields.put(property_name.lexeme, {});
                 try properties.put(property_name.lexeme, default);
                 try properties_type.put(property_name.lexeme, property_type);
@@ -1552,6 +1560,7 @@ pub const Parser = struct {
             .properties = properties,
             .docblocks = docblocks,
             .properties_type = properties_type,
+            .fields = field_order.items,
         };
         node.node.type_def = object_placeholder;
         node.node.location = start_location;
@@ -1728,7 +1737,7 @@ pub const Parser = struct {
         self.beginScope();
         var condition: *ParseNode = try self.expression(false);
 
-        var unwrapped_identifier = false;
+        var unwrapped_identifier: ?Token = null;
         var casted_type: ?*ObjTypeDef = null;
         if (try self.match(.Arrow)) {
             _ = try self.parseVariable(
@@ -1738,7 +1747,7 @@ pub const Parser = struct {
             );
             self.markInitialized();
 
-            unwrapped_identifier = true;
+            unwrapped_identifier = self.parser.previous_token.?;
         } else if (try self.match(.As)) {
             casted_type = try self.parseTypeDef(null);
 
@@ -2000,6 +2009,7 @@ pub const Parser = struct {
         var body = try self.block(null);
         body.ends_scope = try self.endScope();
 
+        var clause_identifiers = std.ArrayList([]const u8).init(self.gc.allocator);
         var clauses = std.AutoArrayHashMap(*ObjTypeDef, *ParseNode).init(self.gc.allocator);
         var unconditional_clause: ?*ParseNode = null;
         while (try self.match(.Catch)) {
@@ -2017,6 +2027,7 @@ pub const Parser = struct {
                     true, // function arguments are constant
                     "Expected error identifier",
                 );
+                try clause_identifiers.append(self.parser.previous_token.?.lexeme);
                 self.markInitialized();
 
                 try self.consume(.RightParen, "Expected `)` after error identifier");
@@ -2043,6 +2054,7 @@ pub const Parser = struct {
         node.* = TryNode{
             .body = body,
             .clauses = clauses,
+            .clause_identifiers = clause_identifiers.items,
             .unconditional_clause = unconditional_clause,
         };
         node.node.location = start_location;
@@ -2074,6 +2086,7 @@ pub const Parser = struct {
             .constant = constant,
             .slot = slot,
             .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
+            .expression = terminator == .Nothing,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -2426,6 +2439,7 @@ pub const Parser = struct {
         try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
         var cases = std.ArrayList(*ParseNode).init(self.gc.allocator);
+        var picked = std.ArrayList(bool).init(self.gc.allocator);
         var case_index: i64 = 0;
         while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
             if (case_index > 255) {
@@ -2439,6 +2453,7 @@ pub const Parser = struct {
                 try self.consume(.Equal, "Expected `=` after case name.");
 
                 try cases.append(try self.expression(false));
+                try picked.append(true);
             } else {
                 if (enum_case_type.def_type == .Number) {
                     var constant_node = try self.gc.allocator.create(NumberNode);
@@ -2464,6 +2479,8 @@ pub const Parser = struct {
 
                     try cases.append(&constant_node.node);
                 }
+
+                try picked.append(false);
             }
 
             try enum_type.resolved_type.?.Enum.cases.append(case_name);
@@ -2482,6 +2499,8 @@ pub const Parser = struct {
         node.* = EnumNode{
             .slot = slot,
             .cases = cases,
+            .picked = picked,
+            .case_type_picked = case_type_picked,
         };
         node.node.type_def = enum_type;
         node.node.location = start_location;
@@ -2729,7 +2748,7 @@ pub const Parser = struct {
 
         var node = try self.gc.allocator.create(NamedVariableNode);
         node.* = NamedVariableNode{
-            .identifier = name,
+            .identifier = start_location,
             .value = value,
             .slot = slot,
             .slot_type = slot_type,
@@ -3029,10 +3048,18 @@ pub const Parser = struct {
     }
 
     fn grouping(self: *Self, _: bool) anyerror!*ParseNode {
-        var node: *ParseNode = try self.expression(false);
+        const start_location = self.parser.previous_token.?;
+        var node = try self.gc.allocator.create(GroupingNode);
+        node.* = GroupingNode{
+            .expression = try self.expression(false),
+        };
+        node.node.type_def = node.expression.type_def;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
         try self.consume(.RightParen, "Expected ')' after expression.");
 
-        return node;
+        return &node.node;
     }
 
     fn literal(self: *Self, _: bool) anyerror!*ParseNode {
@@ -3118,11 +3145,12 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn argumentList(self: *Self) !std.AutoArrayHashMap(*ObjString, *ParseNode) {
+    // FIXME: doesn't need its own function
+    fn argumentList(self: *Self, trailing_comma: *bool) !std.AutoArrayHashMap(*ObjString, *ParseNode) {
         var arguments = std.AutoArrayHashMap(*ObjString, *ParseNode).init(self.gc.allocator);
 
         var arg_count: u8 = 0;
-        while (!self.check(.RightParen)) {
+        while (!(try self.match(.RightParen)) and !(try self.match(.Eof))) {
             var hanging = false;
             var arg_name: ?Token = null;
             if (try self.match(.Identifier)) {
@@ -3160,12 +3188,13 @@ pub const Parser = struct {
 
             arg_count += 1;
 
-            if (!(try self.match(.Comma))) {
-                break;
+            if (!self.check(.RightParen)) {
+                trailing_comma.* = true;
+                try self.consume(.Comma, "Expected `,` after call argument");
+            } else {
+                trailing_comma.* = false;
             }
         }
-
-        try self.consume(.RightParen, "Expected `)` after arguments.");
 
         return arguments;
     }
@@ -3176,6 +3205,7 @@ pub const Parser = struct {
         else
             null;
 
+        var trailing_comma = false;
         var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
         if (function_type != null and try self.match(.Less)) {
             while (!self.check(.Greater) and !self.check(.Eof)) {
@@ -3188,7 +3218,10 @@ pub const Parser = struct {
 
             try self.consume(.Greater, "Expected `>` after generic types list");
             if (!self.check(.RightParen)) {
+                trailing_comma = true;
                 try self.consume(.Comma, "Expected `,` after generic types list");
+            } else {
+                trailing_comma = false;
             }
         }
 
@@ -3199,8 +3232,9 @@ pub const Parser = struct {
             // so we keep a reference to it here
             .callable_type = callee.type_def,
             .resolved_generics = resolved_generics.items,
-            .arguments = try self.argumentList(),
+            .arguments = try self.argumentList(&trailing_comma),
             .catch_default = try self.inlineCatch(),
+            .trailing_comma = trailing_comma,
         };
 
         // Node type is Function or Native return type or nothing/placeholder
@@ -3797,6 +3831,7 @@ pub const Parser = struct {
     fn list(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
+        var trailing_comma: bool = false;
         var items = std.ArrayList(*ParseNode).init(self.gc.allocator);
         var item_type: ?*ObjTypeDef = null;
 
@@ -3826,7 +3861,10 @@ pub const Parser = struct {
                 }
 
                 if (!self.check(.RightBracket)) {
+                    trailing_comma = true;
                     try self.consume(.Comma, "Expected `,` after list item.");
+                } else {
+                    trailing_comma = false;
                 }
             }
 
@@ -3854,7 +3892,10 @@ pub const Parser = struct {
         );
 
         var node = try self.gc.allocator.create(ListNode);
-        node.* = ListNode{ .items = items.items };
+        node.* = ListNode{
+            .items = items.items,
+            .trailing_comma = trailing_comma,
+        };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = list_type;
@@ -3867,6 +3908,7 @@ pub const Parser = struct {
 
         var value_type: ?*ObjTypeDef = null;
         var key_type: ?*ObjTypeDef = null;
+        var trailing_comma = false;
 
         // A map expression can specify its type `{<str, str>, ...}`
         if (try self.match(.Less)) {
@@ -3916,7 +3958,10 @@ pub const Parser = struct {
                 }
 
                 if (!self.check(.RightBrace)) {
+                    trailing_comma = true;
                     try self.consume(.Comma, "Expected `,` after map entry.");
+                } else {
+                    trailing_comma = false;
                 }
             }
 
@@ -3949,6 +3994,7 @@ pub const Parser = struct {
         node.* = MapNode{
             .keys = keys.items,
             .values = values.items,
+            .trailing_comma = trailing_comma,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -4261,10 +4307,11 @@ pub const Parser = struct {
         node.* = VarDeclarationNode{
             .name = name_token,
             .value = function_node,
-            .type_def = function_node.type_def,
+            .type_def = function_node.type_def.?,
             .constant = true,
             .slot = slot,
             .slot_type = .Global,
+            .expression = false,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;

@@ -1822,7 +1822,7 @@ pub const ObjList = struct {
         var writer = result.writer();
         defer result.deinit();
         for (self.items.items) |item, i| {
-            valueToString(writer, item) catch {
+            valueToString(&writer, item) catch {
                 var err: ?*ObjString = vm.gc.copyString("could not stringify item") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -3244,12 +3244,20 @@ pub const ObjTypeDef = struct {
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var str = std.ArrayList(u8).init(allocator);
 
-        try self.toString(str.writer());
+        try self.toString(&str.writer());
 
         return str.items;
     }
 
-    pub fn toString(self: *const Self, writer: std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: *const Self, writer: *std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+        try self.toStringRaw(writer, true);
+    }
+
+    pub fn toStringUnqualified(self: *const Self, writer: *std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+        try self.toStringRaw(writer, false);
+    }
+
+    fn toStringRaw(self: *const Self, writer: *std.ArrayList(u8).Writer, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
             .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),
@@ -3259,9 +3267,9 @@ pub const ObjTypeDef = struct {
             .Pattern => try writer.writeAll("pat"),
             .Fiber => {
                 try writer.writeAll("fib<");
-                try self.resolved_type.?.Fiber.return_type.toString(writer);
+                try self.resolved_type.?.Fiber.return_type.toStringRaw(writer, qualified);
                 try writer.writeAll(", ");
-                try self.resolved_type.?.Fiber.yield_type.toString(writer);
+                try self.resolved_type.?.Fiber.yield_type.toStringRaw(writer, qualified);
                 try writer.writeAll(">");
             },
 
@@ -3275,7 +3283,7 @@ pub const ObjTypeDef = struct {
                     var count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
-                        try kv.value_ptr.*.toString(writer);
+                        try kv.value_ptr.*.toStringRaw(writer, qualified);
                         try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
@@ -3287,17 +3295,29 @@ pub const ObjTypeDef = struct {
                     try writer.writeAll(" }");
                 } else {
                     try writer.writeAll("object ");
-                    try writer.writeAll(object_def.qualified_name.string);
+                    if (qualified) {
+                        try writer.writeAll(object_def.qualified_name.string);
+                    } else {
+                        try writer.writeAll(object_def.name.string);
+                    }
                 }
             },
             .Protocol => {
                 const protocol_def = self.resolved_type.?.Protocol;
 
-                try writer.print("protocol {s}", .{protocol_def.qualified_name.string});
+                if (qualified) {
+                    try writer.print("protocol {s}", .{protocol_def.qualified_name.string});
+                } else {
+                    try writer.print("protocol {s}", .{protocol_def.name.string});
+                }
             },
             .Enum => {
                 try writer.writeAll("enum ");
-                try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
+                if (qualified) {
+                    try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
+                } else {
+                    try writer.writeAll(self.resolved_type.?.Enum.name.string);
+                }
             },
 
             .ObjectInstance => {
@@ -3309,7 +3329,7 @@ pub const ObjTypeDef = struct {
                     var count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
-                        try kv.value_ptr.*.toString(writer);
+                        try kv.value_ptr.*.toStringRaw(writer, qualified);
                         try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
@@ -3320,31 +3340,48 @@ pub const ObjTypeDef = struct {
                     }
                     try writer.writeAll(" }");
                 } else {
-                    try writer.writeAll(object_def.qualified_name.string);
+                    if (qualified) {
+                        try writer.writeAll(object_def.qualified_name.string);
+                    } else {
+                        try writer.writeAll(object_def.name.string);
+                    }
                 }
             },
             .ProtocolInstance => {
                 const protocol_def = self.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
 
-                try writer.writeAll(protocol_def.qualified_name.string);
+                if (qualified) {
+                    try writer.writeAll(protocol_def.qualified_name.string);
+                } else {
+                    try writer.writeAll(protocol_def.name.string);
+                }
             },
-            .EnumInstance => try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string),
+            .EnumInstance => {
+                if (qualified) {
+                    try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string);
+                } else {
+                    try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string);
+                }
+            },
 
             .List => {
                 try writer.writeAll("[");
-                try self.resolved_type.?.List.item_type.toString(writer);
+                try self.resolved_type.?.List.item_type.toStringRaw(writer, qualified);
                 try writer.writeAll("]");
             },
             .Map => {
                 try writer.writeAll("{");
-                try self.resolved_type.?.Map.key_type.toString(writer);
+                try self.resolved_type.?.Map.key_type.toStringRaw(writer, qualified);
                 try writer.writeAll(", ");
-                try self.resolved_type.?.Map.value_type.toString(writer);
+                try self.resolved_type.?.Map.value_type.toStringRaw(writer, qualified);
                 try writer.writeAll("}");
             },
             .Function => {
                 var function_def = self.resolved_type.?.Function;
 
+                if (function_def.function_type == .Extern) {
+                    try writer.writeAll("extern ");
+                }
                 try writer.writeAll("fun ");
                 try writer.writeAll(function_def.name.string);
                 try writer.writeAll("(");
@@ -3376,7 +3413,7 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     var it = function_def.parameters.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
-                        try kv.value_ptr.*.toString(writer);
+                        try kv.value_ptr.*.toStringRaw(writer, qualified);
                         try writer.writeAll(" ");
                         try writer.writeAll(kv.key_ptr.*.string);
 
@@ -3390,16 +3427,16 @@ pub const ObjTypeDef = struct {
 
                 if (function_def.yield_type.def_type != .Void) {
                     try writer.writeAll(" > ");
-                    try function_def.yield_type.toString(writer);
+                    try function_def.yield_type.toStringRaw(writer, qualified);
                 }
 
                 try writer.writeAll(" > ");
-                try function_def.return_type.toString(writer);
+                try function_def.return_type.toStringRaw(writer, qualified);
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");
                     for (function_def.error_types.?) |error_type, index| {
-                        try error_type.toString(writer);
+                        try error_type.toStringRaw(writer, qualified);
 
                         if (index < function_def.error_types.?.len - 1) {
                             try writer.writeAll(", ");
@@ -3677,7 +3714,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
     }
 }
 
-pub fn objToString(writer: std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
+pub fn objToString(writer: *std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
     return switch (obj.obj_type) {
         .String => {
             const str = ObjString.cast(obj).?.string;

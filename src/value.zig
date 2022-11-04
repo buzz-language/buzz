@@ -73,12 +73,12 @@ pub fn hashableToValue(hashable: HashableValue) Value {
 pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
     var str = std.ArrayList(u8).init(allocator);
 
-    try valueToString(str.writer(), value);
+    try valueToString(&str.writer(), value);
 
     return str.items;
 }
 
-pub fn valueToString(writer: std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
+pub fn valueToString(writer: *std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
     switch (value) {
         .Boolean => try writer.print("{}", .{value.Boolean}),
         .Integer => try writer.print("{d}", .{value.Integer}),
