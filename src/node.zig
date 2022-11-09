@@ -2151,8 +2151,13 @@ pub const BinaryNode = struct {
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
+
+                const end_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_NOT_NULL);
+                try codegen.emitOpCode(self.node.location, .OP_POP);
+
                 _ = try self.right.toByteCode(self.right, codegen, breaks);
-                try codegen.emitOpCode(self.node.location, .OP_NULL_OR);
+
+                try codegen.patchJump(end_jump);
             },
             .Ampersand => {
                 // Checking only left operand since we asserted earlier that both operand have the same type

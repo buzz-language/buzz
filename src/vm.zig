@@ -1269,6 +1269,12 @@ pub const VM = struct {
                     }
                 },
 
+                .OP_JUMP_IF_NOT_NULL => {
+                    if (self.peek(0) != .Null) {
+                        current_frame.ip += arg;
+                    }
+                },
+
                 .OP_LOOP => current_frame.ip -= arg,
 
                 .OP_FOREACH => try self.foreach(),
@@ -1276,19 +1282,6 @@ pub const VM = struct {
                 .OP_UNWRAP => {
                     if (self.peek(0) == .Null) {
                         try self.throw(Error.UnwrappedNull, (try self.gc.copyString("Force unwrapped optional is null")).toValue());
-                    }
-                },
-
-                .OP_NULL_OR => {
-                    if (self.peek(1) == .Null) {
-                        var else_: Value = self.peek(0);
-                        // Pop operands
-                        _ = self.pop();
-                        _ = self.pop();
-                        // Push left operand
-                        self.push(else_);
-                    } else {
-                        _ = self.pop(); // Pop right operand
                     }
                 },
             }

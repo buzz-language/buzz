@@ -43,7 +43,6 @@ pub const OpCode = enum(u8) {
     OP_XOR,
     OP_SHL,
     OP_SHR,
-    OP_NULL_OR,
 
     OP_UNWRAP,
 
@@ -53,6 +52,7 @@ pub const OpCode = enum(u8) {
     OP_SWAP,
     OP_JUMP,
     OP_JUMP_IF_FALSE,
+    OP_JUMP_IF_NOT_NULL,
     OP_LOOP,
     OP_FOREACH,
 

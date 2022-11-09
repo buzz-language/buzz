@@ -156,7 +156,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SHR,
         .OP_MOD,
         .OP_UNWRAP,
-        .OP_NULL_OR,
         .OP_ENUM_CASE,
         .OP_GET_ENUM_CASE_VALUE,
         .OP_LIST_APPEND,
@@ -205,6 +204,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE,
+        .OP_JUMP_IF_NOT_NULL,
         => jumpInstruction(instruction, chunk, true, offset),
 
         .OP_TRY => tryInstruction(instruction, chunk, offset),
