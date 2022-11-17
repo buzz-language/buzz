@@ -3736,6 +3736,10 @@ pub const CallNode = struct {
                 var not_handled = std.ArrayList(*ObjTypeDef).init(codegen.gc.allocator);
                 defer not_handled.deinit();
                 for (errors) |error_type| {
+                    if (error_type.def_type == .Void) {
+                        continue;
+                    }
+
                     var handled = false;
 
                     if (codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types) |handled_types| {

@@ -4199,6 +4199,10 @@ pub const Parser = struct {
                 const error_type = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try error_types.append(error_type);
 
+                if (error_type.optional) {
+                    try self.reportError("Error type can't be optional");
+                }
+
                 if (!self.check(end_token)) {
                     try self.consume(.Comma, "Expected `,` after error type");
                 }
@@ -4611,6 +4615,10 @@ pub const Parser = struct {
             while (!self.check(.Eof)) {
                 const error_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try error_types.?.append(error_type);
+
+                if (error_type.optional) {
+                    try self.reportError("Error type can't be optional");
+                }
 
                 if (!self.check(.Comma)) {
                     break;
