@@ -54,91 +54,73 @@ pub const Scanner = struct {
 
         var char: u8 = self.advance();
         return try switch (char) {
-            'b' => return self.identifier(),
-            'a', 'c'...'z', 'A'...'Z' => return self.identifier(),
-            '0' => {
-                if (self.match('x')) {
-                    return try self.hexa();
-                } else if (self.match('b')) {
-                    return try self.binary();
-                } else {
-                    return try self.number();
-                }
-            },
-            '1'...'9' => return try self.number(),
+            'b' => self.identifier(),
+            'a', 'c'...'z', 'A'...'Z' => self.identifier(),
+            '0' => if (self.match('x'))
+                try self.hexa()
+            else if (self.match('b'))
+                try self.binary()
+            else
+                try self.number(),
+            '1'...'9' => try self.number(),
 
-            '[' => return self.makeToken(.LeftBracket, null, null, null),
-            ']' => return self.makeToken(.RightBracket, null, null, null),
-            '(' => return self.makeToken(.LeftParen, null, null, null),
-            ')' => return self.makeToken(.RightParen, null, null, null),
-            '{' => return self.makeToken(.LeftBrace, null, null, null),
-            '}' => return self.makeToken(.RightBrace, null, null, null),
-            ',' => return self.makeToken(.Comma, null, null, null),
-            ';' => return self.makeToken(.Semicolon, null, null, null),
-            '.' => return self.makeToken(.Dot, null, null, null),
-            '>' => {
-                if (self.match('>')) {
-                    return self.makeToken(.ShiftRight, null, null, null);
-                } else if (self.match('=')) {
-                    return self.makeToken(.GreaterEqual, null, null, null);
-                } else {
-                    return self.makeToken(.Greater, null, null, null);
-                }
-            },
-            '<' => {
-                if (self.match('<')) {
-                    return self.makeToken(.ShiftLeft, null, null, null);
-                } else if (self.match('=')) {
-                    return self.makeToken(.LessEqual, null, null, null);
-                } else {
-                    return self.makeToken(.Less, null, null, null);
-                }
-            },
-            '~' => return self.makeToken(.Bnot, null, null, null),
-            '^' => return self.makeToken(.Xor, null, null, null),
-            '\\' => return self.makeToken(.Bor, null, null, null),
-            '+' => {
-                if (self.match('+')) {
-                    return self.makeToken(.Increment, null, null, null);
-                } else if (self.match('=')) {
-                    return self.makeToken(.PlusEqual, null, null, null);
-                } else {
-                    return self.makeToken(.Plus, null, null, null);
-                }
-            },
-            '-' => {
-                if (self.match('-')) {
-                    return self.makeToken(.Decrement, null, null, null);
-                } else if (self.match('=')) {
-                    return self.makeToken(.MinusEqual, null, null, null);
-                } else if (self.match('>')) {
-                    return self.makeToken(.Arrow, null, null, null);
-                } else {
-                    return self.makeToken(.Minus, null, null, null);
-                }
-            },
-            '&' => return self.makeToken(.Ampersand, null, null, null),
-            '*' => return self.makeToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
-            '/' => return self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
-            '%' => return self.makeToken(.Percent, null, null, null),
-            '?' => return self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
-            '!' => {
-                if (self.match('=')) {
-                    return self.makeToken(.BangEqual, null, null, null);
-                } else if (self.match('>')) {
-                    return self.makeToken(.BangGreater, null, null, null);
-                } else {
-                    return self.makeToken(.Bang, null, null, null);
-                }
-            },
-            ':' => return self.makeToken(.Colon, null, null, null),
-            '=' => return self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
-            '"' => return self.string(false),
-            '`' => return self.string(true),
-            '|' => return try self.docblock(),
-            '_' => return try self.pattern(),
+            '[' => self.makeToken(.LeftBracket, null, null, null),
+            ']' => self.makeToken(.RightBracket, null, null, null),
+            '(' => self.makeToken(.LeftParen, null, null, null),
+            ')' => self.makeToken(.RightParen, null, null, null),
+            '{' => self.makeToken(.LeftBrace, null, null, null),
+            '}' => self.makeToken(.RightBrace, null, null, null),
+            ',' => self.makeToken(.Comma, null, null, null),
+            ';' => self.makeToken(.Semicolon, null, null, null),
+            '.' => self.makeToken(.Dot, null, null, null),
+            '>' => if (self.match('>'))
+                self.makeToken(.ShiftRight, null, null, null)
+            else if (self.match('='))
+                self.makeToken(.GreaterEqual, null, null, null)
+            else
+                self.makeToken(.Greater, null, null, null),
+            '<' => if (self.match('<'))
+                self.makeToken(.ShiftLeft, null, null, null)
+            else if (self.match('='))
+                self.makeToken(.LessEqual, null, null, null)
+            else
+                self.makeToken(.Less, null, null, null),
+            '~' => self.makeToken(.Bnot, null, null, null),
+            '^' => self.makeToken(.Xor, null, null, null),
+            '\\' => self.makeToken(.Bor, null, null, null),
+            '+' => if (self.match('+'))
+                self.makeToken(.Increment, null, null, null)
+            else if (self.match('='))
+                self.makeToken(.PlusEqual, null, null, null)
+            else
+                self.makeToken(.Plus, null, null, null),
+            '-' => if (self.match('-'))
+                self.makeToken(.Decrement, null, null, null)
+            else if (self.match('='))
+                self.makeToken(.MinusEqual, null, null, null)
+            else if (self.match('>'))
+                self.makeToken(.Arrow, null, null, null)
+            else
+                self.makeToken(.Minus, null, null, null),
+            '&' => self.makeToken(.Ampersand, null, null, null),
+            '*' => self.makeToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
+            '/' => self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
+            '%' => self.makeToken(.Percent, null, null, null),
+            '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
+            '!' => if (self.match('='))
+                self.makeToken(.BangEqual, null, null, null)
+            else if (self.match('>'))
+                self.makeToken(.BangGreater, null, null, null)
+            else
+                self.makeToken(.Bang, null, null, null),
+            ':' => self.makeToken(.Colon, null, null, null),
+            '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
+            '"' => self.string(false),
+            '`' => self.string(true),
+            '|' => try self.docblock(),
+            '_' => try self.pattern(),
 
-            else => return self.makeToken(.Error, "Unexpected character.", null, null),
+            else => self.makeToken(.Error, "Unexpected character.", null, null),
         };
     }
 
