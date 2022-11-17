@@ -232,7 +232,7 @@ pub const CodeGen = struct {
         );
     }
 
-    pub fn report(self: *Self, location: Token, message: []const u8) !void {
+    fn report(self: *Self, location: Token, message: []const u8) !void {
         const lines: std.ArrayList([]const u8) = try location.getLines(self.gc.allocator, 3);
         defer lines.deinit();
         var report_line = std.ArrayList(u8).init(self.gc.allocator);

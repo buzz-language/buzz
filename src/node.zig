@@ -3246,7 +3246,7 @@ pub const ResolveNode = struct {
         }
 
         if (self.fiber.type_def.?.def_type != .Fiber) {
-            try codegen.report(self.fiber.location, "Not a fiber");
+            try codegen.reportErrorAt(self.fiber.location, "Not a fiber");
         }
 
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
@@ -3329,7 +3329,7 @@ pub const ResumeNode = struct {
         }
 
         if (self.fiber.type_def.?.def_type != .Fiber) {
-            try codegen.report(self.fiber.location, "Not a fiber");
+            try codegen.reportErrorAt(self.fiber.location, "Not a fiber");
         }
 
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
@@ -3556,9 +3556,11 @@ pub const CallNode = struct {
             // We know nothing about the function being called, no need to go any further
             return null;
         } else if (callee_type.?.def_type != .Function) {
-            try codegen.report(self.node.location, "Can't be called");
+            try codegen.reportErrorAt(self.node.location, "Can't be called");
 
             return null;
+        } else if (callee_type.?.optional) {
+            try codegen.reportErrorAt(self.node.location, "Function maybe null and can't be called");
         }
 
         const function_type = try callee_type.?.populateGenerics(
