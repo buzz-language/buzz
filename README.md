@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/giann/buzz/raw/main/logo.png" alt="buzz" width="204" height="204">
+    <img src="https://github.com/buzz-language/buzz/raw/main/logo.png" alt="buzz" width="204" height="204">
 </p>
 
 # 👨‍🚀 buzz
@@ -7,7 +7,7 @@
 A small/lightweight typed scripting language written in Zig
 
 <p align="center">
-    <img src="https://github.com/giann/buzz/raw/main/example.png" alt="buzz code example">
+    <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
 ## Goals
@@ -18,26 +18,27 @@ A small/lightweight typed scripting language written in Zig
 - No nonsense coercion
 - [Fibers](#fibers)
 - Tooling
-    - [Generate doc from docblocks (in progress)](https://github.com/giann/buzz/blob/main/doc/index.md)
+    - [Generate doc from docblocks (in progress)](https://github.com/buzz-language/buzz/blob/main/doc/index.md)
     - LSP (in progress)
-    - [TextMate syntax](https://github.com/giann/buzz/tree/main/tmLanguage)
+    - Debugger and DAP
+    - [TextMate syntax](https://github.com/buzz-language/code)
 
 ## Progress
 
-We're not far from completing [miletone 0.1.0](https://github.com/giann/buzz/milestone/1). As writing buzz code is the best way of finding bugs, we implement a lot of features of the [next](https://github.com/giann/buzz/milestone/2) [milestones](https://github.com/giann/buzz/milestone/3) too.
+We're not far from completing [miletone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, we implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
 
 ## How to build
 
 ### Requirements
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86.
-- Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/giann/buzz/issues/74))
+- Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
 - libpcre (not libpcre2)
 - libc on Linux
 - zig master
 
 ### Steps
 From cloned buzz repository:
-- `zig build`
+- `zig build -Drelease-safe`
 - `zig-out/bin/buzz <myscript.buzz>`
 
 ## Quick tour
@@ -498,7 +499,7 @@ First define the buzz interface. The `extern` keyword means that buzz we'll look
 extern fun assert(bool condition, str message) > void
 ```
 
-Then implement it in Zig or C using the [buzz_api](https://github.com/giann/buzz/blob/main/lib/buzz_api.zig):
+Then implement it in Zig or C using the [buzz_api](https://github.com/buzz-language/buzz/blob/main/lib/buzz_api.zig):
 
 ```zig
 // buzz_mylib.zig

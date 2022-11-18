@@ -49,8 +49,6 @@ object Declaration {
     fun toMarkdown(str? heading, Buffer out) > void !> WriteWhileReadingError {
         const pat atParamPattern = _([^\s]+)\s+(.+)_;
 
-        out.write("\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n");
-
         if (this.docblock == null) {
             return;
         }
@@ -62,6 +60,8 @@ object Declaration {
             return;
         }
 
+        out.write("\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n");
+
         out.write(processed["unspecified"] ?? "");
 
         foreach (str instruction, str content in processed) {
@@ -72,15 +72,11 @@ object Declaration {
                 if (param != null) {
                     out.write("**`{param![1]}`:** {param![2]}\n");
                 } else {
-                    out.write("{out}{content}\n");
+                    out.write("{content}\n");
                 }
             } else if (instruction == "return") {
                 out.write("\n\n**Returns:** {content}");
             }
-        }
-
-        foreach (str key, Declaration decl in this.subDeclarations) {
-            out.write("\n{decl.toMarkdown("####", out: out)}");
         }
     }
 }
@@ -168,7 +164,7 @@ fun getDeclarations(str path) > [Declaration]
 
 fun genMarkdownDoc([Declaration] declarations, Buffer out) > void !> WriteWhileReadingError {
     foreach (num i, Declaration decl in declarations) {
-        out.write("{decl.toMarkdown("###", out: out)}");
+        decl.toMarkdown("###", out: out);
     }
 }
 
