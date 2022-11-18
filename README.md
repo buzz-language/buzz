@@ -37,9 +37,16 @@ We're not far from completing [miletone 0.1.0](https://github.com/buzz-language/
 - zig master
 
 ### Steps
-From cloned buzz repository:
-- `zig build -Drelease-safe`
-- `zig-out/bin/buzz <myscript.buzz>`
+1. Clone project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
+2. Build it: `zig build -Drelease-safe`
+3. Add to your shell rc:
+```bash
+export BUZZ_PATH="/path/to/buzz"
+export PATH="$BUZZ_PATH/zig-out/bin:$PATH"
+```
+4. Have fun: `buzz <myscript.buzz>`
+
+Additionnally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
 ## Quick tour
 

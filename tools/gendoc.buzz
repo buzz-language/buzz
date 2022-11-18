@@ -60,7 +60,7 @@ object Declaration {
             return;
         }
 
-        out.write("\n{heading ?? "###"} `{this.name ?? ""} {this.typeDef}`\n");
+        out.write("\n{heading ?? "###"} `{this.typeDef} {this.name ?? ""}`\n");
 
         out.write(processed["unspecified"] ?? "");
 

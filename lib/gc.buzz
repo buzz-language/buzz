@@ -1,3 +1,4 @@
+|| Error occured while collecting
 object CollectError {}
 
 || Returns the number of allocated bytes

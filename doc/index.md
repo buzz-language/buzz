@@ -101,12 +101,6 @@ Remove element form the list shifting elements after index
 ### `fun len() > num`
 **Returns:** Length of list
 
-### `fun next(num key) > num?`
-Given index, returns next index or null if end of list is reached (function used by `foreach`).
-- **`key`**: current index
-
-**Returns:** Next index
-
 ### `fun sub(num start, num? len) > [T]`
 Get sub list
 - **`start`**: Start index of sub list

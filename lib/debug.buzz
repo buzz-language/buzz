@@ -1,6 +1,7 @@
 import "lib/std";
 import "lib/errors";
 
+|| Dump any value to stdout
 extern fun dump(<T>, T value) > void;
 
 || Parse `source` and return the abstract syntax tree in JSON
