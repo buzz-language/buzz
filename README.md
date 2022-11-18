@@ -203,8 +203,7 @@ countMap(<str, num>, map) == 3;
 ### Enums
 
 ```buzz
-| Enums can have number or string values. If type is omitted, the enum is a number enum with ordinal values
-| If type is specified, values must be provided.
+| Enums can have number or string values
 enum Natural {
     zero,
     one,
@@ -213,6 +212,7 @@ enum Natural {
 
 Natural.zero.value == 0;
 
+| Values must either be implicit or be all defined
 enum(num) NumEnum {
     three = 3,
     four = 4,
@@ -228,7 +228,6 @@ enum(str) Country {
 | To get the value associated with a enum case
 print(Country.usa.value); | -> "United States of America"
 
-| enum(str) can omit values
 enum(str) Locale {
     fr,
     en,
