@@ -148,6 +148,24 @@ pub fn main() !void {
     };
     defer res.deinit();
 
+    if (res.args.version) {
+        std.debug.print(
+            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
+            .{
+                Config.version,
+                builtin.zig_version,
+                switch (builtin.mode) {
+                    .ReleaseFast => "release-fast",
+                    .ReleaseSafe => "release-safe",
+                    .ReleaseSmall => "release-small",
+                    .Debug => "debug",
+                },
+            },
+        );
+
+        std.os.exit(0);
+    }
+
     if (res.args.help or res.positionals.len == 0) {
         std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
@@ -167,24 +185,6 @@ pub fn main() !void {
                 .description_on_new_line = false,
                 .description_indent = 4,
                 .spacing_between_parameters = 0,
-            },
-        );
-
-        std.os.exit(0);
-    }
-
-    if (res.args.version) {
-        std.debug.print(
-            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
-            .{
-                Config.version,
-                builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
             },
         );
 
