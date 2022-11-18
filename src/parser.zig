@@ -2272,6 +2272,22 @@ pub const Parser = struct {
             try self.consume(.Semicolon, "Expected `;` after `extern` function declaration.");
         }
 
+        // Enforce main signature
+        if (is_main) {
+            const fun_def = function_node.type_def.?.resolved_type.?.Function;
+
+            if (fun_def.parameters.count() != 1) {
+                try self.reportError("`main` function signature must only have one `[str]` argument");
+            } else {
+                const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
+                if (first_param == null or
+                    !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
+                {
+                    try self.reportError("`main` function signature must only have one `[str]` argument");
+                }
+            }
+        }
+
         var slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true);
 
         self.markInitialized();
