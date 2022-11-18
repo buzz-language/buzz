@@ -38,7 +38,7 @@ object Request {
         {str, str} headers = {<str, str>};
         num contentLength = 0;
         num lineOffset = 0;
-        foreach (num i, str line in lines.sub(1, len: null)) {
+        foreach (num i, str line in lines.sub(1)) {
             if (line == "\n" or line == "\r" or line == "") {
                 break;
             }
@@ -60,7 +60,7 @@ object Request {
 
         str? body = null;
         if (contentLength > 0) {
-            body = lines.sub(lineOffset + 2, len: null).join("\n");
+            body = lines.sub(lineOffset + 2).join("\n");
         }
 
         return Request{

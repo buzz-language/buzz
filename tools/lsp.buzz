@@ -94,7 +94,7 @@ fun readContentLength() > num? !> LSPError {
             }
 
             const str name = header!.sub(0, len: colon!);
-            const str value = header!.sub(colon! + 2, len: null);
+            const str value = header!.sub(colon! + 2);
             
             if (name == "Content-Length") {
                 return parseNumber(value);
@@ -799,7 +799,7 @@ fun getAst(LspState state, str filename) > Json !> LSPError {
     }
 
     | Dismiss "file://" prefix
-    filename = filename.sub(7, len: null);
+    filename = filename.sub(7);
 
     str? source = state.sources[filename];
     if (source == null) {
@@ -842,7 +842,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     if (ndType == "Enum") {
         declarations.append(Json{
             map = {
-                "name": Json{ string = node.q(["type_def"]).stringValue().sub(5, len: null) },
+                "name": Json{ string = node.q(["type_def"]).stringValue().sub(5) },
                 "kind": Json{ number = SymbolKind.Enum.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),

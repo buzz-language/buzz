@@ -225,7 +225,7 @@ object Json {
     fun q([str] path) > Json {
         if (this.map != null) {
             if (path.len() > 1) {
-                return (this.map![path[0]] ?? Json{}).q(path.sub(1, len: null));
+                return (this.map![path[0]] ?? Json{}).q(path.sub(1));
             } else if (path.len() > 0) {
                 return this.map![path[0]] ?? Json{};
             } else {
