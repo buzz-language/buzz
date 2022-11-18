@@ -4131,7 +4131,7 @@ pub const Parser = struct {
                     self.markInitialized();
 
                     // Default arguments
-                    if (function_type == .Function or function_type == .Method or function_type == .Anonymous) {
+                    if (function_type == .Function or function_type == .Method or function_type == .Anonymous or function_type == .Extern) {
                         if (try self.match(.Equal)) {
                             var expr = try self.expression(false);
 
@@ -4148,13 +4148,9 @@ pub const Parser = struct {
                                 try expr.toValue(expr, self.gc),
                             );
                         } else if (param_type.optional) {
-                            var null_node: *NullNode = try self.gc.allocator.create(NullNode);
-                            null_node.* = .{};
-                            null_node.node.type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
-
                             try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(
                                 arg_name,
-                                try null_node.node.toValue(&null_node.node, self.gc),
+                                Value{ .Null = {} },
                             );
                         }
                     }
@@ -4585,6 +4581,7 @@ pub const Parser = struct {
         }
 
         var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
+        var defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator);
         var arity: usize = 0;
         if (!self.check(.RightParen)) {
             while (true) {
@@ -4596,8 +4593,25 @@ pub const Parser = struct {
                 var param_type: *ObjTypeDef = try (try self.parseTypeDef(merged_generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try self.consume(.Identifier, "Expected argument name");
                 var param_name: []const u8 = self.parser.previous_token.?.lexeme;
+                var arg_name = try self.gc.copyString(param_name);
 
-                try parameters.put(try self.gc.copyString(param_name), param_type);
+                try parameters.put(arg_name, param_type);
+
+                if (try self.match(.Equal)) {
+                    var expr = try self.expression(false);
+
+                    if (expr.type_def != null and expr.type_def.?.def_type == .Placeholder and param_type.def_type == .Placeholder) {
+                        try PlaceholderDef.link(param_type, expr.type_def.?, .Assignment);
+                    }
+
+                    if (!expr.isConstant(expr)) {
+                        try self.reportError("Default parameters must be constant values.");
+                    }
+
+                    try defaults.put(arg_name, try expr.toValue(expr, self.gc));
+                } else if (param_type.optional) {
+                    try defaults.put(arg_name, Value{ .Null = {} });
+                }
 
                 if (!try self.match(.Comma)) break;
             }
@@ -4638,7 +4652,7 @@ pub const Parser = struct {
             .return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry),
             .yield_type = try yield_type.toInstance(self.gc.allocator, &self.gc.type_registry),
             .parameters = parameters,
-            .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
+            .defaults = defaults,
             .function_type = .Anonymous,
             .generic_types = generic_types,
             .error_types = if (error_types != null) error_types.?.items else null,

@@ -2127,8 +2127,10 @@ pub const ObjList = struct {
                         },
                     ),
                 );
+
+                const len_str = try parser.gc.copyString("len");
                 try parameters.put(
-                    try parser.gc.copyString("len"),
+                    len_str,
                     try parser.gc.type_registry.getTypeDef(
                         .{
                             .def_type = .Number,
@@ -2137,12 +2139,15 @@ pub const ObjList = struct {
                     ),
                 );
 
+                var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
+                try defaults.put(len_str, Value{ .Null = {} });
+
                 var method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sub"),
                     .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .defaults = defaults,
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
