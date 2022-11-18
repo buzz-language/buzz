@@ -458,7 +458,7 @@ export sayHello;
 | main.buzz
 import "hello";
 
-fun main() > void {
+fun main([str] args) > void {
     sayHello();
 }
 ```
@@ -484,7 +484,7 @@ fun count(num n) > str > num? {
     return "Counting is done!";
 }
 
-fun main() > void {
+fun main([str] args) > void {
     | Wraps the call to `count` in a fiber, however the fiber is not started until a `resolve` or `resume` instruction
     fib<str, num?> counter = &count(10);
 
@@ -532,7 +532,7 @@ Build a dynamic library for it (TODO: instructions for this) and you can use it 
 | main.buzz
 import "mylib"
 
-fun main() > void {
+fun main([str] args) > void {
     assert(1 + 1 == 2, message: "Congrats on doing math!");
 }
 ```
