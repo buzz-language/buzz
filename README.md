@@ -261,7 +261,7 @@ while (i < 10) {
 num j = 10;
 do {
     j = j - 1;
-} until (j == 10)
+} until (j == 0)
 
 for (num i = 0; i < 10; i = i + 1) {
     | ...
