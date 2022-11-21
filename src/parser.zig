@@ -4344,15 +4344,15 @@ pub const Parser = struct {
             var lib_path = std.ArrayList(u8).init(self.gc.allocator);
             defer lib_path.deinit();
             _ = try lib_path.writer().print(
-                "{s}/{s}.buzz",
-                .{ buzz_path, file_name },
+                "{s}{s}{s}.buzz",
+                .{ buzz_path, std.fs.path.sep_str, file_name },
             );
 
             var dir_path = std.ArrayList(u8).init(self.gc.allocator);
             defer dir_path.deinit();
             _ = try dir_path.writer().print(
-                "./{s}.buzz",
-                .{file_name},
+                ".{s}{s}.buzz",
+                .{ std.fs.path.sep_str, file_name },
             );
 
             // Find and read file
@@ -4472,13 +4472,18 @@ pub const Parser = struct {
     fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
         const buzz_path: []const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
 
+        // We have to insert `lib` prefix
+        const last_sep = std.mem.lastIndexOf(u8, file_name, std.fs.path.sep_str) orelse 0;
+
         var lib_path = std.ArrayList(u8).init(self.gc.allocator);
         defer lib_path.deinit();
         try lib_path.writer().print(
-            "{s}/{s}.{s}",
+            "{s}{s}{s}lib{s}.{s}",
             .{
                 buzz_path,
-                file_name,
+                std.fs.path.sep_str,
+                file_name[0 .. last_sep + 1],
+                file_name[last_sep + 1 ..],
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
                     .windows => "dll",
@@ -4491,9 +4496,12 @@ pub const Parser = struct {
         var dir_path = std.ArrayList(u8).init(self.gc.allocator);
         defer dir_path.deinit();
         try dir_path.writer().print(
-            "./{s}.{s}",
+            ".{s}{s}lib{s}.{s}",
             .{
-                file_name, switch (builtin.os.tag) {
+                std.fs.path.sep_str,
+                file_name[0 .. last_sep + 1],
+                file_name[last_sep + 1 ..],
+                switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
                     .windows => "dll",
                     .macos, .tvos, .watchos, .ios => "dylib",

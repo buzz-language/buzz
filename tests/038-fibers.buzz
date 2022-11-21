@@ -22,7 +22,7 @@ test "fiber" {
 
 | returns str, yields num
 fun count(num n) > str > num? {
-    | TODO: how to do this? types prevent use from having a generic currentFiber function
+    | TODO: how to do this? types prevent us from having a generic currentFiber function
     |       do we need `any` type? do we need first citizen/generic types to do currentRoute<str, num>()?
     | assert(currentFiber() is fib<str, num>, message: "Can get current fiber")
 

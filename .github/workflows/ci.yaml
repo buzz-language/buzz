@@ -19,7 +19,7 @@ jobs:
       - name: Build
         run: zig build
       - name: Run tests
-        run: zig build test
+        run: BUZZ_PATH=./dist zig build test
   test-linux:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
       - name: Build
         run: zig build
       - name: Run tests
-        run: zig build test
+        run: BUZZ_PATH=./dist zig build test
   lint:
     runs-on: macos-latest
     steps:

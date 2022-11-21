@@ -42,8 +42,8 @@ We're not far from completing [miletone 0.1.0](https://github.com/buzz-language/
 3. Build it: `zig build -Drelease-safe`
 4. Add to your shell rc:
 ```bash
-export BUZZ_PATH="/path/to/buzz"
-export PATH="$BUZZ_PATH/zig-out/bin:$PATH"
+export BUZZ_PATH="/path/to/buzz/dist"
+export PATH="$BUZZ_PATH:$PATH"
 ```
 5. Have fun: `buzz <myscript.buzz>`
 

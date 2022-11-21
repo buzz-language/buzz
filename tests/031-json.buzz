@@ -10,14 +10,14 @@ test "Json.encode" {
     };
 
     assert(
-        json.encode() == "\{\"hello\":\"world\",\"bye\":42}",
+        json.encode() == `\{"hello":"world","bye":42}`,
         message: "valid encode"
     );
 }
 
 test "Json.decode" {
     assert(
-        Json.decode("[ 12, true, \"hello\" ]").listValue()[2].string == "hello",
+        Json.decode(`[ 12, true, "hello" ]`).listValue()[2].string == "hello",
         message: "could decode simple JSON"
     );
 }

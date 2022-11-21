@@ -2,13 +2,20 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *Builder) !void {
+    // Make sure dist exists
+    std.fs.cwd().makeDir("dist") catch {};
+    std.fs.cwd().makeDir("dist/lib") catch {};
+
+    try std.fs.cwd().access("dist/lib", .{});
+
     const build_mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
     var exe = b.addExecutable("buzz", "src/main.zig");
     exe.use_stage1 = true;
     exe.setTarget(target);
+    exe.setOutputDir("dist");
     exe.install();
     exe.addIncludePath("/usr/local/include");
     exe.addIncludePath("/usr/include");
@@ -21,6 +28,7 @@ pub fn build(b: *Builder) void {
 
     var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
     lib.use_stage1 = true;
+    lib.setOutputDir("dist/lib");
     lib.setTarget(target);
     lib.install();
     lib.addIncludePath("/usr/local/include");
@@ -59,6 +67,7 @@ pub fn build(b: *Builder) void {
     for (lib_paths) |lib_path, index| {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
         std_lib.use_stage1 = true;
+        std_lib.setOutputDir("dist/lib");
         std_lib.setTarget(target);
         std_lib.install();
         std_lib.addIncludePath("/usr/local/include");
@@ -87,4 +96,25 @@ pub fn build(b: *Builder) void {
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);
     test_step.dependOn(&unit_tests.step);
+
+    // Copy {lib}.buzz files to dist/lib
+    for (lib_names) |name| {
+        var lib_name = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer lib_name.deinit();
+        lib_name.writer().print("lib/{s}.buzz", .{name}) catch unreachable;
+
+        std.fs.cwd().copyFile(
+            lib_name.items,
+            std.fs.cwd().openDir("dist", .{}) catch unreachable,
+            lib_name.items,
+            .{},
+        ) catch unreachable;
+    }
+
+    std.fs.cwd().copyFile(
+        "lib/errors.buzz",
+        std.fs.cwd().openDir("dist", .{}) catch unreachable,
+        "lib/errors.buzz",
+        .{},
+    ) catch unreachable;
 }

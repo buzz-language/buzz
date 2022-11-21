@@ -108,5 +108,6 @@ target/
 zig-cache/
 zig-out/
 zig-test/
+dist/
 
 .vscode/
