@@ -33,7 +33,7 @@ fun itemCheck(Node tree) > int {
 fun main([str] args) > void !> OverflowError, UnderflowError {
     int N = 0;
     if (args.len() > 0) {
-        N = parseNumber(args[0]) ?? 0;
+        N = parseInt(args[0]) ?? 0;
     }
 
     int mindepth = 4;
@@ -48,7 +48,7 @@ fun main([str] args) > void !> OverflowError, UnderflowError {
 
     Node longlivedtree = bottomUpTree(maxdepth);
     for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        int iterations = math.pow(x: 2, y: maxdepth - depth + mindepth);
+        int iterations = toInt(math.pow(x: 2.0, y: toFloat(maxdepth - depth + mindepth)));
         int check = 0;
         for (int i = 0; i < iterations; i = i + 1) {
             check = check + itemCheck(bottomUpTree(depth));

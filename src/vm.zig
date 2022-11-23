@@ -463,7 +463,7 @@ pub const VM = struct {
 
         self.current_fiber.status = .Running;
 
-        return try self.run();
+        return self.run();
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {
@@ -476,7 +476,7 @@ pub const VM = struct {
         return null;
     }
 
-    fn readInstruction(self: *Self) u32 {
+    inline fn readInstruction(self: *Self) u32 {
         const current_frame: *CallFrame = self.currentFrame().?;
         var instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
 
@@ -517,792 +517,2351 @@ pub const VM = struct {
         return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
-    fn run(self: *Self) Error!void {
-        while (true) {
-            const current_frame: *CallFrame = self.currentFrame().?;
-            const full_instruction: u32 = self.readInstruction();
-            const instruction: OpCode = getCode(full_instruction);
-            const arg: u24 = getArg(full_instruction);
-            if (Config.debug_current_instruction) {
-                std.debug.print(
-                    "{}: {}\n",
-                    .{
-                        current_frame.ip,
-                        instruction,
-                    },
-                );
-            }
+    const OpFn = fn (*Self, *CallFrame, u32, OpCode, u24) void;
 
-            // We're at the start of catch clauses because an error was thrown
-            // We must close the try block scope
-            if (current_frame.try_ip == current_frame.ip - 1) {
-                assert(current_frame.try_top != null);
-                const err = self.pop();
+    const op_table = [_]OpFn{
+        OP_CONSTANT,
+        OP_NULL,
+        OP_VOID,
+        OP_TRUE,
+        OP_FALSE,
+        OP_POP,
+        OP_COPY,
+        OP_CLONE,
 
-                // Close scope
-                self.closeUpValues(@ptrCast(*Value, current_frame.try_top.?));
-                self.current_fiber.stack_top = current_frame.try_top.?;
+        OP_DEFINE_GLOBAL,
+        OP_GET_GLOBAL,
+        OP_SET_GLOBAL,
+        OP_GET_LOCAL,
+        OP_SET_LOCAL,
+        OP_GET_UPVALUE,
+        OP_SET_UPVALUE,
+        OP_GET_SUBSCRIPT,
+        OP_SET_SUBSCRIPT,
 
-                // Put error back on stack
-                self.push(err);
+        OP_EQUAL,
+        OP_IS,
+        OP_GREATER,
+        OP_LESS,
+        OP_ADD,
+        OP_ADD_STRING,
+        OP_ADD_LIST,
+        OP_ADD_MAP,
+        OP_SUBTRACT,
+        OP_MULTIPLY,
+        OP_DIVIDE,
+        OP_MOD,
+        OP_BNOT,
+        OP_BAND,
+        OP_BOR,
+        OP_XOR,
+        OP_SHL,
+        OP_SHR,
 
-                // As soon as we step into catch clauses, we're not in a try-catch block anymore
-                current_frame.try_ip = null;
-                current_frame.try_top = null;
-            }
+        OP_UNWRAP,
 
-            switch (instruction) {
-                .OP_NULL => self.push(Value{ .Null = {} }),
-                .OP_VOID => self.push(Value{ .Void = {} }),
-                .OP_TRUE => self.push(Value{ .Boolean = true }),
-                .OP_FALSE => self.push(Value{ .Boolean = false }),
-                .OP_POP => _ = self.pop(),
-                .OP_COPY => self.copy(arg),
-                .OP_CLONE => try self.clone(),
-                .OP_SWAP => self.swap(@intCast(u8, arg), self.readByte()),
-                .OP_DEFINE_GLOBAL => {
-                    try self.globals.ensureTotalCapacity(arg + 1);
-                    self.globals.expandToCapacity();
-                    self.globals.items[arg] = self.peek(0);
-                    _ = self.pop();
+        OP_NOT,
+        OP_NEGATE,
+
+        OP_SWAP,
+        OP_JUMP,
+        OP_JUMP_IF_FALSE,
+        OP_JUMP_IF_NOT_NULL,
+        OP_LOOP,
+        OP_FOREACH,
+
+        OP_CALL,
+        OP_INVOKE,
+
+        OP_CLOSURE,
+        OP_CLOSE_UPVALUE,
+
+        OP_ROUTINE,
+        OP_INVOKE_ROUTINE,
+        OP_RESUME,
+        OP_RESOLVE,
+        OP_YIELD,
+
+        OP_TRY,
+        OP_TRY_END,
+        OP_THROW,
+
+        OP_RETURN,
+
+        OP_OBJECT,
+        OP_INSTANCE,
+        OP_METHOD,
+        OP_PROPERTY,
+        OP_GET_PROPERTY,
+        OP_SET_PROPERTY,
+
+        OP_ENUM,
+        OP_ENUM_CASE,
+        OP_GET_ENUM_CASE,
+        OP_GET_ENUM_CASE_VALUE,
+        OP_GET_ENUM_CASE_FROM_VALUE,
+
+        OP_LIST,
+        OP_LIST_APPEND,
+
+        OP_MAP,
+        OP_SET_MAP,
+
+        OP_EXPORT,
+        OP_IMPORT,
+
+        OP_TO_STRING,
+    };
+
+    // FIXME: Figure out how to preserve always_tail with error return so we can get rid of inline error handling everywhere
+    inline fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
+        if (Config.debug_current_instruction) {
+            std.debug.print(
+                "{}: {}\n",
+                .{
+                    current_frame.ip,
+                    instruction,
                 },
-                .OP_GET_GLOBAL => self.push(self.currentGlobals().items[arg]),
-                .OP_SET_GLOBAL => self.currentGlobals().items[arg] = self.peek(0),
-                .OP_GET_LOCAL => self.push(current_frame.slots[arg]),
-                .OP_SET_LOCAL => current_frame.slots[arg] = self.peek(0),
-                .OP_GET_UPVALUE => self.push(current_frame.closure.upvalues.items[arg].location.*),
-                .OP_SET_UPVALUE => current_frame.closure.upvalues.items[arg].location.* = self.peek(0),
-                .OP_CONSTANT => self.push(self.readConstant(arg)),
-                .OP_TO_STRING => {
-                    const str = try valueToStringAlloc(self.gc.allocator, self.pop());
-                    defer self.gc.allocator.free(str);
-                    self.push(
-                        Value{
-                            .Obj = (try self.gc.copyString(str)).toObj(),
-                        },
-                    );
-                },
-                .OP_NEGATE => {
-                    const value = self.pop();
-
-                    if (value == .Integer) {
-                        self.push(Value{ .Integer = -value.Integer });
-                    } else {
-                        self.push(Value{ .Float = -value.Float });
-                    }
-                },
-                .OP_CLOSURE => {
-                    var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
-                    var closure: *ObjClosure = try self.gc.allocateObject(
-                        ObjClosure,
-                        try ObjClosure.init(self.gc.allocator, self, function),
-                    );
-
-                    self.push(Value{ .Obj = closure.toObj() });
-
-                    var i: usize = 0;
-                    while (i < function.upvalue_count) : (i += 1) {
-                        var is_local: bool = self.readByte() == 1;
-                        var index: u8 = self.readByte();
-
-                        if (is_local) {
-                            try closure.upvalues.append(try self.captureUpvalue(&(current_frame.slots[index])));
-                        } else {
-                            try closure.upvalues.append(current_frame.closure.upvalues.items[index]);
-                        }
-                    }
-                },
-                .OP_CLOSE_UPVALUE => {
-                    self.closeUpValues(@ptrCast(*Value, self.current_fiber.stack_top - 1));
-                    _ = self.pop();
-                },
-
-                .OP_ROUTINE => {
-                    const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
-                    const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
-
-                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
-                    const stack_len = arg_count + catch_count + 1;
-                    const stack_slice = stack_ptr[0..stack_len];
-
-                    var fiber = try self.gc.allocator.create(Fiber);
-                    fiber.* = try Fiber.init(
-                        self.gc.allocator,
-                        self.current_fiber,
-                        stack_slice,
-                        instruction,
-                        arg_count,
-                        catch_count > 0,
-                        null,
-                    );
-
-                    // Pop arguments and catch clauses
-                    self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
-
-                    const type_def = ObjTypeDef.cast(self.pop().Obj).?;
-
-                    // Put new fiber on the stack
-                    var obj_fiber = try self.gc.allocateObject(ObjFiber, ObjFiber{
-                        .fiber = fiber,
-                        .type_def = type_def,
-                    });
-
-                    self.push(obj_fiber.toValue());
-                },
-
-                .OP_INVOKE_ROUTINE => {
-                    const method: *ObjString = self.readString(arg);
-                    const arg_instruction: u32 = self.readInstruction();
-                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
-                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
-
-                    const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
-                    const stack_len = arg_count + catch_count + 1;
-                    const stack_slice = stack_ptr[0..stack_len];
-
-                    var fiber = try self.gc.allocator.create(Fiber);
-                    fiber.* = try Fiber.init(
-                        self.gc.allocator,
-                        self.current_fiber,
-                        stack_slice,
-                        instruction,
-                        arg_count,
-                        catch_count > 0,
-                        method,
-                    );
-
-                    // Pop arguments and catch clauses
-                    self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
-
-                    const type_def = ObjTypeDef.cast(self.pop().Obj).?;
-
-                    // Push new fiber on the stack
-                    var obj_fiber = try self.gc.allocateObject(ObjFiber, ObjFiber{
-                        .fiber = fiber,
-                        .type_def = type_def,
-                    });
-
-                    self.push(obj_fiber.toValue());
-                },
-
-                .OP_RESUME => {
-                    const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
-
-                    try obj_fiber.fiber.resume_(self);
-                },
-
-                .OP_RESOLVE => {
-                    const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
-
-                    try obj_fiber.fiber.resolve_(self);
-                },
-
-                .OP_YIELD => {
-                    self.current_fiber.yield(self);
-                },
-
-                .OP_CALL => {
-                    const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
-                    const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
-
-                    const catch_value = if (catch_count > 0) self.pop() else null;
-
-                    try self.callValue(
-                        self.peek(arg_count),
-                        arg_count,
-                        catch_value,
-                    );
-                },
-
-                .OP_INVOKE => {
-                    const method: *ObjString = self.readString(arg);
-                    const arg_instruction: u32 = self.readInstruction();
-                    const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
-                    const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
-
-                    try self.invoke(
-                        method,
-                        arg_count,
-                        if (catch_count > 0) self.pop() else null,
-                    );
-                },
-
-                .OP_RETURN => {
-                    if (self.returnFrame()) {
-                        return;
-                    }
-                },
-
-                .OP_EXPORT => {
-                    self.push(Value{ .Integer = @intCast(i64, arg) });
-                    return;
-                },
-
-                .OP_IMPORT => try self.import(self.peek(1), self.peek(0)),
-
-                .OP_TRY => {
-                    self.currentFrame().?.try_ip = @intCast(usize, arg);
-                    // We will close scope up to this top if an error is thrown
-                    self.currentFrame().?.try_top = self.current_fiber.stack_top;
-                },
-                .OP_TRY_END => {
-                    self.currentFrame().?.try_ip = null;
-                    self.currentFrame().?.try_top = null;
-                },
-
-                .OP_THROW => try self.throw(Error.Custom, self.pop()),
-
-                .OP_LIST => {
-                    var list: *ObjList = try self.gc.allocateObject(
-                        ObjList,
-                        ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
-                    );
-
-                    self.push(Value{ .Obj = list.toObj() });
-                },
-
-                .OP_LIST_APPEND => try self.appendToList(),
-
-                .OP_MAP => {
-                    var map: *ObjMap = try self.gc.allocateObject(ObjMap, ObjMap.init(
-                        self.gc.allocator,
-                        ObjTypeDef.cast(self.readConstant(arg).Obj).?,
-                    ));
-
-                    self.push(Value{ .Obj = map.toObj() });
-                },
-
-                .OP_SET_MAP => {
-                    var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
-                    var key: Value = self.peek(1);
-                    var value: Value = self.peek(0);
-
-                    try map.set(self.gc, key, value);
-
-                    _ = self.pop();
-                    _ = self.pop();
-                },
-
-                .OP_GET_SUBSCRIPT => try self.subscript(),
-
-                .OP_SET_SUBSCRIPT => try self.setSubscript(),
-
-                .OP_ENUM => {
-                    var enum_: *ObjEnum = try self.gc.allocateObject(
-                        ObjEnum,
-                        ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
-                    );
-
-                    self.push(Value{ .Obj = enum_.toObj() });
-                },
-
-                .OP_ENUM_CASE => try self.defineEnumCase(),
-
-                .OP_GET_ENUM_CASE => {
-                    var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
-
-                    _ = self.pop();
-
-                    var enum_case: *ObjEnumInstance = try self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
-                        .enum_ref = enum_,
-                        .case = @intCast(u8, arg),
-                    });
-
-                    self.push(Value{ .Obj = enum_case.toObj() });
-                },
-
-                .OP_GET_ENUM_CASE_VALUE => {
-                    var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).Obj).?;
-
-                    _ = self.pop();
-                    self.push(enum_case.enum_ref.cases.items[enum_case.case]);
-                },
-
-                .OP_GET_ENUM_CASE_FROM_VALUE => {
-                    var case_value = self.pop();
-                    var enum_: *ObjEnum = ObjEnum.cast(self.pop().Obj).?;
-
-                    var found = false;
-                    for (enum_.cases.items) |case, index| {
-                        if (valueEql(case, case_value)) {
-                            var enum_case: *ObjEnumInstance = try self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
-                                .enum_ref = enum_,
-                                .case = @intCast(u8, index),
-                            });
-
-                            self.push(Value{ .Obj = enum_case.toObj() });
-                            found = true;
-
-                            break;
-                        }
-                    }
-
-                    if (!found) {
-                        self.push(Value{ .Null = {} });
-                    }
-                },
-
-                .OP_OBJECT => {
-                    var object: *ObjObject = try self.gc.allocateObject(
-                        ObjObject,
-                        ObjObject.init(
-                            self.gc.allocator,
-                            ObjString.cast(self.readConstant(arg).Obj).?,
-                            ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?,
-                        ),
-                    );
-
-                    self.push(Value{ .Obj = object.toObj() });
-                },
-
-                .OP_INSTANCE => try self.instanciateObject(self.pop().Obj),
-
-                .OP_METHOD => try self.defineMethod(self.readString(arg)),
-
-                // Like OP_SET_PROPERTY but pops the value and leaves the instance on the stack
-                .OP_PROPERTY => try self.setObjectFieldDefaultValue(self.readString(arg)),
-
-                .OP_GET_PROPERTY => {
-                    var obj: *Obj = self.peek(0).Obj;
-
-                    switch (obj.obj_type) {
-                        .Object => {
-                            const object: *ObjObject = ObjObject.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            _ = self.pop(); // Pop instance
-                            self.push(object.static_fields.get(name).?);
-                        },
-                        .ObjectInstance => {
-                            const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            if (instance.fields.get(name)) |field| {
-                                _ = self.pop(); // Pop instance
-                                self.push(field);
-                            } else if (instance.object) |object| {
-                                if (object.methods.get(name)) |method| {
-                                    try self.bindMethod(method, null);
-                                } else {
-                                    unreachable;
-                                }
-                            }
-                        },
-                        .Enum => {
-                            unreachable;
-                        },
-                        .List => {
-                            const list = ObjList.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            if (try list.member(self, name)) |member| {
-                                try self.bindMethod(null, member);
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .Map => {
-                            const map = ObjMap.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            if (try map.member(self, name)) |member| {
-                                try self.bindMethod(null, member);
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .String => {
-                            const name: *ObjString = self.readString(arg);
-
-                            if (try ObjString.member(self, name)) |member| {
-                                try self.bindMethod(null, member);
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .Pattern => {
-                            const name: *ObjString = self.readString(arg);
-
-                            if (try ObjPattern.member(self, name)) |member| {
-                                try self.bindMethod(null, member);
-                            } else {
-                                unreachable;
-                            }
-                        },
-                        .Fiber => {
-                            const name: *ObjString = self.readString(arg);
-
-                            if (try ObjFiber.member(self, name)) |member| {
-                                try self.bindMethod(null, member);
-                            }
-
-                            unreachable;
-                        },
-                        else => unreachable,
-                    }
-                },
-
-                .OP_SET_PROPERTY => {
-                    var obj: *Obj = self.peek(1).Obj;
-
-                    switch (obj.obj_type) {
-                        .ObjectInstance => {
-                            const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            // Set new value
-                            try instance.setField(self.gc, name, self.peek(0));
-
-                            // Get the new value from stack, pop the instance and push value again
-                            const value: Value = self.pop();
-                            _ = self.pop();
-                            self.push(value);
-                        },
-                        .Object => {
-                            const object: *ObjObject = ObjObject.cast(obj).?;
-                            const name: *ObjString = self.readString(arg);
-
-                            // Set new value
-                            try object.setStaticField(self.gc, name, self.peek(0));
-
-                            // Get the new value from stack, pop the object and push value again
-                            const value: Value = self.pop();
-                            _ = self.pop();
-                            self.push(value);
-                        },
-                        else => unreachable,
-                    }
-                },
-
-                .OP_NOT => self.push(Value{ .Boolean = !self.pop().Boolean }),
-
-                .OP_BNOT => {
-                    const value = self.pop();
-
-                    self.push(Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) });
-                },
-
-                .OP_GREATER => {
-                    const right_value = floatToInteger(self.pop());
-                    const left_value = floatToInteger(self.pop());
-
-                    const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
-                    const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
-                    const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
-                    const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
-
-                    if (left_f) |lf| {
-                        if (right_f) |rf| {
-                            self.push(Value{ .Boolean = lf > rf });
-                        } else {
-                            self.push(Value{ .Boolean = lf > @intToFloat(f64, right_i.?) });
-                        }
-                    } else {
-                        if (right_f) |rf| {
-                            self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) > rf });
-                        } else {
-                            self.push(Value{ .Boolean = left_i.? > right_i.? });
-                        }
-                    }
-                },
-
-                .OP_LESS => {
-                    const right_value = floatToInteger(self.pop());
-                    const left_value = floatToInteger(self.pop());
-
-                    const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
-                    const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
-                    const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
-                    const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
-
-                    if (left_f) |lf| {
-                        if (right_f) |rf| {
-                            self.push(Value{ .Boolean = lf < rf });
-                        } else {
-                            self.push(Value{ .Boolean = lf < @intToFloat(f64, right_i.?) });
-                        }
-                    } else {
-                        if (right_f) |rf| {
-                            self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) < rf });
-                        } else {
-                            self.push(Value{ .Boolean = left_i.? < right_i.? });
-                        }
-                    }
-                },
-
-                .OP_ADD_STRING => {
-                    const right: *ObjString = ObjString.cast(self.pop().Obj).?;
-                    const left: *ObjString = ObjString.cast(self.pop().Obj).?;
-
-                    self.push(Value{ .Obj = (try left.concat(self, right)).toObj() });
-                },
-
-                .OP_ADD_LIST => {
-                    const right: *ObjList = ObjList.cast(self.pop().Obj).?;
-                    const left: *ObjList = ObjList.cast(self.pop().Obj).?;
-
-                    var new_list = std.ArrayList(Value).init(self.gc.allocator);
-                    try new_list.appendSlice(left.items.items);
-                    try new_list.appendSlice(right.items.items);
-
-                    self.push(
-                        (try self.gc.allocateObject(ObjList, ObjList{
-                            .type_def = left.type_def,
-                            .methods = left.methods,
-                            .items = new_list,
-                        })).toValue(),
-                    );
-                },
-
-                .OP_ADD_MAP => {
-                    const right: *ObjMap = ObjMap.cast(self.pop().Obj).?;
-                    const left: *ObjMap = ObjMap.cast(self.pop().Obj).?;
-
-                    var new_map = try left.map.clone();
-                    var it = right.map.iterator();
-                    while (it.next()) |entry| {
-                        try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
-                    }
-
-                    self.push(
-                        (try self.gc.allocateObject(ObjMap, ObjMap{
-                            .type_def = left.type_def,
-                            .methods = left.methods,
-                            .map = new_map,
-                        })).toValue(),
-                    );
-                },
-
-                .OP_ADD => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    if (right_f != null or left_f != null) {
-                        self.push(Value{
-                            .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
-                        });
-                    } else {
-                        // both integers
-                        self.push(Value{
-                            .Integer = left_i.? + right_i.?,
-                        });
-                    }
-                },
-
-                .OP_SUBTRACT => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    if (right_f != null or left_f != null) {
-                        self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
-                    } else {
-                        self.push(Value{ .Integer = left_i.? - right_i.? });
-                    }
-                },
-
-                .OP_MULTIPLY => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    if (right_f != null or left_f != null) {
-                        self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
-                    } else {
-                        self.push(Value{ .Integer = left_i.? * right_i.? });
-                    }
-                },
-
-                .OP_DIVIDE => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    self.push(
-                        Value{
-                            .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
-                        },
-                    );
-                },
-
-                .OP_MOD => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    if (right_f != null or left_f != null) {
-                        self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
-                    } else {
-                        self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
-                    }
-                },
-
-                .OP_BAND => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    self.push(Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
-                    });
-                },
-
-                .OP_BOR => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-
-                    self.push(Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
-                    });
-                },
-
-                .OP_XOR => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-                    self.push(Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
-                    });
-                },
-
-                .OP_SHL => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-                    const b = right_i orelse @floatToInt(i64, right_f.?);
-
-                    if (b < 0) {
-                        if (b * -1 > std.math.maxInt(u6)) {
-                            self.push(Value{ .Integer = 0 });
-                        } else {
-                            self.push(Value{
-                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
-                            });
-                        }
-                    } else {
-                        if (b > std.math.maxInt(u6)) {
-                            self.push(Value{ .Integer = 0 });
-                        } else {
-                            self.push(Value{
-                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
-                            });
-                        }
-                    }
-                },
-
-                .OP_SHR => {
-                    const right: Value = floatToInteger(self.pop());
-                    const left: Value = floatToInteger(self.pop());
-
-                    const right_f: ?f64 = if (right == .Float) right.Float else null;
-                    const left_f: ?f64 = if (left == .Float) left.Float else null;
-                    const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-                    const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-                    const b = right_i orelse @floatToInt(i64, right_f.?);
-
-                    if (b < 0) {
-                        if (b * -1 > std.math.maxInt(u6)) {
-                            self.push(Value{ .Integer = 0 });
-                        } else {
-                            self.push(Value{
-                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
-                            });
-                        }
-                    } else {
-                        if (b > std.math.maxInt(u6)) {
-                            self.push(Value{ .Integer = 0 });
-                        } else {
-                            self.push(Value{
-                                .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
-                            });
-                        }
-                    }
-                },
-
-                .OP_EQUAL => self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) }),
-
-                .OP_IS => self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) }),
-
-                .OP_JUMP => current_frame.ip += arg,
-
-                .OP_JUMP_IF_FALSE => {
-                    if (!self.peek(0).Boolean) {
-                        current_frame.ip += arg;
-                    }
-                },
-
-                .OP_JUMP_IF_NOT_NULL => {
-                    if (self.peek(0) != .Null) {
-                        current_frame.ip += arg;
-                    }
-                },
-
-                .OP_LOOP => current_frame.ip -= arg,
-
-                .OP_FOREACH => try self.foreach(),
-
-                .OP_UNWRAP => {
-                    if (self.peek(0) == .Null) {
-                        try self.throw(Error.UnwrappedNull, (try self.gc.copyString("Force unwrapped optional is null")).toValue());
-                    }
-                },
-            }
-
-            if (Config.debug_stack) {
-                std.debug.print(
-                    "frame: {s} {*}, code: {}\n",
-                    .{
-                        current_frame.closure.function.name.string,
-                        current_frame.slots,
-                        instruction,
-                    },
-                );
-                try dumpStack(self);
+            );
+        }
+
+        // We're at the start of catch clauses because an error was thrown
+        // We must close the try block scope
+        if (current_frame.try_ip == current_frame.ip - 1) {
+            assert(current_frame.try_top != null);
+            const err = self.pop();
+
+            // Close scope
+            self.closeUpValues(@ptrCast(*Value, current_frame.try_top.?));
+            self.current_fiber.stack_top = current_frame.try_top.?;
+
+            // Put error back on stack
+            self.push(err);
+
+            // As soon as we step into catch clauses, we're not in a try-catch block anymore
+            current_frame.try_ip = null;
+            current_frame.try_top = null;
+        }
+
+        // Tail call
+        @call(
+            .{ .modifier = .always_tail },
+            op_table[@enumToInt(instruction)],
+            .{
+                self,
+                current_frame,
+                full_instruction,
+                instruction,
+                arg,
+            },
+        );
+    }
+
+    inline fn panic(e: anytype) void {
+        std.debug.print("{}\n", .{e});
+        std.os.exit(1);
+
+        unreachable;
+    }
+
+    fn OP_NULL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Null = {} });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_VOID(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Void = {} });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TRUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Boolean = true });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_FALSE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Boolean = false });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_POP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_COPY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.copy(arg);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_CLONE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.clone() catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SWAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.swap(@intCast(u8, arg), self.readByte());
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.globals.ensureTotalCapacity(arg + 1) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        self.globals.expandToCapacity();
+        self.globals.items[arg] = self.peek(0);
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.push(self.currentGlobals().items[arg]);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.currentGlobals().items[arg] = self.peek(0);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_LOCAL(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.push(current_frame.slots[arg]);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_LOCAL(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        current_frame.slots[arg] = self.peek(0);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.push(current_frame.closure.upvalues.items[arg].location.*);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        current_frame.closure.upvalues.items[arg].location.* = self.peek(0);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_CONSTANT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.push(self.readConstant(arg));
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const str = valueToStringAlloc(self.gc.allocator, self.pop()) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        self.push(
+            Value{
+                .Obj = (self.gc.copyString(str) catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toObj(),
+            },
+        );
+        self.gc.allocator.free(str);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_NEGATE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const value = self.pop();
+
+        if (value == .Integer) {
+            self.push(Value{ .Integer = -value.Integer });
+        } else {
+            self.push(Value{ .Float = -value.Float });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
+        var closure: *ObjClosure = self.gc.allocateObject(
+            ObjClosure,
+            ObjClosure.init(self.gc.allocator, self, function) catch |e| {
+                panic(e);
+                unreachable;
+            },
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = closure.toObj() });
+
+        var i: usize = 0;
+        while (i < function.upvalue_count) : (i += 1) {
+            var is_local: bool = self.readByte() == 1;
+            var index: u8 = self.readByte();
+
+            if (is_local) {
+                closure.upvalues.append(self.captureUpvalue(&(current_frame.slots[index])) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            } else {
+                closure.upvalues.append(current_frame.closure.upvalues.items[index]) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
             }
         }
 
-        return true;
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
     }
 
-    fn foreach(self: *Self) !void {
+    fn OP_CLOSE_UPVALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.closeUpValues(@ptrCast(*Value, self.current_fiber.stack_top - 1));
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ROUTINE(self: *Self, _: *CallFrame, full_instruction: u32, instruction: OpCode, _: u24) void {
+        const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
+        const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+
+        const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
+        const stack_len = arg_count + catch_count + 1;
+        const stack_slice = stack_ptr[0..stack_len];
+
+        var fiber = self.gc.allocator.create(Fiber) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        fiber.* = Fiber.init(
+            self.gc.allocator,
+            self.current_fiber,
+            stack_slice,
+            instruction,
+            arg_count,
+            catch_count > 0,
+            null,
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // Pop arguments and catch clauses
+        self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
+
+        const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+
+        // Put new fiber on the stack
+        var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
+            .fiber = fiber,
+            .type_def = type_def,
+        }) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(obj_fiber.toValue());
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_INVOKE_ROUTINE(self: *Self, _: *CallFrame, _: u32, instruction: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+
+        const stack_ptr = self.current_fiber.stack_top - arg_count - catch_count - 1;
+        const stack_len = arg_count + catch_count + 1;
+        const stack_slice = stack_ptr[0..stack_len];
+
+        var fiber = self.gc.allocator.create(Fiber) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        fiber.* = Fiber.init(
+            self.gc.allocator,
+            self.current_fiber,
+            stack_slice,
+            instruction,
+            arg_count,
+            catch_count > 0,
+            method,
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // Pop arguments and catch clauses
+        self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
+
+        const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+
+        // Push new fiber on the stack
+        var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
+            .fiber = fiber,
+            .type_def = type_def,
+        }) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(obj_fiber.toValue());
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+        obj_fiber.fiber.resume_(self) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+        obj_fiber.fiber.resolve_(self) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_YIELD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.current_fiber.yield(self);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_CALL(self: *Self, _: *CallFrame, full_instruction: u32, _: OpCode, _: u24) void {
+        const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
+        const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        self.callValue(
+            self.peek(arg_count),
+            arg_count,
+            catch_value,
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+
+        self.invoke(
+            method,
+            arg_count,
+            if (catch_count > 0) self.pop() else null,
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    // result_count > 0 when the return is `export`
+    inline fn returnFrame(self: *Self) bool {
+        var result = self.pop();
+
+        const frame: *CallFrame = self.currentFrame().?;
+
+        self.closeUpValues(&frame.slots[0]);
+
+        self.current_fiber.frame_count -= 1;
+        _ = self.current_fiber.frames.pop();
+
+        // We popped the last frame
+        if (self.current_fiber.frame_count == 0) {
+            // We're in a fiber
+            if (self.current_fiber.parent_fiber != null) {
+                self.current_fiber.finish(self, result) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+
+                // Don't stop the VM
+                return false;
+            }
+
+            // We're not in a fiber, the program is over
+            _ = self.pop();
+            return true;
+        }
+
+        // Normal return, set the stack back and push the result
+        self.current_fiber.stack_top = frame.slots;
+
+        self.push(result);
+
+        return false;
+    }
+
+    fn OP_RETURN(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        if (self.returnFrame()) {
+            return;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_EXPORT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.push(Value{ .Integer = @intCast(i64, arg) });
+
+        // Ends program, so we don't call dispatch
+    }
+
+    fn OP_IMPORT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const fullpath = ObjString.cast(self.peek(1).Obj).?;
+        const closure = ObjClosure.cast(self.peek(0).Obj).?;
+
+        if (self.import_registry.get(fullpath)) |globals| {
+            for (globals.items) |global| {
+                self.globals.append(global) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            }
+        } else {
+            var vm = self.gc.allocator.create(VM) catch |e| {
+                panic(e);
+                unreachable;
+            };
+            vm.* = VM.init(self.gc, self.import_registry) catch |e| {
+                panic(e);
+                unreachable;
+            };
+            // TODO: how to free this since we copy things to new vm, also fails anyway
+            // {
+            //     defer vm.deinit();
+            //     defer gn.deinit();
+            // }
+
+            vm.interpret(closure.function, null) catch |e| {
+                panic(e);
+                unreachable;
+            };
+
+            // Top of stack is how many export we got
+            var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
+
+            // Copy them to this vm globals
+            var import_cache = std.ArrayList(Value).init(self.gc.allocator);
+            if (exported_count > 0) {
+                var i: u8 = exported_count;
+                while (i > 0) : (i -= 1) {
+                    const global = vm.peek(i);
+                    self.globals.append(global) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                    import_cache.append(global) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+            }
+
+            self.import_registry.put(fullpath, import_cache) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        // Pop path and closure
+        _ = self.pop();
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TRY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        self.currentFrame().?.try_ip = @intCast(usize, arg);
+        // We will close scope up to this top if an error is thrown
+        self.currentFrame().?.try_top = self.current_fiber.stack_top;
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TRY_END(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.currentFrame().?.try_ip = null;
+        self.currentFrame().?.try_top = null;
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_THROW(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.throw(Error.Custom, self.pop()) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var list: *ObjList = self.gc.allocateObject(
+            ObjList,
+            ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = list.toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
+        var list_value: Value = self.peek(0);
+
+        list.rawAppend(self.gc, list_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var map: *ObjMap = self.gc.allocateObject(ObjMap, ObjMap.init(
+            self.gc.allocator,
+            ObjTypeDef.cast(self.readConstant(arg).Obj).?,
+        )) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = map.toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
+        var key: Value = self.peek(1);
+        var value: Value = self.peek(0);
+
+        map.set(self.gc, key, value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        _ = self.pop();
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var subscriptable: *Obj = self.peek(1).Obj;
+        var index: Value = floatToInteger(self.peek(0));
+
+        switch (subscriptable.obj_type) {
+            .List => {
+                var list: *ObjList = ObjList.cast(subscriptable).?;
+
+                if (index != .Integer or index.Integer < 0) {
+                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue()) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+
+                const list_index: usize = @intCast(usize, index.Integer);
+
+                if (list_index < list.items.items.len) {
+                    var list_item: Value = list.items.items[list_index];
+
+                    // Pop list and index
+                    _ = self.pop();
+                    _ = self.pop();
+
+                    // Push value
+                    self.push(list_item);
+                } else {
+                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue()) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+            },
+            .Map => {
+                var map: *ObjMap = ObjMap.cast(subscriptable).?;
+
+                // Pop map and key
+                _ = self.pop();
+                _ = self.pop();
+
+                if (map.map.get(valueToHashable(index))) |value| {
+                    // Push value
+                    self.push(value);
+                } else {
+                    self.push(Value{ .Null = {} });
+                }
+            },
+            .String => {
+                var str: *ObjString = ObjString.cast(subscriptable).?;
+
+                if (index != .Integer or index.Integer < 0) {
+                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound string access.") catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue()) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+
+                const str_index: usize = @intCast(usize, index.Integer);
+
+                if (str_index < str.string.len) {
+                    var str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue();
+
+                    // Pop str and index
+                    _ = self.pop();
+                    _ = self.pop();
+
+                    // Push value
+                    self.push(str_item);
+                } else {
+                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound str access.") catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue()) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+            },
+            else => unreachable,
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var list_or_map: *Obj = self.peek(2).Obj;
+        var index: Value = self.peek(1);
+        var value: Value = self.peek(0);
+
+        if (list_or_map.obj_type == .List) {
+            var list: *ObjList = ObjList.cast(list_or_map).?;
+
+            if (index != .Integer or index.Integer < 0) {
+                self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue()) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            }
+
+            const list_index: usize = @intCast(usize, index.Integer);
+
+            if (list_index < list.items.items.len) {
+                list.set(self.gc, list_index, value) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+
+                // Pop everyting
+                _ = self.pop();
+                _ = self.pop();
+                _ = self.pop();
+
+                // Push the value
+                self.push(value);
+            } else {
+                self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue()) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            }
+        } else {
+            var map: *ObjMap = ObjMap.cast(list_or_map).?;
+
+            map.set(self.gc, index, value) catch |e| {
+                panic(e);
+                unreachable;
+            };
+
+            // Pop everyting
+            _ = self.pop();
+            _ = self.pop();
+            _ = self.pop();
+
+            // Push the value
+            self.push(value);
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ENUM(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var enum_: *ObjEnum = self.gc.allocateObject(
+            ObjEnum,
+            ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = enum_.toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).Obj).?;
+        var enum_value: Value = self.peek(0);
+
+        enum_.cases.append(enum_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        self.gc.markObjDirty(&enum_.obj) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
+
+        _ = self.pop();
+
+        var enum_case: *ObjEnumInstance = self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
+            .enum_ref = enum_,
+            .case = @intCast(u8, arg),
+        }) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = enum_case.toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).Obj).?;
+
+        _ = self.pop();
+        self.push(enum_case.enum_ref.cases.items[enum_case.case]);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var case_value = self.pop();
+        var enum_: *ObjEnum = ObjEnum.cast(self.pop().Obj).?;
+
+        var found = false;
+        for (enum_.cases.items) |case, index| {
+            if (valueEql(case, case_value)) {
+                var enum_case: *ObjEnumInstance = self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
+                    .enum_ref = enum_,
+                    .case = @intCast(u8, index),
+                }) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+
+                self.push(Value{ .Obj = enum_case.toObj() });
+                found = true;
+
+                break;
+            }
+        }
+
+        if (!found) {
+            self.push(Value{ .Null = {} });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var object: *ObjObject = self.gc.allocateObject(
+            ObjObject,
+            ObjObject.init(
+                self.gc.allocator,
+                ObjString.cast(self.readConstant(arg).Obj).?,
+                ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?,
+            ),
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value{ .Obj = object.toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const object_or_type = self.pop().Obj;
+        var instance: *ObjObjectInstance = self.gc.allocateObject(
+            ObjObjectInstance,
+            ObjObjectInstance.init(
+                self.gc.allocator,
+                ObjObject.cast(object_or_type),
+                ObjTypeDef.cast(object_or_type),
+            ),
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // If not anonymous, set default fields
+        if (ObjObject.cast(object_or_type)) |object| {
+            // Set instance fields with default values
+            var it = object.fields.iterator();
+            while (it.next()) |kv| {
+                instance.setField(
+                    self.gc,
+                    kv.key_ptr.*,
+                    self.cloneValue(kv.value_ptr.*) catch |e| {
+                        panic(e);
+                        unreachable;
+                    },
+                ) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            }
+        }
+
+        self.push(instance.toValue());
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_METHOD(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const name = self.readString(arg);
+        var method: Value = self.peek(0);
+        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+
+        object.methods.put(name, ObjClosure.cast(method.Obj).?) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const name = self.readString(arg);
+        var property: Value = self.peek(0);
+        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+
+        if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
+            object.setField(self.gc, name, property) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
+            object.setStaticField(self.gc, name, property) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        _ = self.pop();
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var obj: *Obj = self.peek(0).Obj;
+
+        switch (obj.obj_type) {
+            .Object => {
+                const object: *ObjObject = ObjObject.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                _ = self.pop(); // Pop instance
+                self.push(object.static_fields.get(name).?);
+            },
+            .ObjectInstance => {
+                const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                if (instance.fields.get(name)) |field| {
+                    _ = self.pop(); // Pop instance
+                    self.push(field);
+                } else if (instance.object) |object| {
+                    if (object.methods.get(name)) |method| {
+                        self.bindMethod(method, null) catch |e| {
+                            panic(e);
+                            unreachable;
+                        };
+                    } else {
+                        unreachable;
+                    }
+                }
+            },
+            .Enum => {
+                unreachable;
+            },
+            .List => {
+                const list = ObjList.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                if (list.member(self, name) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |member| {
+                    self.bindMethod(null, member) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                } else {
+                    unreachable;
+                }
+            },
+            .Map => {
+                const map = ObjMap.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                if (map.member(self, name) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |member| {
+                    self.bindMethod(null, member) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                } else {
+                    unreachable;
+                }
+            },
+            .String => {
+                const name: *ObjString = self.readString(arg);
+
+                if (ObjString.member(self, name) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |member| {
+                    self.bindMethod(null, member) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                } else {
+                    unreachable;
+                }
+            },
+            .Pattern => {
+                const name: *ObjString = self.readString(arg);
+
+                if (ObjPattern.member(self, name) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |member| {
+                    self.bindMethod(null, member) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                } else {
+                    unreachable;
+                }
+            },
+            .Fiber => {
+                const name: *ObjString = self.readString(arg);
+
+                if (ObjFiber.member(self, name) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |member| {
+                    self.bindMethod(null, member) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
+                }
+
+                unreachable;
+            },
+            else => unreachable,
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        var obj: *Obj = self.peek(1).Obj;
+
+        switch (obj.obj_type) {
+            .ObjectInstance => {
+                const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                // Set new value
+                instance.setField(self.gc, name, self.peek(0)) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+
+                // Get the new value from stack, pop the instance and push value again
+                const value: Value = self.pop();
+                _ = self.pop();
+                self.push(value);
+            },
+            .Object => {
+                const object: *ObjObject = ObjObject.cast(obj).?;
+                const name: *ObjString = self.readString(arg);
+
+                // Set new value
+                object.setStaticField(self.gc, name, self.peek(0)) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+
+                // Get the new value from stack, pop the object and push value again
+                const value: Value = self.pop();
+                _ = self.pop();
+                self.push(value);
+            },
+            else => unreachable,
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_NOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Boolean = !self.pop().Boolean });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_BNOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const value = self.pop();
+
+        self.push(Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GREATER(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right_value = floatToInteger(self.pop());
+        const left_value = floatToInteger(self.pop());
+
+        const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
+        const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
+        const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
+        const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+
+        if (left_f) |lf| {
+            if (right_f) |rf| {
+                self.push(Value{ .Boolean = lf > rf });
+            } else {
+                self.push(Value{ .Boolean = lf > @intToFloat(f64, right_i.?) });
+            }
+        } else {
+            if (right_f) |rf| {
+                self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) > rf });
+            } else {
+                self.push(Value{ .Boolean = left_i.? > right_i.? });
+            }
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_LESS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right_value = floatToInteger(self.pop());
+        const left_value = floatToInteger(self.pop());
+
+        const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
+        const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
+        const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
+        const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+
+        if (left_f) |lf| {
+            if (right_f) |rf| {
+                self.push(Value{ .Boolean = lf < rf });
+            } else {
+                self.push(Value{ .Boolean = lf < @intToFloat(f64, right_i.?) });
+            }
+        } else {
+            if (right_f) |rf| {
+                self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) < rf });
+            } else {
+                self.push(Value{ .Boolean = left_i.? < right_i.? });
+            }
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ADD_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: *ObjString = ObjString.cast(self.pop().Obj).?;
+        const left: *ObjString = ObjString.cast(self.pop().Obj).?;
+
+        self.push(Value{ .Obj = (left.concat(self, right) catch |e| {
+            panic(e);
+            unreachable;
+        }).toObj() });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: *ObjList = ObjList.cast(self.pop().Obj).?;
+        const left: *ObjList = ObjList.cast(self.pop().Obj).?;
+
+        var new_list = std.ArrayList(Value).init(self.gc.allocator);
+        new_list.appendSlice(left.items.items) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        new_list.appendSlice(right.items.items) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(
+            (self.gc.allocateObject(ObjList, ObjList{
+                .type_def = left.type_def,
+                .methods = left.methods,
+                .items = new_list,
+            }) catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue(),
+        );
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: *ObjMap = ObjMap.cast(self.pop().Obj).?;
+        const left: *ObjMap = ObjMap.cast(self.pop().Obj).?;
+
+        var new_map = left.map.clone() catch |e| {
+            panic(e);
+            unreachable;
+        };
+        var it = right.map.iterator();
+        while (it.next()) |entry| {
+            new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        self.push(
+            (self.gc.allocateObject(ObjMap, ObjMap{
+                .type_def = left.type_def,
+                .methods = left.methods,
+                .map = new_map,
+            }) catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue(),
+        );
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ADD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        if (right_f != null or left_f != null) {
+            self.push(Value{
+                .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
+            });
+        } else {
+            // both integers
+            self.push(Value{
+                .Integer = left_i.? + right_i.?,
+            });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SUBTRACT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        if (right_f != null or left_f != null) {
+            self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
+        } else {
+            self.push(Value{ .Integer = left_i.? - right_i.? });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MULTIPLY(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        if (right_f != null or left_f != null) {
+            self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
+        } else {
+            self.push(Value{ .Integer = left_i.? * right_i.? });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_DIVIDE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        self.push(
+            Value{
+                .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
+            },
+        );
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MOD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        if (right_f != null or left_f != null) {
+            self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
+        } else {
+            self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_BAND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        self.push(Value{
+            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
+        });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_BOR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+
+        self.push(Value{
+            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
+        });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_XOR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        self.push(Value{
+            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
+        });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SHL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const b = right_i orelse @floatToInt(i64, right_f.?);
+
+        if (b < 0) {
+            if (b * -1 > std.math.maxInt(u6)) {
+                self.push(Value{ .Integer = 0 });
+            } else {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
+                });
+            }
+        } else {
+            if (b > std.math.maxInt(u6)) {
+                self.push(Value{ .Integer = 0 });
+            } else {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
+                });
+            }
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SHR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right: Value = floatToInteger(self.pop());
+        const left: Value = floatToInteger(self.pop());
+
+        const right_f: ?f64 = if (right == .Float) right.Float else null;
+        const left_f: ?f64 = if (left == .Float) left.Float else null;
+        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
+        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const b = right_i orelse @floatToInt(i64, right_f.?);
+
+        if (b < 0) {
+            if (b * -1 > std.math.maxInt(u6)) {
+                self.push(Value{ .Integer = 0 });
+            } else {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
+                });
+            }
+        } else {
+            if (b > std.math.maxInt(u6)) {
+                self.push(Value{ .Integer = 0 });
+            } else {
+                self.push(Value{
+                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
+                });
+            }
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_JUMP(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        current_frame.ip += arg;
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_JUMP_IF_FALSE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        if (!self.peek(0).Boolean) {
+            current_frame.ip += arg;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_JUMP_IF_NOT_NULL(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        if (self.peek(0) != .Null) {
+            current_frame.ip += arg;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_LOOP(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        current_frame.ip -= arg;
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var iterable_value: Value = self.peek(0);
         var iterable: *Obj = iterable_value.Obj;
         switch (iterable.obj_type) {
@@ -1311,14 +2870,20 @@ pub const VM = struct {
                 var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
                 var str: *ObjString = ObjString.cast(iterable).?;
 
-                key_slot.* = if (try str.next(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
+                key_slot.* = if (str.next(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |new_index|
                     Value{ .Integer = new_index }
                 else
                     Value{ .Null = {} };
 
                 // Set new value
                 if (key_slot.* != .Null) {
-                    value_slot.* = (try self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]}))).toValue();
+                    value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]})) catch |e| {
+                        panic(e);
+                        unreachable;
+                    }).toValue();
                 }
             },
             .List => {
@@ -1327,7 +2892,10 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(iterable).?;
 
                 // Get next index
-                key_slot.* = if (try list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer)) |new_index|
+                key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+                    panic(e);
+                    unreachable;
+                }) |new_index|
                     Value{ .Integer = new_index }
                 else
                     Value{ .Null = {} };
@@ -1343,7 +2911,10 @@ pub const VM = struct {
                 var enum_: *ObjEnum = ObjEnum.cast(iterable).?;
 
                 // Get next enum case
-                var next_case: ?*ObjEnumInstance = try enum_.rawNext(self, enum_case);
+                var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
                 value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = {} });
             },
             .Map => {
@@ -1366,86 +2937,77 @@ pub const VM = struct {
                 if (fiber.fiber.status == .Over) {
                     value_slot.* = Value{ .Null = {} };
                 } else {
-                    try fiber.fiber.resume_(self);
+                    fiber.fiber.resume_(self) catch |e| {
+                        panic(e);
+                        unreachable;
+                    };
                 }
             },
             else => unreachable,
         }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
     }
 
-    // result_count > 0 when the return is `export`
-    fn returnFrame(self: *Self) bool {
-        var result = self.pop();
-
-        const frame: *CallFrame = self.currentFrame().?;
-
-        self.closeUpValues(&frame.slots[0]);
-
-        self.current_fiber.frame_count -= 1;
-        _ = self.current_fiber.frames.pop();
-
-        // We popped the last frame
-        if (self.current_fiber.frame_count == 0) {
-            // We're in a fiber
-            if (self.current_fiber.parent_fiber != null) {
-                try self.current_fiber.finish(self, result);
-
-                // Don't stop the VM
-                return false;
-            }
-
-            // We're not in a fiber, the program is over
-            _ = self.pop();
-            return true;
+    fn OP_UNWRAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        if (self.peek(0) == .Null) {
+            self.throw(Error.UnwrappedNull, (self.gc.copyString("Force unwrapped optional is null") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
         }
 
-        // Normal return, set the stack back and push the result
-        self.current_fiber.stack_top = frame.slots;
-
-        self.push(result);
-
-        return false;
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
     }
 
-    fn import(self: *Self, path: Value, value: Value) Error!void {
-        const fullpath = ObjString.cast(path.Obj).?;
-        const closure = ObjClosure.cast(value.Obj).?;
+    fn run(self: *Self) void {
+        const next_current_frame: *CallFrame = self.currentFrame().?;
+        const next_full_instruction: u32 = self.readInstruction();
+        const next_instruction: OpCode = getCode(next_full_instruction);
+        const next_arg: u24 = getArg(next_full_instruction);
 
-        if (self.import_registry.get(fullpath)) |globals| {
-            for (globals.items) |global| {
-                try self.globals.append(global);
-            }
-        } else {
-            var vm = try self.gc.allocator.create(VM);
-            vm.* = try VM.init(self.gc, self.import_registry);
-            // TODO: how to free this since we copy things to new vm, also fails anyway
-            // {
-            //     defer vm.deinit();
-            //     defer gn.deinit();
-            // }
-
-            try vm.interpret(closure.function, null);
-
-            // Top of stack is how many export we got
-            var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
-
-            // Copy them to this vm globals
-            var import_cache = std.ArrayList(Value).init(self.gc.allocator);
-            if (exported_count > 0) {
-                var i: u8 = exported_count;
-                while (i > 0) : (i -= 1) {
-                    const global = vm.peek(i);
-                    try self.globals.append(global);
-                    try import_cache.append(global);
-                }
-            }
-
-            try self.import_registry.put(fullpath, import_cache);
+        if (Config.debug_current_instruction) {
+            std.debug.print(
+                "{}: {}\n",
+                .{
+                    next_current_frame.ip,
+                    next_instruction,
+                },
+            );
         }
 
-        // Pop path and closure
-        _ = self.pop();
-        _ = self.pop();
+        op_table[@enumToInt(next_instruction)](
+            self,
+            next_current_frame,
+            next_full_instruction,
+            next_instruction,
+            next_arg,
+        );
     }
 
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
@@ -1501,7 +3063,7 @@ pub const VM = struct {
                     }
                 }
 
-                return code;
+                std.os.exit(1);
             } else if (self.current_fiber.frame_count == 0) {
                 // Error raised inside a fiber, forward it to parent fiber
                 self.current_fiber = self.current_fiber.parent_fiber.?;
@@ -1644,28 +3206,6 @@ pub const VM = struct {
         }
     }
 
-    fn instanciateObject(self: *Self, object_or_type: *Obj) !void {
-        var instance: *ObjObjectInstance = try self.gc.allocateObject(
-            ObjObjectInstance,
-            ObjObjectInstance.init(
-                self.gc.allocator,
-                ObjObject.cast(object_or_type),
-                ObjTypeDef.cast(object_or_type),
-            ),
-        );
-
-        // If not anonymous, set default fields
-        if (ObjObject.cast(object_or_type)) |object| {
-            // Set instance fields with default values
-            var it = object.fields.iterator();
-            while (it.next()) |kv| {
-                try instance.setField(self.gc, kv.key_ptr.*, try self.cloneValue(kv.value_ptr.*));
-            }
-        }
-
-        self.push(instance.toValue());
-    }
-
     fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {
         if (object.methods.get(name)) |method| {
             return self.call(method, arg_count, catch_value);
@@ -1781,156 +3321,5 @@ pub const VM = struct {
         }
 
         return created_upvalue;
-    }
-
-    fn appendToList(self: *Self) !void {
-        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
-        var list_value: Value = self.peek(0);
-
-        try list.rawAppend(self.gc, list_value);
-
-        _ = self.pop();
-    }
-
-    fn defineEnumCase(self: *Self) !void {
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).Obj).?;
-        var enum_value: Value = self.peek(0);
-
-        try enum_.cases.append(enum_value);
-        try self.gc.markObjDirty(&enum_.obj);
-
-        _ = self.pop();
-    }
-
-    fn defineMethod(self: *Self, name: *ObjString) !void {
-        var method: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
-
-        try object.methods.put(name, ObjClosure.cast(method.Obj).?);
-
-        _ = self.pop();
-    }
-
-    fn setObjectFieldDefaultValue(self: *Self, name: *ObjString) !void {
-        var property: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
-
-        if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
-            try object.setField(self.gc, name, property);
-        } else {
-            assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
-            try object.setStaticField(self.gc, name, property);
-        }
-
-        _ = self.pop();
-    }
-
-    fn subscript(self: *Self) !void {
-        var subscriptable: *Obj = self.peek(1).Obj;
-        var index: Value = floatToInteger(self.peek(0));
-
-        switch (subscriptable.obj_type) {
-            .List => {
-                var list: *ObjList = ObjList.cast(subscriptable).?;
-
-                if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
-                }
-
-                const list_index: usize = @intCast(usize, index.Integer);
-
-                if (list_index < list.items.items.len) {
-                    var list_item: Value = list.items.items[list_index];
-
-                    // Pop list and index
-                    _ = self.pop();
-                    _ = self.pop();
-
-                    // Push value
-                    self.push(list_item);
-                } else {
-                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
-                }
-            },
-            .Map => {
-                var map: *ObjMap = ObjMap.cast(subscriptable).?;
-
-                // Pop map and key
-                _ = self.pop();
-                _ = self.pop();
-
-                if (map.map.get(valueToHashable(index))) |value| {
-                    // Push value
-                    self.push(value);
-                } else {
-                    self.push(Value{ .Null = {} });
-                }
-            },
-            .String => {
-                var str: *ObjString = ObjString.cast(subscriptable).?;
-
-                if (index != .Integer or index.Integer < 0) {
-                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound string access.")).toValue());
-                }
-
-                const str_index: usize = @intCast(usize, index.Integer);
-
-                if (str_index < str.string.len) {
-                    var str_item: Value = (try self.gc.copyString(&([_]u8{str.string[str_index]}))).toValue();
-
-                    // Pop str and index
-                    _ = self.pop();
-                    _ = self.pop();
-
-                    // Push value
-                    self.push(str_item);
-                } else {
-                    try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound str access.")).toValue());
-                }
-            },
-            else => unreachable,
-        }
-    }
-
-    fn setSubscript(self: *Self) !void {
-        var list_or_map: *Obj = self.peek(2).Obj;
-        var index: Value = self.peek(1);
-        var value: Value = self.peek(0);
-
-        if (list_or_map.obj_type == .List) {
-            var list: *ObjList = ObjList.cast(list_or_map).?;
-
-            if (index != .Integer or index.Integer < 0) {
-                try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
-            }
-
-            const list_index: usize = @intCast(usize, index.Integer);
-
-            if (list_index < list.items.items.len) {
-                try list.set(self.gc, list_index, value);
-
-                // Pop everyting
-                _ = self.pop();
-                _ = self.pop();
-                _ = self.pop();
-
-                // Push the value
-                self.push(value);
-            } else {
-                try self.throw(Error.OutOfBound, (try self.gc.copyString("Out of bound list access.")).toValue());
-            }
-        } else {
-            var map: *ObjMap = ObjMap.cast(list_or_map).?;
-
-            try map.set(self.gc, index, value);
-
-            // Pop everyting
-            _ = self.pop();
-            _ = self.pop();
-            _ = self.pop();
-
-            // Push the value
-            self.push(value);
-        }
     }
 };

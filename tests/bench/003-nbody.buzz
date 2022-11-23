@@ -2,7 +2,7 @@ import "lib/std";
 import "lib/math" as math;
 
 const float pi = 3.141592653589793;
-const float solarMass = 4 * pi * pi;
+const float solarMass = 4.0 * pi * pi;
 const float daysPerYear = 365.24;
 
 object Body {
@@ -55,7 +55,7 @@ fun advance([Body] bodies, int nbody, float dt) > void {
 }
 
 fun energy([Body] bodies, int nbody) > float {
-    float e = 0;
+    float e = 0.0;
     for (int i = 0; i < nbody; i = i + 1) {
         Body bi = bodies[i];
         float vx = bi.vx;
@@ -77,9 +77,9 @@ fun energy([Body] bodies, int nbody) > float {
 }
 
 fun offsetMomentum([Body] b, int nbody) > void {
-    int px = 0;
-    int py = 0;
-    int pz = 0;
+    float px = 0.0;
+    float py = 0.0;
+    float pz = 0.0;
 
     for (int i = 0; i < nbody; i = i + 1) {
         Body bi = b[i];
@@ -97,12 +97,12 @@ fun offsetMomentum([Body] b, int nbody) > void {
 
 fun main([str] args) > void {
     Body sun = Body{
-        x = 0,
-        y = 0,
-        z = 0,
-        vx = 0,
-        vy = 0,
-        vz = 0,
+        x = 0.0,
+        y = 0.0,
+        z = 0.0,
+        vx = 0.0,
+        vy = 0.0,
+        vz = 0.0,
         mass = solarMass,
     };
 
@@ -150,7 +150,7 @@ fun main([str] args) > void {
 
     int N = 1000;
     if (args.len() > 0) {
-        N = parseNumber(args[0]) ?? 1000;
+        N = parseInt(args[0]) ?? 1000;
     }
     int nbody = bodies.len();
 
