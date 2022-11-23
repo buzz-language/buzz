@@ -11,8 +11,8 @@ fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewh
 }
 
 object A {
-    [num] list = [1, 2, 3],
-    {str, [num]} map = { "yo": [1, 2, 3] },
+    [int] list = [1, 2, 3],
+    {str, [int]} map = { "yo": [1, 2, 3] },
 }
 
 test "Constant expression" {

@@ -77,10 +77,10 @@ str multiline = `
     lines
     yes
 `;
-| Numbers are either internally i64 or f64 and are coerced from one to the other as needed
-num aNumber = 23;
+int aNumber = 23; | i64
 aNumber = 0b110;
 aNumber = 0xA12F;
+float aFloat = 23.123; | f64
 | A PCRE regex
 pat aPattern = _hello [a-z]+_;
 | Userdata are pointers to foreign data wrapped inside a buzz obj
@@ -90,9 +90,9 @@ ud userdata = GetSomeForeignData();
 const num pi = 3.14;
 
 | Data structures
-[num] aListOfNumbers = [1, 2, 3];
+[int] aListOfNumbers = [1, 2, 3];
 | Keys and values can be of any type
-{str, num} aMap = {
+{str, int} aMap = {
     "one": 1,
     "two": 2,
     "three": 3,

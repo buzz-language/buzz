@@ -4,30 +4,28 @@ import "lib/buffer";
 test "Reading and writing in a buffer" {
     Buffer buffer = Buffer.init();
 
-    buffer.writeNumber("hello world".len());
+    buffer.writeInt("hello world".len());
     buffer.write("hello world");
-    buffer.writeNumber(1238.324);
+    buffer.writeFloat(1238.324);
     buffer.writeBoolean(true);
 
-    [num] expected = [
-        1,                                                    | integer flag
+    [int] expected = [
         11, 0, 0, 0, 0, 0, 0, 0,                              | "hello world".len()
         104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, | "hello world"
-        2,                                                    | float flag
         158, 239, 167, 198, 75, 89, 147, 64,                  | 1238.324
         1,                                                    | true
     ];
-    foreach (num i, str char in buffer.toString()) {
+    foreach (int i, str char in buffer.toString()) {
         assert(expected[i] == char.byte(0), message: "Buffer has expected content");
     }
 
-    assert(buffer.len() == 30, message: "wrote expected number of bytes");
+    assert(buffer.len() == 28, message: "wrote expected number of bytes");
     
-    const num len = buffer.readNumber() ?? -1;
+    const int len = buffer.readInt() ?? -1;
     assert(len == 11, message: "could read number");
 
     assert(buffer.read(len) == "hello world", message: "could read n bytes");
-    assert(buffer.readNumber() == 1238.324, message: "could read float");
+    assert(buffer.readFloat() == 1238.324, message: "could read float");
     assert(buffer.readBoolean() == true, message: "could read boolean");
 
     buffer.empty();

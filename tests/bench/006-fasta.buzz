@@ -2,25 +2,25 @@ import "lib/std";
 import "lib/math";
 import "lib/buffer";
 
-const num IM = 139968;
-const num IA = 3877;
-const num IC = 29573;
-const num lineLength = 60;
-const num bufferSize = (lineLength + 1) * 1024;
+const int IM = 139968;
+const int IA = 3877;
+const int IC = 29573;
+const int lineLength = 60;
+const int bufferSize = (lineLength + 1) * 1024;
 
-fun makeRepeatFasta(str id, str desc, str s, num nchars) > void {
+fun makeRepeatFasta(str id, str desc, str s, int nchars) > void {
     print(">{id} {desc}");
-    num p = 0;
-    num sn = s.len();
+    int p = 0;
+    int sn = s.len();
     str s2 = s + s;
-    for (num i = lineLength; i < nchars; i = i + lineLength) {
+    for (int i = lineLength; i < nchars; i = i + lineLength) {
         print(s2.sub(p, len: lineLength - 1));
         p = p + lineLength;
         if (p > sn) {
             p = p - sn;
         }
     }
-    num tail = nchars % lineLength;
+    int tail = nchars % lineLength;
     if (tail > 0) {
         print(s2.sub(p, len: tail - 1));
     }
@@ -28,10 +28,10 @@ fun makeRepeatFasta(str id, str desc, str s, num nchars) > void {
 
 object Frequency {
     Buffer chars,
-    [num] probs,
-    num last,
+    [float] probs,
+    float last,
 
-    static fun init(Buffer chars, [num] probs, num last) > Frequency {
+    static fun init(Buffer chars, [float] probs, float last) > Frequency {
         Frequency freq = Frequency{
             chars = chars,
             probs = probs,
@@ -43,26 +43,26 @@ object Frequency {
         return freq;
     }
 
-    fun random(num max) > num {
+    fun random(float max) > float {
         this.last = (this.last * IA + IC) % IM;
         return max * this.last * (1 / IM);
     }
 
     fun makeCumulative() > void {
-        num cp = 0;
-        foreach (num i, num prob in this.probs) {
+        float cp = 0;
+        foreach (int i, float prob in this.probs) {
             cp = cp + prob;
             this.probs[i] = cp;
         }
     }
 
-    fun selectRandomIntoBuffer(Buffer buffer, num bufferIndex, num nRandom) > num !> OutOfBoundError, WriteWhileReadingError {
-        const num len = this.probs.len();
+    fun selectRandomIntoBuffer(Buffer buffer, int bufferIndex, int nRandom) > int !> OutOfBoundError, WriteWhileReadingError {
+        const int len = this.probs.len();
 
-        for (num rIndex = 0; rIndex < nRandom; rIndex = rIndex + 1) {
-            num r = this.random(1);
+        for (int rIndex = 0; rIndex < nRandom; rIndex = rIndex + 1) {
+            float r = this.random(1);
             bool skip = false;
-            for (num i = 0; i < len; i = i + 1) {
+            for (int i = 0; i < len; i = i + 1) {
                 if (r < this.probs[i]) {
                     buffer.setAt(bufferIndex, value: this.chars.at(i));
                     bufferIndex = bufferIndex + 1;
@@ -81,13 +81,13 @@ object Frequency {
     }
 }
 
-fun makeRandomFasta(str id, str desc, Frequency fpf, num nchars) > void !> OutOfBoundError, WriteWhileReadingError {
+fun makeRandomFasta(str id, str desc, Frequency fpf, int nchars) > void !> OutOfBoundError, WriteWhileReadingError {
     print(">{id} {desc}");
 
     Buffer buffer = Buffer.init(bufferSize);
-    num bufferIndex = 0;
+    int bufferIndex = 0;
     while (nchars > 0) {
-        num chunkSize = min(a: lineLength, b: nchars);
+        int chunkSize = min(a: lineLength, b: nchars);
 
         if (bufferIndex == bufferSize) {
             print(buffer.toString().sub(0, len: bufferIndex));
@@ -117,7 +117,7 @@ const str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
     + "AGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA";
 
 fun main([str] args) > void !> WriteWhileReadingError, OutOfBoundError {
-    num N = 1000;
+    int N = 1000;
     if (args.len() > 0) {
         N = parseNumber(args[0]) ?? 1000;
     }

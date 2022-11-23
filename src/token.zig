@@ -115,7 +115,8 @@ pub const TokenType = enum {
     Null, // null
     Str, // str
     Ud, // ud
-    Num, // num
+    Int, // int
+    Float, // float
     Type, // type
     Bool, // bool
     Function, // Function
@@ -142,7 +143,8 @@ pub const TokenType = enum {
     Default, // default
     In, // in
     Is, // is
-    Number, // 123
+    IntegerValue, // 123
+    FloatValue, // 123.2
     String, // "hello"
     Identifier, // anIdentifier
     Fun, // fun
@@ -197,7 +199,8 @@ pub const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "fun", .Fun },
     .{ "in", .In },
     .{ "str", .Str },
-    .{ "num", .Num },
+    .{ "int", .Int },
+    .{ "float", .Float },
     .{ "type", .Type },
     .{ "bool", .Bool },
     .{ "pat", .Pat },

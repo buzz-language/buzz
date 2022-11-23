@@ -1,61 +1,61 @@
 import "lib/std";
 import "lib/math" as math;
 
-fun A(num i, num j) > num {
-    num ij = i + j - 1;
+fun A(float i, float j) > float {
+    float ij = i + j - 1;
     return 1 / (ij * (ij - 1) * 0.5 + i);
 }
 
-fun Av([num] x, [num] y, num N) > void {
-    for (num i = 0; i < N; i = i + 1) {
-        num a = 0;
-        for (num j = 0; j < N; j = j + 1) {
+fun Av([float] x, [float] y, float N) > void {
+    for (int i = 0; i < N; i = i + 1) {
+        float a = 0;
+        for (int j = 0; j < N; j = j + 1) {
             a = a + x[j] * A(i: i, j: j);
         }
         y[i] = a;
     }
 }
 
-fun Atv([num] x, [num] y, num N) > void {
-    for (num i = 0; i < N; i = i + 1) {
-        num a = 0;
-        for (num j = 0; j < N; j = j + 1) {
+fun Atv([float] x, [float] y, float N) > void {
+    for (int i = 0; i < N; i = i + 1) {
+        float a = 0;
+        for (int j = 0; j < N; j = j + 1) {
             a = a + x[j] * A(i: j, j: i);
         }
         y[i] = a;
     }
 }
 
-fun AtAv([num] x, [num] y, [num] t, num N) > void {
+fun AtAv([float] x, [float] y, [float] t, float N) > void {
     Av(x: x, y: t, N: N);
     Atv(x: t, y: y, N: N);
 }
 
 fun main([str] args) > void {
-    num N = 100;
+    int N = 100;
     if (args.len() > 0) {
         N = parseNumber(args[0]) ?? 100;
     }
 
-    [num] u = [<num>];
-    [num] v = [<num>];
-    [num] t = [<num>];
-    for (num i = 0; i < N; i = i + 1) {
+    [float] u = [<float>];
+    [float] v = [<float>];
+    [float] t = [<float>];
+    for (int i = 0; i < N; i = i + 1) {
         u.append(1);
         v.append(0);
         t.append(0);
     }
 
-    for (num i = 0; i < 10; i = i + 1) {
+    for (int i = 0; i < 10; i = i + 1) {
         AtAv(x: u, y: v, t: t, N: N);
         AtAv(x: v, y: u, t: t, N: N);
     }
 
-    num vBv = 0;
-    num vv = 0;
-    for (num i = 0; i < N; i = i + 1) {
-        num ui = u[i];
-        num vi = v[i];
+    float vBv = 0;
+    float vv = 0;
+    for (int i = 0; i < N; i = i + 1) {
+        float ui = u[i];
+        float vi = v[i];
         vBv = vBv + ui * vi;
         vv = vv + vi * vi;
     }

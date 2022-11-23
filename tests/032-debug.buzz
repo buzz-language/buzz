@@ -23,26 +23,26 @@ enum(str) MyStringEnum {
 }
 
 object Data {
-    [num] data,
+    [int] data,
 }
 
 object MyObject {
     str name,
-    num age = 12,
+    int age = 12,
     Data data,
 
-    static fun init(str name, num age) > MyObject {
+    static fun init(str name, int age) > MyObject {
         return MyObject{
             name = name,
             age = age,
-            data = Data{ data = [<num>] },
+            data = Data{ data = [<int>] },
         };
     }
 }
 
 test "dump" {
-    [num] list = [1, 2, 3, 4];
-    {str, num} map = {
+    [int] list = [1, 2, 3, 4];
+    {str, int} map = {
         "one": 1,
         "two": 2,
         "three": 3,
@@ -56,8 +56,8 @@ test "dump" {
         },
     };
 
-    debug.dump(<[num]>, list);
-    debug.dump(<{str, num}>, map);
+    debug.dump(<[int]>, list);
+    debug.dump(<{str, int}>, map);
     debug.dump(<MyObject>, instance);
     debug.dump(<MyStringEnum>, MyStringEnum.One);
     debug.dump(<MyEnum>, MyEnum.One);

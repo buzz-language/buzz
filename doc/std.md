@@ -14,7 +14,7 @@
 - [json](#json)
 ## debug
 
-### `extern fun dump(<T>, generic type #60-0 value) > void `
+### `extern fun dump(<T>, generic type #66-0 value) > void `
 Dump any value to stdout
 ### `extern fun ast(str source, str scriptName) > str !> lib.errors.CompileError `
 Parse `source` and return the abstract syntax tree in JSON
@@ -26,7 +26,7 @@ Parse `source` and return the abstract syntax tree in JSON
 
 ### `object lib.gc.CollectError `
 Error occured while collecting
-### `extern fun allocated() > num `
+### `extern fun allocated() > int `
 Returns the number of allocated bytes
 
 **Returns:**  allocated bytes
@@ -42,83 +42,101 @@ If condition is false print message and exit program
 Prints value on stdout
 - **`value`:** value to print
 
-### `extern fun parseNumber(str string) > num? `
+### `extern fun parseInt(str string) > int? `
 Parse number, returns false if string does not represent a number
 - **`string`:** string to parse
 
 
-**Returns:**  number parsed or null
-### `extern fun char(num byte) > str `
+**Returns:**  integer parsed or null
+### `extern fun parseFloat(str string) > float? `
+Parse number, returns false if string does not represent a number
+- **`string`:** string to parse
+
+
+**Returns:**  float parsed or null
+### `extern fun toInt(float n) > int `
+Cast integer to a float value
+- **`n`:** value to cast
+
+
+**Returns:**  casted value
+### `extern fun toFloat(int n) > float `
+Cast float to a integer value
+- **`n`:** value to cast
+
+
+**Returns:**  casted value
+### `extern fun char(int byte) > str `
 Return ascii char for given byte
 ## http
 
 ## math
 
-### `extern fun abs(num n) > num `
+### `extern fun abs(float n) > float `
 
 
 **Returns:**  absolute value of n
-### `extern fun acos(num n) > num `
+### `extern fun acos(float n) > float `
 
 
 **Returns:**  acos of n
-### `extern fun asin(num n) > num `
+### `extern fun asin(float n) > float `
 
 
 **Returns:**  asin of n
-### `extern fun atan(num n) > num `
+### `extern fun atan(float n) > float `
 
 
 **Returns:**  atan of n
-### `extern fun bzceil(num n) > num `
+### `extern fun bzceil(float n) > int `
 
 
 **Returns:**  ceiled n
-### `extern fun bzcos(num n) > num `
+### `extern fun bzcos(float n) > float `
 
 
 **Returns:**  cos of n
-### `num pi`
+### `float pi`
 π constant
-### `fun deg(num n) > num `
+### `fun deg(float n) > float `
 Convert radian to degree
-### `extern fun bzexp(num n) > num `
+### `extern fun bzexp(float n) > float `
 
 
 **Returns:**  exp of n
-### `extern fun bzfloor(num n) > num `
+### `extern fun bzfloor(float n) > int `
 
-### `extern fun bzlog(num base, num n) > num `
+### `extern fun bzlog(float base, float n) > float `
 
 
 **Returns:**  log(base) of n
-### `extern fun max(num a, num b) > num `
+### `extern fun max(float a, float b) > float `
 
 
 **Returns:**  max of a and b
-### `extern fun min(num a, num b) > num `
+### `extern fun min(float a, float b) > float `
 
 
 **Returns:**  min of a and b
-### `fun rad(num n) > num `
+### `fun rad(float n) > float `
 Convert degree to radian
-### `extern fun random() > num `
+### `extern fun random() > float `
 
 
 **Returns:**  random number between 0 and 1
-### `extern fun bzsin(num n) > num `
+### `extern fun bzsin(float n) > float `
 
 
 **Returns:**  sin of n
-### `extern fun bzsqrt(num n) > num `
+### `extern fun bzsqrt(float n) > float `
 
 
 **Returns:**  square root of n
-### `extern fun bztan(num n) > num `
+### `extern fun bztan(float n) > float `
 
 
 **Returns:**  tan of n
-### `extern fun pow(num x, num y) > num !> lib.errors.OverflowError, lib.errors.UnderflowError `
+### `extern fun pow(float x, float y) > float !> lib.errors.OverflowError, lib.errors.UnderflowError `
 
 
 **Returns:**  `x`^`y`
@@ -128,7 +146,7 @@ Convert degree to radian
 Read and write data to a string buffer
 ## os
 
-### `extern fun time() > num `
+### `extern fun time() > int `
 
 
 **Returns:**  epoch time in ms
@@ -146,11 +164,11 @@ Returns environment variable under `key`
 
 
 **Returns:**  a temporary file name in system tmp dir
-### `extern fun buzzExit(num exitCode) > void `
+### `extern fun buzzExit(int exitCode) > void `
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### `extern fun execute([str] command) > num !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError `
+### `extern fun execute([str] command) > int !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError `
 Execute command and return its exit code
 - **`command`:** command to execute
 

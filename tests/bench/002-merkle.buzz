@@ -5,11 +5,11 @@ import "lib/errors";
 object Node {
     Node? left = null,
     Node? right = null,
-    num? value = null,
-    num? hash = null,
+    int? value = null,
+    int? hash = null,
 }
 
-fun makeTree(num depth) > Node {
+fun makeTree(int depth) > Node {
     if (depth > 0) {
         depth = depth - 1;
 
@@ -50,28 +50,28 @@ fun calHash(Node tree) > void {
 }
 
 fun main([str] args) > void !> OverflowError, UnderflowError {
-    num N = 6;
+    int N = 6;
     if (args.len() > 0) {
         N = parseNumber(args[0]) ?? 6;
     }
 
-    num mindepth = 4;
-    num maxdepth = mindepth + 2;
+    int mindepth = 4;
+    int maxdepth = mindepth + 2;
     if (maxdepth < N) {
         maxdepth = N;
     }
 
-    num stretchdepth = maxdepth + 1;
+    int stretchdepth = maxdepth + 1;
     Node stretchtree = makeTree(stretchdepth);
     calHash(stretchtree);
 
     print("stretch tree of depth {stretchdepth}\t root hash: {stretchtree.hash ?? 0} check: {check(stretchtree)}");
 
     Node longlivedtree = makeTree(maxdepth);
-    for (num depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        num iterations = math.pow(x: 2, y: maxdepth - depth + mindepth);
-        num sum = 0;
-        for (num i = 0; i < iterations; i = i + 1) {
+    for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
+        int iterations = math.pow(x: 2, y: maxdepth - depth + mindepth);
+        int sum = 0;
+        for (int i = 0; i < iterations; i = i + 1) {
             Node t = makeTree(depth);
             calHash(t);
             sum = sum + t.hash ?? 0;

@@ -21,7 +21,19 @@ export fn print(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn parseNumber(vm: *api.VM) c_int {
+export fn toInt(vm: *api.VM) c_int {
+    vm.bz_pushInteger(vm.bz_peek(0).bz_valueToInteger());
+
+    return 1;
+}
+
+export fn toFloat(vm: *api.VM) c_int {
+    vm.bz_pushFloat(vm.bz_peek(0).bz_valueToFloat());
+
+    return 1;
+}
+
+export fn parseInt(vm: *api.VM) c_int {
     var len: usize = 0;
     const string = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -33,25 +45,36 @@ export fn parseNumber(vm: *api.VM) c_int {
 
     const string_slice = string.?[0..len];
 
-    const is_float = std.mem.indexOf(u8, string_slice, ".") != null;
+    const number: i64 = std.fmt.parseInt(i64, string_slice, 10) catch {
+        vm.bz_pushNull();
 
-    if (is_float) {
-        const number: f64 = std.fmt.parseFloat(f64, string_slice) catch {
-            vm.bz_pushNull();
+        return 1;
+    };
 
-            return 1;
-        };
+    vm.bz_pushInteger(number);
 
-        vm.bz_pushFloat(number);
-    } else {
-        const number: i64 = std.fmt.parseInt(i64, string_slice, 10) catch {
-            vm.bz_pushNull();
+    return 1;
+}
 
-            return 1;
-        };
+export fn parseFloat(vm: *api.VM) c_int {
+    var len: usize = 0;
+    const string = vm.bz_peek(0).bz_valueToString(&len);
 
-        vm.bz_pushInteger(number);
+    if (len == 0) {
+        vm.bz_pushNull();
+
+        return 1;
     }
+
+    const string_slice = string.?[0..len];
+
+    const number: f64 = std.fmt.parseFloat(f64, string_slice) catch {
+        vm.bz_pushNull();
+
+        return 1;
+    };
+
+    vm.bz_pushFloat(number);
 
     return 1;
 }

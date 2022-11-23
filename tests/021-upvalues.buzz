@@ -1,7 +1,7 @@
 import "lib/std";
 
 fun upvals() > Function() {
-    num upvalue = 12;
+    int upvalue = 12;
     str up = "up";
 
     return fun () > void -> print("{upvalue} {up}");

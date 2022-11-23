@@ -1057,7 +1057,7 @@ pub const ObjString = struct {
         }
 
         if (mem.eql(u8, method, "len")) {
-            const native_type = try parser.parseTypeDefFrom("Function len() > num");
+            const native_type = try parser.parseTypeDefFrom("Function len() > int");
 
             try parser.gc.objstring_memberDefs.put("len", native_type);
 
@@ -1070,13 +1070,13 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
-            const native_type = try parser.parseTypeDefFrom("Function byte(num at) > num");
+            const native_type = try parser.parseTypeDefFrom("Function byte(int at) > int");
 
             try parser.gc.objstring_memberDefs.put("byte", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
-            const native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > num?");
+            const native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > int?");
 
             try parser.gc.objstring_memberDefs.put("indexOf", native_type);
 
@@ -1106,13 +1106,13 @@ pub const ObjString = struct {
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            const native_type = try parser.parseTypeDefFrom("Function sub(num start, num? len) > str");
+            const native_type = try parser.parseTypeDefFrom("Function sub(int start, int? len) > str");
 
             try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
-            const native_type = try parser.parseTypeDefFrom("Function repeat(num n) > str");
+            const native_type = try parser.parseTypeDefFrom("Function repeat(int n) > str");
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
@@ -2003,7 +2003,7 @@ pub const ObjList = struct {
 
                 var at_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
-                        .def_type = .Number,
+                        .def_type = .Integer,
                         .optional = false,
                     },
                 );
@@ -2048,7 +2048,7 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(
                         ObjTypeDef{
-                            .def_type = .Number,
+                            .def_type = .Integer,
                         },
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
@@ -2078,7 +2078,7 @@ pub const ObjList = struct {
                     try parser.gc.copyString("key"),
                     try parser.gc.type_registry.getTypeDef(
                         ObjTypeDef{
-                            .def_type = .Number,
+                            .def_type = .Integer,
                             .optional = true,
                         },
                     ),
@@ -2093,7 +2093,7 @@ pub const ObjList = struct {
                     // When reached end of list, returns null
                     .return_type = try parser.gc.type_registry.getTypeDef(
                         ObjTypeDef{
-                            .def_type = .Number,
+                            .def_type = .Integer,
                             .optional = true,
                         },
                     ),
@@ -2123,7 +2123,7 @@ pub const ObjList = struct {
                     try parser.gc.copyString("start"),
                     try parser.gc.type_registry.getTypeDef(
                         .{
-                            .def_type = .Number,
+                            .def_type = .Integer,
                         },
                     ),
                 );
@@ -2133,7 +2133,7 @@ pub const ObjList = struct {
                     len_str,
                     try parser.gc.type_registry.getTypeDef(
                         .{
-                            .def_type = .Number,
+                            .def_type = .Integer,
                             .optional = true,
                         },
                     ),
@@ -2525,7 +2525,7 @@ pub const ObjMap = struct {
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .def_type = .Number,
+                        .def_type = .Integer,
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
@@ -2830,7 +2830,8 @@ pub const ObjTypeDef = struct {
     // TODO: merge this with ObjType
     pub const Type = enum {
         Bool,
-        Number,
+        Integer,
+        Float,
         String,
         Pattern,
         ObjectInstance,
@@ -2860,7 +2861,8 @@ pub const ObjTypeDef = struct {
     pub const TypeUnion = union(Type) {
         // For those type checking is obvious, the value is a placeholder
         Bool: void,
-        Number: void,
+        Integer: void,
+        Float: void,
         String: void,
         Pattern: void,
         Generic: GenericDef,
@@ -2943,7 +2945,8 @@ pub const ObjTypeDef = struct {
 
         const result = switch (self.def_type) {
             .Bool,
-            .Number,
+            .Integer,
+            .Float,
             .String,
             .Pattern,
             .Void,
@@ -3267,7 +3270,8 @@ pub const ObjTypeDef = struct {
             .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),
             .Bool => try writer.writeAll("bool"),
-            .Number => try writer.writeAll("num"),
+            .Integer => try writer.writeAll("int"),
+            .Float => try writer.writeAll("float"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
             .Fiber => {
@@ -3583,7 +3587,8 @@ pub const ObjTypeDef = struct {
 
         return switch (expected) {
             .Bool,
-            .Number,
+            .Integer,
+            .Float,
             .String,
             .Void,
             .Pattern,

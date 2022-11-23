@@ -7,7 +7,14 @@ const objToString = _obj.objToString;
 const copyObj = _obj.copyObj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
-pub const ValueType = enum { Boolean, Float, Integer, Null, Void, Obj };
+pub const ValueType = enum {
+    Boolean,
+    Float,
+    Integer,
+    Null,
+    Void,
+    Obj,
+};
 
 pub const Value = union(ValueType) {
     Boolean: bool,
@@ -139,8 +146,8 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
 
     return switch (value) {
         .Boolean => type_def.def_type == .Bool,
-        .Integer => type_def.def_type == .Number,
-        .Float => type_def.def_type == .Number,
+        .Integer => type_def.def_type == .Integer,
+        .Float => type_def.def_type == .Float,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
         .Void => type_def.def_type == .Void,
@@ -151,8 +158,8 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
 pub fn valueTypeEql(self: Value, type_def: *ObjTypeDef) bool {
     return switch (self) {
         .Boolean => type_def.def_type == .Bool,
-        .Integer => type_def.def_type == .Number,
-        .Float => type_def.def_type == .Number,
+        .Integer => type_def.def_type == .Integer,
+        .Float => type_def.def_type == .Float,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
         .Null => type_def.def_type == .Void or type_def.optional,
         .Void => type_def.def_type == .Void,

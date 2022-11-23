@@ -1,6 +1,6 @@
 import "lib/std";
 
-fun willFail() > num !> str {
+fun willFail() > int !> str {
     throw "i'm failing";
     return 1;
 }

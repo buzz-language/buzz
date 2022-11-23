@@ -10,7 +10,7 @@ object JsonParseError {
 || @private
 object JsonParser {
     str source,
-    num offset = 0,
+    int offset = 0,
 
     fun advance() > str? {
         if (this.offset >= this.source.len()) {
@@ -77,7 +77,7 @@ object JsonParser {
         } else if (char == "\{") {
             return Json{ map = this.map() };
         } else if (char.byte(0) >= "0".byte(0) and char.byte(0) <= "9".byte(0)) {
-            return Json{ number = this.number(char) };
+            return this.number(char);
         } else if (char == "\"") {
             return Json{ string = this.string() };
         } else if (this.source.sub(this.offset - 1, len: 4) == "true") {
@@ -151,26 +151,34 @@ object JsonParser {
         return map;
     }
 
-    fun number(str parsed) > num !> JsonParseError {
+    fun number(str parsed) > Json !> JsonParseError {
         str number = parsed;
 
-        while (parseNumber(this.peek() ?? "NaN") != null or this.peek() == ".") {
+        bool isFloat = false;
+        while (parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
             str? char = this.advance();
 
             if (char == null) {
                 break;
             }
 
+            if (char == ".") {
+                isFloat = true;
+            }
+
             number = number + char!;
         }
 
-        num? parsed = parseNumber(number);
-        
-        if (parsed == null) {
-            throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
+        if (isFloat) {
+            if (parseFloat(number) -> floating) {
+                return Json{ floating = floating };
+            }
+        } else if (parseInt(number) -> integer) {
+                return Json{ integer = integer };
+            
         }
-
-        return parsed!;
+        
+        throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
     }
 
     fun string() > str !> WriteWhileReadingError {
@@ -201,8 +209,10 @@ object Json {
     str? string = null,
     || When wrapped data is a boolean
     bool? boolean = null,
-    || When wrapped data is a number
-    num? number = null,
+    || When wrapped data is a int
+    int? integer = null,
+    || When wrapped data is a float
+    float? floating = null,
     || When wrapped data is an object, object property values are themselves wrapped in a `Json`
     {str, Json}? map = null,
     || When wrapped data is a list, list elements are themselves warpped in a `Json`
@@ -212,8 +222,10 @@ object Json {
     fun stringValue() > str -> this.string ?? ""
     || @return wrapped data boolean value or `false` if not a boolean
     fun booleanValue() > bool -> this.boolean ?? false
-    || @return wrapped data number value or `0` if not a number
-    fun numberValue() > num -> this.number ?? 0
+    || @return wrapped data number value or `0` if not an integer
+    fun integerValue() > int -> this.integer ?? 0
+    || @return wrapped data number value or `0` if not a float
+    fun floatingValue() > float -> this.floating ?? 0.0
     || @return wrapped data map value or empty map if not a map
     fun mapValue() > {str, Json} -> this.map ?? {<str, Json>}
     || @return wrapped data list value or empty list if not a list
@@ -239,16 +251,18 @@ object Json {
     || Encode to a JSON string
     || @return str the JSON string
     fun encode() > str {
-        if (this.string != null) {
-            return "\"{this.string!}\"";
-        } else if (this.boolean != null) {
-            return "{this.boolean!}";
-        } else if (this.number != null) {
-            return "{this.number!}";
+        if (this.string -> string) {
+            return "\"{string}\"";
+        } else if (this.boolean -> boolean) {
+            return "{boolean}";
+        } else if (this.integer -> integer) {
+            return "{integer}";
+        } else if (this.floating -> floating) {
+            return "{floating}";
         } else if (this.map != null) {
             str json = "\{";
-            const num size = this.map!.size();
-            num count = 0;
+            const int size = this.map!.size();
+            int count = 0;
             foreach (str key, Json value in this.map!) {
                 json = json + "\"{key}\":{value.encode()}";
 
@@ -262,8 +276,8 @@ object Json {
         } else if (this.list != null) {
             str json = "[";
 
-            const num len = this.list!.len();
-            foreach (num i, Json value in this.list!) {
+            const int len = this.list!.len();
+            foreach (int i, Json value in this.list!) {
                 json = json + value.encode();
 
                 if (i < len - 1) {

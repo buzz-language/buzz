@@ -141,7 +141,6 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an integer
-        try writer.writeByte(1);
         try writer.writeIntNative(i64, integer);
     }
 
@@ -168,7 +167,6 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an float
-        try writer.writeByte(2);
         try writer.writeIntNative(u64, @bitCast(u64, float));
     }
 
@@ -261,67 +259,76 @@ export fn BufferWriteBoolean(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferReadNumber(vm: *api.VM) c_int {
-    var buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
+export fn BufferReadInt(vm: *api.VM) c_int {
+    const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
-    const is_integer = buffer.read(1);
-    if (is_integer) |uis_integer| {
-        if (uis_integer[0] == 1) {
-            if (buffer.readInteger() catch |err| {
-                switch (err) {
-                    error.EndOfStream => {
-                        vm.bz_pushNull();
-
-                        return 1;
-                    },
-                }
-            }) |value| {
-                vm.bz_pushInteger(value);
+    if (buffer.readInteger() catch |err| {
+        switch (err) {
+            error.EndOfStream => {
+                vm.bz_pushNull();
 
                 return 1;
-            }
-        } else if (buffer.readFloat() catch |err| {
-            switch (err) {
-                error.EndOfStream => {
-                    vm.bz_pushNull();
-
-                    return 1;
-                },
-            }
-        }) |value| {
-            vm.bz_pushFloat(value);
-
-            return 1;
+            },
         }
+    }) |value| {
+        vm.bz_pushInteger(value);
+
+        return 1;
     }
 
     vm.bz_pushNull();
     return 1;
 }
 
-export fn BufferWriteNumber(vm: *api.VM) c_int {
+export fn BufferReadFloat(vm: *api.VM) c_int {
+    const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
+
+    if (buffer.readFloat() catch |err| {
+        switch (err) {
+            error.EndOfStream => {
+                vm.bz_pushNull();
+
+                return 1;
+            },
+        }
+    }) |value| {
+        vm.bz_pushFloat(value);
+
+        return 1;
+    }
+
+    vm.bz_pushNull();
+    return 1;
+}
+
+export fn BufferWriteInt(vm: *api.VM) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const number = vm.bz_peek(0);
 
-    if (number.bz_valueIsInteger()) {
-        buffer.writeInteger(number.bz_valueToInteger()) catch |err| {
-            switch (err) {
-                Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
-                error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
-            }
+    buffer.writeInteger(number.bz_valueToInteger()) catch |err| {
+        switch (err) {
+            Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+            error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+        }
 
-            return -1;
-        };
-    } else {
-        buffer.writeFloat(number.bz_valueToFloat()) catch |err| {
-            switch (err) {
-                Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
-                error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
-            }
+        return -1;
+    };
 
-            return -1;
-        };
-    }
+    return 0;
+}
+
+export fn BufferWriteFloat(vm: *api.VM) c_int {
+    var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
+    const number = vm.bz_peek(0);
+
+    buffer.writeFloat(number.bz_valueToFloat()) catch |err| {
+        switch (err) {
+            Buffer.Error.WriteWhileReading => vm.bz_pushError("lib.buffer.WriteWhileReadingError", "lib.buffer.WriteWhileReadingError".len),
+            error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+        }
+
+        return -1;
+    };
 
     return 0;
 }

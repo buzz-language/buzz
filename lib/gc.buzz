@@ -3,7 +3,7 @@ object CollectError {}
 
 || Returns the number of allocated bytes
 || @return allocated bytes
-extern fun allocated() > num;
+extern fun allocated() > int;
 
 || Triggers a GC sweep
 extern fun collect() > void !> CollectError;

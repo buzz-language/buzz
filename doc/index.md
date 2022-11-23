@@ -12,7 +12,7 @@ For std lib documentation see [here](std.md).
 
 ## Strings
 
-### `fun len() > num`
+### `fun len() > int`
 **Returns:** Length of the string
 
 ### `fun upper() > str`
@@ -24,13 +24,13 @@ For std lib documentation see [here](std.md).
 ### `fun trim() > str`
 **Returns:** Trimmed string
 
-### `fun byte(num at) > num`
+### `fun byte(int at) > int`
 Get byte value of character
 - **`at`**: index of character in the string
 
 **Returns:** Byte value of character
 
-### `fun indexOf(str needle) > num?`
+### `fun indexOf(str needle) > int?`
 Find needle in string
 - **`needle`**: needle to find
 
@@ -62,14 +62,14 @@ Split string
 
 **Returns:** Splitted string
 
-### `fun sub(num start, num? len) > str`
+### `fun sub(int start, int? len) > str`
 Get sub string
 - **`start`**: Sub string start index
 - **`end`**: Length of sub string, if `null` will go until end of string
 
 **Returns:** The substring
 
-### `fun repeat(num n) > str`
+### `fun repeat(int n) > str`
 Repeat string
 - **`n`**: How many times the string will be repeated
 
@@ -92,23 +92,23 @@ Base64 decode the string
 Append new element at end of the list
 - **`value`**: New element
 
-### `fun remove(num at) > T`
+### `fun remove(int at) > T`
 Remove element form the list shifting elements after index
 - **`at`**: Index of element to remove
 
 **Returns:** Removed element
 
-### `fun len() > num`
+### `fun len() > int`
 **Returns:** Length of list
 
-### `fun sub(num start, num? len) > [T]`
+### `fun sub(int start, int? len) > [T]`
 Get sub list
 - **`start`**: Start index of sub list
 - **`len`**: Length of sub list, if `null` will go to end of list
 
 **Returns:** Sub list
 
-### `fun indexOf(T needle) > num?`
+### `fun indexOf(T needle) > int?`
 Search first occurence of the needle
 - **`needle`**: Element to find
 
@@ -123,7 +123,7 @@ Join list element in a string with a separator. Elements are converted to a stri
 
 ## Maps
 
-### `fun size() > num`
+### `fun size() > int`
 **Returns:** Number of elements in the map
 
 ### `fun remove(K key) > V?`

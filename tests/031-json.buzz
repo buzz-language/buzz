@@ -5,7 +5,7 @@ test "Json.encode" {
     Json json = Json {
         map = {
             "hello": Json { string = "world" },
-            "bye": Json { number = 42 },
+            "bye": Json { integer = 42 },
         },
     };
 
@@ -29,8 +29,8 @@ test "Json.q" {
                 map = {
                     "subsubmap": Json{
                         map = {
-                            "one": Json{ number = 1 },
-                            "two": Json{ number = 2 },
+                            "one": Json{ integer = 1 },
+                            "two": Json{ integer = 2 },
                         }
                     }
                 }
@@ -38,5 +38,5 @@ test "Json.q" {
         },
     };
 
-    assert(json.q(["submap", "subsubmap", "one"]).number == 1, message: "Json.q");
+    assert(json.q(["submap", "subsubmap", "one"]).integer == 1, message: "Json.q");
 }

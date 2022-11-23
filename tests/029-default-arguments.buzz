@@ -1,6 +1,6 @@
 import "lib/std";
 
-fun hey(str name = "Joe", num age = 12, str? father, num fourth = 1) > str
+fun hey(str name = "Joe", int age = 12, str? father, int fourth = 1) > str
     -> "Hello {name} you're {age} {father} {fourth}";
 
 test "function default arguments" {

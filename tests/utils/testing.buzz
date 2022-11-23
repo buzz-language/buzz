@@ -1,8 +1,8 @@
 import "lib/std" as std;
 
-num unexported = 42;
+int unexported = 42;
 
-fun hey(str message) > num {
+fun hey(str message) > int {
     std.print(message);
     return unexported;
 }

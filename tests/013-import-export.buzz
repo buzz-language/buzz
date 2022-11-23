@@ -1,6 +1,6 @@
 import "tests/utils/testing" as testing;
 
-num mine = 42;
+int mine = 42;
 
 test "Using a function coming from an import" {
     testing.PrefixMe me = testing.PrefixMe{};

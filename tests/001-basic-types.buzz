@@ -1,5 +1,6 @@
 test "Basic types" {
     str string = "hello world";
-    num number = 3.14;
+    float floating = 3.14;
+    int integer = 3;
     bool boolean = true;
 }

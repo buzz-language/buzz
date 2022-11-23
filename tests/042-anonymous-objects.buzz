@@ -1,6 +1,6 @@
 import "lib/std";
 
-fun getInfo() > obj{ str name, num age } {
+fun getInfo() > obj{ str name, int age } {
     return .{
         name = "Joe",
         age = 36,
@@ -8,12 +8,12 @@ fun getInfo() > obj{ str name, num age } {
 }
 
 test "Anonymous objects" {
-    obj{ str name, num age } info = getInfo();
+    obj{ str name, int age } info = getInfo();
     | Two anonymous type matches
-    obj{ str name, num age } info2 = info;
+    obj{ str name, int age } info2 = info;
 
     assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");
-    assert(info is obj{ str name, num age },  message: "Type safety works with anonymous object");
+    assert(info is obj{ str name, int age },  message: "Type safety works with anonymous object");
 }
 
 fun getPayload(<T>, T data) > obj{ T data } {
@@ -23,7 +23,7 @@ fun getPayload(<T>, T data) > obj{ T data } {
 }
 
 test "Anonymous object with generics" {
-    obj{ num data } payload = getPayload(<num>, 42);
+    obj{ int data } payload = getPayload(<int>, 42);
 
     assert(payload.data == 42, message: "Could use anonymous object with generic");
 }

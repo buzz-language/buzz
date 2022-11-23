@@ -10,7 +10,7 @@ protocol Nameable {
 
 object(Comparable, Nameable) Person {
     str name,
-    num age,
+    int age,
 
     fun greater(Comparable than) > bool {
         if (than as Person other) {
@@ -55,7 +55,7 @@ test "Protocols" {
 
     [Nameable] nameables = [bandit, joe];
     [str] newNames = ["Chili", "Nick"];
-    foreach (num i, Nameable item in nameables) {
+    foreach (int i, Nameable item in nameables) {
         item.rename(newNames[i]);
     }
 

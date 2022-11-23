@@ -21,7 +21,7 @@ test "while" {
 }
 
 test "for" {
-    for (num i = 0; false; i = i + 1) {
+    for (int i = 0; false; i = i + 1) {
         assert(false, message: "unreachable");
     }
 }

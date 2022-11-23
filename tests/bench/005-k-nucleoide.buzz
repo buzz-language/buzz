@@ -23,30 +23,30 @@ fun readSequence() > str !> ReadWriteError, FileSystemError, UnexpectedError {
     return lines.join("").upper();
 }
 
-fun kfrequency(str sequence, {str, num} frequency, num k, num frame) > void {
-    for (num i = frame; i < sequence.len(); i = i + k) {
+fun kfrequency(str sequence, {str, int} frequency, int k, int frame) > void {
+    for (int i = frame; i < sequence.len(); i = i + k) {
         str c = sequence.sub(i, len: k);
         frequency[c] = (frequency[c] ?? 0) + 1;
     }
 }
 
 fun count(str sequence, str fragment) > void {
-    const num k = fragment.len();
-    {str, num} frequency = {<str, num>};
-    for (num frame = 0; frame < k; frame = frame + 1) {
+    const int k = fragment.len();
+    {str, int} frequency = {<str, int>};
+    for (int frame = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
     print("{frequency[fragment] ?? 0}\t{fragment}");
 }
 
-fun frequency(str sequence, num k) > void {
-    {str, num} frequency = {<str, num>};
-    for (num frame = 0; frame < k; frame = frame + 1) {
+fun frequency(str sequence, int k) > void {
+    {str, int} frequency = {<str, int>};
+    for (int frame = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
 
-    num sum = sequence.len() - k + 1;
-    foreach (str c, num f in frequency) {
+    int sum = sequence.len() - k + 1;
+    foreach (str c, int f in frequency) {
         print("{c} {(f * 100) / sum}");
     }
     print("");

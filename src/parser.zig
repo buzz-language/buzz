@@ -50,7 +50,8 @@ const SlotType = _node.SlotType;
 const ParseNodeType = _node.ParseNodeType;
 const ParseNode = _node.ParseNode;
 const NamedVariableNode = _node.NamedVariableNode;
-const NumberNode = _node.NumberNode;
+const IntegerNode = _node.IntegerNode;
+const FloatNode = _node.FloatNode;
 const BooleanNode = _node.BooleanNode;
 const StringLiteralNode = _node.StringLiteralNode;
 const StringNode = _node.StringNode;
@@ -274,7 +275,8 @@ pub const Parser = struct {
         .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
         .{ .prefix = null, .infix = null, .precedence = .None }, // Str
         .{ .prefix = null, .infix = null, .precedence = .None }, // Ud
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Num
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Int
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Float
         .{ .prefix = null, .infix = null, .precedence = .None }, // Type
         .{ .prefix = null, .infix = null, .precedence = .None }, // Bool
         .{ .prefix = null, .infix = null, .precedence = .None }, // Function
@@ -299,7 +301,8 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Default
         .{ .prefix = null, .infix = null, .precedence = .None }, // In
         .{ .prefix = null, .infix = is, .precedence = .Is }, // Is
-        .{ .prefix = number, .infix = null, .precedence = .None }, // Number
+        .{ .prefix = integer, .infix = null, .precedence = .None }, // Integer
+        .{ .prefix = float, .infix = null, .precedence = .None }, // FloatValue
         .{ .prefix = string, .infix = null, .precedence = .None }, // String
         .{ .prefix = variable, .infix = null, .precedence = .None }, // Identifier
         .{ .prefix = fun, .infix = null, .precedence = .None }, // Fun
@@ -853,7 +856,7 @@ pub const Parser = struct {
                     if (placeholder.def_type == .Map) {
                         try self.resolvePlaceholder(child, placeholder.resolved_type.?.Map.key_type, false);
                     } else if (placeholder.def_type == .List or placeholder.def_type == .String) {
-                        try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Number }), false);
+                        try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
                     } else {
                         try self.reportErrorAt(placeholder_def.where, "Can't be a key");
                         return;
@@ -1071,9 +1074,16 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
-            else if (try self.match(.Num))
+            else if (try self.match(.Int))
                 try self.varDeclaration(
-                    try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
+                    try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer }),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
+            else if (try self.match(.Float))
+                try self.varDeclaration(
+                    try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float }),
                     .Semicolon,
                     constant,
                     true,
@@ -1172,9 +1182,16 @@ pub const Parser = struct {
                 constant,
                 true,
             );
-        } else if (try self.match(.Num)) {
+        } else if (try self.match(.Int)) {
             return try self.varDeclaration(
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number }),
+                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Float)) {
+            return try self.varDeclaration(
+                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float }),
                 .Semicolon,
                 constant,
                 true,
@@ -1705,7 +1722,7 @@ pub const Parser = struct {
         node.* = .{};
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
-        node.node.ends_scope = try self.closeScope(loop_scope.?.loop_body_scope);
+        node.node.ends_scope = if (loop_scope != null) try self.closeScope(loop_scope.?.loop_body_scope) else null;
 
         return &node.node;
     }
@@ -2418,7 +2435,7 @@ pub const Parser = struct {
 
             case_type_picked = true;
         } else {
-            enum_case_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Number });
+            enum_case_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer });
         }
 
         enum_case_type = try enum_case_type.toInstance(self.gc.allocator, &self.gc.type_registry);
@@ -2471,14 +2488,13 @@ pub const Parser = struct {
                 try cases.append(try self.expression(false));
                 try picked.append(true);
             } else {
-                if (enum_case_type.def_type == .Number) {
-                    var constant_node = try self.gc.allocator.create(NumberNode);
-                    constant_node.* = NumberNode{
+                if (enum_case_type.def_type == .Integer) {
+                    var constant_node = try self.gc.allocator.create(IntegerNode);
+                    constant_node.* = IntegerNode{
                         .integer_constant = case_index,
-                        .float_constant = null,
                     };
                     constant_node.node.type_def = try self.gc.type_registry.getTypeDef(.{
-                        .def_type = .Number,
+                        .def_type = .Integer,
                     });
                     constant_node.node.location = self.parser.previous_token.?;
 
@@ -3028,17 +3044,33 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn number(self: *Self, _: bool) anyerror!*ParseNode {
+    fn integer(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        var node = try self.gc.allocator.create(NumberNode);
+        var node = try self.gc.allocator.create(IntegerNode);
 
-        node.* = NumberNode{
-            .float_constant = self.parser.previous_token.?.literal_float,
-            .integer_constant = self.parser.previous_token.?.literal_integer,
+        node.* = IntegerNode{
+            .integer_constant = self.parser.previous_token.?.literal_integer.?,
         };
         node.node.type_def = try self.gc.type_registry.getTypeDef(.{
-            .def_type = .Number,
+            .def_type = .Integer,
+        });
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn float(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        var node = try self.gc.allocator.create(FloatNode);
+
+        node.* = FloatNode{
+            .float_constant = self.parser.previous_token.?.literal_float.?,
+        };
+        node.node.type_def = try self.gc.type_registry.getTypeDef(.{
+            .def_type = .Float,
         });
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -3768,7 +3800,7 @@ pub const Parser = struct {
             .Bor,
             .Xor,
             => try self.gc.type_registry.getTypeDef(ObjTypeDef{
-                .def_type = .Number,
+                .def_type = if ((left.type_def != null and left.type_def.?.def_type == .Float) or (right.type_def != null and right.type_def.?.def_type == .Float)) .Float else .Integer,
             }),
 
             else => null,
@@ -3851,7 +3883,7 @@ pub const Parser = struct {
         var items = std.ArrayList(*ParseNode).init(self.gc.allocator);
         var item_type: ?*ObjTypeDef = null;
 
-        // A list expression can specify its type `[<num>, ...]`
+        // A list expression can specify its type `[<int>, ...]`
         if (try self.match(.Less)) {
             item_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
@@ -4752,8 +4784,10 @@ pub const Parser = struct {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.Void)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = false, .def_type = .Void });
-        } else if (try self.match(.Num)) {
-            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Number });
+        } else if (try self.match(.Int)) {
+            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer });
+        } else if (try self.match(.Float)) {
+            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float });
         } else if (try self.match(.Bool)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool });
         } else if (try self.match(.Type)) {

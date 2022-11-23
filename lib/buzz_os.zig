@@ -93,7 +93,6 @@ export fn tmpFilename(vm: *api.VM) c_int {
     var final = std.ArrayList(u8).init(api.VM.allocator);
     defer final.deinit();
 
-    // TODO: take into account system file separator (windows is \)
     final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
         vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 

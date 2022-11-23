@@ -1,7 +1,7 @@
 import "lib/std";
 
 fun main([str] args) > void {
-    foreach (num index, str arg in args) {
+    foreach (int index, str arg in args) {
         print("{index}: {arg}");
     }
 }
