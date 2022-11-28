@@ -59,9 +59,6 @@ pub const CallFrame = struct {
     // Default value in case of error
     error_value: ?Value = null,
 
-    // Error handlers
-    error_handlers: std.ArrayList(*ObjClosure),
-
     // Line in source code where the call occured
     call_site: ?usize,
 
@@ -519,6 +516,7 @@ pub const VM = struct {
 
     const OpFn = fn (*Self, *CallFrame, u32, OpCode, u24) void;
 
+    // WARNING: same order as OpCode enum
     const op_table = [_]OpFn{
         OP_CONSTANT,
         OP_NULL,
@@ -3080,33 +3078,8 @@ pub const VM = struct {
                 self.push(error_value);
 
                 return;
-            } else if (try self.handleError(payload, frame.error_handlers)) {
-                // Error was handled, stop unwinding frames
-                stack.deinit();
-                break;
             }
         }
-    }
-
-    // Returns true if error was handled
-    fn handleError(self: *Self, error_payload: Value, handlers: std.ArrayList(*ObjClosure)) !bool {
-        for (handlers.items) |handler| {
-            const parameters = handler.function.type_def.resolved_type.?.Function.parameters;
-            if (parameters.count() == 0 or _value.valueTypeEql(error_payload, parameters.get(parameters.keys()[0]).?)) {
-                // In a normal frame, the slots 0 is either the function or a `this` value
-                self.push(Value{ .Null = {} });
-
-                // Push error payload
-                self.push(error_payload);
-
-                // Call handler, it's return value is the result of the frame we just closed
-                try self.call(handler, 1, null);
-
-                return true;
-            }
-        }
-
-        return false;
     }
 
     // FIXME: catch_values should be on the stack like arguments
@@ -3121,7 +3094,6 @@ pub const VM = struct {
                 current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
             else
                 null,
-            .error_handlers = std.ArrayList(*ObjClosure).init(self.gc.allocator),
         };
 
         frame.error_value = catch_value;
@@ -3200,7 +3172,6 @@ pub const VM = struct {
                 return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_value);
             },
             else => {
-                std.debug.print("unexpected @{} {}\n", .{ @ptrToInt(obj), obj.obj_type });
                 unreachable;
             },
         }
