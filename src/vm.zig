@@ -576,7 +576,12 @@ pub const VM = struct {
         OP_FIBER_FOREACH,
 
         OP_CALL,
-        OP_INVOKE,
+        OP_INSTANCE_INVOKE,
+        OP_STRING_INVOKE,
+        OP_PATTERN_INVOKE,
+        OP_FIBER_INVOKE,
+        OP_LIST_INVOKE,
+        OP_MAP_INVOKE,
 
         OP_CLOSURE,
         OP_CLOSE_UPVALUE,
@@ -1281,17 +1286,193 @@ pub const VM = struct {
         );
     }
 
-    fn OP_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+    fn OP_INSTANCE_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const method: *ObjString = self.readString(arg);
         const arg_instruction: u32 = self.readInstruction();
         const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
         const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
 
-        self.invoke(
-            method,
-            arg_count,
-            if (catch_count > 0) self.pop() else null,
-        ) catch |e| {
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(arg_count).Obj).?;
+
+        assert(instance.object != null);
+
+        if (instance.fields.get(method)) |field| {
+            (self.current_fiber.stack_top - arg_count - 1)[0] = field;
+
+            self.callValue(field, arg_count, catch_value) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            self.invokeFromObject(instance.object.?, method, arg_count, catch_value) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_STRING_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const member = (ObjString.member(self, method) catch |e| {
+            panic(e);
+            unreachable;
+        }).?;
+        var member_value: Value = Value{ .Obj = member.toObj() };
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+
+        self.callValue(member_value, arg_count, catch_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_PATTERN_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const member = (ObjPattern.member(self, method) catch |e| {
+            panic(e);
+            unreachable;
+        }).?;
+        var member_value: Value = Value{ .Obj = member.toObj() };
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+
+        self.callValue(member_value, arg_count, catch_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_FIBER_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const member = (ObjFiber.member(self, method) catch |e| {
+            panic(e);
+            unreachable;
+        }).?;
+        var member_value: Value = Value{ .Obj = member.toObj() };
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+        self.callValue(member_value, arg_count, catch_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_LIST_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const list = ObjList.cast(self.peek(arg_count).Obj).?;
+        const member = (list.member(self, method) catch |e| {
+            panic(e);
+            unreachable;
+        }).?;
+
+        var member_value: Value = Value{ .Obj = member.toObj() };
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+        self.callValue(member_value, arg_count, catch_value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MAP_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(u8, arg_instruction >> 24);
+        const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const map = ObjMap.cast(self.peek(arg_count).Obj).?;
+        const member = (map.member(self, method) catch |e| {
+            panic(e);
+            unreachable;
+        }).?;
+
+        var member_value: Value = Value{ .Obj = member.toObj() };
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+        self.callValue(member_value, arg_count, catch_value) catch |e| {
             panic(e);
             unreachable;
         };
@@ -3368,6 +3549,7 @@ pub const VM = struct {
         }
     }
 
+    // FIXME: find way to remove
     fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {
         var receiver: Value = self.peek(arg_count);
 

@@ -225,7 +225,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
-        .OP_INVOKE => try invokeInstruction(instruction, chunk, offset),
+        .OP_INSTANCE_INVOKE,
+        .OP_STRING_INVOKE,
+        .OP_PATTERN_INVOKE,
+        .OP_FIBER_INVOKE,
+        .OP_LIST_INVOKE,
+        .OP_MAP_INVOKE,
+        => try invokeInstruction(instruction, chunk, offset),
+
         .OP_CALL,
         .OP_ROUTINE,
         .OP_INVOKE_ROUTINE,

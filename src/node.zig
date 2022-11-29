@@ -3907,7 +3907,15 @@ pub const CallNode = struct {
             // TODO: can it be invoked without callee being a DotNode?
             try codegen.emitCodeArg(
                 self.node.location,
-                .OP_INVOKE,
+                switch (DotNode.cast(self.callee).?.callee.type_def.?.def_type) {
+                    .ObjectInstance, .ProtocolInstance => .OP_INSTANCE_INVOKE,
+                    .String => .OP_STRING_INVOKE,
+                    .Pattern => .OP_PATTERN_INVOKE,
+                    .Fiber => .OP_FIBER_INVOKE,
+                    .List => .OP_LIST_INVOKE,
+                    .Map => .OP_MAP_INVOKE,
+                    else => unreachable,
+                },
                 try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
             );
         }
