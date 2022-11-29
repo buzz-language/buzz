@@ -11,7 +11,7 @@ const _codegen = @import("./codegen.zig");
 const _parser = @import("./parser.zig");
 const _chunk = @import("./chunk.zig");
 const disassembler = @import("./disassembler.zig");
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
@@ -3041,7 +3041,7 @@ pub const FunctionNode = struct {
         var current_function: *ObjFunction = frame.function.?;
         current_function.upvalue_count = @intCast(u8, self.upvalue_binding.count());
 
-        if (Config.debug) {
+        if (BuildOptions.debug) {
             try disassembleChunk(&current_function.chunk, current_function.name.string);
             std.debug.print("\n\n", .{});
         }
@@ -5989,7 +5989,7 @@ pub const ObjectInitNode = struct {
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                     try codegen.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
                 } else if (!prop.eql(value.type_def.?)) {
-                    if (Config.debug_placeholders) {
+                    if (BuildOptions.debug_placeholders) {
                         std.debug.print(
                             "prop {}({}), value {}({})\n",
                             .{

@@ -13,7 +13,7 @@ const _vm = @import("./vm.zig");
 const _value = @import("./value.zig");
 const _scanner = @import("./scanner.zig");
 const _chunk = @import("./chunk.zig");
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const StringParser = @import("./string_parser.zig").StringParser;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
@@ -428,7 +428,7 @@ pub const Parser = struct {
         }
 
         // Check there's no more root placeholders
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             for (self.globals.items) |global, index| {
                 if (global.type_def.def_type == .Placeholder) {
                     std.debug.print(
@@ -641,7 +641,7 @@ pub const Parser = struct {
             report_line.items,
         });
 
-        if (Config.debug_stop_on_report) {
+        if (BuildOptions.stop_on_report) {
             unreachable;
         }
     }
@@ -700,7 +700,7 @@ pub const Parser = struct {
     pub fn resolvePlaceholder(self: *Self, placeholder: *ObjTypeDef, resolved_type: *ObjTypeDef, constant: bool) anyerror!void {
         assert(placeholder.def_type == .Placeholder);
 
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             std.debug.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
                 @ptrToInt(placeholder),
                 if (placeholder.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
@@ -712,7 +712,7 @@ pub const Parser = struct {
 
         // Both placeholders, we have to connect the child placeholder to a root placeholder so its not orphan
         if (resolved_type.def_type == .Placeholder) {
-            if (Config.debug_placeholders) {
+            if (BuildOptions.debug_placeholders) {
                 std.debug.print(
                     "Replaced linked placeholder @{} ({s}) with rooted placeholder @{} ({s})\n",
                     .{
@@ -737,7 +737,7 @@ pub const Parser = struct {
 
         var placeholder_def: PlaceholderDef = placeholder.resolved_type.?.Placeholder;
 
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             std.debug.print(
                 "Resolved placeholder @{} {s}({}) with @{}.{}({})\n",
                 .{
@@ -765,7 +765,7 @@ pub const Parser = struct {
             assert(child_placeholder.parent != null);
             assert(child_placeholder.parent_relation != null);
 
-            if (Config.debug_placeholders) {
+            if (BuildOptions.debug_placeholders) {
                 std.debug.print(
                     "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
                     .{
@@ -1428,7 +1428,7 @@ pub const Parser = struct {
                         try self.resolvePlaceholder(placeholder, method_node.type_def.?, true);
 
                         // Now we know the placeholder was a method
-                        if (Config.debug_placeholders) {
+                        if (BuildOptions.debug_placeholders) {
                             std.debug.print(
                                 "resolved static method for `{s}`\n",
                                 .{
@@ -1443,7 +1443,7 @@ pub const Parser = struct {
                         try self.resolvePlaceholder(placeholder, method_node.type_def.?, true);
 
                         // Now we know the placeholder was a method
-                        if (Config.debug_placeholders) {
+                        if (BuildOptions.debug_placeholders) {
                             std.debug.print(
                                 "resolved method placeholder for `{s}`\n",
                                 .{
@@ -1487,7 +1487,7 @@ pub const Parser = struct {
                         try self.resolvePlaceholder(placeholder, property_type, false);
 
                         // Now we know the placeholder was a field
-                        if (Config.debug_placeholders) {
+                        if (BuildOptions.debug_placeholders) {
                             std.debug.print(
                                 "resolved static property placeholder for `{s}`\n",
                                 .{
@@ -1502,7 +1502,7 @@ pub const Parser = struct {
                         try self.resolvePlaceholder(placeholder, property_type, false);
 
                         // Now we know the placeholder was a field
-                        if (Config.debug_placeholders) {
+                        if (BuildOptions.debug_placeholders) {
                             std.debug.print(
                                 "resolved property placeholder for `{s}`\n",
                                 .{
@@ -3461,7 +3461,7 @@ pub const Parser = struct {
                         .resolved_type = placeholder_resolved_type,
                     });
 
-                    if (Config.debug_placeholders) {
+                    if (BuildOptions.debug_placeholders) {
                         std.debug.print(
                             "static placeholder @{} for `{s}`\n",
                             .{
@@ -3518,7 +3518,7 @@ pub const Parser = struct {
                         .resolved_type = placeholder_resolved_type,
                     });
 
-                    if (Config.debug_placeholders) {
+                    if (BuildOptions.debug_placeholders) {
                         std.debug.print(
                             "property placeholder @{} for `{s}.{s}`\n",
                             .{
@@ -4917,7 +4917,7 @@ pub const Parser = struct {
         // markInitialized but we don't care what depth we are in
         self.globals.items[global].initialized = true;
 
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             std.debug.print(
                 "global placeholder @{} for `{s}` at {}\n",
                 .{
@@ -4961,7 +4961,7 @@ pub const Parser = struct {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ObjectInstance)) {
-                            if (Config.debug_placeholders) {
+                            if (BuildOptions.debug_placeholders) {
                                 std.debug.print(
                                     "Global placeholder @{} resolve with @{} {s} (opt {})\n",
                                     .{
@@ -5007,7 +5007,7 @@ pub const Parser = struct {
     }
 
     fn dumpGlobals(self: *Self) !void {
-        if (Config.debug) {
+        if (BuildOptions.debug) {
             for (self.globals.items) |global, index| {
                 std.debug.print(
                     "global {}: {s} @{} {s}\n",

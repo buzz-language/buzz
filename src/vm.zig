@@ -6,7 +6,7 @@ const _chunk = @import("./chunk.zig");
 const _disassembler = @import("./disassembler.zig");
 const _obj = @import("./obj.zig");
 const Allocator = std.mem.Allocator;
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
@@ -494,18 +494,6 @@ pub const VM = struct {
         return @intCast(u8, self.readInstruction());
     }
 
-    inline fn readOpCode(self: *Self) OpCode {
-        // TODO: measure if [*]OpCode[0] is faster
-        var opcode: OpCode = @intToEnum(
-            OpCode,
-            self.currentFrame().?.closure.function.chunk.code.items[self.currentFrame().?.ip],
-        );
-
-        self.currentFrame().?.ip += 1;
-
-        return opcode;
-    }
-
     inline fn readConstant(self: *Self, arg: u24) Value {
         return self.currentFrame().?.closure.function.chunk.constants.items[arg];
     }
@@ -632,11 +620,11 @@ pub const VM = struct {
 
     // FIXME: Figure out how to preserve always_tail with error return so we can get rid of inline error handling everywhere
     inline fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
-        if (Config.debug_stack) {
+        if (BuildOptions.debug_stack) {
             dumpStack(self) catch unreachable;
         }
 
-        if (Config.debug_current_instruction or Config.debug_stack) {
+        if (BuildOptions.debug_current_instruction or BuildOptions.debug_stack) {
             std.debug.print(
                 "{}: {}\n",
                 .{
@@ -3353,7 +3341,7 @@ pub const VM = struct {
         const next_instruction: OpCode = getCode(next_full_instruction);
         const next_arg: u24 = getArg(next_full_instruction);
 
-        if (Config.debug_current_instruction) {
+        if (BuildOptions.debug_current_instruction) {
             std.debug.print(
                 "{}: {}\n",
                 .{

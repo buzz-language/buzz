@@ -13,7 +13,7 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const TypeRegistry = @import("./memory.zig").TypeRegistry;
 const FunctionNode = @import("./node.zig").FunctionNode;
-var Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 
@@ -97,7 +97,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
             return CompileError.Recoverable;
         }
 
-        if (Config.debug_perf and flavor != .Check and flavor != .Fmt) {
+        if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
             const parsing_ms: f64 = @intToFloat(f64, parsing_time) / 1000000;
             const codegen_ms: f64 = @intToFloat(f64, codegen_time) / 1000000;
             const running_ms: f64 = @intToFloat(f64, running_time) / 1000000;
@@ -150,9 +150,10 @@ pub fn main() !void {
 
     if (res.args.version) {
         std.debug.print(
-            "👨‍🚀 buzz {s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
+            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
             .{
-                Config.version,
+                if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+                BuildOptions.sha,
                 builtin.zig_version,
                 switch (builtin.mode) {
                     .ReleaseFast => "release-fast",

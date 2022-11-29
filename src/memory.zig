@@ -5,7 +5,7 @@ const Fiber = _vm.Fiber;
 const _value = @import("./value.zig");
 const _obj = @import("./obj.zig");
 const dumpStack = @import("./disassembler.zig").dumpStack;
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const assert = std.debug.assert;
 
@@ -60,7 +60,7 @@ pub const TypeRegistry = struct {
 
         var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
 
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
         }
         _ = try self.registry.put(type_def_str, type_def_ptr);
@@ -127,8 +127,8 @@ pub const GarbageCollector = struct {
     type_registry: TypeRegistry,
     bytes_allocated: usize = 0,
     // next_gc == next_full_gc at first so the first cycle is a full gc
-    next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
-    next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * Config.gc.initial_gc,
+    next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
+    next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
@@ -195,13 +195,13 @@ pub const GarbageCollector = struct {
             self.max_allocated = self.bytes_allocated;
         }
 
-        if (self.bytes_allocated > self.next_gc and !Config.debug_turn_off_gc) {
+        if (self.bytes_allocated > self.next_gc and !BuildOptions.gc_off) {
             try self.collectGarbage();
         }
 
         var allocated = try self.allocator.create(T);
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("Allocated @{} {}\n", .{ @ptrToInt(allocated), T });
         }
 
@@ -218,7 +218,7 @@ pub const GarbageCollector = struct {
             self.max_allocated = self.bytes_allocated;
         }
 
-        if (self.bytes_allocated > self.next_gc and !Config.debug_turn_off_gc) {
+        if (self.bytes_allocated > self.next_gc and !BuildOptions.gc_off) {
             try self.collectGarbage();
         }
 
@@ -252,7 +252,7 @@ pub const GarbageCollector = struct {
             else => {},
         };
 
-        // if (Config.debug_gc) {
+        // if (BuildOptions.gc_debug) {
         //     std.debug.print("allocated {*} {*}\n", .{ obj, object });
         //     std.debug.print("(from {}) {} allocated, total {}\n", .{ before, self.bytes_allocated - before, self.bytes_allocated });
         // }
@@ -293,7 +293,7 @@ pub const GarbageCollector = struct {
         var copy: []u8 = try self.allocateMany(u8, chars.len);
         std.mem.copy(u8, copy, chars);
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("Allocated slice {*} `{s}`\n", .{ copy, copy });
         }
 
@@ -303,14 +303,14 @@ pub const GarbageCollector = struct {
     fn free(self: *Self, comptime T: type, pointer: *T) void {
         var timer = std.time.Timer.start() catch unreachable;
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("Going to free {*}\n", .{pointer});
         }
 
         self.bytes_allocated -= @sizeOf(T);
         self.allocator.destroy(pointer);
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print(
                 "(from {}), freed {}, {} allocated\n",
                 .{ self.bytes_allocated + @sizeOf(T), @sizeOf(T), self.bytes_allocated },
@@ -323,7 +323,7 @@ pub const GarbageCollector = struct {
     fn freeMany(self: *Self, comptime T: type, pointer: []const T) void {
         var timer = std.time.Timer.start() catch unreachable;
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("Going to free slice {*} `{s}`\n", .{ pointer, pointer });
         }
 
@@ -331,7 +331,7 @@ pub const GarbageCollector = struct {
         self.bytes_allocated -= n;
         self.allocator.free(pointer);
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print(
                 "(from {}), freed {}, {} allocated\n",
                 .{
@@ -368,13 +368,13 @@ pub const GarbageCollector = struct {
 
     pub fn markObj(self: *Self, obj: *Obj) !void {
         if (obj.is_marked) {
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("{*} {s} already marked or old\n", .{ obj, try valueToStringAlloc(self.allocator, Value{ .Obj = obj }) });
             }
             return;
         }
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("marking {*}: ", .{obj});
             std.debug.print("{s}\n", .{try valueToStringAlloc(self.allocator, Value{ .Obj = obj })});
         }
@@ -395,7 +395,7 @@ pub const GarbageCollector = struct {
     }
 
     fn blackenObject(self: *Self, obj: *Obj) !void {
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print(
                 "blackening @{} {}\n",
                 .{
@@ -426,7 +426,7 @@ pub const GarbageCollector = struct {
             .Fiber => try ObjFiber.cast(obj).?.mark(self),
         };
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print(
                 "done blackening @{} {}\n",
                 .{
@@ -438,7 +438,7 @@ pub const GarbageCollector = struct {
     }
 
     fn freeObj(self: *Self, obj: *Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print(">> freeing {} {}\n", .{ @ptrToInt(obj), obj.obj_type });
         }
 
@@ -469,7 +469,7 @@ pub const GarbageCollector = struct {
                 if (self.type_registry.registry.get(str)) |registered_obj| {
                     if (registered_obj == obj_typedef) {
                         _ = self.type_registry.registry.remove(str);
-                        if (Config.debug_gc) {
+                        if (BuildOptions.gc_debug) {
                             std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str });
                         }
                     }
@@ -554,30 +554,30 @@ pub const GarbageCollector = struct {
         var current_fiber: ?*Fiber = fiber;
         while (current_fiber) |ufiber| {
             // Mark main fiber
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING STACK OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
             var i = @ptrCast([*]Value, fiber.stack);
             while (@ptrToInt(i) < @ptrToInt(fiber.stack_top)) : (i += 1) {
                 try self.markValue(i[0]);
             }
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("DONE MARKING STACK OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
 
             // Mark closure
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING FRAMES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
             for (fiber.frames.items) |frame| {
                 try self.markObj(frame.closure.toObj());
             }
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("DONE MARKING FRAMES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
 
             // Mark opened upvalues
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING UPVALUES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
             if (fiber.open_upvalues) |open_upvalues| {
@@ -586,7 +586,7 @@ pub const GarbageCollector = struct {
                     try self.markObj(unwrapped.toObj());
                 }
             }
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print("DONE MARKING UPVALUES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
             }
 
@@ -595,7 +595,7 @@ pub const GarbageCollector = struct {
     }
 
     fn markMethods(self: *Self) !void {
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("MARKING BASIC TYPES METHOD\n", .{});
         }
         // Mark basic types methods
@@ -644,7 +644,7 @@ pub const GarbageCollector = struct {
             }
         }
 
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("DONE MARKING BASIC TYPES METHOD\n", .{});
         }
     }
@@ -668,25 +668,25 @@ pub const GarbageCollector = struct {
         try markFiber(self, vm.current_fiber);
 
         // Mark globals
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("MARKING GLOBALS OF VM @{}\n", .{@ptrToInt(vm)});
         }
         for (vm.globals.items) |global| {
             try self.markValue(global);
         }
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("DONE MARKING GLOBALS OF VM @{}\n", .{@ptrToInt(vm)});
         }
     }
 
     fn traceReference(self: *Self) !void {
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("TRACING REFERENCE\n", .{});
         }
         while (self.gray_stack.items.len > 0) {
             try blackenObject(self, self.gray_stack.pop());
         }
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("DONE TRACING REFERENCE\n", .{});
         }
     }
@@ -699,7 +699,7 @@ pub const GarbageCollector = struct {
         var count: usize = 0;
         while (obj_node) |node| : (count += 1) {
             if (node.data.is_marked) {
-                if (Config.debug_gc and mode == .Full) {
+                if (BuildOptions.gc_debug and mode == .Full) {
                     std.debug.print("UNMARKING @{}\n", .{@ptrToInt(node.data)});
                 }
                 // If not a full gc, we reset is_marked, this object is now 'old'
@@ -723,7 +723,7 @@ pub const GarbageCollector = struct {
             }
         }
 
-        if (Config.debug_gc or Config.debug_gc_light) {
+        if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             std.debug.print("\nSwept {} objects for {} bytes, now {} bytes\n", .{ obj_count, swept - self.bytes_allocated, self.bytes_allocated });
         }
     }
@@ -738,7 +738,7 @@ pub const GarbageCollector = struct {
 
         const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
-        if (Config.debug_gc or Config.debug_gc_light) {
+        if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             std.debug.print("-- gc starts mode {}, {} bytes, {} objects\n", .{ mode, self.bytes_allocated, self.objects.len });
 
             // try dumpStack(self);
@@ -748,7 +748,7 @@ pub const GarbageCollector = struct {
         while (it.next()) |kv| {
             var vm = kv.key_ptr.*;
 
-            if (Config.debug_gc) {
+            if (BuildOptions.gc_debug) {
                 std.debug.print(
                     "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
                     .{
@@ -774,11 +774,11 @@ pub const GarbageCollector = struct {
             self.light_collection_count += 1;
         }
 
-        self.next_gc = self.bytes_allocated * Config.gc.next_gc_ratio;
-        self.next_full_gc = self.next_gc * Config.gc.next_full_gc_ratio;
+        self.next_gc = self.bytes_allocated * BuildOptions.next_gc_ratio;
+        self.next_full_gc = self.next_gc * BuildOptions.next_full_gc_ratio;
         self.last_gc = mode;
 
-        if (Config.debug_gc or Config.debug_gc_light) {
+        if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
         }
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});

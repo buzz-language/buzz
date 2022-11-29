@@ -13,7 +13,7 @@ const _parser = @import("./parser.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
 const ObjFunction = _obj.ObjFunction;
@@ -72,7 +72,7 @@ pub const CodeGen = struct {
         self.had_error = false;
         self.panic_mode = false;
 
-        if (Config.debug) {
+        if (BuildOptions.debug) {
             var out = std.ArrayList(u8).init(self.gc.allocator);
             defer out.deinit();
 
@@ -266,7 +266,7 @@ pub const CodeGen = struct {
             report_line.items,
         });
 
-        if (Config.debug_stop_on_report) {
+        if (BuildOptions.stop_on_report) {
             unreachable;
         }
     }

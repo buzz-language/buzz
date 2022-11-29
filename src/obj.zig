@@ -14,7 +14,7 @@ const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 const _value = @import("./value.zig");
 const Token = @import("./token.zig").Token;
-const Config = @import("./config.zig").Config;
+const BuildOptions = @import("build_options");
 const CodeGen = @import("./codegen.zig").CodeGen;
 
 pub const pcre = @import("./pcre.zig").pcre;
@@ -137,7 +137,7 @@ pub const Obj = struct {
                 return mem.eql(u8, ObjPattern.cast(self).?.source, ObjPattern.cast(other).?.source);
             },
             .String => {
-                if (Config.debug) {
+                if (BuildOptions.debug) {
                     assert(self != other or mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
                     assert(self == other or !mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
                 }
@@ -1275,13 +1275,13 @@ pub const ObjFunction = struct {
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(self.name.toObj());
         try gc.markObj(self.type_def.toObj());
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
         }
         for (self.chunk.constants.items) |constant| {
             try gc.markValue(constant);
         }
-        if (Config.debug_gc) {
+        if (BuildOptions.gc_debug) {
             std.debug.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
         }
     }
@@ -3909,7 +3909,7 @@ pub const PlaceholderDef = struct {
         }
 
         if (child.resolved_type.?.Placeholder.parent != null) {
-            if (Config.debug_placeholders) {
+            if (BuildOptions.debug_placeholders) {
                 std.debug.print(
                     ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
                     .{
@@ -3928,7 +3928,7 @@ pub const PlaceholderDef = struct {
         try parent.resolved_type.?.Placeholder.children.append(child);
         child.resolved_type.?.Placeholder.parent_relation = relation;
 
-        if (Config.debug_placeholders) {
+        if (BuildOptions.debug_placeholders) {
             std.debug.print(
                 "Linking @{} (root: {}) with @{} as {}\n",
                 .{
