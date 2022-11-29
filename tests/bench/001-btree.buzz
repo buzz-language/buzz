@@ -7,7 +7,7 @@ object Node {
     Node? right = null,
 }
 
-fun bottomUpTree(num depth) > Node {
+fun bottomUpTree(int depth) > Node {
     if (depth > 0) {
         depth = depth - 1;
 
@@ -20,7 +20,7 @@ fun bottomUpTree(num depth) > Node {
     return Node{};
 }
 
-fun itemCheck(Node tree) > num {
+fun itemCheck(Node tree) > int {
     if (tree.left != null) {
         return 1 + itemCheck(tree.left!) + itemCheck(tree.right!);
     } else {
@@ -31,26 +31,26 @@ fun itemCheck(Node tree) > num {
 }
 
 fun main([str] args) > void !> OverflowError, UnderflowError {
-    num N = 0;
+    int N = 0;
     if (args.len() > 0) {
-        N = parseNumber(args[0]) ?? 0;
+        N = parseInt(args[0]) ?? 0;
     }
 
-    num mindepth = 4;
-    num maxdepth = mindepth + 2;
+    int mindepth = 4;
+    int maxdepth = mindepth + 2;
     if (maxdepth < N) {
         maxdepth = N;
     }
 
-    num stretchdepth = maxdepth + 1;
+    int stretchdepth = maxdepth + 1;
     Node stretchtree = bottomUpTree(stretchdepth);
     print("stretch tree of depth {stretchdepth},\t check: {itemCheck(stretchtree)}");
 
     Node longlivedtree = bottomUpTree(maxdepth);
-    for (num depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        num iterations = math.pow(x: 2, y: maxdepth - depth + mindepth);
-        num check = 0;
-        for (num i = 0; i < iterations; i = i + 1) {
+    for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
+        int iterations = toInt(math.pow(x: 2.0, y: toFloat(maxdepth - depth + mindepth)));
+        int check = 0;
+        for (int i = 0; i < iterations; i = i + 1) {
             check = check + itemCheck(bottomUpTree(depth));
         }
 

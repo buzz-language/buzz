@@ -10,13 +10,13 @@ test "Optional force unwrapping with `!`" {
 }
 
 test "Optional graceful unwrapping with `?`" {
-    [num]? optList = [1, 2, 3];
+    [int]? optList = [1, 2, 3];
 
     assert(optList?.len() == 3, message: "could unwrap optList");
 }
 
 object Me {
-    [num]? list
+    [int]? list
 }
 
 test "Optional chaining" {

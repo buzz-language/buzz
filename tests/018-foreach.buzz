@@ -1,10 +1,10 @@
 import "lib/std";
 
 test "foreach on list" {
-    [num] list = [1, 2, 3];
+    [int] list = [1, 2, 3];
 
-    num sum = 0;
-    foreach (num index, num item in list) {
+    int sum = 0;
+    foreach (int index, int item in list) {
         print("{index} {item}");
         sum = sum + item;
     }
@@ -13,21 +13,21 @@ test "foreach on list" {
 }
 
 test "list.next" {
-    [num] list = [1, 2, 3];
+    [int] list = [1, 2, 3];
 
     assert(list.next(null) == 0, message: "calling next native");
     assert(list.next(0) == 1, message: "calling next native");
 }
 
 test "foreach on map" {
-    {str, num} map = {
+    {str, int} map = {
         "one": 1,
         "two": 2,
         "three": 3
     };
 
-    num sum = 0;
-    foreach (str key, num value in map) {
+    int sum = 0;
+    foreach (str key, int value in map) {
         sum = sum + value;
     }
 
@@ -41,7 +41,7 @@ enum Hey {
 }
 
 test "foreach on enum" {
-    num sum = 0;
+    int sum = 0;
     foreach (Hey case in Hey) {
         sum = sum + case.value;
     }
@@ -51,7 +51,7 @@ test "foreach on enum" {
 
 test "foreach on str" {
     str hello = "";
-    foreach (num index, str char in "hello world") {
+    foreach (int index, str char in "hello world") {
         hello = "{hello}{char}";
     }
 

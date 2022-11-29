@@ -4,11 +4,11 @@ object WriteWhileReadingError {}
 object OutOfBoundError {}
 
 || @private
-extern fun BufferNew(num capacity) > ud;
+extern fun BufferNew(int capacity) > ud;
 || @private
 extern fun BufferDeinit(ud userdata) > void;
 || @private
-extern fun BufferRead(ud userdata, num n) > str?;
+extern fun BufferRead(ud userdata, int n) > str?;
 || @private
 extern fun BufferWrite(ud userdata, str bytes) > void !> WriteWhileReadingError;
 || @private
@@ -16,21 +16,25 @@ extern fun BufferReadBoolean(ud userdata) > bool?;
 || @private
 extern fun BufferWriteBoolean(ud userdata, bool b) > void !> WriteWhileReadingError;
 || @private
-extern fun BufferWriteNumber(ud userdata, num n) > str !> WriteWhileReadingError;
+extern fun BufferWriteInt(ud userdata, int n) > str !> WriteWhileReadingError;
 || @private
-extern fun BufferReadNumber(ud userdata) > num?;
+extern fun BufferReadInt(ud userdata) > int?;
 || @private
-extern fun BufferLen(ud userdata) > num;
+extern fun BufferWriteFloat(ud userdata, float n) > str !> WriteWhileReadingError;
 || @private
-extern fun BufferCursor(ud userdata) > num;
+extern fun BufferReadFloat(ud userdata) > float?;
+|| @private
+extern fun BufferLen(ud userdata) > int;
+|| @private
+extern fun BufferCursor(ud userdata) > int;
 || @private
 extern fun BufferBuffer(ud userdata) > str;
 || @private
 extern fun BufferEmpty(ud userdata) > void;
 || @private
-extern fun BufferAt(ud userdata, num index) > num;
+extern fun BufferAt(ud userdata, int index) > int;
 || @private
-extern fun BufferSetAt(ud userdata, num index, num value) > void;
+extern fun BufferSetAt(ud userdata, int index, int value) > void;
 
 || Read and write data to a string buffer
 object Buffer {
@@ -38,7 +42,7 @@ object Buffer {
     ud buffer,
 
     || @return A new `Buffer`
-    static fun init(num capacity = 0) > Buffer {
+    static fun init(int capacity = 0) > Buffer {
         return Buffer{
             buffer = BufferNew(capacity)
         };
@@ -52,7 +56,7 @@ object Buffer {
 
     || Reads `n` bytes
     || @return Read bytes or `null` if nothing to read
-    fun read(num n) > str? {
+    fun read(int n) > str? {
         return BufferRead(this.buffer, n: n);
     }
 
@@ -74,25 +78,38 @@ object Buffer {
         BufferWriteBoolean(this.buffer, b: boolean);
     }
 
-    || Reads a number
-    || @return Read number or `null` if nothing to read
-    fun readNumber() > num? {
-        return BufferReadNumber(this.buffer);
+    || Reads an integer
+    || @return Read integer or `null` if nothing to read
+    fun readInt() > int? {
+        return BufferReadInt(this.buffer);
     }
 
-    || Writes a number
-    || @param number Number to write
-    fun writeNumber(num number) > void !> WriteWhileReadingError {
-        BufferWriteNumber(this.buffer, n: number);
+    || Writes an integer
+    || @param number Integer to write
+    fun writeInt(int number) > void !> WriteWhileReadingError {
+        BufferWriteInt(this.buffer, n: number);
     }
+
+    || Reads a float
+    || @return Read float or `null` if nothing to read
+    fun readFloat() > float? {
+        return BufferReadFloat(this.buffer);
+    }
+
+    || Writes a float
+    || @param number Float to write
+    fun writeFloat(float number) > void !> WriteWhileReadingError {
+        BufferWriteFloat(this.buffer, n: number);
+    }
+
 
     || @return Length of the buffer
-    fun len() > num {
+    fun len() > int {
         return BufferLen(this.buffer);
     }
 
     || @return Position of the reading cursor
-    fun cursor() > num {
+    fun cursor() > int {
         return BufferCursor(this.buffer);
     }
 
@@ -107,7 +124,7 @@ object Buffer {
     }
 
     || Get byte at `index`
-    fun at(num index) > num !> OutOfBoundError {
+    fun at(int index) > int !> OutOfBoundError {
         if (index < this.len()) {
             return BufferAt(this.buffer, index: index);
         }
@@ -116,7 +133,7 @@ object Buffer {
     }
 
     || Set byte at `index`
-    fun setAt(num index, num value) > void !> WriteWhileReadingError, OutOfBoundError {
+    fun setAt(int index, int value) > void !> WriteWhileReadingError, OutOfBoundError {
         if (index < this.len()) {
             BufferSetAt(this.buffer, index: index, value: value);
 

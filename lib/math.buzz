@@ -1,65 +1,65 @@
 import "lib/errors";
 
 || @return absolute value of n
-extern fun abs(num n) > num;
+extern fun abs(float n) > float;
 
 || @return acos of n
-extern fun acos(num n) > num;
+extern fun acos(float n) > float;
 
 || @return asin of n
-extern fun asin(num n) > num;
+extern fun asin(float n) > float;
 
 || @return atan of n
-extern fun atan(num n) > num;
+extern fun atan(float n) > float;
 
 || @return ceiled n
-extern fun bzceil(num n) > num;
+extern fun bzceil(float n) > int;
 
 || @return cos of n
-extern fun bzcos(num n) > num;
+extern fun bzcos(float n) > float;
 
 || π constant
-const num pi = 3.1415926535898;
+const float pi = 3.1415926535898;
 
 || Convert radian to degree
-fun deg(num n) > num {
-    return n * 180 / pi;
+fun deg(float n) > float {
+    return n * 180.0 / pi;
 }
 
 || @return exp of n
-extern fun bzexp(num n) > num;
+extern fun bzexp(float n) > float;
 
 || @returned floored n
-extern fun bzfloor(num n) > num;
+extern fun bzfloor(float n) > int;
 
 || @return log(base) of n
-extern fun bzlog(num base, num n) > num;
+extern fun bzlog(float base, float n) > float;
 
 || @return max of a and b
-extern fun max(num a, num b) > num;
+extern fun max(float a, float b) > float;
 
 || @return min of a and b
-extern fun min(num a, num b) > num;
+extern fun min(float a, float b) > float;
 
 || Convert degree to radian
-fun rad(num n) > num {
-    return n * pi / 180;
+fun rad(float n) > float {
+    return n * pi / 180.0;
 }
 
 || @return random number between 0 and 1
-extern fun random() > num;
+extern fun random() > float;
 
 || @return sin of n
-extern fun bzsin(num n) > num;
+extern fun bzsin(float n) > float;
 
 || @return square root of n
-extern fun bzsqrt(num n) > num;
+extern fun bzsqrt(float n) > float;
 
 || @return tan of n
-extern fun bztan(num n) > num;
+extern fun bztan(float n) > float;
 
 || @return `x`^`y`
-extern fun pow(num x, num y) > num !> OverflowError, UnderflowError;
+extern fun pow(float x, float y) > float !> OverflowError, UnderflowError;
 
 export abs;
 export acos;

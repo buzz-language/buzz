@@ -2,10 +2,10 @@ import "lib/std";
 
 test "fiber" {
     | Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
-    fib<str, num?> counter = &count(10);
+    fib<str, int?> counter = &count(10);
 
     | A fiber is over when a OP_RETURN as been executed
-    num sum = 0;
+    int sum = 0;
     while (!counter.over()) {
         | resume returns null if nothing was yielded and/or fiber is over
         sum = sum + resume counter ?? 0;
@@ -20,13 +20,13 @@ test "fiber" {
     assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
 }
 
-| returns str, yields num
-fun count(num n) > str > num? {
+| returns str, yields int
+fun count(int n) > str > int? {
     | TODO: how to do this? types prevent us from having a generic currentFiber function
-    |       do we need `any` type? do we need first citizen/generic types to do currentRoute<str, num>()?
-    | assert(currentFiber() is fib<str, num>, message: "Can get current fiber")
+    |       do we need `any` type? do we need first citizen/generic types to do currentRoute<str, int>()?
+    | assert(currentFiber() is fib<str, int>, message: "Can get current fiber")
 
-    for (num i = 0; i < n; i = i + 1) {
+    for (int i = 0; i < n; i = i + 1) {
         | error or yield is ignored if not called with a async call?
         yield i;
     }

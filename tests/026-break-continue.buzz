@@ -1,7 +1,7 @@
 import "lib/std";
 
 test "break statement" {
-    num i = 0;
+    int i = 0;
     while (i < 10) {
         i = i + 1;
 
@@ -14,7 +14,7 @@ test "break statement" {
 }
 
 test "continue statement" {
-    num i = 0;
+    int i = 0;
     while (i < 10) {
         i = i + 1;
 

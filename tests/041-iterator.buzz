@@ -1,11 +1,11 @@
 import "lib/std";
 
-fun fibonnaci(num n) > void > num? {
-    num n1 = 0;
-    num n2 = 1;
-    num? next = null;
+fun fibonnaci(int n) > void > int? {
+    int n1 = 0;
+    int n2 = 1;
+    int? next = null;
 
-    for (num i = 0; i < n; i = i + 1) {
+    for (int i = 0; i < n; i = i + 1) {
         yield n1;
         next = n1 + n2;
         n1 = n2;
@@ -14,9 +14,9 @@ fun fibonnaci(num n) > void > num? {
 }
 
 test "finobacci generator" {
-    [num] suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
-    num i = 0;
-    foreach (num n in &fibonnaci(10)) {
+    [int] suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
+    int i = 0;
+    foreach (int n in &fibonnaci(10)) {
         assert(suite[i] == n, message: "could iterate over fiber");
 
         i = i + 1;

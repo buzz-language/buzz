@@ -2,11 +2,11 @@ import "lib/std";
 import "lib/gc" as gc;
 
 object Kill {
-    num yo = -1
+    int yo = -1
 }
 
 test "GC, collecting unreferenced objects" {
-    num i = 0;
+    int i = 0;
     Kill k = Kill{}; | Should be kept longer
     while (i < 100) {
         Kill{ yo = i }; | Should be collected since not referenced anywhere
@@ -14,7 +14,7 @@ test "GC, collecting unreferenced objects" {
         i = i + 1;
     }
 
-    const num before = gc.allocated();
+    const int before = gc.allocated();
 
     gc.collect();
 

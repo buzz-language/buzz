@@ -112,8 +112,6 @@ pub const Chunk = struct {
     /// List of constants defined in this chunk
     constants: std.ArrayList(Value),
 
-    // TODO: correlate opcodes and line number in source code
-
     pub fn init(allocator: Allocator) Self {
         return Self{
             .code = std.ArrayList(u32).init(allocator),

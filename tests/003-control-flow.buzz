@@ -29,7 +29,7 @@ test "if statement with placeholder" {
 }
 
 test "while statement" {
-    num i = 0;
+    int i = 0;
     while (i < 10) {
         i = i + 1;
     }
@@ -46,7 +46,7 @@ test "while statement with placeholder" {
 }
 
 test "do-until statement" {
-    num i = 10;
+    int i = 10;
     do {
         i = i - 1;
     } until (i == 0)
@@ -58,7 +58,7 @@ str ahead = "wat";
 
 object Ahead {
     str name = "joe",
-    num age = 0
+    int age = 0
 }
 
 Ahead objAhead = Ahead{};

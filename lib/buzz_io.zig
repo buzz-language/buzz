@@ -257,7 +257,7 @@ export fn FileRead(vm: *api.VM) c_int {
     return 1;
 }
 
-// extern fun File_write(num fd, [num] bytes) > void;
+// extern fun File_write(int fd, [int] bytes) > void;
 export fn FileWrite(vm: *api.VM) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,

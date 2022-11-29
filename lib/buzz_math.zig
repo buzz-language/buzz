@@ -1,8 +1,6 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
 
-// FIXME: all those function operate on floats discarding integer that don't fit in a f64
-
 export fn abs(vm: *api.VM) c_int {
     const n_f: f64 = api.Value.bz_valueToFloat(vm.bz_peek(0));
 

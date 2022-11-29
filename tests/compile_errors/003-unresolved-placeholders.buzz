@@ -3,11 +3,11 @@ import "lib/std";
 import "tests/compile_errors/utils/bad-import";
 
 test "Unknown string interpolated expression" {
-    num hello = 12 + world;
+    int hello = 12 + world;
 
-    num by = hello + shey;
+    int by = hello + shey;
 
-    print(by);
+    print("{by}");
 }
 
-num shey = 42 + joe;
+int shey = 42 + joe;

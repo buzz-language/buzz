@@ -6,7 +6,7 @@ test "Escape sequences" {
 
 test "String interpolation" {
     str name = "joe";
-    num age = 12;
+    int age = 12;
 
     assert(
         "{"$"} hello {name} i'm {age} years old {3+4}"

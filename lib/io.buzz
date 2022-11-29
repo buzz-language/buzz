@@ -1,23 +1,23 @@
 import "lib/errors";
 
 || @private
-extern fun FileOpen(str filename, num mode) > num !> FileNotFoundError, FileSystemError, UnexpectedError;
+extern fun FileOpen(str filename, int mode) > int !> FileNotFoundError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileClose(num fd) > void;
+extern fun FileClose(int fd) > void;
 || @private
-extern fun FileReadAll(num fd) > str !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadAll(int fd) > str !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileReadLine(num fd) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadLine(int fd) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileRead(num fd, num n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
+extern fun FileRead(int fd, int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
 || @private
-extern fun FileWrite(num fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
+extern fun FileWrite(int fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
 || @private
-extern fun getStdIn() > num;
+extern fun getStdIn() > int;
 || @private
-extern fun getStdOut() > num;
+extern fun getStdOut() > int;
 || @private
-extern fun getStdErr() > num;
+extern fun getStdErr() > int;
 
 || File mode with which you can open a file
 enum FileMode {
@@ -29,7 +29,7 @@ enum FileMode {
 || Object to manipulate an opened file
 object File {
     || File descriptor
-    num fd,
+    int fd,
 
     || Open file
     || @param filename Path of file to open
@@ -58,7 +58,7 @@ object File {
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
-    fun read(num n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
+    fun read(int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
         return FileRead(this.fd, n: n);
     }
 

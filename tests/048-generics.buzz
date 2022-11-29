@@ -1,11 +1,11 @@
 import "lib/std";
 
-fun count(<T>, [T] list) > num {
+fun count(<T>, [T] list) > int {
     return list.len();
 }
 
 test "Simple generic" {
-    assert(count(<num>, [1, 2, 3]) == 3, message: "could use generics");
+    assert(count(<int>, [1, 2, 3]) == 3, message: "could use generics");
 }
 
 fun extractList(<T>, obj{ [T] list } data) > [T] {
@@ -13,23 +13,23 @@ fun extractList(<T>, obj{ [T] list } data) > [T] {
 }
 
 test "Generic within anonymous object" {
-    [num] list = [1, 2, 3];
+    [int] list = [1, 2, 3];
 
-    assert(extractList(<num>, .{ list = list }) == list, message: "could use generic within anonymous object");
+    assert(extractList(<int>, .{ list = list }) == list, message: "could use generic within anonymous object");
 }
 
-fun countMap(<K, V>, {K, V} map) > num {
+fun countMap(<K, V>, {K, V} map) > int {
     return map.size();
 }
 
 test "Multiple generic types" {
-    {str, num} map = {
+    {str, int} map = {
         "one": 1,
         "two": 2,
         "three": 3,
     };
 
-    assert(countMap(<str, num>, map) == 3, message: "could use multiple generic types");
+    assert(countMap(<str, int>, map) == 3, message: "could use multiple generic types");
 }
 
 fun extractMap(<K, V>, obj{ {K, V} map } data) > {K, V} {
@@ -37,32 +37,32 @@ fun extractMap(<K, V>, obj{ {K, V} map } data) > {K, V} {
 }
 
 test "Generic within anonymous object and map" {
-    {str, num} map = {
+    {str, int} map = {
         "one": 1,
         "two": 2,
         "three": 3,
     };
 
-    assert(extractMap(<str, num>, .{ map = map }) == map, message: "could use generic within anonymous object");
+    assert(extractMap(<str, int>, .{ map = map }) == map, message: "could use generic within anonymous object");
 }
 
-fun countShuffleGenerics(<A, B>) > Function([A] a, [B] b) > num {
-    return fun ([A] a, [B] b) > num -> a.len() + b.len();
+fun countShuffleGenerics(<A, B>) > Function([A] a, [B] b) > int {
+    return fun ([A] a, [B] b) > int -> a.len() + b.len();
 }
 
 test "Generic in lambda function definition" {
     [str] a = ["one", "two", "three"];
-    [num] b = [1, 2, 3];
+    [int] b = [1, 2, 3];
 
-    assert(countShuffleGenerics(<str, num>)(a, b: b) == 6, message: "could use generic in lambda function definition");
+    assert(countShuffleGenerics(<str, int>)(a, b: b) == 6, message: "could use generic in lambda function definition");
 }
 
-fun doubleGeneric(<A, B>, Function(<C, D>) > num lambda) > num {
+fun doubleGeneric(<A, B>, Function(<C, D>) > int lambda) > int {
     return lambda(<A, B>);
 }
 
 test "Generic with generic lambda parameter" {
-    assert(doubleGeneric(<str, num>, fun (<D, E>) > num -> 12) == 12, message: "could defined multiple generics");
+    assert(doubleGeneric(<str, int>, fun (<D, E>) > int -> 12) == 12, message: "could defined multiple generics");
 }
 
 fun genericReturn(<T>, T value) > T {
@@ -70,19 +70,19 @@ fun genericReturn(<T>, T value) > T {
 }
 
 test "generic return" {
-    num number = genericReturn(<num>, 12);
+    int number = genericReturn(<int>, 12);
 }
 
 fun fiber(<T>, [T] data) > void > T? {
-    foreach (num i, T element in data) {
+    foreach (int i, T element in data) {
         yield element;
     }
 }
 
 test "Generic with fibers" {
-    fib<void, num?> f = &fiber(<num>, [1, 2, 3]);
+    fib<void, int?> f = &fiber(<int>, [1, 2, 3]);
 
-    num sum = 0;
+    int sum = 0;
     while (!f.over()) {
         sum = sum + resume f ?? 0;
     }

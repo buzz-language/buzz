@@ -1,15 +1,15 @@
 import "lib/std";
 
 object Hey {
-    [num] ages,
-    {num, str} names,
+    [int] ages,
+    {int, str} names,
 }
 
 test "List and Map as Object properties" {
     Hey hey = Hey{
-        ages = [<num>, 1, 2, 3],
+        ages = [<int>, 1, 2, 3],
         names = {
-            <num, str>,
+            <int, str>,
             1: "hello"
         },
     };

@@ -15,7 +15,7 @@ test "mkDir/rm" {
 
 test "ls" {
     bool containsREADME = false;
-    foreach (num i, str el in fs.list(fs.currentDirectory())) {
+    foreach (int i, str el in fs.list(fs.currentDirectory())) {
         str randomLocal = "hello there!";
         if (el == "README.md") {
             containsREADME = true;
@@ -29,7 +29,7 @@ test "ls" {
 
     assert(containsREADME, message: "Could list element in current directory");
 
-    foreach (num i, str el in fs.list("/doesnotexist") catch ["wentwrong"]) {
+    foreach (int i, str el in fs.list("/doesnotexist") catch ["wentwrong"]) {
         assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
     }
 }

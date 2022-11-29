@@ -1,7 +1,7 @@
 import "lib/std";
 
 test "If arrow" {
-    num? opt = null;
+    int? opt = null;
     str? optS = "hello";
 
     if (opt -> unwrapped) {

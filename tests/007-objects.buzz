@@ -2,7 +2,7 @@ import "lib/std";
 
 object First {
     str name = "Joe",
-    num age = 10,
+    int age = 10,
 
     fun sayHello() > void {
         print("hello");
@@ -24,9 +24,9 @@ test "Objects" {
 }
 
 object Second {
-    static num nextId = -1;
+    static int nextId = -1;
 
-    num id,
+    int id,
 
     static fun init() > Second {
         Second.nextId = Second.nextId + 1;

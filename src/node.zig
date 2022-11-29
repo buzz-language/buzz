@@ -64,7 +64,8 @@ pub const ParseNodeType = enum(u8) {
     Expression,
     Grouping,
     NamedVariable,
-    Number,
+    Integer,
+    Float,
     String,
     StringLiteral,
     Pattern,
@@ -504,11 +505,11 @@ pub const NamedVariableNode = struct {
     }
 };
 
-pub const NumberNode = struct {
+pub const IntegerNode = struct {
     const Self = @This();
 
     node: ParseNode = .{
-        .node_type = .Number,
+        .node_type = .Integer,
         .toJson = stringify,
         .toByteCode = generate,
         .toValue = val,
@@ -516,8 +517,7 @@ pub const NumberNode = struct {
         .render = render,
     },
 
-    float_constant: ?f64,
-    integer_constant: ?i64,
+    integer_constant: i64,
 
     fn cnst(_: *ParseNode) bool {
         return true;
@@ -526,13 +526,7 @@ pub const NumberNode = struct {
     fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
         const self = Self.cast(node).?;
 
-        if (self.float_constant) |constant| {
-            return Value{ .Float = constant };
-        } else {
-            assert(self.integer_constant != null);
-
-            return Value{ .Integer = self.integer_constant.? };
-        }
+        return Value{ .Integer = self.integer_constant };
     }
 
     fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -542,13 +536,7 @@ pub const NumberNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (self.float_constant) |constant| {
-            try codegen.emitConstant(self.node.location, Value{ .Float = constant });
-        } else {
-            assert(self.integer_constant != null);
-
-            try codegen.emitConstant(self.node.location, Value{ .Integer = self.integer_constant.? });
-        }
+        try codegen.emitConstant(self.node.location, Value{ .Integer = self.integer_constant });
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -559,15 +547,9 @@ pub const NumberNode = struct {
     fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Number\", \"constant\": ", .{});
+        try out.print("{{\"node\": \"Integer\", \"constant\": ", .{});
 
-        if (self.float_constant) |constant| {
-            try out.print("{d}, ", .{constant});
-        } else {
-            assert(self.integer_constant != null);
-
-            try out.print("{d}, ", .{self.integer_constant.?});
-        }
+        try out.print("{d}, ", .{self.integer_constant});
 
         try ParseNode.stringify(node, out);
 
@@ -577,11 +559,7 @@ pub const NumberNode = struct {
     fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
         const self = Self.cast(node).?;
 
-        if (self.float_constant) |float| {
-            try out.print("{d}", .{float});
-        } else {
-            try out.print("{d}", .{self.integer_constant.?});
-        }
+        try out.print("{d}", .{self.integer_constant});
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -589,7 +567,77 @@ pub const NumberNode = struct {
     }
 
     pub fn cast(node: *ParseNode) ?*Self {
-        if (node.node_type != .Number) {
+        if (node.node_type != .Integer) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const FloatNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Float,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = cnst,
+        .render = render,
+    },
+
+    float_constant: f64,
+
+    fn cnst(_: *ParseNode) bool {
+        return true;
+    }
+
+    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
+        const self = Self.cast(node).?;
+
+        return Value{ .Float = self.float_constant };
+    }
+
+    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        var self = Self.cast(node).?;
+
+        try codegen.emitConstant(self.node.location, Value{ .Float = self.float_constant });
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(node: *ParseNode, out: *std.ArrayList(u8).Writer) RenderError!void {
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Float\", \"constant\": ", .{});
+
+        try out.print("{d}, ", .{self.float_constant});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(node: *ParseNode, out: *std.ArrayList(u8).Writer, _: usize) RenderError!void {
+        const self = Self.cast(node).?;
+
+        try out.print("{d}", .{self.float_constant});
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(node: *ParseNode) ?*Self {
+        if (node.node_type != .Float) {
             return null;
         }
 
@@ -1775,10 +1823,10 @@ pub const UnaryNode = struct {
         const left_type = self.left.type_def.?;
         switch (self.operator) {
             .Bnot => {
-                if (left_type.def_type != .Number) {
+                if (left_type.def_type != .Integer) {
                     try codegen.reportErrorFmt(
                         self.left.location,
-                        "Expected type `num`, got `{s}`",
+                        "Expected type `int`, got `{s}`",
                         .{try left_type.toStringAlloc(codegen.gc.allocator)},
                     );
                 }
@@ -1797,10 +1845,10 @@ pub const UnaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .Minus => {
-                if (left_type.def_type != .Number) {
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
                     try codegen.reportErrorFmt(
                         self.left.location,
-                        "Expected type `num`, got `{s}`",
+                        "Expected type `int` or `float`, got `{s}`",
                         .{try left_type.toStringAlloc(codegen.gc.allocator)},
                     );
                 }
@@ -2140,8 +2188,40 @@ pub const BinaryNode = struct {
             try codegen.reportPlaceholder(self.right.type_def.?.resolved_type.?.Placeholder);
         }
 
-        if (!left_type.eql(right_type)) {
-            try codegen.reportTypeCheckAt(left_type, right_type, "Type mismatch", node.location);
+        switch (self.operator) {
+            .QuestionQuestion,
+            .Ampersand,
+            .Bor,
+            .Xor,
+            .ShiftLeft,
+            .ShiftRight,
+            .Plus,
+            .Minus,
+            .Star,
+            .Slash,
+            .Percent,
+            .And,
+            .Or,
+            => {
+                if (!left_type.eql(right_type)) {
+                    try codegen.reportTypeCheckAt(left_type, right_type, "Type mismatch", node.location);
+                }
+            },
+
+            .Greater,
+            .Less,
+            .GreaterEqual,
+            .LessEqual,
+            .BangEqual,
+            .EqualEqual,
+            => {
+                // We allow comparison between float and int so raise error if type != and one operand is not a number
+                if (!left_type.eql(right_type) and ((left_type.def_type != .Integer and left_type.def_type != .Float) or (right_type.def_type != .Integer and right_type.def_type != .Float))) {
+                    try codegen.reportTypeCheckAt(left_type, right_type, "Type mismatch", node.location);
+                }
+            },
+
+            else => unreachable,
         }
 
         switch (self.operator) {
@@ -2161,8 +2241,8 @@ pub const BinaryNode = struct {
             },
             .Ampersand => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2171,8 +2251,8 @@ pub const BinaryNode = struct {
             },
             .Bor => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2181,8 +2261,8 @@ pub const BinaryNode = struct {
             },
             .Xor => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2191,8 +2271,8 @@ pub const BinaryNode = struct {
             },
             .ShiftLeft => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2201,8 +2281,8 @@ pub const BinaryNode = struct {
             },
             .ShiftRight => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2211,8 +2291,8 @@ pub const BinaryNode = struct {
             },
             .Greater => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2220,8 +2300,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_GREATER);
             },
             .Less => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2229,8 +2309,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_LESS);
             },
             .GreaterEqual => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2239,8 +2319,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_NOT);
             },
             .LessEqual => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(self.left.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2261,11 +2341,12 @@ pub const BinaryNode = struct {
             },
             .Plus => {
                 // zig fmt: off
-                if (left_type.def_type != .Number
+                if (left_type.def_type != .Integer
+                    and left_type.def_type != .Float
                     and left_type.def_type != .String
                     and left_type.def_type != .List
                     and left_type.def_type != .Map) {
-                    try codegen.reportErrorAt(self.left.location, "Expected a `num`, `str`, list or map.");
+                    try codegen.reportErrorAt(self.left.location, "Expected a `int`, `float`, `str`, list or map.");
                 }
                 // zig fmt: on
 
@@ -2279,8 +2360,8 @@ pub const BinaryNode = struct {
                 });
             },
             .Minus => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(node.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2288,8 +2369,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_SUBTRACT);
             },
             .Star => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(node.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2297,8 +2378,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_MULTIPLY);
             },
             .Slash => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(node.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2306,8 +2387,8 @@ pub const BinaryNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_DIVIDE);
             },
             .Percent => {
-                if (left_type.def_type != .Number) {
-                    try codegen.reportErrorAt(node.location, "Expected `num`.");
+                if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+                    try codegen.reportErrorAt(self.left.location, "Expected `int` or `float`.");
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2514,15 +2595,15 @@ pub const SubscriptNode = struct {
 
         switch (self.subscripted.type_def.?.def_type) {
             .String => {
-                if (self.index.type_def.?.def_type != .Number) {
-                    try codegen.reportErrorAt(self.index.location, "Expected `num` index.");
+                if (self.index.type_def.?.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.index.location, "Expected `int` index.");
                 }
 
                 assert(self.value == null);
             },
             .List => {
-                if (self.index.type_def.?.def_type != .Number) {
-                    try codegen.reportErrorAt(self.index.location, "Expected `num` index.");
+                if (self.index.type_def.?.def_type != .Integer) {
+                    try codegen.reportErrorAt(self.index.location, "Expected `int` index.");
                 }
 
                 if (self.value) |value| {
@@ -4236,7 +4317,7 @@ pub const EnumNode = struct {
         }
 
         switch (enum_type.def_type) {
-            .String, .Number => {},
+            .String, .Integer => {},
             else => {
                 try codegen.reportErrorAt(node.location, "Type not allowed as enum value");
                 return null;
@@ -5075,8 +5156,8 @@ pub const ForEachNode = struct {
 
                 switch (self.iterable.type_def.?.def_type) {
                     .String, .List => {
-                        if (key.type_def.def_type != .Number) {
-                            try codegen.reportErrorAt(key.node.location, "Expected `num`.");
+                        if (key.type_def.def_type != .Integer) {
+                            try codegen.reportErrorAt(key.node.location, "Expected `int`.");
                         }
                     },
                     .Map => {

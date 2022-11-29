@@ -9,7 +9,7 @@ object Request {
     str method,
     {str, str} headers,
     str path,
-    num contentLength = 0,
+    int contentLength = 0,
     str? body = null,
 
     fun toString() > str {
@@ -36,9 +36,9 @@ object Request {
         str path = methodAndUrl![2];
 
         {str, str} headers = {<str, str>};
-        num contentLength = 0;
-        num lineOffset = 0;
-        foreach (num i, str line in lines.sub(1)) {
+        int contentLength = 0;
+        int lineOffset = 0;
+        foreach (int i, str line in lines.sub(1)) {
             if (line == "\n" or line == "\r" or line == "") {
                 break;
             }
@@ -54,7 +54,7 @@ object Request {
             headers[headerMatch![1]] = headerMatch![2];
 
             if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
-                contentLength = parseNumber(headerMatch![2].trim()) ?? 0;
+                contentLength = parseInt(headerMatch![2].trim()) ?? 0;
             }
         }
 

@@ -6,7 +6,7 @@ enum(str) StrEnum {
     three,
 }
 
-enum(num) NumEnum {
+enum(int) IntEnum {
     one = 1,
     two = 2,
     three = 3,
@@ -22,7 +22,7 @@ enum NaturalEnum {
 test "Enums" {
     assert(StrEnum.one.value == "one", message: "str enum");
 
-    assert(NumEnum.one.value == 1, message: "num enum");
+    assert(IntEnum.one.value == 1, message: "int enum");
 
     assert(NaturalEnum.zero.value == 0, message: "natural enum");
 

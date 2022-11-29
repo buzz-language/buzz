@@ -31,7 +31,7 @@ object Declaration {
         const pat atPattern = _@([^@ ]+)(\s+[^\n@]+)?_;
         {str, str} out = {<str, str>};
 
-        foreach (num i, str line in docblock.split("\n")) {
+        foreach (int i, str line in docblock.split("\n")) {
             if (atPattern.match(line) -> at) {
                 if (at.len() > 2) {
                     out[at[1]] = at[2];
@@ -84,7 +84,7 @@ object Declaration {
 fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
     [Declaration] declarations = [<Declaration>];
 
-    foreach (num index, Json statement in statements) {
+    foreach (int index, Json statement in statements) {
         {str, Json} statementMap = statement.mapValue();
         str nodeType = statement.q(["node"]).stringValue();
 
@@ -163,7 +163,7 @@ fun getDeclarations(str path) > [Declaration]
 }
 
 fun genMarkdownDoc([Declaration] declarations, Buffer out) > void !> WriteWhileReadingError {
-    foreach (num i, Declaration decl in declarations) {
+    foreach (int i, Declaration decl in declarations) {
         decl.toMarkdown("###", out: out);
     }
 }
@@ -179,7 +179,7 @@ fun main([str] args) > void
        WriteWhileReadingError
 {
     {str, str} markdownDoc = {<str, str>};
-    foreach (num i, str file in list("lib")) {
+    foreach (int i, str file in list("lib")) {
         if (file.endsWith(".buzz")) {
             [Declaration] declarations = getDeclarations("lib/{file}");
 

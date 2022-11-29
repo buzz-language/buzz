@@ -17,13 +17,31 @@ extern fun print(str value) > void;
 
 || Parse number, returns false if string does not represent a number
 || @param string string to parse
-|| @return number parsed or null
-extern fun parseNumber(str string) > num?;
+|| @return integer parsed or null
+extern fun parseInt(str string) > int?;
+
+|| Parse number, returns false if string does not represent a number
+|| @param string string to parse
+|| @return float parsed or null
+extern fun parseFloat(str string) > float?;
+
+|| Cast integer to a float value
+|| @param n value to cast
+|| @return casted value
+extern fun toInt(float n) > int;
+
+|| Cast float to a integer value
+|| @param n value to cast
+|| @return casted value
+extern fun toFloat(int n) > float;
 
 || Return ascii char for given byte
-extern fun char(num byte) > str;
+extern fun char(int byte) > str;
 
 export assert;
 export print;
-export parseNumber;
+export parseInt;
+export parseFloat;
+export toInt;
+export toFloat;
 export char;

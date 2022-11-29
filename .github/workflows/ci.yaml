@@ -5,21 +5,22 @@ on:
     branches: [main]
 
 jobs:
-  test-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout project
-        uses: actions/checkout@v3.0.0
-      - name: Checkout submodules
-        run: git submodule update --init --recursive
-      - name: Setup nightly Zig
-        uses: goto-bus-stop/setup-zig@v1
-        with:
-          version: master
-      - name: Build
-        run: zig build
-      - name: Run tests
-        run: BUZZ_PATH=./dist zig build test
+  # FIXME: enable again when pcre is available on gh actions again
+  # test-macos:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout project
+  #       uses: actions/checkout@v3.0.0
+  #     - name: Checkout submodules
+  #       run: git submodule update --init --recursive
+  #     - name: Setup nightly Zig
+  #       uses: goto-bus-stop/setup-zig@v1
+  #       with:
+  #         version: master
+  #     - name: Build
+  #       run: zig build
+  #     - name: Run tests
+  #       run: BUZZ_PATH=./dist zig build test
   test-linux:
     runs-on: ubuntu-latest
     steps:
