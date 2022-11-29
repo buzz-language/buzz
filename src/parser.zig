@@ -1769,7 +1769,7 @@ pub const Parser = struct {
             casted_type = try self.parseTypeDef(null);
 
             _ = try self.parseVariable(
-                casted_type.?,
+                try casted_type.?.toInstance(self.gc.allocator, &self.gc.type_registry),
                 true,
                 "Expected casted identifier",
             );

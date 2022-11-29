@@ -188,7 +188,7 @@ pub const Fiber = struct {
         if (full_instruction) |ufull_instruction| {
             const instruction = VM.getCode(ufull_instruction);
             switch (instruction) {
-                .OP_FOREACH => {
+                .OP_FIBER_FOREACH => {
                     _ = vm.pop();
 
                     var value_slot: *Value = @ptrCast(*Value, vm.current_fiber.stack_top - 2);
@@ -268,7 +268,7 @@ pub const Fiber = struct {
         if (full_instruction) |ufull_instruction| {
             const instruction = VM.getCode(ufull_instruction);
             switch (instruction) {
-                .OP_FOREACH => {
+                .OP_FIBER_FOREACH => {
                     // We don't care about the returned value
                     _ = vm.pop();
 
@@ -569,7 +569,11 @@ pub const VM = struct {
         OP_JUMP_IF_FALSE,
         OP_JUMP_IF_NOT_NULL,
         OP_LOOP,
-        OP_FOREACH,
+        OP_STRING_FOREACH,
+        OP_LIST_FOREACH,
+        OP_ENUM_FOREACH,
+        OP_MAP_FOREACH,
+        OP_FIBER_FOREACH,
 
         OP_CALL,
         OP_INVOKE,
@@ -593,8 +597,15 @@ pub const VM = struct {
         OP_INSTANCE,
         OP_METHOD,
         OP_PROPERTY,
-        OP_GET_PROPERTY,
-        OP_SET_PROPERTY,
+        OP_GET_OBJECT_PROPERTY,
+        OP_GET_INSTANCE_PROPERTY,
+        OP_GET_LIST_PROPERTY,
+        OP_GET_MAP_PROPERTY,
+        OP_GET_STRING_PROPERTY,
+        OP_GET_PATTERN_PROPERTY,
+        OP_GET_FIBER_PROPERTY,
+        OP_SET_OBJECT_PROPERTY,
+        OP_SET_INSTANCE_PROPERTY,
 
         OP_ENUM,
         OP_ENUM_CASE,
@@ -616,7 +627,11 @@ pub const VM = struct {
 
     // FIXME: Figure out how to preserve always_tail with error return so we can get rid of inline error handling everywhere
     inline fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
-        if (Config.debug_current_instruction) {
+        if (Config.debug_stack) {
+            dumpStack(self) catch unreachable;
+        }
+
+        if (Config.debug_current_instruction or Config.debug_stack) {
             std.debug.print(
                 "{}: {}\n",
                 .{
@@ -624,10 +639,6 @@ pub const VM = struct {
                     instruction,
                 },
             );
-        }
-
-        if (Config.debug_stack) {
-            dumpStack(self) catch unreachable;
         }
 
         // We're at the start of catch clauses because an error was thrown
@@ -2094,116 +2105,43 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var obj: *Obj = self.peek(0).Obj;
+    fn OP_GET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const object: *ObjObject = ObjObject.cast(self.peek(0).Obj).?;
+        const name: *ObjString = self.readString(arg);
 
-        switch (obj.obj_type) {
-            .Object => {
-                const object: *ObjObject = ObjObject.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
+        _ = self.pop(); // Pop instance
+        self.push(object.static_fields.get(name).?);
 
-                _ = self.pop(); // Pop instance
-                self.push(object.static_fields.get(name).?);
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
             },
-            .ObjectInstance => {
-                const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
+        );
+    }
 
-                if (instance.fields.get(name)) |field| {
-                    _ = self.pop(); // Pop instance
-                    self.push(field);
-                } else if (instance.object) |object| {
-                    if (object.methods.get(name)) |method| {
-                        self.bindMethod(method, null) catch |e| {
-                            panic(e);
-                            unreachable;
-                        };
-                    } else {
-                        unreachable;
-                    }
-                }
-            },
-            .Enum => {
+    fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).Obj).?;
+        const name: *ObjString = self.readString(arg);
+
+        if (instance.fields.get(name)) |field| {
+            _ = self.pop(); // Pop instance
+            self.push(field);
+        } else if (instance.object) |object| {
+            if (object.methods.get(name)) |method| {
+                self.bindMethod(method, null) catch |e| {
+                    panic(e);
+                    unreachable;
+                };
+            } else {
                 unreachable;
-            },
-            .List => {
-                const list = ObjList.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
-
-                if (list.member(self, name) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |member| {
-                    self.bindMethod(null, member) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                } else {
-                    unreachable;
-                }
-            },
-            .Map => {
-                const map = ObjMap.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
-
-                if (map.member(self, name) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |member| {
-                    self.bindMethod(null, member) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                } else {
-                    unreachable;
-                }
-            },
-            .String => {
-                const name: *ObjString = self.readString(arg);
-
-                if (ObjString.member(self, name) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |member| {
-                    self.bindMethod(null, member) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                } else {
-                    unreachable;
-                }
-            },
-            .Pattern => {
-                const name: *ObjString = self.readString(arg);
-
-                if (ObjPattern.member(self, name) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |member| {
-                    self.bindMethod(null, member) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                } else {
-                    unreachable;
-                }
-            },
-            .Fiber => {
-                const name: *ObjString = self.readString(arg);
-
-                if (ObjFiber.member(self, name) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |member| {
-                    self.bindMethod(null, member) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-
-                unreachable;
-            },
-            else => unreachable,
+            }
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2220,42 +2158,193 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SET_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var obj: *Obj = self.peek(1).Obj;
+    fn OP_GET_LIST_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const list = ObjList.cast(self.peek(0).Obj).?;
+        const name: *ObjString = self.readString(arg);
 
-        switch (obj.obj_type) {
-            .ObjectInstance => {
-                const instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
-
-                // Set new value
-                instance.setField(self.gc, name, self.peek(0)) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
-
-                // Get the new value from stack, pop the instance and push value again
-                const value: Value = self.pop();
-                _ = self.pop();
-                self.push(value);
-            },
-            .Object => {
-                const object: *ObjObject = ObjObject.cast(obj).?;
-                const name: *ObjString = self.readString(arg);
-
-                // Set new value
-                object.setStaticField(self.gc, name, self.peek(0)) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
-
-                // Get the new value from stack, pop the object and push value again
-                const value: Value = self.pop();
-                _ = self.pop();
-                self.push(value);
-            },
-            else => unreachable,
+        if (list.member(self, name) catch |e| {
+            panic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            unreachable;
         }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+    fn OP_GET_MAP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const map = ObjMap.cast(self.peek(0).Obj).?;
+        const name: *ObjString = self.readString(arg);
+
+        if (map.member(self, name) catch |e| {
+            panic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            unreachable;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_STRING_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const name: *ObjString = self.readString(arg);
+
+        if (ObjString.member(self, name) catch |e| {
+            panic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            unreachable;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_PATTERN_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const name: *ObjString = self.readString(arg);
+
+        if (ObjPattern.member(self, name) catch |e| {
+            panic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            unreachable;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_FIBER_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const name: *ObjString = self.readString(arg);
+
+        if (ObjFiber.member(self, name) catch |e| {
+            panic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+        const name: *ObjString = self.readString(arg);
+
+        // Set new value
+        object.setStaticField(self.gc, name, self.peek(0)) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // Get the new value from stack, pop the object and push value again
+        const value: Value = self.pop();
+        _ = self.pop();
+        self.push(value);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
+        const name: *ObjString = self.readString(arg);
+
+        // Set new value
+        instance.setField(self.gc, name, self.peek(0)) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // Get the new value from stack, pop the instance and push value again
+        const value: Value = self.pop();
+        _ = self.pop();
+        self.push(value);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2904,89 +2993,138 @@ pub const VM = struct {
         );
     }
 
-    fn OP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var iterable_value: Value = self.peek(0);
-        var iterable: *Obj = iterable_value.Obj;
-        switch (iterable.obj_type) {
-            .String => {
-                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-                var str: *ObjString = ObjString.cast(iterable).?;
+    fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+        const value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+        const str: *ObjString = ObjString.cast(self.peek(0).Obj).?;
 
-                key_slot.* = if (str.next(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |new_index|
-                    Value{ .Integer = new_index }
-                else
-                    Value{ .Null = {} };
+        key_slot.* = if (str.next(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+            panic(e);
+            unreachable;
+        }) |new_index|
+            Value{ .Integer = new_index }
+        else
+            Value{ .Null = {} };
 
-                // Set new value
-                if (key_slot.* != .Null) {
-                    value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]})) catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue();
-                }
+        // Set new value
+        if (key_slot.* != .Null) {
+            value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]})) catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue();
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
             },
-            .List => {
-                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-                var list: *ObjList = ObjList.cast(iterable).?;
+        );
+    }
 
-                // Get next index
-                key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
-                    panic(e);
-                    unreachable;
-                }) |new_index|
-                    Value{ .Integer = new_index }
-                else
-                    Value{ .Null = {} };
+    fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+        var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+        var list: *ObjList = ObjList.cast(self.peek(0).Obj).?;
 
-                // Set new value
-                if (key_slot.* != .Null) {
-                    value_slot.* = list.items.items[@intCast(usize, key_slot.Integer)];
-                }
+        // Get next index
+        key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+            panic(e);
+            unreachable;
+        }) |new_index|
+            Value{ .Integer = new_index }
+        else
+            Value{ .Null = {} };
+
+        // Set new value
+        if (key_slot.* != .Null) {
+            value_slot.* = list.items.items[@intCast(usize, key_slot.Integer)];
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
             },
-            .Enum => {
-                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-                var enum_case: ?*ObjEnumInstance = if (value_slot.* == .Null) null else ObjEnumInstance.cast(value_slot.Obj).?;
-                var enum_: *ObjEnum = ObjEnum.cast(iterable).?;
+        );
+    }
 
-                // Get next enum case
-                var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
-                value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = {} });
+    fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+        var enum_case: ?*ObjEnumInstance = if (value_slot.* == .Null) null else ObjEnumInstance.cast(value_slot.Obj).?;
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
+
+        // Get next enum case
+        var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
+            panic(e);
+            unreachable;
+        };
+        value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = {} });
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
             },
-            .Map => {
-                var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
-                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-                var map: *ObjMap = ObjMap.cast(iterable).?;
-                var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
+        );
+    }
 
-                var next_key: ?HashableValue = map.rawNext(current_key);
-                key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = {} };
+    fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
+        var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+        var map: *ObjMap = ObjMap.cast(self.peek(0).Obj).?;
+        var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
 
-                if (next_key) |unext_key| {
-                    value_slot.* = map.map.get(unext_key) orelse Value{ .Null = {} };
-                }
+        var next_key: ?HashableValue = map.rawNext(current_key);
+        key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = {} };
+
+        if (next_key) |unext_key| {
+            value_slot.* = map.map.get(unext_key) orelse Value{ .Null = {} };
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
             },
-            .Fiber => {
-                var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-                var fiber = ObjFiber.cast(iterable).?;
+        );
+    }
 
-                if (fiber.fiber.status == .Over) {
-                    value_slot.* = Value{ .Null = {} };
-                } else {
-                    fiber.fiber.resume_(self) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-            },
-            else => unreachable,
+    fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
+        var fiber = ObjFiber.cast(self.peek(0).Obj).?;
+
+        if (fiber.fiber.status == .Over) {
+            value_slot.* = Value{ .Null = {} };
+        } else {
+            fiber.fiber.resume_(self) catch |e| {
+                panic(e);
+                unreachable;
+            };
         }
 
         const next_full_instruction: u32 = self.readInstruction();

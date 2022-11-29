@@ -5261,7 +5261,17 @@ pub const ForEachNode = struct {
         const loop_start: usize = codegen.currentCode();
 
         // Calls `next` and update key and value locals
-        try codegen.emitOpCode(self.node.location, .OP_FOREACH);
+        try codegen.emitOpCode(
+            self.node.location,
+            switch (self.iterable.type_def.?.def_type) {
+                .String => .OP_STRING_FOREACH,
+                .List => .OP_LIST_FOREACH,
+                .Enum => .OP_ENUM_FOREACH,
+                .Map => .OP_MAP_FOREACH,
+                .Fiber => .OP_FIBER_FOREACH,
+                else => unreachable,
+            },
+        );
 
         // If next key is null, exit loop
         try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, @intCast(u24, (self.key orelse self.value).slot));
@@ -5765,13 +5775,24 @@ pub const DotNode = struct {
             try codegen.reportErrorAt(node.location, "Optional doesn't have field access");
         }
 
+        var get_code: ?OpCode = switch (callee_type.def_type) {
+            .Object => .OP_GET_OBJECT_PROPERTY,
+            .ObjectInstance, .ProtocolInstance => .OP_GET_INSTANCE_PROPERTY,
+            .List => .OP_GET_LIST_PROPERTY,
+            .Map => .OP_GET_MAP_PROPERTY,
+            .String => .OP_GET_STRING_PROPERTY,
+            .Pattern => .OP_GET_PATTERN_PROPERTY,
+            .Fiber => .OP_GET_FIBER_PROPERTY,
+            else => null,
+        };
+
         switch (callee_type.def_type) {
             .Fiber, .Pattern, .String => {
                 if (self.call) |call_node| { // Call
                     try codegen.emitOpCode(self.node.location, .OP_COPY);
                     _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);
                 } else { // Expression
-                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             .ObjectInstance, .Object => {
@@ -5782,23 +5803,27 @@ pub const DotNode = struct {
 
                     _ = try value.toByteCode(value, codegen, breaks);
 
-                    try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        if (callee_type.def_type == .ObjectInstance) .OP_SET_INSTANCE_PROPERTY else .OP_SET_OBJECT_PROPERTY,
+                        try codegen.identifierConstant(self.identifier.lexeme),
+                    );
                 } else if (self.call) |call| {
                     // Static call
                     if (callee_type.def_type == .Object) {
-                        try codegen.emitCodeArg(node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                        try codegen.emitCodeArg(node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                     }
 
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             .ProtocolInstance => {
                 if (self.call) |call| {
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             .Enum => {
@@ -5815,7 +5840,7 @@ pub const DotNode = struct {
 
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(self.node.location, .OP_GET_PROPERTY, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
             else => unreachable,
@@ -5974,7 +5999,7 @@ pub const ObjectInitNode = struct {
 
                 try init_properties.put(property_name, {});
 
-                try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, property_name_constant);
+                try codegen.emitCodeArg(self.node.location, .OP_SET_INSTANCE_PROPERTY, property_name_constant);
                 try codegen.emitOpCode(self.node.location, .OP_POP); // Pop property value
             } else {
                 try codegen.reportErrorFmt(node.location, "Property `{s}` does not exists", .{property_name});
@@ -6200,7 +6225,7 @@ pub const ObjectDeclarationNode = struct {
 
                 // Create property default value
                 if (is_static) {
-                    try codegen.emitCodeArg(self.node.location, .OP_SET_PROPERTY, member_name_constant);
+                    try codegen.emitCodeArg(self.node.location, .OP_SET_OBJECT_PROPERTY, member_name_constant);
                     try codegen.emitOpCode(self.node.location, .OP_POP);
                 } else {
                     try codegen.emitCodeArg(self.node.location, .OP_PROPERTY, member_name_constant);
