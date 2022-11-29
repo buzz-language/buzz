@@ -534,8 +534,11 @@ pub const VM = struct {
         OP_SET_LOCAL,
         OP_GET_UPVALUE,
         OP_SET_UPVALUE,
-        OP_GET_SUBSCRIPT,
-        OP_SET_SUBSCRIPT,
+        OP_GET_LIST_SUBSCRIPT,
+        OP_GET_MAP_SUBSCRIPT,
+        OP_GET_STRING_SUBSCRIPT,
+        OP_SET_LIST_SUBSCRIPT,
+        OP_SET_MAP_SUBSCRIPT,
 
         OP_EQUAL,
         OP_IS,
@@ -621,6 +624,10 @@ pub const VM = struct {
                     instruction,
                 },
             );
+        }
+
+        if (Config.debug_stack) {
+            dumpStack(self) catch unreachable;
         }
 
         // We're at the start of catch clauses because an error was thrown
@@ -1588,97 +1595,70 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var subscriptable: *Obj = self.peek(1).Obj;
+    fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
+        const index = self.peek(0).Integer;
+
+        if (index < 0) {
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        const list_index: usize = @intCast(usize, index);
+
+        if (list_index >= list.items.items.len) {
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
+
+            return;
+        }
+
+        var list_item: Value = list.items.items[list_index];
+
+        // Pop list and index
+        _ = self.pop();
+        _ = self.pop();
+
+        // Push value
+        self.push(list_item);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var map: *ObjMap = ObjMap.cast(self.peek(1).Obj).?;
         var index: Value = floatToInteger(self.peek(0));
 
-        switch (subscriptable.obj_type) {
-            .List => {
-                var list: *ObjList = ObjList.cast(subscriptable).?;
+        // Pop map and key
+        _ = self.pop();
+        _ = self.pop();
 
-                if (index != .Integer or index.Integer < 0) {
-                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue()) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-
-                const list_index: usize = @intCast(usize, index.Integer);
-
-                if (list_index < list.items.items.len) {
-                    var list_item: Value = list.items.items[list_index];
-
-                    // Pop list and index
-                    _ = self.pop();
-                    _ = self.pop();
-
-                    // Push value
-                    self.push(list_item);
-                } else {
-                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue()) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-            },
-            .Map => {
-                var map: *ObjMap = ObjMap.cast(subscriptable).?;
-
-                // Pop map and key
-                _ = self.pop();
-                _ = self.pop();
-
-                if (map.map.get(valueToHashable(index))) |value| {
-                    // Push value
-                    self.push(value);
-                } else {
-                    self.push(Value{ .Null = {} });
-                }
-            },
-            .String => {
-                var str: *ObjString = ObjString.cast(subscriptable).?;
-
-                if (index != .Integer or index.Integer < 0) {
-                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound string access.") catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue()) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-
-                const str_index: usize = @intCast(usize, index.Integer);
-
-                if (str_index < str.string.len) {
-                    var str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue();
-
-                    // Pop str and index
-                    _ = self.pop();
-                    _ = self.pop();
-
-                    // Push value
-                    self.push(str_item);
-                } else {
-                    self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound str access.") catch |e| {
-                        panic(e);
-                        unreachable;
-                    }).toValue()) catch |e| {
-                        panic(e);
-                        unreachable;
-                    };
-                }
-            },
-            else => unreachable,
+        if (map.map.get(valueToHashable(index))) |value| {
+            // Push value
+            self.push(value);
+        } else {
+            self.push(Value{ .Null = {} });
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1695,52 +1675,77 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SET_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list_or_map: *Obj = self.peek(2).Obj;
-        var index: Value = self.peek(1);
-        var value: Value = self.peek(0);
+    fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var str = ObjString.cast(self.peek(1).Obj).?;
+        const index = self.peek(0).Integer;
 
-        if (list_or_map.obj_type == .List) {
-            var list: *ObjList = ObjList.cast(list_or_map).?;
+        if (index < 0) {
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound string access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
 
-            if (index != .Integer or index.Integer < 0) {
-                self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
-                    unreachable;
-                }).toValue()) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
-            }
+        const str_index: usize = @intCast(usize, index);
 
-            const list_index: usize = @intCast(usize, index.Integer);
+        if (str_index < str.string.len) {
+            var str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue();
 
-            if (list_index < list.items.items.len) {
-                list.set(self.gc, list_index, value) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
+            // Pop str and index
+            _ = self.pop();
+            _ = self.pop();
 
-                // Pop everyting
-                _ = self.pop();
-                _ = self.pop();
-                _ = self.pop();
-
-                // Push the value
-                self.push(value);
-            } else {
-                self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
-                    unreachable;
-                }).toValue()) catch |e| {
-                    panic(e);
-                    unreachable;
-                };
-            }
+            // Push value
+            self.push(str_item);
         } else {
-            var map: *ObjMap = ObjMap.cast(list_or_map).?;
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound str access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
 
-            map.set(self.gc, index, value) catch |e| {
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var list = ObjList.cast(self.peek(2).Obj).?;
+        const index = self.peek(1);
+        const value = self.peek(0);
+
+        if (index.Integer < 0) {
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        const list_index: usize = @intCast(usize, index.Integer);
+
+        if (list_index < list.items.items.len) {
+            list.set(self.gc, list_index, value) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -1752,7 +1757,47 @@ pub const VM = struct {
 
             // Push the value
             self.push(value);
+        } else {
+            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
+                panic(e);
+                unreachable;
+            }).toValue()) catch |e| {
+                panic(e);
+                unreachable;
+            };
         }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .{ .modifier = .always_tail },
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
+        const index = self.peek(1);
+        const value = self.peek(0);
+
+        map.set(self.gc, index, value) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        // Pop everyting
+        _ = self.pop();
+        _ = self.pop();
+        _ = self.pop();
+
+        // Push the value
+        self.push(value);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

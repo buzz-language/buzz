@@ -2593,11 +2593,15 @@ pub const SubscriptNode = struct {
             try codegen.reportPlaceholder(self.value.?.type_def.?.resolved_type.?.Placeholder);
         }
 
+        var get_code: OpCode = .OP_GET_LIST_SUBSCRIPT;
+        var set_code: OpCode = .OP_SET_LIST_SUBSCRIPT;
         switch (self.subscripted.type_def.?.def_type) {
             .String => {
                 if (self.index.type_def.?.def_type != .Integer) {
                     try codegen.reportErrorAt(self.index.location, "Expected `int` index.");
                 }
+
+                get_code = .OP_GET_STRING_SUBSCRIPT;
 
                 assert(self.value == null);
             },
@@ -2622,6 +2626,9 @@ pub const SubscriptNode = struct {
                         try codegen.reportTypeCheckAt(self.subscripted.type_def.?.resolved_type.?.Map.value_type, value.type_def.?, "Bad value type", value.location);
                     }
                 }
+
+                get_code = .OP_GET_MAP_SUBSCRIPT;
+                set_code = .OP_SET_MAP_SUBSCRIPT;
             },
             else => try codegen.reportErrorAt(node.location, "Not subscriptable."),
         }
@@ -2631,9 +2638,9 @@ pub const SubscriptNode = struct {
         if (self.value) |value| {
             _ = try value.toByteCode(value, codegen, breaks);
 
-            try codegen.emitOpCode(self.node.location, .OP_SET_SUBSCRIPT);
+            try codegen.emitOpCode(self.node.location, set_code);
         } else {
-            try codegen.emitOpCode(self.node.location, .OP_GET_SUBSCRIPT);
+            try codegen.emitOpCode(self.node.location, get_code);
         }
 
         try node.patchOptJumps(codegen);
