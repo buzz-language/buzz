@@ -161,8 +161,6 @@ fn handleFileReadLineError(vm: *api.VM, err: anytype) void {
 
         error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
         error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
-
-        error.EndOfStream => {},
     }
 }
 
@@ -175,24 +173,27 @@ export fn FileReadLine(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    // FIXME: read until \n OR EOF
-    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
-        if (err == error.EndOfStream) {
-            vm.bz_pushNull();
-
-            return 1;
-        }
-
+    var buffer = reader.readUntilDelimiterOrEofAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
         handleFileReadLineError(vm, err);
 
         return -1;
-    };
+    } orelse "";
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    if (buffer.len > 0) {
+        vm.bz_pushString(
+            api.ObjString.bz_string(
+                vm,
+                @ptrCast([*]const u8, buffer),
+                buffer.len,
+            ) orelse {
+                vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-        return -1;
-    });
+                return -1;
+            },
+        );
+    } else {
+        vm.bz_pushNull();
+    }
 
     return 1;
 }
