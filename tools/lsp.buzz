@@ -1,3 +1,5 @@
+#!/usr/bin/env buzz
+
 import "lib/std";
 import "lib/io";
 import "lib/json";
@@ -97,7 +99,7 @@ fun readContentLength() > int? !> LSPError {
             const str value = header!.sub(colon! + 2);
             
             if (name == "Content-Length") {
-                return parseNumber(value);
+                return parseInt(value);
             }
         } catch {
             throw LSPError{
@@ -116,7 +118,7 @@ fun respond(str? strId, int? numId, Json result) > void !> LSPError
         const Json response = Json{
             map = {
                 "jsonrpc": Json{ string = "2.0" },
-                "id": Json{ string = strId, number = numId },
+                "id": Json{ string = strId, integer = numId },
                 "result": result
             }
         };
@@ -132,10 +134,10 @@ fun respond(str? strId, int? numId, Json result) > void !> LSPError
 
 fun withinNode(Json node, str uri, int line, int column) > bool {
     const str script = node.q(["location", "script"]).stringValue();
-    const int startLine = node.q(["location", "start_line"]).number ?? -1;
-    const int startColumn = node.q(["location", "start_column"]).number ?? -1;
-    const int endLine = node.q(["location", "end_line"]).number ?? -1;
-    const int endColumn = node.q(["location", "end_column"]).number ?? -1;
+    const int startLine = node.q(["location", "start_line"]).integer ?? -1;
+    const int startColumn = node.q(["location", "start_column"]).integer ?? -1;
+    const int endLine = node.q(["location", "end_line"]).integer ?? -1;
+    const int endColumn = node.q(["location", "end_column"]).integer ?? -1;
 
     const bool result = uri.endsWith(script)
         and line >= startLine and line <= endLine
@@ -843,7 +845,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         declarations.append(Json{
             map = {
                 "name": Json{ string = node.q(["type_def"]).stringValue().sub(5) },
-                "kind": Json{ number = SymbolKind.Enum.value },
+                "kind": Json{ integer = SymbolKind.Enum.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -856,7 +858,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         declarations.append(Json{
             map = {
                 "name": Json{ string = node.q(["name"]).stringValue() },
-                "kind": Json{ number = SymbolKind.Variable.value },
+                "kind": Json{ integer = SymbolKind.Variable.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -872,7 +874,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         declarations.append(Json{
             map = {
                 "name": Json{ string = name },
-                "kind": Json{ number = SymbolKind.KFunction.value },
+                "kind": Json{ integer = SymbolKind.KFunction.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -890,7 +892,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         declarations.append(Json{
             map = {
                 "name": Json{ string = name },
-                "kind": Json{ number = kind.value },
+                "kind": Json{ integer = kind.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -900,7 +902,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
             declarations.append(Json{
                 map = {
                     "name": Json{ string = methodName },
-                    "kind": Json{ number = SymbolKind.Method.value },
+                    "kind": Json{ integer = SymbolKind.Method.value },
                     "range": locationToRange(method.q(["location"])),
                     "selectionRange": locationToRange(method.q(["location"])),
                 }
@@ -911,7 +913,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
             declarations.append(Json{
                 map = {
                     "name": Json{ string = propertyName },
-                    "kind": Json{ number = SymbolKind.Property.value },
+                    "kind": Json{ integer = SymbolKind.Property.value },
                     | TODO: add property location
                     "range": locationToRange(node.q(["location"])),
                     "selectionRange": locationToRange(node.q(["location"])),
@@ -978,23 +980,23 @@ fun getSymbols(LspState state, {str, Json} request) > Json {
 }
 
 fun locationToRange(Json location) > Json {
-    const int startLine = location.q(["start_line"]).number ?? -1;
-    const int startColumn = location.q(["start_column"]).number ?? -1;
-    const int endLine = location.q(["end_line"]).number ?? -1;
-    const int endColumn = location.q(["end_column"]).number ?? -1;
+    const int startLine = location.q(["start_line"]).integer ?? -1;
+    const int startColumn = location.q(["start_column"]).integer ?? -1;
+    const int endLine = location.q(["end_line"]).integer ?? -1;
+    const int endColumn = location.q(["end_column"]).integer ?? -1;
 
     return Json{
         map = {
             "start": Json{
                 map = {
-                    "line": Json{ number = startLine },
-                    "character": Json{ number = startColumn },
+                    "line": Json{ integer = startLine },
+                    "character": Json{ integer = startColumn },
                 }
             },
             "end": Json{
                 map = {
-                    "line": Json{ number = endLine },
-                    "character": Json{ number = endColumn },
+                    "line": Json{ integer = endLine },
+                    "character": Json{ integer = endColumn },
                 }
             }
         }
@@ -1005,8 +1007,8 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json !> LSPError {
     const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Json>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
     const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Json>};
-    const int line = position["line"]?.numberValue() ?? 0;
-    const int column = position["character"]?.numberValue() ?? 0;
+    const int line = position["line"]?.integerValue() ?? 0;
+    const int column = position["character"]?.integerValue() ?? 0;
 
     Json ast = getAst(state, filename: uri);
 
@@ -1102,7 +1104,7 @@ fun main([str] args) > void !> LSPError, JsonParseError, str {
 
         respond(
             strId: request["id"]?.string,
-            numId: request["id"]?.number,
+            numId: request["id"]?.integer,
             result: result,
         );
     }

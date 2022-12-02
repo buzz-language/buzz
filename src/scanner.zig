@@ -32,6 +32,7 @@ pub const Scanner = struct {
     line_offset: usize = 0,
     column_offset: usize = 0,
     script_name: []const u8,
+    token_index: usize = 0,
 
     pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) Self {
         return Self{
@@ -134,6 +135,15 @@ pub const Scanner = struct {
                     self.current.line += 1;
                     self.current.column = 0;
                     _ = self.advance();
+                },
+                '#' => { // Shebang
+                    if (self.token_index == 0 and self.peekNext() == '!') {
+                        while (self.peek() != '\n' and !self.isEOF()) {
+                            _ = self.advance();
+                        }
+                    } else {
+                        return;
+                    }
                 },
                 '|' => {
                     // It's a docblock, we don't skip it
@@ -392,6 +402,7 @@ pub const Scanner = struct {
     }
 
     fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i64) Token {
+        self.token_index += 1;
         return Token{
             .token_type = token_type,
             .lexeme = self.source[self.current.start..self.current.offset],
