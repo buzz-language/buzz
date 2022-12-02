@@ -39,12 +39,12 @@ We're not far from completing [milestone 0.1.0](https://github.com/buzz-language
 ### Steps
 1. Clone project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
-3. Build it: `zig build -Drelease-safe`
-4. Add to your shell rc:
+3. Add to your shell rc:
 ```bash
 export BUZZ_PATH="/path/to/buzz/dist"
 export PATH="$BUZZ_PATH:$PATH"
 ```
+4. Build it: `zig build -Drelease-safe`
 5. Have fun: `buzz <myscript.buzz>`
 
 Additionnally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.

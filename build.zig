@@ -180,6 +180,7 @@ pub fn build(b: *Builder) !void {
         "buffer",
     };
 
+    var libs = [_]*std.build.LibExeObjStep{ undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined };
     for (lib_paths) |lib_path, index| {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
         std_lib.use_stage1 = true;
@@ -196,8 +197,32 @@ pub fn build(b: *Builder) !void {
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
+
+        // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
+        var buzz_path = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer buzz_path.deinit();
+        buzz_path.writer().print(
+            "{s}{s}lib",
+            .{
+                std.os.getenv("BUZZ_PATH") orelse std.fs.cwd().realpathAlloc(std.heap.page_allocator, ".") catch unreachable,
+                std.fs.path.sep_str,
+            },
+        ) catch unreachable;
+        std_lib.addRPath(buzz_path.items);
+        std_lib.addRPath("/usr/local/lib/buzz");
+
         b.default_step.dependOn(&std_lib.step);
+
+        libs[index] = std_lib;
     }
+
+    // TODO: Do we need this?
+    // std <- os
+    libs[0].linkLibrary(libs[3]);
+    // fs <- os
+    libs[4].linkLibrary(libs[3]);
+    // debug <- std
+    libs[6].linkLibrary(libs[0]);
 
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(b.getInstallStep());
