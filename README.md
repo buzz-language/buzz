@@ -87,7 +87,7 @@ pat aPattern = _hello [a-z]+_;
 ud userdata = GetSomeForeignData();
 
 | A constant
-const num pi = 3.14;
+const float pi = 3.14;
 
 | Data structures
 [int] aListOfNumbers = [1, 2, 3];
@@ -146,7 +146,7 @@ str unwrapped = aStringOrNull ?? "default value"
 str unwrapped = aStringOrNull!;
 
 | Graceful unwrapping
-[num]? optList = null;
+[int]? optList = null;
 
 print(optList?.len()); | -> null
 
@@ -161,13 +161,13 @@ if (aStringOrNull -> aString) {
 ### Functions
 
 ```buzz
-fun sayHiTo(str name, str? lastName, num age) > str {
+fun sayHiTo(str name, str? lastName, int age) > str {
     | Interpolation with `{}`
     return "Hi {name} {lastName ?? ""}!"
 }
 
 | Same could be an arrow function
-fun sayHiTo(str name, str? lastName, num age) > str -> "Hi {name} {lastName ?? ""}!"
+fun sayHiTo(str name, str? lastName, int age) > str -> "Hi {name} {lastName ?? ""}!"
 ```
 
 When called, only the first argument name of a function can be omitted, order is not required:
@@ -187,17 +187,17 @@ fn(); | -> "hello world"
 #### Generics
 
 ```buzz
-fun countMap(<K, V>, {K, V} map) > num {
+fun countMap(<K, V>, {K, V} map) > int {
     return map.size();
 }
 
-{str, num} map = {
+{str, int} map = {
     "one": 1,
     "two": 2,
     "three": 3,
 };
 
-countMap(<str, num>, map) == 3;
+countMap(<str, int>, map) == 3;
 ```
 
 ### Enums
@@ -213,7 +213,7 @@ enum Natural {
 Natural.zero.value == 0;
 
 | Values must either be implicit or be all defined
-enum(num) NumEnum {
+enum(int) NumEnum {
     three = 3,
     four = 4,
     five = 5,
@@ -253,17 +253,17 @@ if (someCondition) {
     | ...
 }
 
-num i = 0;
+int i = 0;
 while (i < 10) {
     i = i + 1;
 }
 
-num j = 10;
+int j = 10;
 do {
     j = j - 1;
 } until (j == 0)
 
-for (num i = 0; i < 10; i = i + 1) {
+for (int i = 0; i < 10; i = i + 1) {
     | ...
     break;
 }
@@ -278,20 +278,20 @@ foreach (SomeEnum case in SomeEnum) {
     | ...
 }
 
-foreach (num i, str value in listOfStrings) {
+foreach (int i, str value in listOfStrings) {
     | ...
 }
 
-foreach (str key, num value in aMap) {
+foreach (str key, int value in aMap) {
     | ...
 }
 
-foreach (num i, str char in aString) {
+foreach (int i, str char in aString) {
     | ...
 }
 
-fib<void, num?> fibonnaciFib = &fibonnaci(10);
-foreach (num value in fibonnaciFib) {
+fib<void, int?> fibonnaciFib = &fibonnaci(10);
+foreach (int value in fibonnaciFib) {
     | ...
 }
 ```
@@ -305,7 +305,7 @@ object Person {
     static population = 0;
 
     str name = "Joe", | Fields can have default values
-    num age = 35,
+    int age = 35,
 
     | Method
     fun sayHello() > void {
@@ -313,7 +313,7 @@ object Person {
     }
 
     | Object don't have constructor but you can implement one with a static method
-    static init(str name, num age) > Person {
+    static init(str name, int age) > Person {
         Person.population = Person.population + 1;
 
         return Person {
@@ -328,7 +328,7 @@ object Person {
 
 ```buzz
 | Anonymous objects don't have methods, static fields or default values
-fun getInfo() > obj{ str name, num age } {
+fun getInfo() > obj{ str name, int age } {
     return .{
         name = "Joe",
         age = 36,
@@ -337,7 +337,7 @@ fun getInfo() > obj{ str name, num age } {
 
 | ...
 
-obj{ str name, num age } info = getInfo();
+obj{ str name, int age } info = getInfo();
 ```
 
 ### Protocols
@@ -345,7 +345,7 @@ obj{ str name, num age } info = getInfo();
 A `protocol` defines a set of methods. Objects can conform to any number of them:
 ```buzz
 protocol Translatable {
-    fun translate(dx: num, dy: num) > void;
+    fun translate(dx: int, dy: int) > void;
 }
 
 protocol Printable {
@@ -353,10 +353,10 @@ protocol Printable {
 }
 
 object(Translatable, Printable) Point {
-    num x,
-    num y,
+    int x,
+    int y,
 
-    fun translate(dx: num, dy: num) > void {
+    fun translate(dx: int, dy: int) > void {
         this.x = this.x + dx;
         this.y = this.y + dy;
     }
@@ -385,7 +385,7 @@ object(Printable) Line {
     },
 ];
 
-foreach (num i, Printable element in elements) {
+foreach (int i, Printable element in elements) {
     element.print();
 }
 ```
@@ -407,8 +407,8 @@ enum(str) OtherErrors {
     ohno = "Oh no!",
 }
 
-fun willFail() > num !> MyErrors, OtherErrors, str {
-    num random = rand();
+fun willFail() > int !> MyErrors, OtherErrors, str {
+    int random = rand();
     if (random == 1) {
         throw MyErrors.failed;
     } else if (random == 0) {
@@ -421,7 +421,7 @@ fun willFail() > num !> MyErrors, OtherErrors, str {
 }
 
 | Use default value in case of any error
-num result = willFail() catch 0;
+int result = willFail() catch 0;
 
 | Try catch works as you would expect
 try {
@@ -473,8 +473,8 @@ get the wrapped function return value.
 ```buzz
 | Returns a string, yields numbers
 | Always yields an optional type because null is returned if you resume a terminated fiber
-fun count(num n) > str > num? {
-    for (num i = 0; i < n; i = i + 1) {
+fun count(int n) > str > int? {
+    for (int i = 0; i < n; i = i + 1) {
         | If the function is not called in a fiber, yields are evaluated and dismissed
         | Otherwise the value is returned as `resume` result
         yield i;
@@ -485,9 +485,9 @@ fun count(num n) > str > num? {
 
 fun main([str] args) > void {
     | Wraps the call to `count` in a fiber, however the fiber is not started until a `resolve` or `resume` instruction
-    fib<str, num?> counter = &count(10);
+    fib<str, int?> counter = &count(10);
 
-    num sum = 0;
+    int sum = 0;
     while (!counter.over()) {
         | resume returns null if nothing was yielded and/or fiber is over
         sum = sum + resume counter ?? 0;

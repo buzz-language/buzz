@@ -45,9 +45,9 @@ pub inline fn floatToInteger(value: Value) Value {
 }
 
 pub fn valueToHashable(value: Value) HashableValue {
-    switch (value) {
-        .Boolean => return HashableValue{ .Boolean = value.Boolean },
-        .Integer => return HashableValue{ .Integer = value.Integer },
+    return switch (value) {
+        .Boolean => HashableValue{ .Boolean = value.Boolean },
+        .Integer => HashableValue{ .Integer = value.Integer },
         .Float => {
             const number: f64 = value.Float;
             if (number - @intToFloat(f64, @floatToInt(i64, number)) == 0) {
@@ -58,23 +58,21 @@ pub fn valueToHashable(value: Value) HashableValue {
                 unreachable;
             }
         },
-        .Null => return HashableValue{ .Null = value.Null },
-        .Void => return HashableValue{ .Void = value.Void },
-        .Obj => return HashableValue{ .Obj = value.Obj },
-    }
+        .Null => HashableValue{ .Null = value.Null },
+        .Void => HashableValue{ .Void = value.Void },
+        .Obj => HashableValue{ .Obj = value.Obj },
+    };
 }
 
 pub fn hashableToValue(hashable: HashableValue) Value {
-    switch (hashable) {
-        .Boolean => return Value{ .Boolean = hashable.Boolean },
-        .Integer => return Value{ .Integer = hashable.Integer },
-        .Float => {
-            return Value{ .Float = @intToFloat(f64, hashable.Float) };
-        },
-        .Null => return Value{ .Null = hashable.Null },
-        .Void => return Value{ .Void = hashable.Void },
-        .Obj => return Value{ .Obj = hashable.Obj },
-    }
+    return switch (hashable) {
+        .Boolean => Value{ .Boolean = hashable.Boolean },
+        .Integer => Value{ .Integer = hashable.Integer },
+        .Float => Value{ .Float = @intToFloat(f64, hashable.Float) },
+        .Null => Value{ .Null = hashable.Null },
+        .Void => Value{ .Void = hashable.Void },
+        .Obj => Value{ .Obj = hashable.Obj },
+    };
 }
 
 pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {

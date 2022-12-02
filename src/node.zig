@@ -4332,7 +4332,7 @@ pub const EnumNode = struct {
         }
 
         switch (enum_type.def_type) {
-            .String, .Integer => {},
+            .String, .Integer, .Float => {},
             else => {
                 try codegen.reportErrorAt(node.location, "Type not allowed as enum value");
                 return null;
