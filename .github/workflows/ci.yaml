@@ -44,4 +44,4 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - run: zig fmt --check src/*.zig lib/*.zig
+      - run: zig fmt --check src/*.zig src/**/*.zig

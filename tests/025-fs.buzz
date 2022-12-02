@@ -35,14 +35,14 @@ test "ls" {
 }
 
 test "move" {
-    fs.move(source: "README.md", destination: "lib/README.md");
+    fs.move(source: "README.md", destination: "src/README.md");
 
     assert(
-        fs.list("lib").indexOf("README.md") != null,
+        fs.list("src").indexOf("README.md") != null,
         message: "Moved file to expected location"
     );
 
-    fs.move(source: "lib/README.md", destination: "README.md");
+    fs.move(source: "src/README.md", destination: "README.md");
 
     assert(
         fs.list(".").indexOf("README.md") != null,

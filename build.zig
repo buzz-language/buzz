@@ -158,7 +158,7 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         lib.linkLibC();
     }
-    lib.setMainPkgPath(".");
+    lib.setMainPkgPath("src");
     lib.setBuildMode(build_mode);
 
     lib.addOptions("build_options", build_options.step(b));
@@ -167,15 +167,16 @@ pub fn build(b: *Builder) !void {
     b.default_step.dependOn(&lib.step);
 
     const lib_paths = [_][]const u8{
-        "lib/buzz_std.zig",
-        "lib/buzz_io.zig",
-        "lib/buzz_gc.zig",
-        "lib/buzz_os.zig",
-        "lib/buzz_fs.zig",
-        "lib/buzz_math.zig",
-        "lib/buzz_debug.zig",
-        "lib/buzz_buffer.zig",
+        "src/lib/buzz_std.zig",
+        "src/lib/buzz_io.zig",
+        "src/lib/buzz_gc.zig",
+        "src/lib/buzz_os.zig",
+        "src/lib/buzz_fs.zig",
+        "src/lib/buzz_math.zig",
+        "src/lib/buzz_debug.zig",
+        "src/lib/buzz_buffer.zig",
     };
+    // Zig only libs
     const lib_names = [_][]const u8{
         "std",
         "io",
@@ -185,6 +186,19 @@ pub fn build(b: *Builder) !void {
         "math",
         "debug",
         "buffer",
+    };
+    const all_lib_names = [_][]const u8{
+        "std",
+        "io",
+        "gc",
+        "os",
+        "fs",
+        "math",
+        "debug",
+        "buffer",
+        "json",
+        "http",
+        "errors",
     };
 
     var libs = [_]*std.build.LibExeObjStep{ undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined };
@@ -200,7 +214,7 @@ pub fn build(b: *Builder) !void {
         if (builtin.os.tag == .linux) {
             std_lib.linkLibC();
         }
-        std_lib.setMainPkgPath(".");
+        std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
@@ -248,23 +262,20 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(&unit_tests.step);
 
     // Copy {lib}.buzz files to dist/lib
-    for (lib_names) |name| {
+    for (all_lib_names) |name| {
         var lib_name = std.ArrayList(u8).init(std.heap.page_allocator);
         defer lib_name.deinit();
-        lib_name.writer().print("lib/{s}.buzz", .{name}) catch unreachable;
+        lib_name.writer().print("src/lib/{s}.buzz", .{name}) catch unreachable;
+
+        var target_lib_name = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer target_lib_name.deinit();
+        target_lib_name.writer().print("lib/{s}.buzz", .{name}) catch unreachable;
 
         std.fs.cwd().copyFile(
             lib_name.items,
             std.fs.cwd().openDir("dist", .{}) catch unreachable,
-            lib_name.items,
+            target_lib_name.items,
             .{},
         ) catch unreachable;
     }
-
-    std.fs.cwd().copyFile(
-        "lib/errors.buzz",
-        std.fs.cwd().openDir("dist", .{}) catch unreachable,
-        "lib/errors.buzz",
-        .{},
-    ) catch unreachable;
 }

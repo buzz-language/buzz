@@ -1,11 +1,11 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
-const _obj = @import("../src/obj.zig");
-const _parser = @import("../src/parser.zig");
+const _obj = @import("../obj.zig");
+const _parser = @import("../parser.zig");
 const Parser = _parser.Parser;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
-const _memory = @import("../src/memory.zig");
+const _memory = @import("../memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 

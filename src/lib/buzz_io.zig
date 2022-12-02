@@ -175,6 +175,7 @@ export fn FileReadLine(vm: *api.VM) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
+    // FIXME: read until \n OR EOF
     var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
         if (err == error.EndOfStream) {
             vm.bz_pushNull();
