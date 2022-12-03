@@ -183,7 +183,7 @@ export fn FileReadLine(vm: *api.VM) c_int {
         vm.bz_pushString(
             api.ObjString.bz_string(
                 vm,
-                @ptrCast([*]const u8, ubuffer),
+                if (ubuffer.len > 0) @ptrCast([*]const u8, ubuffer) else null,
                 ubuffer.len,
             ) orelse {
                 vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
