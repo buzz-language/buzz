@@ -88,15 +88,29 @@ Base64 decode the string
 
 ## Lists
 
-### `fun append(T value) > void`
+### `fun append(T value) > T`
 Append new element at end of the list
 - **`value`**: New element
+
+**Returns:** The appended value
+
+### `fun insert(int index, T value) > T`
+Insert new element at `index` of the list. If `index` is less than `0`, element will be inserted at `0`. If `index` is greather than list length, it'll be appended at the end of the list.
+- **`index`**: Index at which element will be inserted
+- **`value`**: New element
+
+**Returns:** The inserted value
 
 ### `fun remove(int at) > T`
 Remove element form the list shifting elements after index
 - **`at`**: Index of element to remove
 
 **Returns:** Removed element
+
+### `fun pop() > T?`
+Remove and return last element of list or `null` if list is empty
+
+**Returns:** Last element
 
 ### `fun len() > int`
 **Returns:** Length of list

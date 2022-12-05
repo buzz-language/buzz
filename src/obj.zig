@@ -1715,6 +1715,10 @@ pub const ObjList = struct {
             nativeFn = indexOf;
         } else if (mem.eql(u8, method.string, "join")) {
             nativeFn = join;
+        } else if (mem.eql(u8, method.string, "insert")) {
+            nativeFn = insert;
+        } else if (mem.eql(u8, method.string, "pop")) {
+            nativeFn = pop;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1735,6 +1739,11 @@ pub const ObjList = struct {
 
     pub fn rawAppend(self: *Self, gc: *GarbageCollector, value: Value) !void {
         try self.items.append(value);
+        try gc.markObjDirty(&self.obj);
+    }
+
+    pub fn rawInsert(self: *Self, gc: *GarbageCollector, index: usize, value: Value) !void {
+        try self.items.insert(index, value);
         try gc.markObjDirty(&self.obj);
     }
 
@@ -1766,10 +1775,52 @@ pub const ObjList = struct {
         return 1;
     }
 
+    pub fn insert(vm: *VM) c_int {
+        var list_value: Value = vm.peek(2);
+        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var index: i64 = vm.peek(1).Integer;
+        var value: Value = vm.peek(0);
+
+        if (index < 0 or list.items.items.len == 0) {
+            index = 0;
+        } else if (index >= list.items.items.len) {
+            index = @intCast(i64, list.items.items.len) - 1;
+        }
+
+        list.rawInsert(vm.gc, @intCast(usize, index), value) catch |err| {
+            const messageValue: Value = (vm.gc.copyString("Could not insert into list") catch {
+                std.debug.print("Could not insert into list", .{});
+                std.os.exit(1);
+            }).toValue();
+
+            vm.throw(err, messageValue) catch {
+                std.debug.print("Could not insert into list", .{});
+                std.os.exit(1);
+            };
+            return -1;
+        };
+
+        vm.push(value);
+
+        return 1;
+    }
+
     fn len(vm: *VM) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
+
+        return 1;
+    }
+
+    pub fn pop(vm: *VM) c_int {
+        var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
+
+        if (list.items.items.len > 0) {
+            vm.push(list.items.pop());
+        } else {
+            vm.push(Value{ .Null = {} });
+        }
 
         return 1;
     }
@@ -2233,6 +2284,59 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("join", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "insert")) {
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                try parameters.put(
+                    try parser.gc.copyString("index"),
+                    try parser.gc.type_registry.getTypeDef(.{
+                        .def_type = .Integer,
+                    }),
+                );
+
+                // `value` arg is of item_type
+                try parameters.put(try parser.gc.copyString("value"), self.item_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("insert"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+
+                try self.methods.put("insert", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "pop")) {
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("pop"),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = self.item_type,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+
+                try self.methods.put("pop", native_type);
 
                 return native_type;
             }
