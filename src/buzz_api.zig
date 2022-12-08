@@ -22,6 +22,7 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
+const ObjClosure = _obj.ObjClosure;
 const UserData = _obj.UserData;
 const TypeRegistry = memory.TypeRegistry;
 const Parser = _parser.Parser;
@@ -504,6 +505,19 @@ export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
     };
 
     return true;
+}
+
+export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]Value, len: usize, catch_value: ?*Value) void {
+    self.push(closure);
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        self.push(arguments[i]);
+    }
+
+    // TODO: catch properly
+    self.callValue(closure, len, catch_value) catch unreachable;
+
+    self.run();
 }
 
 // Assumes the global exists

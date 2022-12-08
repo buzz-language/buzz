@@ -66,6 +66,10 @@ pub const CallFrame = struct {
     try_ip: ?usize = null,
     // Top when try block started
     try_top: ?[*]Value = null,
+
+    // True if a native function is being called, we need this because a native function can also
+    // call buzz code and we need to know how to stop interpreting once we get back to native code
+    in_native_call: bool = false,
 };
 
 pub const Fiber = struct {
@@ -1248,6 +1252,7 @@ pub const VM = struct {
         const arg_count: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
         const catch_count: u16 = @intCast(u16, 0x0000ffff & full_instruction);
 
+        // FIXME: no reason to take the catch value off the stack
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         self.callValue(
@@ -1516,7 +1521,7 @@ pub const VM = struct {
     }
 
     fn OP_RETURN(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        if (self.returnFrame()) {
+        if (self.returnFrame() or self.currentFrame().?.in_native_call) {
             return;
         }
 
@@ -3459,8 +3464,13 @@ pub const VM = struct {
     }
 
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
+        self.currentFrame().?.in_native_call = true;
+
         var result: Value = Value{ .Null = {} };
         const native_return = native.native(self);
+
+        self.currentFrame().?.in_native_call = false;
+
         if (native_return == 1 or native_return == 0) {
             if (native_return == 1) {
                 result = self.pop();
@@ -3502,7 +3512,7 @@ pub const VM = struct {
         self.push(Value{ .Obj = bound.toObj() });
     }
 
-    fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) !void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) !void {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {

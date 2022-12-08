@@ -12,6 +12,7 @@ pub const VM = opaque {
     pub extern fn bz_deinitVM(self: *VM) void;
     pub extern fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction;
     pub extern fn bz_interpret(self: *VM, function: *ObjFunction) bool;
+    pub extern fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]Value, len: usize, catch_value: ?*Value) void;
     pub extern fn bz_push(self: *VM, value: *Value) void;
     pub extern fn bz_pop(self: *VM) *Value;
     pub extern fn bz_peek(self: *VM, distance: u32) *Value;
@@ -52,6 +53,8 @@ pub const Value = opaque {
     pub extern fn bz_valueIsFloat(value: *Value) bool;
     pub extern fn bz_valueDump(value: *Value, vm: *VM) void;
 };
+
+pub const ObjClosure = opaque {};
 
 pub const ObjTypeDef = opaque {
     pub extern fn bz_boolType() ?*ObjTypeDef;
