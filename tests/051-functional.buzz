@@ -1,0 +1,12 @@
+import "lib/std";
+
+test "forEach" {
+    [int] data = [1, 2, 3, 4];
+
+    int sum = 0;
+    data.forEach(fun (int element) > void {
+        sum = sum + element;
+    });
+
+    assert(sum == 10, message: "Could use forEach");
+}

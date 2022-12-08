@@ -507,15 +507,15 @@ export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
     return true;
 }
 
-export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]Value, len: usize, catch_value: ?*Value) void {
-    self.push(closure);
+pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *const Value, len: u8, catch_value: ?*Value) void {
+    self.push(closure.toValue());
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        self.push(arguments[i]);
+        self.push(arguments[i].*);
     }
 
     // TODO: catch properly
-    self.callValue(closure, len, catch_value) catch unreachable;
+    self.callValue(closure.toValue(), len, if (catch_value) |v| v.* else null) catch unreachable;
 
     self.run();
 }

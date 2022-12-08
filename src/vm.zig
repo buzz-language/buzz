@@ -3339,7 +3339,7 @@ pub const VM = struct {
         );
     }
 
-    fn run(self: *Self) void {
+    pub fn run(self: *Self) void {
         const next_current_frame: *CallFrame = self.currentFrame().?;
         const next_full_instruction: u32 = self.readInstruction();
         const next_instruction: OpCode = getCode(next_full_instruction);
