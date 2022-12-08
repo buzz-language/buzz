@@ -83,7 +83,7 @@ pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error |
     return str.items;
 }
 
-pub fn valueToString(writer: *std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
+pub fn valueToString(writer: *const std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
     switch (value) {
         .Boolean => try writer.print("{}", .{value.Boolean}),
         .Integer => try writer.print("{d}", .{value.Integer}),

@@ -226,8 +226,8 @@ pub const Parser = struct {
         Primary, // literal, (grouped expression), identifier, [<type>, alist], {<a, map>, ...}
     };
 
-    const ParseFn = fn (*Parser, bool) anyerror!*ParseNode;
-    const InfixParseFn = fn (*Parser, bool, *ParseNode) anyerror!*ParseNode;
+    const ParseFn = *const fn (*Parser, bool) anyerror!*ParseNode;
+    const InfixParseFn = *const fn (*Parser, bool, *ParseNode) anyerror!*ParseNode;
 
     const ParseRule = struct {
         prefix: ?ParseFn,
@@ -1363,7 +1363,8 @@ pub const Parser = struct {
         try qualified_object_name.writer().print("{s}.{s}", .{ qualifier, object_name.lexeme });
 
         // Create a placeholder for self-reference which will be resolved at the end when declaring the object
-        var object_placeholder = self.globals.items[try self.declarePlaceholder(object_name, null)].type_def;
+        var placeholder_index = try self.declarePlaceholder(object_name, null);
+        var object_placeholder = self.globals.items[placeholder_index].type_def;
 
         var object_def = ObjObject.ObjectDef.init(
             self.gc.allocator,
@@ -1619,7 +1620,8 @@ pub const Parser = struct {
         try qualified_protocol_name.writer().print("{s}.{s}", .{ qualifier, protocol_name.lexeme });
 
         // Create a placeholder for self-reference which will be resolved at the end when declaring the object
-        var protocol_placeholder = self.globals.items[try self.declarePlaceholder(protocol_name, null)].type_def;
+        var placeholder_index = try self.declarePlaceholder(protocol_name, null);
+        var protocol_placeholder = self.globals.items[placeholder_index].type_def;
 
         var protocol_def = ObjObject.ProtocolDef.init(
             self.gc.allocator,
@@ -2164,7 +2166,7 @@ pub const Parser = struct {
         var imported_symbols = std.StringHashMap(void).init(self.gc.allocator);
 
         while ((try self.match(.Identifier)) and !self.check(.Eof)) {
-            try imported_symbols.put(self.parser.previous_token.?.lexeme, .{});
+            try imported_symbols.put(self.parser.previous_token.?.lexeme, {});
 
             if (!self.check(.From) or self.check(.Comma)) { // Allow trailing comma
                 try self.consume(.Comma, "Expected `,` after identifier.");
@@ -3012,7 +3014,7 @@ pub const Parser = struct {
         // defer self.gc.allocator.free(err);
         var err_offset: c_int = undefined;
         const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
-            source, // pattern
+            @ptrCast([*c]const u8, source), // pattern
             0, // options
             @ptrCast([*c][*c]const u8, &err), // error message buffer
             &err_offset, // offset at which error occured
@@ -3082,13 +3084,14 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         const string_token = self.parser.previous_token.?;
-        const string_node = (try StringParser.init(
+        var string_parser = StringParser.init(
             self,
             string_token.literal_string.?,
             self.script_name,
             string_token.line,
             string_token.column,
-        ).parse());
+        );
+        const string_node = try string_parser.parse();
         string_node.node.location = start_location;
         string_node.node.end_location = self.parser.previous_token.?;
 
@@ -4815,7 +4818,10 @@ pub const Parser = struct {
             }
 
             // Is it a user defined type (object, enum, etc.) defined in global scope?
-            user_type = user_type orelse self.globals.items[try self.parseUserType()].type_def;
+            if (user_type == null) {
+                var user_type_index = try self.parseUserType();
+                user_type = self.globals.items[user_type_index].type_def;
+            }
 
             if (try self.match(.Question)) {
                 return try user_type.?.cloneOptional(&self.gc.type_registry);

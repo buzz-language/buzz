@@ -502,7 +502,7 @@ pub const VM = struct {
         return ObjString.cast(self.readConstant(arg).Obj).?;
     }
 
-    const OpFn = fn (*Self, *CallFrame, u32, OpCode, u24) void;
+    const OpFn = *const fn (*Self, *CallFrame, u32, OpCode, u24) void;
 
     // WARNING: same order as OpCode enum
     const op_table = [_]OpFn{
@@ -618,8 +618,7 @@ pub const VM = struct {
         OP_TO_STRING,
     };
 
-    // FIXME: Figure out how to preserve always_tail with error return so we can get rid of inline error handling everywhere
-    inline fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
+    fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
         if (BuildOptions.debug_stack) {
             dumpStack(self) catch unreachable;
         }

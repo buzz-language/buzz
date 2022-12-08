@@ -124,7 +124,8 @@ const Buffer = struct {
             return null;
         }
 
-        var reader = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]).reader();
+        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
+        var reader = buffer_stream.reader();
 
         const number = try reader.readIntNative(i64);
 
@@ -150,7 +151,8 @@ const Buffer = struct {
             return null;
         }
 
-        var reader = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]).reader();
+        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
+        var reader = buffer_stream.reader();
 
         const number = try reader.readIntNative(u64);
 

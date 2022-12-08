@@ -516,7 +516,7 @@ pub const ObjPattern = struct {
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = fn (*VM) c_int;
+pub const NativeFn = *const fn (*VM) c_int;
 
 /// Native function
 pub const ObjNative = struct {
@@ -3361,15 +3361,15 @@ pub const ObjTypeDef = struct {
         return str.items;
     }
 
-    pub fn toString(self: *const Self, writer: *std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, true);
     }
 
-    pub fn toStringUnqualified(self: *const Self, writer: *std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toStringUnqualified(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, false);
     }
 
-    fn toStringRaw(self: *const Self, writer: *std.ArrayList(u8).Writer, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+    fn toStringRaw(self: *const Self, writer: *const std.ArrayList(u8).Writer, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
             .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),
@@ -3828,7 +3828,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
     }
 }
 
-pub fn objToString(writer: *std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
+pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
     return switch (obj.obj_type) {
         .String => {
             const str = ObjString.cast(obj).?.string;

@@ -437,8 +437,8 @@ export fn bz_throw(vm: *VM, value: *Value) void {
 }
 
 export fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void {
-    bz_pushString(vm, bz_string(vm, message orelse "", len) orelse {
-        _ = std.io.getStdErr().write((message orelse "")[0..len]) catch unreachable;
+    bz_pushString(vm, bz_string(vm, message.?, len) orelse {
+        _ = std.io.getStdErr().write((message.?)[0..len]) catch unreachable;
         std.os.exit(1);
     });
 }

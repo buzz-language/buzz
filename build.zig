@@ -59,7 +59,7 @@ const BuzzBuildOptions = struct {
 pub fn build(b: *Builder) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.10.0-dev.4587+710e2e7f1") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.618+096d3efae") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -132,7 +132,6 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
 
     var exe = b.addExecutable("buzz", "src/main.zig");
-    exe.use_stage1 = true;
     exe.setTarget(target);
     exe.setOutputDir("dist");
     exe.install();
@@ -148,7 +147,6 @@ pub fn build(b: *Builder) !void {
     exe.addOptions("build_options", build_options.step(b));
 
     var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
-    lib.use_stage1 = true;
     lib.setOutputDir("dist/lib");
     lib.setTarget(target);
     lib.install();
@@ -204,7 +202,6 @@ pub fn build(b: *Builder) !void {
     var libs = [_]*std.build.LibExeObjStep{ undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined };
     for (lib_paths) |lib_path, index| {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
-        std_lib.use_stage1 = true;
         std_lib.setOutputDir("dist/lib");
         std_lib.setTarget(target);
         std_lib.install();
@@ -255,7 +252,6 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         unit_tests.linkLibC();
     }
-    unit_tests.use_stage1 = true;
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);
     unit_tests.addOptions("build_options", build_options.step(b));
