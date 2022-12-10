@@ -1763,11 +1763,13 @@ pub const ObjList = struct {
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
-        for (list.items.items) |item| {
+        for (list.items.items) |item, index| {
             var args = std.ArrayList(*const Value).init(vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
+            const index_value = Value{ .Integer = @intCast(i64, index) };
+            args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
@@ -1794,11 +1796,13 @@ pub const ObjList = struct {
             ),
         ) catch unreachable; // TODO: handle error
 
-        for (list.items.items) |item| {
+        for (list.items.items) |item, index| {
             var args = std.ArrayList(*const Value).init(vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
+            const index_value = Value{ .Integer = @intCast(i64, index) };
+            args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
@@ -1833,11 +1837,13 @@ pub const ObjList = struct {
             ),
         ) catch unreachable; // TODO: handle error
 
-        for (list.items.items) |item| {
+        for (list.items.items) |item, index| {
             var args = std.ArrayList(*const Value).init(vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
+            const index_value = Value{ .Integer = @intCast(i64, index) };
+            args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
@@ -2449,7 +2455,7 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                // TODO: index parameter?
+                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
                 try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
 
                 var callback_method_def = ObjFunction.FunctionDef{
@@ -2504,7 +2510,7 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                // TODO: index parameter?
+                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
                 try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
 
                 var callback_method_def = ObjFunction.FunctionDef{
@@ -2588,7 +2594,7 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                // TODO: index parameter?
+                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
                 try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
 
                 var callback_method_def = ObjFunction.FunctionDef{

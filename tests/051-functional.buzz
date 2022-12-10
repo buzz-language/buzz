@@ -4,7 +4,7 @@ test "list.forEach" {
     [int] data = [1, 2, 3, 4];
 
     int sum = 0;
-    data.forEach(fun (int element) > void {
+    data.forEach(fun (int index, int element) > void {
         sum = sum + element;
     });
 
@@ -14,7 +14,7 @@ test "list.forEach" {
 test "list.map" {
     [int] data = [1, 2, 3, 4];
 
-    [str] mapped = data.map(<str>, fun (int element) -> "{element}");
+    [str] mapped = data.map(<str>, fun (int index, int element) -> "{element}");
 
     assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
 }
@@ -22,7 +22,7 @@ test "list.map" {
 test "list.filter" {
     [int] data = [1, 2, 3, 4];
 
-    [int] odd = data.filter(fun (int element) -> element % 2 != 0);
+    [int] odd = data.filter(fun (int index, int element) -> element % 2 != 0);
 
     assert(odd.join(", ") == "1, 3", message: "could use filter");
 }
