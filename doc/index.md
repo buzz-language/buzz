@@ -134,6 +134,28 @@ Join list element in a string with a separator. Elements are converted to a stri
 
 **Returns:** Elements joined as a string
 
+### `fun forEach(Function callback(int index, T element) > void) > void`
+Runs `callback` for each element of the list.
+- **`callback`:** Ran for each element
+
+### `fun map(<S>, Function callback(int index, T element) > S) > [S])`
+Map list to new list of target type by running `callback` for each element of the list.
+- **`callback`:** Ran for each element
+
+**Returns:** New list of item type `S`
+
+### `fun filter(Function callback(int index, T element) > bool) > [T])`
+Filter list keeping element for which `callback` returns `true`.
+- **`callback`:** Ran for each element
+
+**Returns:** Filtered list
+
+### `fun reduce(Function callback(<S>, int index, T element, S accumulator) > S, S initial) > S)`
+Reduce list to value of type `S` by running `callback` with `accumulator` being the value being built.
+- **`callback`:** Ran for each element
+- **`initial`:** Initial value
+
+**Returns:** Reduced value
 
 ## Maps
 

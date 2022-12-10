@@ -460,28 +460,24 @@ pub const ObjPattern = struct {
         return 1;
     }
 
-    pub fn rawMember(method: []const u8) ?NativeFn {
-        if (mem.eql(u8, method, "match")) {
-            return match;
-        } else if (mem.eql(u8, method, "matchAll")) {
-            return matchAll;
-        }
-
-        return null;
-    }
+    pub const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "match", match },
+            .{ "matchAll", matchAll },
+        },
+    );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objpattern_members.get(method)) |umethod| {
             return umethod;
         }
 
-        var nativeFn: ?NativeFn = rawMember(method.string);
-
-        if (nativeFn) |unativeFn| {
+        if (members.get(method.string)) |nativeFn| {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = unativeFn,
+                    .native = nativeFn,
                 },
             );
 
@@ -994,39 +990,25 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn rawMember(method: []const u8) ?NativeFn {
-        if (mem.eql(u8, method, "len")) {
-            return len;
-        } else if (mem.eql(u8, method, "trim")) {
-            return trim;
-        } else if (mem.eql(u8, method, "byte")) {
-            return byte;
-        } else if (mem.eql(u8, method, "indexOf")) {
-            return indexOf;
-        } else if (mem.eql(u8, method, "split")) {
-            return split;
-        } else if (mem.eql(u8, method, "sub")) {
-            return sub;
-        } else if (mem.eql(u8, method, "startsWith")) {
-            return startsWith;
-        } else if (mem.eql(u8, method, "endsWith")) {
-            return endsWith;
-        } else if (mem.eql(u8, method, "replace")) {
-            return replace;
-        } else if (mem.eql(u8, method, "repeat")) {
-            return repeat;
-        } else if (mem.eql(u8, method, "encodeBase64")) {
-            return encodeBase64;
-        } else if (mem.eql(u8, method, "decodeBase64")) {
-            return decodeBase64;
-        } else if (mem.eql(u8, method, "upper")) {
-            return upper;
-        } else if (mem.eql(u8, method, "lower")) {
-            return lower;
-        }
-
-        return null;
-    }
+    pub const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "len", len },
+            .{ "trim", trim },
+            .{ "byte", byte },
+            .{ "indexOf", indexOf },
+            .{ "split", split },
+            .{ "sub", sub },
+            .{ "startsWith", startsWith },
+            .{ "endsWith", endsWith },
+            .{ "replace", replace },
+            .{ "repeat", repeat },
+            .{ "encodeBase64", encodeBase64 },
+            .{ "decodeBase64", decodeBase64 },
+            .{ "upper", upper },
+            .{ "lower", lower },
+        },
+    );
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
@@ -1034,13 +1016,11 @@ pub const ObjString = struct {
             return umethod;
         }
 
-        var nativeFn: ?NativeFn = rawMember(method.string);
-
-        if (nativeFn) |unativeFn| {
+        if (members.get(method.string)) |nativeFn| {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = unativeFn,
+                    .native = nativeFn,
                 },
             );
 
@@ -1695,44 +1675,36 @@ pub const ObjList = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
+    pub const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "append", append },
+            .{ "remove", remove },
+            .{ "len", len },
+            .{ "next", next },
+            .{ "sub", sub },
+            .{ "indexOf", indexOf },
+            .{ "join", join },
+            .{ "insert", insert },
+            .{ "pop", pop },
+            .{ "forEach", forEach },
+            .{ "map", map },
+            .{ "filter", filter },
+            .{ "reduce", reduce },
+        },
+    );
+
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
             return native;
         }
 
-        var nativeFn: ?NativeFn = null;
-        if (mem.eql(u8, method.string, "append")) {
-            nativeFn = append;
-        } else if (mem.eql(u8, method.string, "len")) {
-            nativeFn = len;
-        } else if (mem.eql(u8, method.string, "next")) {
-            nativeFn = next;
-        } else if (mem.eql(u8, method.string, "remove")) {
-            nativeFn = remove;
-        } else if (mem.eql(u8, method.string, "sub")) {
-            nativeFn = sub;
-        } else if (mem.eql(u8, method.string, "indexOf")) {
-            nativeFn = indexOf;
-        } else if (mem.eql(u8, method.string, "join")) {
-            nativeFn = join;
-        } else if (mem.eql(u8, method.string, "insert")) {
-            nativeFn = insert;
-        } else if (mem.eql(u8, method.string, "pop")) {
-            nativeFn = pop;
-        } else if (mem.eql(u8, method.string, "forEach")) {
-            nativeFn = forEach;
-        } else if (mem.eql(u8, method.string, "map")) {
-            nativeFn = map;
-        } else if (mem.eql(u8, method.string, "filter")) {
-            nativeFn = filter;
-        }
-
-        if (nativeFn) |unativeFn| {
+        if (members.get(method.string)) |nativeFn| {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = unativeFn,
+                    .native = nativeFn,
                 },
             );
 
@@ -1782,6 +1754,37 @@ pub const ObjList = struct {
         }
 
         return 0;
+    }
+
+    fn reduce(vm: *VM) c_int {
+        var list = ObjList.cast(vm.peek(2).Obj).?;
+        var closure = ObjClosure.cast(vm.peek(1).Obj).?;
+        var accumulator = vm.peek(0);
+
+        for (list.items.items) |item, index| {
+            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            defer args.deinit();
+
+            // TODO: handle error
+            const index_value = Value{ .Integer = @intCast(i64, index) };
+            args.append(&index_value) catch unreachable;
+            args.append(&item) catch unreachable;
+            args.append(&accumulator) catch unreachable;
+
+            buzz_api.bz_call(
+                vm,
+                closure,
+                @ptrCast([*]const *const Value, args.items),
+                @intCast(u8, args.items.len),
+                null,
+            );
+
+            accumulator = vm.pop();
+        }
+
+        vm.push(accumulator);
+
+        return 1;
     }
 
     fn filter(vm: *VM) c_int {
@@ -2594,8 +2597,14 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
-                try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
+                try callback_parameters.put(
+                    try parser.gc.copyString("index"),
+                    try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("element"),
+                    self.item_type,
+                );
 
                 var callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
@@ -2643,6 +2652,95 @@ pub const ObjList = struct {
                 try self.methods.put("filter", native_type);
 
                 return native_type;
+            } else if (mem.eql(u8, method, "reduce")) {
+                const reduce_origin = ObjFunction.FunctionDef.nextId();
+
+                // Mapped type
+                const generic = ObjTypeDef.GenericDef{
+                    .origin = reduce_origin,
+                    .index = 0,
+                };
+                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
+                const generic_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Generic,
+                        .resolved_type = generic_resolved_type,
+                    },
+                );
+
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try callback_parameters.put(
+                    try parser.gc.copyString("index"),
+                    try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("element"),
+                    self.item_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("accumulator"),
+                    generic_type,
+                );
+
+                var callback_method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    // TODO: is this ok?
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("anonymous"),
+                    .parameters = callback_parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = generic_type,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+
+                var callback_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = callback_resolved_type,
+                    },
+                );
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("callback"),
+                    callback_type,
+                );
+                try parameters.put(
+                    try parser.gc.copyString("initial"),
+                    generic_type,
+                );
+
+                var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                try generic_types.put(try parser.gc.copyString("T"), generic_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = reduce_origin,
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("reduce"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = generic_type,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = generic_types,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("reduce", native_type);
+
+                return native_type;
             }
 
             return null;
@@ -2677,27 +2775,26 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
+    pub const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "remove", remove },
+            .{ "size", size },
+            .{ "keys", keys },
+            .{ "values", values },
+        },
+    );
+
     pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
             return native;
         }
 
-        var nativeFn: ?NativeFn = null;
-        if (mem.eql(u8, method.string, "remove")) {
-            nativeFn = remove;
-        } else if (mem.eql(u8, method.string, "size")) {
-            nativeFn = size;
-        } else if (mem.eql(u8, method.string, "keys")) {
-            nativeFn = keys;
-        } else if (mem.eql(u8, method.string, "values")) {
-            nativeFn = values;
-        }
-
-        if (nativeFn) |unativeFn| {
+        if (members.get(method.string)) |nativeFn| {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = unativeFn,
+                    .native = nativeFn,
                 },
             );
 
