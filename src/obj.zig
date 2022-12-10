@@ -1722,6 +1722,8 @@ pub const ObjList = struct {
             nativeFn = pop;
         } else if (mem.eql(u8, method.string, "forEach")) {
             nativeFn = forEach;
+        } else if (mem.eql(u8, method.string, "map")) {
+            nativeFn = map;
         }
 
         if (nativeFn) |unativeFn| {
@@ -1763,6 +1765,7 @@ pub const ObjList = struct {
             var args = std.ArrayList(*const Value).init(vm.gc.allocator);
             defer args.deinit();
 
+            // TODO: handle error
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
@@ -1775,6 +1778,43 @@ pub const ObjList = struct {
         }
 
         return 0;
+    }
+
+    fn map(vm: *VM) c_int {
+        var list = ObjList.cast(vm.peek(1).Obj).?;
+        var closure = ObjClosure.cast(vm.peek(0).Obj).?;
+
+        // FIXME: how to get concret generic type here? for now we use the generic type
+        var function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;
+        var new_list: *ObjList = vm.gc.allocateObject(
+            ObjList,
+            ObjList.init(
+                vm.gc.allocator,
+                function_generic_types,
+            ),
+        ) catch unreachable; // TODO: handle error
+
+        for (list.items.items) |item| {
+            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            defer args.deinit();
+
+            // TODO: handle error
+            args.append(&item) catch unreachable;
+
+            buzz_api.bz_call(
+                vm,
+                closure,
+                @ptrCast([*]const *const Value, args.items),
+                @intCast(u8, args.items.len),
+                null,
+            );
+
+            new_list.rawAppend(vm.gc, vm.pop()) catch unreachable;
+        }
+
+        vm.push(new_list.toValue());
+
+        return 1;
     }
 
     fn append(vm: *VM) c_int {
@@ -2417,6 +2457,90 @@ pub const ObjList = struct {
                 var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("forEach", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "map")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                // TODO: index parameter?
+                try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
+
+                var callback_method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    // TODO: is this ok?
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("anonymous"),
+                    .parameters = callback_parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = undefined,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                const map_origin = ObjFunction.FunctionDef.nextId();
+
+                // Mapped type
+                const generic = ObjTypeDef.GenericDef{
+                    .origin = map_origin,
+                    .index = 0,
+                };
+                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
+                const generic_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Generic,
+                        .resolved_type = generic_resolved_type,
+                    },
+                );
+
+                callback_method_def.return_type = generic_type;
+
+                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+
+                var callback_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = callback_resolved_type,
+                    },
+                );
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("callback"),
+                    callback_type,
+                );
+
+                var new_list_def = ObjList.ListDef.init(parser.gc.allocator, generic_type);
+
+                var new_list_type = ObjTypeDef.TypeUnion{ .List = new_list_def };
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = map_origin,
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("map"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = try parser.gc.type_registry.getTypeDef(.{
+                        .def_type = .List,
+                        .resolved_type = new_list_type,
+                    }),
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                try method_def.generic_types.put(
+                    try parser.gc.copyString("T"),
+                    generic_type,
+                );
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+
+                try self.methods.put("map", native_type);
 
                 return native_type;
             }

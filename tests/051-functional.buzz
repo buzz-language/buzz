@@ -1,6 +1,6 @@
 import "lib/std";
 
-test "forEach" {
+test "list.forEach" {
     [int] data = [1, 2, 3, 4];
 
     int sum = 0;
@@ -9,4 +9,12 @@ test "forEach" {
     });
 
     assert(sum == 10, message: "Could use forEach");
+}
+
+test "list.map" {
+    [int] data = [1, 2, 3, 4];
+
+    [str] mapped = data.map(<str>, fun (int element) -> "{element}");
+
+    print(mapped.join(", "));
 }
