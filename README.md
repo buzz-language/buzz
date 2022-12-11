@@ -267,6 +267,9 @@ for (int i = 0; i < 10; i = i + 1) {
     | ...
     break;
 }
+
+| inline if
+int value = if (something > 0) 12 else 13;
 ```
 
 #### `foreach`

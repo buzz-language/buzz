@@ -85,6 +85,7 @@ pub const ParseNodeType = enum(u8) {
     Resolve,
     Yield,
     If,
+    InlineIf,
     Block,
     Return,
     For,
@@ -4878,6 +4879,166 @@ pub const ContinueNode = struct {
     pub fn cast(nodePtr: *anyopaque) ?*Self {
         var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         if (node.node_type != .Continue) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const InlineIfNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .InlineIf,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    condition: *ParseNode,
+    body: *ParseNode,
+    else_branch: *ParseNode,
+
+    fn constant(nodePtr: *anyopaque) bool {
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        var self = Self.cast(node).?;
+
+        return self.condition.isConstant(self.condition) and self.body.isConstant(self.body) and self.else_branch.isConstant(self.else_branch);
+    }
+
+    fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            if ((try self.condition.toValue(self.condition, gc)).Boolean) {
+                return self.body.toValue(self.body, gc);
+            } else {
+                return self.else_branch.toValue(self.else_branch, gc);
+            }
+        }
+
+        return GenError.NotConstant;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        var codegen = @ptrCast(*CodeGen, @alignCast(@alignOf(CodeGen), codegenPtr));
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        var self = Self.cast(node).?;
+
+        // Type checking
+        if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
+        }
+
+        if (self.body.type_def == null or self.body.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.body.type_def.?.resolved_type.?.Placeholder);
+        }
+
+        if (self.else_branch.type_def == null or self.else_branch.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.else_branch.type_def.?.resolved_type.?.Placeholder);
+        }
+
+        // Both should have same type
+        if (!self.body.type_def.?.eql(self.else_branch.type_def.?)) {
+            try codegen.reportTypeCheckAt(
+                self.body.type_def.?,
+                self.else_branch.type_def.?,
+                "Types not matching",
+                self.body.location,
+            );
+        }
+
+        // If condition is constant only generate appropriate branch
+        if (self.condition.isConstant(self.condition)) {
+            const condition = try self.condition.toValue(self.condition, codegen.gc);
+
+            if (condition.Boolean) {
+                _ = try self.body.toByteCode(self.body, codegen, breaks);
+            } else {
+                _ = try self.else_branch.toByteCode(self.else_branch, codegen, breaks);
+            }
+
+            try node.patchOptJumps(codegen);
+            try node.endScope(codegen);
+
+            return null;
+        }
+
+        // Generate the if/else
+        _ = try self.condition.toByteCode(self.condition, codegen, breaks);
+
+        const then_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
+
+        _ = try self.body.toByteCode(self.body, codegen, breaks);
+
+        const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
+
+        try codegen.patchJump(then_jump);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
+
+        _ = try self.else_branch.toByteCode(self.else_branch, codegen, breaks);
+        try codegen.patchJump(else_jump);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        var self = Self.cast(node).?;
+
+        try out.writeAll("{\"node\": \"InlineIf\", \"condition\": ");
+
+        try self.condition.toJson(self.condition, out);
+
+        try out.writeAll(", \"body\": ");
+
+        try self.body.toJson(self.body, out);
+
+        try out.writeAll(", \"else\": ");
+        try self.else_branch.toJson(self.else_branch, out);
+
+        try out.writeAll(", ");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.writeAll("if (");
+        try self.condition.render(self.condition, out, depth);
+        try out.writeAll(") ");
+        try self.body.render(self.body, out, depth + 1);
+        try out.writeAll(" else ");
+        try self.else_branch.render(self.else_branch, out, depth + 1);
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        if (node.node_type != .InlineIf) {
             return null;
         }
 

@@ -80,6 +80,7 @@ const ThrowNode = _node.ThrowNode;
 const BreakNode = _node.BreakNode;
 const ContinueNode = _node.ContinueNode;
 const IfNode = _node.IfNode;
+const InlineIfNode = _node.InlineIfNode;
 const ReturnNode = _node.ReturnNode;
 const ForNode = _node.ForNode;
 const ForEachNode = _node.ForEachNode;
@@ -288,7 +289,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = or_, .precedence = .Or }, // Or
         .{ .prefix = null, .infix = and_, .precedence = .And }, // And
         .{ .prefix = null, .infix = null, .precedence = .None }, // Return
-        .{ .prefix = null, .infix = null, .precedence = .None }, // If
+        .{ .prefix = inlineIf, .infix = null, .precedence = .None }, // If
         .{ .prefix = null, .infix = null, .precedence = .None }, // Else
         .{ .prefix = null, .infix = null, .precedence = .None }, // Do
         .{ .prefix = null, .infix = null, .precedence = .None }, // Until
@@ -3192,6 +3193,32 @@ pub const Parser = struct {
         node.node.type_def = left.type_def;
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn inlineIf(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        try self.consume(.LeftParen, "Expected `(` after `if`.");
+        const condition = try self.expression(false);
+        try self.consume(.RightParen, "Expected `)` after `if` condition.");
+
+        const body = try self.expression(false);
+
+        try self.consume(.Else, "Expected `else` after inline `if` body.");
+
+        const else_branch = try self.expression(false);
+
+        var node = try self.gc.allocator.create(InlineIfNode);
+        node.* = InlineIfNode{
+            .condition = condition,
+            .body = body,
+            .else_branch = else_branch,
+        };
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+        node.node.type_def = body.type_def orelse else_branch.type_def;
 
         return &node.node;
     }

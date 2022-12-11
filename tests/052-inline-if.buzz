@@ -1,0 +1,11 @@
+import "lib/std";
+
+test "ternary" {
+    int value = if (true) 12 else 0;
+
+    assert(value == 12, message: "could use constant inline if");
+
+    value = if ("hello".len() == 2) 0 else 12;
+
+    assert(value == 12, message: "could use inline if");
+}
