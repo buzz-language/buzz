@@ -26,6 +26,7 @@ const RunFlavor = enum {
     Test,
     Check,
     Fmt,
+    Ast,
 };
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor: RunFlavor) !void {
@@ -76,23 +77,34 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
             codegen_time = timer.read();
             timer.reset();
 
-            if (flavor != .Check and flavor != .Fmt) {
-                _ = try vm.interpret(
+            switch (flavor) {
+                .Run, .Test => try vm.interpret(
                     function,
                     args,
-                );
+                ),
+                .Fmt => {
+                    var formatted = std.ArrayList(u8).init(allocator);
+                    defer formatted.deinit();
+
+                    try function_node.render(function_node, &formatted.writer(), 0);
+
+                    std.debug.print("{s}", .{formatted.items});
+                },
+                .Ast => {
+                    var json = std.ArrayList(u8).init(allocator);
+                    defer json.deinit();
+
+                    try function_node.toJson(function_node, &json.writer());
+
+                    var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
+                    defer allocator.free(without_nl);
+
+                    _ = try std.io.getStdOut().write(without_nl);
+                },
+                else => {},
             }
 
             running_time = timer.read();
-
-            if (flavor == .Fmt) {
-                var formatted = std.ArrayList(u8).init(allocator);
-                defer formatted.deinit();
-
-                try function_node.render(function_node, &formatted.writer(), 0);
-
-                std.debug.print("{s}", .{formatted.items});
-            }
         } else {
             return CompileError.Recoverable;
         }
@@ -133,6 +145,7 @@ pub fn main() !void {
         \\-t, --test    Run test blocks in provided script
         \\-c, --check   Check script for error without running it
         \\-f, --fmt     Format script
+        \\-a, --tree    Dump AST as JSON
         \\-v, --version Print version and exit
         \\<str>...
         \\
@@ -203,9 +216,14 @@ pub fn main() !void {
         positionals.deinit();
     }
 
-    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else if (res.args.fmt) RunFlavor.Fmt else RunFlavor.Run;
+    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else if (res.args.fmt) RunFlavor.Fmt else if (res.args.tree) RunFlavor.Ast else RunFlavor.Run;
 
-    runFile(allocator, res.positionals[0], positionals.items[1..], flavor) catch {
+    runFile(
+        allocator,
+        res.positionals[0],
+        positionals.items[1..],
+        flavor,
+    ) catch {
         // TODO: should probably choses appropriate error code
         std.os.exit(1);
     };

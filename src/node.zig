@@ -4454,6 +4454,15 @@ pub const VarDeclarationNode = struct {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
 
+        // $test#X is a test block, only render its value
+        if (std.mem.startsWith(u8, self.name.lexeme, "$test")) {
+            std.debug.assert(self.value != null);
+
+            try self.value.?.render(self.value.?, out, depth);
+
+            return;
+        }
+
         if (!self.expression) {
             try out.writeByteNTimes(' ', depth * 4);
         }
@@ -5021,8 +5030,6 @@ pub const InlineIfNode = struct {
     fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
-
-        try out.writeByteNTimes(' ', depth * 4);
 
         try out.writeAll("if (");
         try self.condition.render(self.condition, out, depth);
