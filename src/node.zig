@@ -3995,7 +3995,7 @@ pub const CallNode = struct {
                     if (!node.type_def.?.eql(catch_default.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             node.type_def.?,
-                            catch_default.type_def.?.resolved_type.?.Function.return_type,
+                            catch_default.type_def.?,
                             "Bad inline catch value type",
                             catch_default.location,
                         );

@@ -822,21 +822,39 @@ pub const ObjString = struct {
         // Prevent gc & is result
         vm.push(list.toValue());
 
-        var it = std.mem.split(u8, self.string, separator.string);
-        while (it.next()) |fragment| {
-            var fragment_str: ?*ObjString = vm.gc.copyString(fragment) catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+        if (separator.string.len > 0) {
+            var it = std.mem.split(u8, self.string, separator.string);
+            while (it.next()) |fragment| {
+                var fragment_str: ?*ObjString = vm.gc.copyString(fragment) catch {
+                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
-                return -1;
-            };
+                    return -1;
+                };
 
-            list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
+                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
-                return -1;
-            };
+                    return -1;
+                };
+            }
+        } else {
+            for (self.string) |char| {
+                var fragment_str: ?*ObjString = vm.gc.copyString(&([_]u8{char})) catch {
+                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                };
+
+                list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
+                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+
+                    return -1;
+                };
+            }
         }
 
         return 1;
@@ -1962,7 +1980,7 @@ pub const ObjList = struct {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: Value = vm.peek(0);
 
-        var index: ?usize = 0;
+        var index: ?usize = null;
         var i: usize = 0;
         for (self.items.items) |item| {
             if (valueEql(needle, item)) {
@@ -2345,9 +2363,8 @@ pub const ObjList = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(
                         .{
-                            .def_type = self.item_type.def_type,
+                            .def_type = .Integer,
                             .optional = true,
-                            .resolved_type = self.item_type.resolved_type,
                         },
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
