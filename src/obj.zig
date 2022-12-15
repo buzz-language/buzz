@@ -2457,7 +2457,7 @@ pub const ObjList = struct {
                     .name = try parser.gc.copyString("pop"),
                     .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = self.item_type,
+                    .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
