@@ -1709,6 +1709,7 @@ pub const ObjList = struct {
             .{ "map", map },
             .{ "filter", filter },
             .{ "reduce", reduce },
+            .{ "sort", sort },
         },
     );
 
@@ -1972,6 +1973,50 @@ pub const ObjList = struct {
             std.debug.print("Could not remove from list", .{});
             std.os.exit(1);
         };
+
+        return 1;
+    }
+
+    const SortContext = struct {
+        sort_closure: *ObjClosure,
+        vm: *VM,
+    };
+
+    fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
+        var args = std.ArrayList(*const Value).init(context.vm.gc.allocator);
+        defer args.deinit();
+
+        // TODO: handle error
+        args.append(&lhs) catch unreachable;
+        args.append(&rhs) catch unreachable;
+
+        buzz_api.bz_call(
+            context.vm,
+            context.sort_closure,
+            @ptrCast([*]const *const Value, args.items),
+            @intCast(u8, args.items.len),
+            null,
+        );
+
+        return context.vm.pop().Boolean;
+    }
+
+    pub fn sort(vm: *VM) c_int {
+        var self = Self.cast(vm.peek(1).Obj).?;
+        // fun compare(T lhs, T rhs) > bool
+        var sort_closure = ObjClosure.cast(vm.peek(0).Obj).?;
+
+        std.sort.sort(
+            Value,
+            self.items.items,
+            SortContext{
+                .sort_closure = sort_closure,
+                .vm = vm,
+            },
+            lessThan,
+        );
+
+        vm.push(self.toValue());
 
         return 1;
     }
@@ -2756,6 +2801,66 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("reduce", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "sort")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try callback_parameters.put(try parser.gc.copyString("left"), self.item_type);
+                try callback_parameters.put(try parser.gc.copyString("right"), self.item_type);
+
+                var callback_method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    // TODO: is this ok?
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("anonymous"),
+                    .parameters = callback_parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+
+                var callback_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = callback_resolved_type,
+                    },
+                );
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("callback"),
+                    callback_type,
+                );
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("sort"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_list,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("sort", native_type);
 
                 return native_type;
             }

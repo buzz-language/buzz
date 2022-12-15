@@ -138,6 +138,12 @@ Join list element in a string with a separator. Elements are converted to a stri
 Runs `callback` for each element of the list.
 - **`callback`:** Ran for each element
 
+### `fun sort(Function callback(T left, T right) > bool) > [T]`
+Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
+- **`callback`:** Used to compare elements
+
+**Returns:** The list now sorted
+
 ### `fun map(<S>, Function callback(int index, T element) > S) > [S])`
 Map list to new list of target type by running `callback` for each element of the list.
 - **`callback`:** Ran for each element

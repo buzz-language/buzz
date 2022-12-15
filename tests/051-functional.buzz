@@ -38,3 +38,13 @@ test "list.reduce" {
 
     assert(sum == 10, message: "could use reduce");
 }
+
+test "list.sort" {
+    [int] data = [10, 3, 12, 0, 1, -3];
+
+    data.sort(fun (int left, int right) -> left < right);
+
+    foreach (int i, int value in [-3, 0, 1, 3, 10, 12]) {
+        assert(data[i] == value, message: "list is not ordered");
+    }
+}
