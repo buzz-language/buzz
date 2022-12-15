@@ -657,7 +657,7 @@ pub const VM = struct {
 
         // Tail call
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             op_table[@enumToInt(instruction)],
             .{
                 self,
@@ -681,7 +681,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -698,7 +698,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -715,7 +715,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -732,7 +732,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -749,7 +749,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -766,7 +766,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -786,7 +786,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -803,7 +803,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -826,7 +826,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -843,7 +843,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -860,7 +860,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -877,7 +877,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -894,7 +894,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -911,7 +911,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -928,7 +928,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -945,7 +945,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -974,7 +974,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -997,7 +997,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1047,7 +1047,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1065,7 +1065,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1120,7 +1120,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1177,7 +1177,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1198,7 +1198,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1219,7 +1219,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1236,7 +1236,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1266,7 +1266,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1305,7 +1305,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1338,7 +1338,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1371,7 +1371,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1403,7 +1403,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1437,7 +1437,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1471,7 +1471,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1527,7 +1527,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1608,7 +1608,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1627,7 +1627,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1645,7 +1645,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1665,7 +1665,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1690,7 +1690,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1715,7 +1715,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1740,7 +1740,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1767,7 +1767,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1818,7 +1818,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1847,7 +1847,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1899,7 +1899,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1953,7 +1953,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -1985,7 +1985,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2010,7 +2010,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2039,7 +2039,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2068,7 +2068,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2088,7 +2088,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2128,7 +2128,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2157,7 +2157,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2206,7 +2206,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2232,7 +2232,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2266,7 +2266,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2287,7 +2287,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2319,7 +2319,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2349,7 +2349,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2378,7 +2378,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2407,7 +2407,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2436,7 +2436,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2463,7 +2463,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2492,7 +2492,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2521,7 +2521,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2538,7 +2538,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2557,7 +2557,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2594,7 +2594,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2631,7 +2631,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2654,7 +2654,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2693,7 +2693,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2734,7 +2734,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2768,7 +2768,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2797,7 +2797,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2826,7 +2826,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2855,7 +2855,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2884,7 +2884,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2911,7 +2911,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2938,7 +2938,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -2964,7 +2964,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3006,7 +3006,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3048,7 +3048,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3065,7 +3065,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3082,7 +3082,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3099,7 +3099,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3118,7 +3118,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3137,7 +3137,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3154,7 +3154,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3189,7 +3189,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3222,7 +3222,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3248,7 +3248,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3275,7 +3275,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3302,7 +3302,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
@@ -3327,7 +3327,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .{ .modifier = .always_tail },
+            .always_tail,
             dispatch,
             .{
                 self,
