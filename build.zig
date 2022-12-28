@@ -61,7 +61,7 @@ const BuzzBuildOptions = struct {
 pub fn build(b: *Builder) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.11.0-dev.811+8ff9284c4") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.923+a52dcdd3c") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -146,6 +146,12 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         exe.linkLibC();
     }
+
+    // LLVM
+    exe.addIncludePath("/usr/local/opt/llvm/include");
+    exe.addLibraryPath("/usr/local/opt/llvm/lib");
+    exe.linkSystemLibrary("llvm");
+
     exe.setBuildMode(build_mode);
     exe.setMainPkgPath(".");
 
@@ -180,6 +186,8 @@ pub fn build(b: *Builder) !void {
         "src/lib/buzz_math.zig",
         "src/lib/buzz_debug.zig",
         "src/lib/buzz_buffer.zig",
+
+        "tests/llvm/basic.zig",
     };
     // Zig only libs
     const lib_names = [_][]const u8{
@@ -191,6 +199,8 @@ pub fn build(b: *Builder) !void {
         "math",
         "debug",
         "buffer",
+
+        "basic",
     };
     const all_lib_names = [_][]const u8{
         "std",
@@ -206,7 +216,7 @@ pub fn build(b: *Builder) !void {
         "errors",
     };
 
-    var libs = [_]*std.build.LibExeObjStep{ undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined };
+    var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
     for (lib_paths) |lib_path, index| {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
         std_lib.setOutputDir("dist/lib");

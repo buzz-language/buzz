@@ -116,7 +116,7 @@ export fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8 {
 
     len.* = string.len;
 
-    return if (string.len > 0) if (string.len > 0) @ptrCast([*]const u8, string) else null else null;
+    return if (string.len > 0) @ptrCast([*]const u8, string) else null;
 }
 
 /// Dump value
@@ -319,6 +319,13 @@ export fn bz_valueIsFloat(value: *Value) bool {
 /// Converts a c string to a *ObjString
 export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
     return (if (string) |ustring| vm.gc.copyString(ustring[0..len]) else vm.gc.copyString("")) catch null;
+}
+
+/// ObjString -> [*]const u8 + len
+export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8 {
+    len.* = obj_string.string.len;
+
+    return if (obj_string.string.len > 0) @ptrCast([*]const u8, obj_string.string) else null;
 }
 
 // Other stuff

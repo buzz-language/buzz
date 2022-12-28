@@ -4568,8 +4568,13 @@ pub const Parser = struct {
     }
 
     // TODO: when to close the lib?
-    fn importLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*ObjNative {
+    fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) !?*ObjNative {
         const buzz_path: []const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
+
+        // Remove .buzz extension, this occurs if this is the script being run or if the script was imported like so `import lib/std.buzz`
+        // We consider that any other extension is silly from the part of the user
+        const file_name =
+            if (std.mem.endsWith(u8, full_file_name, ".buzz")) full_file_name[0..(full_file_name.len - 5)] else full_file_name;
 
         // We have to insert `lib` prefix
         const last_sep = std.mem.lastIndexOf(u8, file_name, std.fs.path.sep_str) orelse 0;

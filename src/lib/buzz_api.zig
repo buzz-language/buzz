@@ -67,6 +67,7 @@ pub const ObjTypeDef = opaque {
 
 pub const ObjString = opaque {
     pub extern fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString;
+    pub extern fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8;
 };
 
 pub const ObjList = opaque {
