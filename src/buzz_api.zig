@@ -6,6 +6,7 @@ const _value = @import("./value.zig");
 const memory = @import("./memory.zig");
 const _parser = @import("./parser.zig");
 const _codegen = @import("./codegen.zig");
+const BuildOptions = @import("build_options");
 
 const Value = _value.Value;
 const valueToString = _value.valueToString;
@@ -35,6 +36,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
 
 var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
     gpa.allocator()
+else if (BuildOptions.use_mimalloc)
+    @import("./mimalloc.zig").mim_allocator
 else
     std.heap.c_allocator;
 

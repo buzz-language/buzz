@@ -135,8 +135,10 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    var allocator: Allocator = if (builtin.mode == .Debug)
+    var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
+    else if (BuildOptions.use_mimalloc)
+        @import("./mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
 
@@ -163,7 +165,7 @@ pub fn main() !void {
 
     if (res.args.version) {
         std.debug.print(
-            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\n",
+            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\n",
             .{
                 if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
                 BuildOptions.sha,
@@ -174,6 +176,9 @@ pub fn main() !void {
                     .ReleaseSmall => "release-small",
                     .Debug => "debug",
                 },
+                if (builtin.mode == .Debug)
+                    "gpa"
+                else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
             },
         );
 

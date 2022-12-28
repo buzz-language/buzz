@@ -34,6 +34,7 @@ We're not far from completing [milestone 0.1.0](https://github.com/buzz-language
 - Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
 - libpcre (not libpcre2)
 - libc on Linux
+- [mimalloc](https://github.com/microsoft/mimalloc) (can be turned of by building buzz with `-Duse_mimalloc=false`)
 - zig master
 
 ### Steps

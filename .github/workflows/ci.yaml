@@ -33,7 +33,7 @@ jobs:
         with:
           version: master
       - name: Build
-        run: zig build
+        run: zig build -Duse_mimalloc=false
       - name: Run tests
         run: BUZZ_PATH=./dist zig build test
   lint:

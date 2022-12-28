@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const BuildOptions = @import("build_options");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
@@ -39,6 +40,8 @@ pub const VM = opaque {
 
     pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
+    else if (BuildOptions.use_mimalloc)
+        @import("../mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
 };
