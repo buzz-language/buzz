@@ -695,6 +695,252 @@ pub const Parser = struct {
         try self.reportTypeCheckAt(expected_type, actual_type, message, self.parser.previous_token.?);
     }
 
+    fn resolvePlaceholderWithRelation(
+        self: *Self,
+        child: *ObjTypeDef,
+        resolved_type: *ObjTypeDef,
+        constant: bool,
+        relation: PlaceholderDef.PlaceholderRelation,
+    ) anyerror!void {
+        var child_placeholder: PlaceholderDef = child.resolved_type.?.Placeholder;
+
+        if (BuildOptions.debug_placeholders) {
+            std.debug.print(
+                "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
+                .{
+                    @ptrToInt(resolved_type),
+                    @ptrToInt(child),
+                    if (child_placeholder.name) |name| name.string else "unknown",
+                    child_placeholder.parent_relation.?,
+                },
+            );
+        }
+
+        switch (relation) {
+            .Optional => {
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.cloneOptional(&self.gc.type_registry),
+                    false,
+                );
+            },
+            .Unwrap => {
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.cloneNonOptional(&self.gc.type_registry),
+                    false,
+                );
+            },
+            .Instance => {
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.toInstance(self.gc.allocator, &self.gc.type_registry),
+                    false,
+                );
+            },
+            .Parent => {
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.toParentType(self.gc.allocator, &self.gc.type_registry),
+                    false,
+                );
+            },
+            .Call => {
+                // Can we call the parent?
+                if (resolved_type.def_type != .Function) {
+                    try self.reportErrorAt(child_placeholder.where, "Can't be called");
+                    return;
+                }
+
+                try self.resolvePlaceholder(
+                    child,
+                    if (child_placeholder.call_generics) |call_generics|
+                        try resolved_type.resolved_type.?.Function.return_type.populateGenerics(
+                            resolved_type.resolved_type.?.Function.id,
+                            call_generics,
+                            &self.gc.type_registry,
+                            null,
+                        )
+                    else
+                        resolved_type.resolved_type.?.Function.return_type,
+                    false,
+                );
+            },
+            .Yield => {
+                // Can we call the parent?
+                if (resolved_type.def_type != .Function) {
+                    try self.reportErrorAt(child_placeholder.where, "Can't be called");
+                    return;
+                }
+
+                try self.resolvePlaceholder(
+                    child,
+                    if (child_placeholder.call_generics) |call_generics|
+                        try resolved_type.resolved_type.?.Function.yield_type.populateGenerics(
+                            resolved_type.resolved_type.?.Function.id,
+                            call_generics,
+                            &self.gc.type_registry,
+                            null,
+                        )
+                    else
+                        resolved_type.resolved_type.?.Function.yield_type,
+                    false,
+                );
+            },
+            .Subscript => {
+                if (resolved_type.def_type == .List) {
+                    try self.resolvePlaceholder(child, resolved_type.resolved_type.?.List.item_type, false);
+                } else if (resolved_type.def_type == .Map) {
+                    try self.resolvePlaceholder(child, try resolved_type.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry), false);
+                } else if (resolved_type.def_type == .String) {
+                    try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .String }), false);
+                } else {
+                    try self.reportErrorAt(child_placeholder.where, "Can't be subscripted");
+                    return;
+                }
+            },
+            .Key => {
+                if (resolved_type.def_type == .Map) {
+                    try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.key_type, false);
+                } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
+                    try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
+                } else {
+                    try self.reportErrorAt(child_placeholder.where, "Can't be a key");
+                    return;
+                }
+            },
+            .FieldAccess => {
+                switch (resolved_type.def_type) {
+                    .List => {
+                        assert(child_placeholder.name != null);
+
+                        if (try ObjList.ListDef.member(resolved_type, self, child_placeholder.name.?.string)) |member| {
+                            try self.resolvePlaceholder(child, member, false);
+                        }
+                    },
+                    .Map => {
+                        assert(child_placeholder.name != null);
+
+                        if (try ObjMap.MapDef.member(resolved_type, self, child_placeholder.name.?.string)) |member| {
+                            try self.resolvePlaceholder(child, member, false);
+                        }
+                    },
+                    .String => {
+                        assert(child_placeholder.name != null);
+
+                        if (try ObjString.memberDef(self, child_placeholder.name.?.string)) |member| {
+                            try self.resolvePlaceholder(child, member, false);
+                        }
+                    },
+                    .Pattern => {
+                        assert(child_placeholder.name != null);
+
+                        if (try ObjPattern.memberDef(self, child_placeholder.name.?.string)) |member| {
+                            try self.resolvePlaceholder(child, member, false);
+                        }
+                    },
+                    .Fiber => {
+                        assert(child_placeholder.name != null);
+
+                        if (try ObjFiber.memberDef(self, child_placeholder.name.?.string)) |member| {
+                            try self.resolvePlaceholder(child, member, false);
+                        }
+                    },
+                    .Object => {
+                        // We can't create a field access placeholder without a name
+                        assert(child_placeholder.name != null);
+
+                        var object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.Object;
+
+                        // Search for a field matching the placeholder
+                        if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                            // TODO: remove? should only resolve with a field if field accessing an object instance?
+                            try self.resolvePlaceholder(child, field, false);
+                        } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                            try self.resolvePlaceholder(child, method_def, true);
+                        } else if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
+                            try self.resolvePlaceholder(child, static_def, false);
+                        } else {
+                            try self.reportErrorFmt(
+                                "`{s}` has no static field `{s}`",
+                                .{
+                                    object_def.name.string,
+                                    child_placeholder.name.?.string,
+                                },
+                            );
+                        }
+                    },
+                    .ObjectInstance => {
+                        // We can't create a field access placeholder without a name
+                        assert(child_placeholder.name != null);
+
+                        var object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+
+                        // Search for a field matching the placeholder
+                        if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                            try self.resolvePlaceholder(child, field, false);
+                        } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                            try self.resolvePlaceholder(child, method_def, true);
+                        } else {
+                            try self.reportErrorFmt(
+                                "`{s}` has no field `{s}`",
+                                .{
+                                    object_def.name.string,
+                                    child_placeholder.name.?.string,
+                                },
+                            );
+                        }
+                    },
+                    .Enum => {
+                        // We can't create a field access placeholder without a name
+                        assert(child_placeholder.name != null);
+
+                        var enum_def: ObjEnum.EnumDef = resolved_type.resolved_type.?.Enum;
+
+                        // Search for a case matching the placeholder
+                        for (enum_def.cases.items) |case| {
+                            if (mem.eql(u8, case, child_placeholder.name.?.string)) {
+                                var enum_instance_def: ObjTypeDef.TypeUnion = .{ .EnumInstance = resolved_type };
+
+                                try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{
+                                    .def_type = .EnumInstance,
+                                    .resolved_type = enum_instance_def,
+                                }), true);
+                                break;
+                            }
+                        }
+                    },
+                    .EnumInstance => {
+                        assert(child_placeholder.name != null);
+
+                        if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
+                            try self.resolvePlaceholder(child, resolved_type.resolved_type.?.EnumInstance, false);
+                        } else {
+                            try self.reportErrorAt(child_placeholder.where, "Enum instance only has field `value`");
+                            return;
+                        }
+                    },
+                    else => {
+                        try self.reportErrorAt(child_placeholder.where, "Doesn't support field access");
+                        return;
+                    },
+                }
+            },
+            .Assignment => {
+                if (constant) {
+                    try self.reportErrorAt(child_placeholder.where, "Is constant.");
+                    return;
+                }
+
+                // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
+                var child_type: *ObjTypeDef = try resolved_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+
+                // Is child type matching the parent?
+                try self.resolvePlaceholder(child, child_type, false);
+            },
+        }
+    }
+
     // When we encounter the missing declaration we replace it with the resolved type.
     // We then follow the chain of placeholders to see if their assumptions were correct.
     // If not we raise a compile error.
@@ -726,8 +972,22 @@ pub const Parser = struct {
             }
 
             if (resolved_type.resolved_type.?.Placeholder.parent) |parent| {
-                try parent.resolved_type.?.Placeholder.children.append(placeholder);
+                if (parent.def_type == .Placeholder) {
+                    try parent.resolved_type.?.Placeholder.children.append(placeholder);
+                } else {
+                    // Parent already resolved, resolve this now orphan placeholder
+                    try self.resolvePlaceholderWithRelation(
+                        resolved_type,
+                        parent,
+                        constant,
+                        resolved_type.resolved_type.?.Placeholder.parent_relation.?,
+                    );
+                }
             }
+
+            // Merge both placeholder children list
+            // TODO: do we need this?
+            // try resolved_type.resolved_type.?.Placeholder.children.appendSlice(placeholder.resolved_type.?.Placeholder.children.items);
 
             // Don't copy obj header or it will break the linked list of objects
             const obj = placeholder.obj;
@@ -762,236 +1022,13 @@ pub const Parser = struct {
 
         // Now walk the chain of placeholders and see if they hold up
         for (placeholder_def.children.items) |child| {
-            var child_placeholder: PlaceholderDef = child.resolved_type.?.Placeholder;
-            assert(child_placeholder.parent != null);
-            assert(child_placeholder.parent_relation != null);
-
-            if (BuildOptions.debug_placeholders) {
-                std.debug.print(
-                    "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
-                    .{
-                        @ptrToInt(placeholder),
-                        @ptrToInt(child),
-                        if (child_placeholder.name) |name| name.string else "unknown",
-                        child_placeholder.parent_relation.?,
-                    },
+            if (child.def_type == .Placeholder) {
+                try self.resolvePlaceholderWithRelation(
+                    child,
+                    placeholder,
+                    constant,
+                    child.resolved_type.?.Placeholder.parent_relation.?,
                 );
-            }
-
-            switch (child_placeholder.parent_relation.?) {
-                .Optional => {
-                    try self.resolvePlaceholder(child, try placeholder.cloneOptional(&self.gc.type_registry), false);
-                },
-                .Unwrap => {
-                    try self.resolvePlaceholder(child, try placeholder.cloneNonOptional(&self.gc.type_registry), false);
-                },
-                .Instance => {
-                    try self.resolvePlaceholder(
-                        child,
-                        try placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
-                        false,
-                    );
-                },
-                .Parent => {
-                    try self.resolvePlaceholder(
-                        child,
-                        try placeholder.toParentType(self.gc.allocator, &self.gc.type_registry),
-                        false,
-                    );
-                },
-                .Call => {
-                    // Can we call the parent?
-                    if (placeholder.def_type != .Function) {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be called");
-                        return;
-                    }
-
-                    try self.resolvePlaceholder(
-                        child,
-                        if (child_placeholder.call_generics) |call_generics|
-                            try placeholder.resolved_type.?.Function.return_type.populateGenerics(
-                                placeholder.resolved_type.?.Function.id,
-                                call_generics,
-                                &self.gc.type_registry,
-                                null,
-                            )
-                        else
-                            placeholder.resolved_type.?.Function.return_type,
-                        false,
-                    );
-                },
-                .Yield => {
-                    // Can we call the parent?
-                    if (placeholder.def_type != .Function) {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be called");
-                        return;
-                    }
-
-                    try self.resolvePlaceholder(
-                        child,
-                        if (child_placeholder.call_generics) |call_generics|
-                            try placeholder.resolved_type.?.Function.yield_type.populateGenerics(
-                                placeholder.resolved_type.?.Function.id,
-                                call_generics,
-                                &self.gc.type_registry,
-                                null,
-                            )
-                        else
-                            placeholder.resolved_type.?.Function.yield_type,
-                        false,
-                    );
-                },
-                .Subscript => {
-                    if (placeholder.def_type == .List) {
-                        try self.resolvePlaceholder(child, placeholder.resolved_type.?.List.item_type, false);
-                    } else if (placeholder.def_type == .Map) {
-                        try self.resolvePlaceholder(child, try placeholder.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry), false);
-                    } else if (placeholder.def_type == .String) {
-                        try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .String }), false);
-                    } else {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be subscripted");
-                        return;
-                    }
-                },
-                .Key => {
-                    if (placeholder.def_type == .Map) {
-                        try self.resolvePlaceholder(child, placeholder.resolved_type.?.Map.key_type, false);
-                    } else if (placeholder.def_type == .List or placeholder.def_type == .String) {
-                        try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
-                    } else {
-                        try self.reportErrorAt(placeholder_def.where, "Can't be a key");
-                        return;
-                    }
-                },
-                .FieldAccess => {
-                    switch (placeholder.def_type) {
-                        .List => {
-                            assert(child_placeholder.name != null);
-
-                            if (try ObjList.ListDef.member(placeholder, self, child_placeholder.name.?.string)) |member| {
-                                try self.resolvePlaceholder(child, member, false);
-                            }
-                        },
-                        .Map => {
-                            assert(child_placeholder.name != null);
-
-                            if (try ObjMap.MapDef.member(placeholder, self, child_placeholder.name.?.string)) |member| {
-                                try self.resolvePlaceholder(child, member, false);
-                            }
-                        },
-                        .String => {
-                            assert(child_placeholder.name != null);
-
-                            if (try ObjString.memberDef(self, child_placeholder.name.?.string)) |member| {
-                                try self.resolvePlaceholder(child, member, false);
-                            }
-                        },
-                        .Pattern => {
-                            assert(child_placeholder.name != null);
-
-                            if (try ObjPattern.memberDef(self, child_placeholder.name.?.string)) |member| {
-                                try self.resolvePlaceholder(child, member, false);
-                            }
-                        },
-                        .Fiber => {
-                            assert(child_placeholder.name != null);
-
-                            if (try ObjFiber.memberDef(self, child_placeholder.name.?.string)) |member| {
-                                try self.resolvePlaceholder(child, member, false);
-                            }
-                        },
-                        .Object => {
-                            // We can't create a field access placeholder without a name
-                            assert(child_placeholder.name != null);
-
-                            var object_def: ObjObject.ObjectDef = placeholder.resolved_type.?.Object;
-
-                            // Search for a field matching the placeholder
-                            if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
-                                // TODO: remove? should only resolve with a field if field accessing an object instance?
-                                try self.resolvePlaceholder(child, field, false);
-                            } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                                try self.resolvePlaceholder(child, method_def, true);
-                            } else if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
-                                try self.resolvePlaceholder(child, static_def, false);
-                            } else {
-                                try self.reportErrorFmt(
-                                    "`{s}` has no static field `{s}`",
-                                    .{
-                                        object_def.name.string,
-                                        child_placeholder.name.?.string,
-                                    },
-                                );
-                            }
-                        },
-                        .ObjectInstance => {
-                            // We can't create a field access placeholder without a name
-                            assert(child_placeholder.name != null);
-
-                            var object_def: ObjObject.ObjectDef = placeholder.resolved_type.?.ObjectInstance.resolved_type.?.Object;
-
-                            // Search for a field matching the placeholder
-                            if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
-                                try self.resolvePlaceholder(child, field, false);
-                            } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                                try self.resolvePlaceholder(child, method_def, true);
-                            } else {
-                                try self.reportErrorFmt(
-                                    "`{s}` has no field `{s}`",
-                                    .{
-                                        object_def.name.string,
-                                        child_placeholder.name.?.string,
-                                    },
-                                );
-                            }
-                        },
-                        .Enum => {
-                            // We can't create a field access placeholder without a name
-                            assert(child_placeholder.name != null);
-
-                            var enum_def: ObjEnum.EnumDef = placeholder.resolved_type.?.Enum;
-
-                            // Search for a case matching the placeholder
-                            for (enum_def.cases.items) |case| {
-                                if (mem.eql(u8, case, child_placeholder.name.?.string)) {
-                                    var enum_instance_def: ObjTypeDef.TypeUnion = .{ .EnumInstance = placeholder };
-
-                                    try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{
-                                        .def_type = .EnumInstance,
-                                        .resolved_type = enum_instance_def,
-                                    }), true);
-                                    break;
-                                }
-                            }
-                        },
-                        .EnumInstance => {
-                            assert(child_placeholder.name != null);
-
-                            if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
-                                try self.resolvePlaceholder(child, placeholder.resolved_type.?.EnumInstance, false);
-                            } else {
-                                try self.reportErrorAt(placeholder_def.where, "Enum instance only has field `value`");
-                                return;
-                            }
-                        },
-                        else => {
-                            try self.reportErrorAt(placeholder_def.where, "Doesn't support field access");
-                            return;
-                        },
-                    }
-                },
-                .Assignment => {
-                    if (constant) {
-                        try self.reportErrorAt(placeholder_def.where, "Is constant.");
-                        return;
-                    }
-
-                    // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
-                    var child_type: *ObjTypeDef = try placeholder.toInstance(self.gc.allocator, &self.gc.type_registry);
-
-                    // Is child type matching the parent?
-                    try self.resolvePlaceholder(child, child_type, false);
-                },
             }
         }
 

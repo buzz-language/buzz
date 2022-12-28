@@ -4490,7 +4490,7 @@ pub const PlaceholderDef = struct {
     const Self = @This();
 
     // TODO: are relations enough and booleans useless?
-    const PlaceholderRelation = enum {
+    pub const PlaceholderRelation = enum {
         Call,
         Yield,
         Subscript,

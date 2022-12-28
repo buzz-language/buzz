@@ -330,7 +330,9 @@ pub const CodeGen = struct {
     // Got to the root placeholder and report it
     pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) anyerror!void {
         if (placeholder.parent) |parent| {
-            try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
+            if (parent.def_type == .Placeholder) {
+                try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
+            }
         } else {
             // Should be a root placeholder with a name
             assert(placeholder.name != null);
