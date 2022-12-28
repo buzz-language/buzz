@@ -35,7 +35,7 @@ jobs:
       - name: Build
         run: zig build -Duse_mimalloc=false
       - name: Run tests
-        run: BUZZ_PATH=./dist zig build test
+        run: BUZZ_PATH=./dist zig build test -Duse_mimalloc=false
   lint:
     runs-on: macos-latest
     steps:
