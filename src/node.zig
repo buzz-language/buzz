@@ -199,7 +199,9 @@ pub const ParseNode = struct {
         );
 
         if (self.docblock != null) {
-            try out.print(", \"docblock\": \"{s}\"", .{self.docblock.?.literal_string.?});
+            var escaped = try escapeNewLines(std.heap.c_allocator, self.docblock.?.literal_string.?);
+            defer escaped.deinit();
+            try out.print(", \"docblock\": \"{s}\"", .{escaped.items});
         }
     }
 
@@ -805,9 +807,12 @@ pub const StringLiteralNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr)); //
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
+        var escaped = try escapeNewLines(std.heap.c_allocator, self.constant.string);
+        defer escaped.deinit();
+        try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"{s}\", ", .{escaped.items});
 
         try ParseNode.stringify(node, out);
 
@@ -883,9 +888,12 @@ pub const PatternNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr)); //
+        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Pattern\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
+        var escaped = try escapeNewLines(std.heap.c_allocator, self.constant.source);
+        defer escaped.deinit();
+        try out.print("{{\"node\": \"Pattern\", \"constant\": \"{s}\", ", .{escaped.items});
 
         try ParseNode.stringify(node, out);
 
@@ -6724,12 +6732,15 @@ pub const ObjectDeclarationNode = struct {
 
             try kv.value_ptr.*.toString(out);
 
-            try out.print(
-                "\", \"docblock\": \"{s}\"}}",
-                .{
-                    if (self.docblocks.get(kv.key_ptr.*).?) |docblock| docblock.literal_string orelse "" else "",
-                },
-            );
+            try out.print("\"", .{});
+
+            if (self.docblocks.get(kv.key_ptr.*).?) |docblock| {
+                var escaped = try escapeNewLines(std.heap.c_allocator, docblock.literal_string orelse "");
+                defer escaped.deinit();
+                try out.print(", \"docblock\": \"{s}\"}}", .{escaped.items});
+            } else {
+                try out.print("}}", .{});
+            }
 
             if (i < self.properties_type.count() - 1) {
                 try out.writeAll(",");
@@ -7116,3 +7127,26 @@ pub const ImportNode = struct {
         return @fieldParentPtr(Self, "node", node);
     }
 };
+
+fn escapeNewLines(allocator: Allocator, from: []const u8) !std.ArrayList(u8) {
+    var string = try std.ArrayList(u8).initCapacity(
+        allocator,
+        std.mem.replacementSize(
+            u8,
+            from,
+            "\n",
+            "\\n",
+        ),
+    );
+    string.expandToCapacity();
+
+    _ = std.mem.replace(
+        u8,
+        from,
+        "\n",
+        "\\n",
+        string.items,
+    );
+
+    return string;
+}
