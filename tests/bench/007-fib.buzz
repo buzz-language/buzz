@@ -1,0 +1,13 @@
+import "lib/std";
+
+fun fibonnacci(int n) > int {
+    if (n < 2) {
+        return n;
+    }
+
+    return fibonnacci(n - 2) + fibonnacci(n - 1);
+}
+
+fun main([str] args) > void {
+    print("{fibonnacci(30)}");
+}

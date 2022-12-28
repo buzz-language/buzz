@@ -1,0 +1,16 @@
+import "lib/std";
+
+fun main([str] args) > void {
+    [int] list = [<int>];
+
+    for (int i = 0; i < 1000000; i = i + 1) {
+        list.append(i);
+    }
+
+    int sum = 0;
+    foreach (int i, int v in list) {
+        sum = sum + v;
+    }
+
+    print("{sum}");
+}

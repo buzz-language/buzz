@@ -8,6 +8,18 @@ object B {
     A a
 }
 
+object Node {
+    Node another,
+
+    fun something() > Node {
+        return this.another.somethingelse();
+    }
+
+    fun somethingelse() > Node {
+        return this.another;
+    }
+}
+
 test "Cyclic placeholders" {
     print("{A}");
     print("{B}");
