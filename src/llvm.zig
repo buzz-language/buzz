@@ -1,6 +1,7 @@
 const std = @import("std");
 
 // Shamelessly taken from zig
+// TODO: remove definition we don't need
 // Doxygen of llvm-c api https://llvm.org/doxygen/group__LLVMCCore.html
 
 /// Do not compare directly to .True, use toBool() instead.
@@ -1205,7 +1206,28 @@ pub const OrcLLJIT = opaque {
     extern fn LLVMOrcLLJITLookup(J: *OrcLLJIT, Result: *u64, Name: [*:0]const u8) ?*LLVMError;
 };
 
-pub const OrcJITDylib = opaque {};
+pub const OrcSymbolStringPoolEntry = opaque {};
+
+pub const OrcSymbolPredicate = *const fn (Ctx: ?[*]u8, Sym: *OrcSymbolStringPoolEntry) c_int;
+
+pub const OrcDefinitionGenerator = opaque {
+    pub const createDynamicLibrarySearchGeneratorForProcess = LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess;
+    extern fn LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(
+        Result: **OrcDefinitionGenerator,
+        GlobalPrefix: u8,
+        Filter: ?OrcSymbolPredicate,
+        FilterCtx: ?[*]u8,
+    ) ?*LLVMError;
+
+    // JITDylib takes ownership of this so don't dispose if used
+    pub const dispose = LLVMOrcDisposeDefinitionGenerator;
+    extern fn LLVMOrcDisposeDefinitionGenerator(DG: *OrcDefinitionGenerator) void;
+};
+
+pub const OrcJITDylib = opaque {
+    pub const addGenerator = LLVMOrcJITDylibAddGenerator;
+    extern fn LLVMOrcJITDylibAddGenerator(JD: *OrcJITDylib, DG: *OrcDefinitionGenerator) void;
+};
 
 pub const OrcLLJITBuilder = opaque {
     pub const createBuilder = LLVMOrcCreateLLJITBuilder;

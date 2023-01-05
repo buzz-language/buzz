@@ -16,7 +16,7 @@ const FunctionNode = @import("./node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const LLVMCodegen = @import("./llvm_codegen.zig").LLVMCodegen;
+const JIT = @import("./jit.zig").JIT;
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -76,14 +76,14 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         timer.reset();
 
         if (flavor == .LLVM) {
-            var llvm_codegen = LLVMCodegen{
-                .allocator = allocator,
-                .parser = &parser,
-                .gc = &gc,
-                .testing = flavor == .Test,
-            };
+            var jit = JIT.init(
+                allocator,
+                &vm,
+                &parser,
+                flavor == .Test,
+            );
 
-            try llvm_codegen.execute(FunctionNode.cast(function_node).?, args);
+            try jit.execute(FunctionNode.cast(function_node).?, args);
 
             return;
         }

@@ -1,10 +1,9 @@
-| str string = "hello world";
-| float floating = 3.14;
-| int integer = 3;
-| bool boolean = true;
-
 extern fun print(str value) > void;
 
-fun main([str] args) > void {
+fun jitSayHello() > void {
     print("hello world fucking yeah");
+}
+
+fun main([str] args) > void {
+    jitSayHello();
 }

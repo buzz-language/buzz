@@ -27,15 +27,14 @@ const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjList = _obj.ObjList;
+const ObjFunction = _obj.ObjFunction;
 const PlaceholderDef = _obj.PlaceholderDef;
 const llvm = @import("./llvm.zig");
 const Token = @import("./token.zig").Token;
 const disassembler = @import("./disassembler.zig");
 const disassembleChunk = disassembler.disassembleChunk;
 const Parser = @import("./parser.zig").Parser;
-const _memory = @import("./memory.zig");
-const GarbageCollector = _memory.GarbageCollector;
-const TypeRegistry = _memory.TypeRegistry;
+const VM = @import("./vm.zig").VM;
 
 fn toNullTerminatedCStr(allocator: Allocator, source: []const u8) ![]const u8 {
     var result = std.ArrayList(u8).init(allocator);
@@ -45,6 +44,7 @@ fn toNullTerminatedCStr(allocator: Allocator, source: []const u8) ![]const u8 {
     return result.items;
 }
 
+// TODO: lowered types register like we do for ObjTypeDef
 fn lowerType(allocator: Allocator, obj_typedef: *ObjTypeDef, context: *llvm.Context) anyerror!*llvm.Type {
     return switch (obj_typedef.def_type) {
         .Bool => context.intType(8),
@@ -104,7 +104,7 @@ const GenState = struct {
     context: *llvm.Context,
     builder: *llvm.Builder,
 
-    pub fn dispose(self: GenState) void {
+    pub fn deinit(self: GenState) void {
         self.builder.dispose();
         self.context.dispose();
         // self.module ownership is taken by LLJIT
@@ -123,11 +123,23 @@ pub const Frame = struct {
     block: ?*llvm.BasicBlock = null,
 };
 
-pub const LLVMCodegen = struct {
+pub const BuzzApiMethods = enum {
+    bz_push,
+    bz_peek,
+
+    pub fn name(self: BuzzApiMethods) []const u8 {
+        return switch (self) {
+            .bz_push => "bz_push",
+            .bz_peek => "bz_peek",
+        };
+    }
+};
+
+pub const JIT = struct {
     const Self = @This();
 
     parser: *Parser,
-    gc: *GarbageCollector,
+    vm: *VM,
 
     current: ?*Frame = null,
     state: GenState = undefined,
@@ -139,11 +151,142 @@ pub const LLVMCodegen = struct {
 
     cli_args: ?*ObjList = null,
 
+    vm_constant: ?*llvm.Value = null,
+
+    api_lowered_types: std.AutoHashMap(BuzzApiMethods, *llvm.Type),
+
+    orc_jit: *llvm.OrcLLJIT,
+
+    pub fn init(allocator: Allocator, vm: *VM, parser: *Parser, testing: bool) JIT {
+        llvm.initializeLLVMTarget(builtin.target.cpu.arch);
+        var builder = llvm.OrcLLJITBuilder.createBuilder();
+
+        // TODO: LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator ?
+
+        // Initialize LLJIT
+        var orc_jit: *llvm.OrcLLJIT = undefined;
+        if (llvm.OrcLLJITBuilder.createOrcLLJIT(&orc_jit, builder)) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            // Return error instead of panicking
+            @panic("Could not create OrcJIT");
+        }
+
+        // Register host program symbols into the LLJIT
+        var process_definition_generator: *llvm.OrcDefinitionGenerator = undefined;
+        if (llvm.OrcDefinitionGenerator.createDynamicLibrarySearchGeneratorForProcess(
+            &process_definition_generator,
+            '_', // FIXME: adjust depending on the object format type?
+            null,
+            null,
+        )) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            // Return error instead of panicking
+            @panic("Could not create dynamic library searcher generator");
+        }
+
+        var main_jit_dylib = orc_jit.getMainJITDylib();
+        main_jit_dylib.addGenerator(process_definition_generator);
+
+        return .{
+            .allocator = allocator,
+            .vm = vm,
+            .parser = parser,
+            .testing = testing,
+            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *llvm.Type).init(allocator),
+            .orc_jit = orc_jit,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.api_lowered_types.deinit();
+        self.state.deinit();
+    }
+
+    fn registerModule(self: *Self, module: *llvm.Module) void {
+        var main_jit_dylib = self.orc_jit.getMainJITDylib();
+
+        if (self.orc_jit.addLLVMIRModule(
+            main_jit_dylib,
+            llvm.OrcThreadSafeModule.createNewThreadSafeModule(
+                module,
+                llvm.OrcThreadSafeContext.create(),
+            ),
+        )) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            @panic("Could add IR module to OrcJIT");
+        }
+    }
+
+    fn getBuzzApiLoweredType(self: *Self, method: BuzzApiMethods) !*llvm.Type {
+        if (self.api_lowered_types.get(method)) |lowered| {
+            return lowered;
+        }
+
+        const lowered = switch (method) {
+            .bz_peek => llvm.functionType(
+                self.state.context.pointerType(0),
+                &[_]*llvm.Type{ self.state.context.pointerType(0), self.state.context.intType(32) },
+                2,
+                .False,
+            ),
+            .bz_push => llvm.functionType(
+                self.state.context.voidType(),
+                &[_]*llvm.Type{ self.state.context.pointerType(0), self.state.context.pointerType(0) },
+                2,
+                .False,
+            ),
+        };
+
+        try self.api_lowered_types.put(
+            method,
+            lowered,
+        );
+
+        return lowered;
+    }
+
+    // Return lowered type for NativeFN: *const fn (*VM) c_int
+    fn loweredNativeFnType(self: *Self) *llvm.Type {
+        return llvm.functionType(
+            self.state.context.intType(8),
+            &[_]*llvm.Type{self.state.context.pointerType(0)},
+            1,
+            .False,
+        );
+    }
+
+    fn declareBuzzApi(self: *Self) !void {
+        const methods = [_]BuzzApiMethods{ .bz_peek, .bz_push };
+
+        for (methods) |method| {
+            _ = self.state.module.addFunction(
+                @ptrCast([*:0]const u8, method.name()),
+                try self.getBuzzApiLoweredType(method),
+            );
+        }
+    }
+
+    fn vmConstant(self: *Self) *llvm.Value {
+        self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
+            self.state.context.intType(64).constInt(
+                @ptrToInt(self.vm),
+                .False,
+            ),
+            self.state.context.pointerType(0),
+            "",
+        );
+
+        return self.vm_constant.?;
+    }
+
     // TODO: remove, this is only to test things out
     fn cliArgs(self: *Self, args: [][:0]u8) !*ObjList {
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            self.gc.allocator,
-            try self.gc.allocateObject(
+            self.vm.gc.allocator,
+            try self.vm.gc.allocateObject(
                 ObjTypeDef,
                 ObjTypeDef{ .def_type = .String },
             ),
@@ -153,7 +296,7 @@ pub const LLVMCodegen = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = try self.gc.allocateObject(
+        var list_def_type: *ObjTypeDef = try self.vm.gc.allocateObject(
             ObjTypeDef,
             ObjTypeDef{
                 .def_type = .List,
@@ -162,10 +305,10 @@ pub const LLVMCodegen = struct {
             },
         );
 
-        var arg_list = try self.gc.allocateObject(
+        var arg_list = try self.vm.gc.allocateObject(
             ObjList,
             ObjList.init(
-                self.gc.allocator,
+                self.vm.gc.allocator,
                 // TODO: get instance that already exists
                 list_def_type,
             ),
@@ -180,7 +323,7 @@ pub const LLVMCodegen = struct {
 
             try arg_list.items.append(
                 Value{
-                    .Obj = (try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj(),
+                    .Obj = (try self.vm.gc.copyString(std.mem.sliceTo(arg, 0))).toObj(),
                 },
             );
         }
@@ -188,35 +331,7 @@ pub const LLVMCodegen = struct {
         return arg_list;
     }
 
-    fn executionEngine(_: *Self, module: *llvm.Module) *llvm.OrcLLJIT {
-        llvm.initializeLLVMTarget(builtin.target.cpu.arch);
-        var builder = llvm.OrcLLJITBuilder.createBuilder();
-
-        // TODO: LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator ?
-
-        var orc_jit: *llvm.OrcLLJIT = undefined;
-        if (llvm.OrcLLJITBuilder.createOrcLLJIT(&orc_jit, builder)) |orc_error| {
-            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
-
-            // Return error instead of panicking
-            @panic("Could not create OrcJIT");
-        }
-
-        if (orc_jit.addLLVMIRModule(
-            orc_jit.getMainJITDylib(),
-            llvm.OrcThreadSafeModule.createNewThreadSafeModule(
-                module,
-                llvm.OrcThreadSafeContext.create(),
-            ),
-        )) |orc_error| {
-            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
-
-            @panic("Could add IR module to OrcJIT");
-        }
-
-        return orc_jit;
-    }
-
+    // Used for debugging, jits the whole script
     pub fn execute(self: *Self, root: *FunctionNode, args: [][:0]u8) !void {
         self.cli_args = try self.cliArgs(args);
 
@@ -225,7 +340,8 @@ pub const LLVMCodegen = struct {
 
             var orc_jit = self.executionEngine(module);
 
-            var qualified_name = try self.getFunctionQualifiedName(root);
+            var qualified_name = try self.getFunctionQualifiedName(root.node.type_def.?.resolved_type.?.Function, true);
+            try qualified_name.appendSlice(".raw");
             defer qualified_name.deinit();
 
             std.debug.print("Run script function `{s}`...\n", .{qualified_name.items});
@@ -249,8 +365,8 @@ pub const LLVMCodegen = struct {
         self.panic_mode = false;
 
         const name = root.node.type_def.?.resolved_type.?.Function.name.string;
-        var namez = try toNullTerminatedCStr(self.gc.allocator, name);
-        defer self.gc.allocator.free(namez);
+        var namez = try toNullTerminatedCStr(self.vm.gc.allocator, name);
+        defer self.vm.gc.allocator.free(namez);
 
         var context = llvm.Context.create();
         var module = llvm.Module.createWithName(@ptrCast([*:0]const u8, namez), context);
@@ -262,13 +378,15 @@ pub const LLVMCodegen = struct {
         };
 
         if (BuildOptions.debug) {
-            var out = std.ArrayList(u8).init(self.gc.allocator);
+            var out = std.ArrayList(u8).init(self.vm.gc.allocator);
             defer out.deinit();
 
             try root.node.toJson(&root.node, &out.writer());
 
             try std.io.getStdOut().writer().print("\n{s}", .{out.items});
         }
+
+        try self.declareBuzzApi();
 
         std.debug.print("Generate LLVM IR...\n", .{});
 
@@ -299,7 +417,7 @@ pub const LLVMCodegen = struct {
 
     fn generateNode(self: *Self, node: *ParseNode) anyerror!?*llvm.Value {
         const lowered_type = if (node.type_def) |type_def| try lowerType(
-            self.gc.allocator,
+            self.vm.gc.allocator,
             type_def,
             self.state.context,
         ) else null;
@@ -350,20 +468,40 @@ pub const LLVMCodegen = struct {
     }
 
     fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) anyerror!?*llvm.Value {
-        const name = try toNullTerminatedCStr(self.gc.allocator, named_variable_node.identifier.lexeme);
-        defer self.gc.allocator.free(name);
-
         const is_function = named_variable_node.node.type_def.?.def_type == .Function;
         const is_non_extern_function = is_function and named_variable_node.node.type_def.?.resolved_type.?.Function.function_type != .Extern;
+
+        const name = try toNullTerminatedCStr(self.vm.gc.allocator, named_variable_node.identifier.lexeme);
+        defer self.vm.gc.allocator.free(name);
 
         // TODO: qualified names!
         var variable = switch (named_variable_node.slot_type) {
             .Global => global: {
                 if (is_non_extern_function) {
-                    break :global self.state.module.getNamedFunction(@ptrCast([*:0]const u8, name)).?;
+                    const qualified_name = try self.getFunctionQualifiedName(
+                        named_variable_node.node.type_def.?.resolved_type.?.Function,
+                        true,
+                    );
+                    defer qualified_name.deinit();
+
+                    std.debug.print("query {s}\n", .{qualified_name.items});
+
+                    break :global self.state.module.getNamedFunction(
+                        @ptrCast(
+                            [*:0]const u8,
+                            qualified_name.items.ptr,
+                        ),
+                    ).?;
                 }
 
-                break :global self.state.module.getNamedGlobal(@ptrCast([*:0]const u8, name)).?;
+                std.debug.print("query {s}\n", .{name});
+
+                break :global self.state.module.getNamedGlobal(
+                    @ptrCast(
+                        [*:0]const u8,
+                        name,
+                    ),
+                ).?;
             },
             .Local => unreachable,
             .UpValue => unreachable,
@@ -385,7 +523,7 @@ pub const LLVMCodegen = struct {
                 }
 
                 const lowered = try lowerType(
-                    self.gc.allocator,
+                    self.vm.gc.allocator,
                     named_variable_node.node.type_def.?,
                     self.state.context,
                 );
@@ -437,7 +575,7 @@ pub const LLVMCodegen = struct {
         const function_type = try callee_type.?.populateGenerics(
             callee_type.?.resolved_type.?.Function.id,
             call_node.resolved_generics,
-            &self.gc.type_registry,
+            &self.vm.gc.type_registry,
             null,
         );
 
@@ -461,7 +599,7 @@ pub const LLVMCodegen = struct {
             unreachable;
         }
 
-        var arguments = std.ArrayList(*llvm.Value).init(self.gc.allocator);
+        var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
 
         var it = call_node.arguments.iterator();
@@ -471,7 +609,7 @@ pub const LLVMCodegen = struct {
 
         return self.state.builder.buildCall(
             try lowerType(
-                self.gc.allocator,
+                self.vm.gc.allocator,
                 function_type,
                 self.state.context,
             ),
@@ -483,7 +621,7 @@ pub const LLVMCodegen = struct {
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) anyerror!?*llvm.Value {
-        var block_name = std.ArrayList(u8).init(self.gc.allocator);
+        var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
         try block_name.appendSlice(self.current.?.function_node.node.type_def.?.resolved_type.?.Function.name.string);
         try block_name.appendSlice(".block");
         try block_name.append(0);
@@ -511,11 +649,11 @@ pub const LLVMCodegen = struct {
     fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) anyerror!?*llvm.Value {
         var global: *llvm.Value = undefined;
 
-        const lowered_type = try lowerType(self.gc.allocator, var_declaration_node.type_def, self.state.context);
+        const lowered_type = try lowerType(self.vm.gc.allocator, var_declaration_node.type_def, self.state.context);
 
         if (var_declaration_node.slot_type == .Global) {
-            const var_name = try toNullTerminatedCStr(self.gc.allocator, var_declaration_node.name.lexeme);
-            defer self.gc.allocator.free(var_name);
+            const var_name = try toNullTerminatedCStr(self.vm.gc.allocator, var_declaration_node.name.lexeme);
+            defer self.vm.gc.allocator.free(var_name);
 
             // Create and store new value to global
             global = self.state.module.addGlobal(
@@ -536,10 +674,12 @@ pub const LLVMCodegen = struct {
             const initial_value = try self.generateNode(value);
 
             if (var_declaration_node.slot_type == .Global) {
-                const var_name = try toNullTerminatedCStr(self.gc.allocator, var_declaration_node.name.lexeme);
-                defer self.gc.allocator.free(var_name);
+                const var_name = try toNullTerminatedCStr(self.vm.gc.allocator, var_declaration_node.name.lexeme);
+                defer self.vm.gc.allocator.free(var_name);
 
-                return self.state.builder.buildStore(initial_value.?, global);
+                global.setInitializer(initial_value.?);
+
+                return global;
             }
 
             return initial_value;
@@ -548,32 +688,34 @@ pub const LLVMCodegen = struct {
         return null;
     }
 
-    fn getFunctionQualifiedName(self: *Self, function_node: *FunctionNode) !std.ArrayList(u8) {
-        const function_def = function_node.node.type_def.?.resolved_type.?.Function;
+    // FIXME: multiple function can be defined at the same depth, so increment an id
+    fn getFunctionQualifiedName(self: *Self, function_def: ObjFunction.FunctionDef, raw: bool) !std.ArrayList(u8) {
         const function_type = function_def.function_type;
-        const name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
+        const name = function_def.name.string;
 
-        var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+        var qualified_name = std.ArrayList(u8).init(self.vm.gc.allocator);
 
         try qualified_name.appendSlice(name);
         // Don't qualify extern functions or `main`
         if (function_type != .ScriptEntryPoint and function_type != .Extern and !std.mem.eql(u8, name, "main")) {
-            var current = self.current;
-            while (current) |frame| : (current = frame.enclosing) {
-                try qualified_name.append('.');
-                try qualified_name.appendSlice(frame.function_node.node.type_def.?.resolved_type.?.Function.name.string);
-            }
+            try qualified_name.append('.');
+            try qualified_name.writer().print("{}", .{function_def.id});
+        }
+        if (function_type != .Extern and raw) {
+            try qualified_name.appendSlice(".raw");
         }
         try qualified_name.append(0);
 
         return qualified_name;
     }
 
+    // We create 2 function at the LLVM level: one with the NativeFn signature that will be called by buzz code,
+    // and one with a signature reflecting the buzz signature that will be called by JITted functions
     fn generateFunctionNode(self: *Self, function_node: *FunctionNode) anyerror!?*llvm.Value {
         const node = &function_node.node;
 
         var enclosing = self.current;
-        self.current = try self.gc.allocator.create(Frame);
+        self.current = try self.vm.gc.allocator.create(Frame);
         self.current.?.* = Frame{
             .enclosing = enclosing,
             .function_node = function_node,
@@ -583,14 +725,16 @@ pub const LLVMCodegen = struct {
         const function_type = function_def.function_type;
 
         const ret_type = try lowerType(
-            self.gc.allocator,
+            self.vm.gc.allocator,
             node.type_def.?,
             self.state.context,
         );
 
         // Get fully qualified name of function
-        var qualified_name = try self.getFunctionQualifiedName(function_node);
+        var qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, true);
         defer qualified_name.deinit();
+        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, false);
+        defer nativefn_qualified_name.deinit();
 
         var function = if (function_type != .Extern)
             self.state.module.addFunction(
@@ -622,16 +766,17 @@ pub const LLVMCodegen = struct {
                 _ = try self.generateNode(function_node.body.?.toNode());
             }
 
-            // If .Script, search for exported globals and return them in a map
+            // If script, either export globals, call main or call tests
+            // Note it does not make much sense to JIT the script entry point so this is only for boostraping tests
             if (function_type == .Script or function_type == .ScriptEntryPoint) {
                 // If top level, search `main` or `test` function(s) and call them
                 // Then put any exported globals on the stack
                 if (!self.testing and function_type == .ScriptEntryPoint) {
                     if (function_node.main_slot != null) {
-                        if (self.state.module.getNamedFunction("main")) |main_function| {
+                        if (self.state.module.getNamedFunction("main.raw")) |main_function| {
                             _ = self.state.builder.buildCall(
                                 try lowerType(
-                                    self.gc.allocator,
+                                    self.vm.gc.allocator,
                                     try self.parser.parseTypeDefFrom("Function main([str] args) > int"),
                                     self.state.context,
                                 ), // FIXME: type of main
@@ -667,6 +812,13 @@ pub const LLVMCodegen = struct {
             }
 
             // TODO: upvalues? closures?
+
+            // Add the NativeFn version of the function
+            try self.generateNativeFn(
+                function_def,
+                function,
+                ret_type,
+            );
         }
 
         self.current = self.current.?.enclosing;
@@ -684,17 +836,92 @@ pub const LLVMCodegen = struct {
                     ),
                 );
 
-                break :ext null;
+                break :ext function;
             },
             // TODO: closure
             else => function,
         };
     }
 
+    fn generateNativeFn(self: *Self, function_def: ObjFunction.FunctionDef, raw_fn: *llvm.Value, ret_type: *llvm.Type) !void {
+        const function_type = function_def.function_type;
+
+        assert(function_type != .Extern);
+
+        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_def, false);
+        defer nativefn_qualified_name.deinit();
+
+        var native_fn = self.state.module.addFunction(
+            @ptrCast([*:0]const u8, nativefn_qualified_name.items),
+            self.loweredNativeFnType(),
+        );
+
+        // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
+        var block = self.state.context.appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
+        self.state.builder.positionBuilderAtEnd(block);
+
+        var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
+        defer arguments.deinit();
+        const arg_count = function_def.parameters.count();
+
+        if (arg_count > 0) {
+            var i: i32 = @intCast(i32, arg_count - 1);
+            // Each argument is a bz_peek(i) call
+            while (i >= 0) : (i -= 1) {
+                try arguments.append(
+                    self.state.builder.buildCall(
+                        try self.getBuzzApiLoweredType(.bz_peek),
+                        self.state.module.getNamedFunction("bz_peek").?,
+                        &[_]*llvm.Value{
+                            self.vmConstant(),
+                            self.state.context.intType(32).constInt(@intCast(c_ulonglong, i), .False),
+                        },
+                        2,
+                        "",
+                    ),
+                );
+            }
+        }
+
+        // Call the raw function
+        const result = self.state.builder.buildCall(
+            ret_type,
+            raw_fn,
+            @ptrCast([*]*llvm.Value, arguments.items.ptr),
+            @intCast(c_uint, arguments.items.len),
+            "",
+        );
+
+        const should_return = function_def.return_type.def_type != .Void;
+
+        // Push its result back into the VM
+        if (should_return) {
+            _ = self.state.builder.buildCall(
+                try self.getBuzzApiLoweredType(.bz_push),
+                self.state.module.getNamedFunction("bz_push").?,
+                &[_]*llvm.Value{
+                    self.vmConstant(),
+                    result,
+                },
+                2,
+                "",
+            );
+        }
+
+        // 1 = there's a return, 0 = no return, -1 = error
+        // TODO: error ?
+        _ = self.state.builder.buildRet(
+            self.state.context.intType(8).constInt(
+                if (should_return) 1 else 0,
+                .True,
+            ),
+        );
+    }
+
     fn report(self: *Self, location: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try location.getLines(self.gc.allocator, 3);
+        const lines: std.ArrayList([]const u8) = try location.getLines(self.vm.gc.allocator, 3);
         defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.gc.allocator);
+        var report_line = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer report_line.deinit();
         var writer = report_line.writer();
 
@@ -764,7 +991,7 @@ pub const LLVMCodegen = struct {
     }
 
     pub fn reportErrorFmt(self: *Self, token: Token, comptime fmt: []const u8, args: anytype) !void {
-        var message = std.ArrayList(u8).init(self.gc.allocator);
+        var message = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer message.deinit();
 
         var writer = message.writer();
@@ -774,7 +1001,7 @@ pub const LLVMCodegen = struct {
     }
 
     pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var error_message = std.ArrayList(u8).init(self.gc.allocator);
+        var error_message = std.ArrayList(u8).init(self.vm.gc.allocator);
         var writer = &error_message.writer();
 
         try writer.print("{s}: expected type `", .{message});
