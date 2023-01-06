@@ -75,6 +75,18 @@ fn lowerType(allocator: Allocator, obj_typedef: *ObjTypeDef, context: *llvm.Cont
             var param_types = std.ArrayList(*llvm.Type).init(allocator);
             defer param_types.deinit(); // Can i free this?
 
+            const ptr_type = context.pointerType(0);
+            // vm
+            try param_types.append(ptr_type);
+            // globals
+            try param_types.append(ptr_type);
+            // globals len
+            try param_types.append(context.intType(64));
+            // upvalues
+            try param_types.append(ptr_type);
+            // upvalues len
+            try param_types.append(context.intType(64));
+
             var it = function_type.parameters.iterator();
             while (it.next()) |kv| {
                 try param_types.append(try lowerType(allocator, kv.value_ptr.*, context));
@@ -228,22 +240,35 @@ pub const JIT = struct {
             return lowered;
         }
 
+        const ptr_type = self.state.context.pointerType(0);
+
         const lowered = switch (method) {
             .bz_peek => llvm.functionType(
-                self.state.context.pointerType(0),
-                &[_]*llvm.Type{ self.state.context.pointerType(0), self.state.context.intType(32) },
+                ptr_type,
+                &[_]*llvm.Type{ ptr_type, self.state.context.intType(32) },
                 2,
                 .False,
             ),
             .bz_push => llvm.functionType(
                 self.state.context.voidType(),
-                &[_]*llvm.Type{ self.state.context.pointerType(0), self.state.context.pointerType(0) },
+                &[_]*llvm.Type{ ptr_type, self.state.context.pointerType(0) },
                 2,
                 .False,
             ),
-            .nativefn, .main => llvm.functionType(
+            .nativefn => llvm.functionType(
                 self.state.context.intType(8),
-                &[_]*llvm.Type{self.state.context.pointerType(0)},
+                &[_]*llvm.Type{
+                    // vm
+                    ptr_type,
+                    // globals
+                    ptr_type,
+                    // globals len
+                    self.state.context.intType(64),
+                    // upvalues
+                    ptr_type,
+                    // upvalues len
+                    self.state.context.intType(64),
+                },
                 1,
                 .False,
             ),
@@ -257,7 +282,7 @@ pub const JIT = struct {
         return lowered;
     }
 
-    fn declareBuzzApi(self: *Self) !void {
+    inline fn declareBuzzApi(self: *Self) !void {
         const methods = [_]BuzzApiMethods{ .bz_peek, .bz_push };
 
         for (methods) |method| {
@@ -268,7 +293,7 @@ pub const JIT = struct {
         }
     }
 
-    fn vmConstant(self: *Self) *llvm.Value {
+    inline fn vmConstant(self: *Self) *llvm.Value {
         self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
             self.state.context.intType(64).constInt(
                 @ptrToInt(self.vm),
@@ -279,55 +304,6 @@ pub const JIT = struct {
         );
 
         return self.vm_constant.?;
-    }
-
-    // TODO: remove, this is only to test things out
-    fn cliArgs(self: *Self, args: [][:0]u8) !*ObjList {
-        var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            self.vm.gc.allocator,
-            try self.vm.gc.allocateObject(
-                ObjTypeDef,
-                ObjTypeDef{ .def_type = .String },
-            ),
-        );
-
-        var list_def_union: ObjTypeDef.TypeUnion = .{
-            .List = list_def,
-        };
-
-        var list_def_type: *ObjTypeDef = try self.vm.gc.allocateObject(
-            ObjTypeDef,
-            ObjTypeDef{
-                .def_type = .List,
-                .optional = false,
-                .resolved_type = list_def_union,
-            },
-        );
-
-        var arg_list = try self.vm.gc.allocateObject(
-            ObjList,
-            ObjList.init(
-                self.vm.gc.allocator,
-                // TODO: get instance that already exists
-                list_def_type,
-            ),
-        );
-
-        for (args) |arg, index| {
-            // We can't have more than 255 arguments to a function
-            // TODO: should we silently ignore them or should we raise an error?
-            if (index >= 255) {
-                break;
-            }
-
-            try arg_list.items.append(
-                Value{
-                    .Obj = (try self.vm.gc.copyString(std.mem.sliceTo(arg, 0))).toObj(),
-                },
-            );
-        }
-
-        return arg_list;
     }
 
     pub fn jitFunction(self: *Self, function: *ObjFunction) VM.Error!?*ObjNative {
@@ -578,6 +554,13 @@ pub const JIT = struct {
         var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
 
+        // first args are alwas: vm, globals, globals.len, upvalues, upvalues.len
+        try arguments.append(self.current.?.function.?.getParam(0));
+        try arguments.append(self.current.?.function.?.getParam(1));
+        try arguments.append(self.current.?.function.?.getParam(2));
+        try arguments.append(self.current.?.function.?.getParam(3));
+        try arguments.append(self.current.?.function.?.getParam(4));
+
         var it = call_node.arguments.iterator();
         while (it.next()) |kv| {
             try arguments.append((try self.generateNode(kv.value_ptr.*)).?);
@@ -591,7 +574,7 @@ pub const JIT = struct {
             ),
             callee,
             @ptrCast([*]*llvm.Value, arguments.items.ptr),
-            @intCast(c_uint, arguments.items.len),
+            @intCast(c_uint, arguments.items.len + 4),
             "",
         );
     }
@@ -808,6 +791,13 @@ pub const JIT = struct {
         var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
         const arg_count = function_def.parameters.count();
+
+        // vm, globals, globals.len, upvalues, upvalues.len
+        try arguments.append(self.current.?.function.?.getParam(0));
+        try arguments.append(self.current.?.function.?.getParam(1));
+        try arguments.append(self.current.?.function.?.getParam(2));
+        try arguments.append(self.current.?.function.?.getParam(3));
+        try arguments.append(self.current.?.function.?.getParam(4));
 
         if (arg_count > 0) {
             var i: i32 = @intCast(i32, arg_count - 1);

@@ -2,13 +2,13 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
-export fn time(vm: *api.VM) c_int {
+export fn time(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     vm.bz_pushInteger(std.time.milliTimestamp());
 
     return 1;
 }
 
-export fn env(vm: *api.VM) c_int {
+export fn env(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const key = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -53,7 +53,7 @@ fn sysTempDir() []const u8 {
     };
 }
 
-export fn tmpDir(vm: *api.VM) c_int {
+export fn tmpDir(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
     vm.bz_pushString(api.ObjString.bz_string(vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
@@ -66,7 +66,7 @@ export fn tmpDir(vm: *api.VM) c_int {
 }
 
 // TODO: what if file with same random name exists already?
-export fn tmpFilename(vm: *api.VM) c_int {
+export fn tmpFilename(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var prefix_len: usize = 0;
     const prefix = vm.bz_peek(0).bz_valueToString(&prefix_len);
 
@@ -109,7 +109,7 @@ export fn tmpFilename(vm: *api.VM) c_int {
 }
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
-export fn buzzExit(vm: *api.VM) c_int {
+export fn buzzExit(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const exitCode: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
 
     std.os.exit(@intCast(u8, exitCode));
@@ -152,7 +152,7 @@ fn handleSpawnError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn execute(vm: *api.VM) c_int {
+export fn execute(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
@@ -221,7 +221,7 @@ fn handleConnectError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketConnect(vm: *api.VM) c_int {
+export fn SocketConnect(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -261,7 +261,7 @@ export fn SocketConnect(vm: *api.VM) c_int {
     }
 }
 
-export fn SocketClose(vm: *api.VM) c_int {
+export fn SocketClose(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const socket: std.os.socket_t = @intCast(
         std.os.socket_t,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -304,7 +304,7 @@ fn handleReadAllError(vm: *api.VM, err: anytype) void {
     // error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
 }
 
-export fn SocketRead(vm: *api.VM) c_int {
+export fn SocketRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const n: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
     if (n < 0) {
         vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
@@ -369,7 +369,7 @@ fn handleReadLineError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketReadLine(vm: *api.VM) c_int {
+export fn SocketReadLine(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -398,7 +398,7 @@ export fn SocketReadLine(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn SocketReadAll(vm: *api.VM) c_int {
+export fn SocketReadAll(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -427,7 +427,7 @@ export fn SocketReadAll(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn SocketWrite(vm: *api.VM) c_int {
+export fn SocketWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
         api.Value.bz_valueToInteger(vm.bz_peek(1)),
@@ -465,7 +465,7 @@ export fn SocketWrite(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn SocketServerStart(vm: *api.VM) c_int {
+export fn SocketServerStart(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -540,7 +540,7 @@ export fn SocketServerStart(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn SocketServerAccept(vm: *api.VM) c_int {
+export fn SocketServerAccept(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const server_socket: std.os.socket_t = @intCast(
         std.os.socket_t,
         api.Value.bz_valueToInteger(vm.bz_peek(1)),

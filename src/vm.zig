@@ -3461,6 +3461,7 @@ pub const VM = struct {
         if (native) |jitted_function| {
             try self.callNative(
                 jitted_function,
+                closure,
                 arg_count,
                 catch_value,
             );
@@ -3494,11 +3495,17 @@ pub const VM = struct {
     }
 
     // FIXME: must now handle upvalues and globals like a regular buzz function would
-    fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
+    fn callNative(self: *Self, closure: ?*ObjClosure, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
         self.currentFrame().?.in_native_call = true;
 
         var result: Value = Value{ .Null = {} };
-        const native_return = native.native(self);
+        const native_return = native.native(
+            self,
+            if (closure) |uclosure| uclosure.globals.items else null,
+            if (closure) |uclosure| uclosure.globals.items.len else 0,
+            if (closure) |uclosure| uclosure.upvalues.items else null,
+            if (closure) |uclosure| uclosure.upvalues.items.len else 0,
+        );
 
         self.currentFrame().?.in_native_call = false;
 
@@ -3561,7 +3568,7 @@ pub const VM = struct {
                 return try self.call(ObjClosure.cast(obj).?, arg_count, catch_value);
             },
             .Native => {
-                return try self.callNative(ObjNative.cast(obj).?, arg_count, catch_value);
+                return try self.callNative(ObjNative.cast(obj).?, null, arg_count, catch_value);
             },
             else => {
                 unreachable;

@@ -2,7 +2,7 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
-export fn BufferNew(vm: *api.VM) c_int {
+export fn BufferNew(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const capacity = vm.bz_peek(0).bz_valueToInteger();
 
     var buffer = api.VM.allocator.create(Buffer) catch {
@@ -27,7 +27,7 @@ export fn BufferNew(vm: *api.VM) c_int {
     }
 }
 
-export fn BufferDeinit(vm: *api.VM) c_int {
+export fn BufferDeinit(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var userdata = vm.bz_peek(0).bz_valueToUserData();
 
     var buffer = Buffer.fromUserData(userdata);
@@ -178,7 +178,7 @@ const Buffer = struct {
     }
 };
 
-export fn BufferRead(vm: *api.VM) c_int {
+export fn BufferRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const n = vm.bz_peek(0).bz_valueToInteger();
 
@@ -196,7 +196,7 @@ export fn BufferRead(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferWrite(vm: *api.VM) c_int {
+export fn BufferWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     var len: usize = 0;
     var bytes = vm.bz_peek(0).bz_valueToString(&len);
@@ -217,7 +217,7 @@ export fn BufferWrite(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferSetAt(vm: *api.VM) c_int {
+export fn BufferSetAt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(2).bz_valueToUserData());
     const index = vm.bz_peek(1).bz_valueToInteger();
     const value = vm.bz_peek(0).bz_valueToInteger();
@@ -233,7 +233,7 @@ export fn BufferSetAt(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferReadBoolean(vm: *api.VM) c_int {
+export fn BufferReadBoolean(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readBool()) |value| {
@@ -245,7 +245,7 @@ export fn BufferReadBoolean(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferWriteBoolean(vm: *api.VM) c_int {
+export fn BufferWriteBoolean(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const value = vm.bz_peek(0).bz_valueToBool();
 
@@ -261,7 +261,7 @@ export fn BufferWriteBoolean(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferReadInt(vm: *api.VM) c_int {
+export fn BufferReadInt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readInteger() catch |err| {
@@ -282,7 +282,7 @@ export fn BufferReadInt(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferReadFloat(vm: *api.VM) c_int {
+export fn BufferReadFloat(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readFloat() catch |err| {
@@ -303,7 +303,7 @@ export fn BufferReadFloat(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferWriteInt(vm: *api.VM) c_int {
+export fn BufferWriteInt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const number = vm.bz_peek(0);
 
@@ -319,7 +319,7 @@ export fn BufferWriteInt(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferWriteFloat(vm: *api.VM) c_int {
+export fn BufferWriteFloat(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const number = vm.bz_peek(0);
 
@@ -335,7 +335,7 @@ export fn BufferWriteFloat(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferEmpty(vm: *api.VM) c_int {
+export fn BufferEmpty(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     buffer.empty();
@@ -343,7 +343,7 @@ export fn BufferEmpty(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn BufferLen(vm: *api.VM) c_int {
+export fn BufferLen(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     vm.bz_pushInteger(@intCast(i64, buffer.buffer.items.len));
@@ -351,7 +351,7 @@ export fn BufferLen(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferCursor(vm: *api.VM) c_int {
+export fn BufferCursor(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     vm.bz_pushInteger(@intCast(i64, buffer.cursor));
@@ -359,7 +359,7 @@ export fn BufferCursor(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferBuffer(vm: *api.VM) c_int {
+export fn BufferBuffer(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(0).bz_valueToUserData());
 
     if (api.ObjString.bz_string(vm, if (buffer.buffer.items.len > 0) @ptrCast([*]const u8, buffer.buffer.items) else null, buffer.buffer.items.len)) |objstring| {
@@ -373,7 +373,7 @@ export fn BufferBuffer(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn BufferAt(vm: *api.VM) c_int {
+export fn BufferAt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     const buffer = Buffer.fromUserData(vm.bz_peek(1).bz_valueToUserData());
     const number = vm.bz_peek(0).bz_valueToInteger();
 

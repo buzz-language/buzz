@@ -1,7 +1,7 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-export fn print(vm: *api.VM) c_int {
+export fn print(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const string = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -21,19 +21,19 @@ export fn print(vm: *api.VM) c_int {
     return 0;
 }
 
-export fn toInt(vm: *api.VM) c_int {
+export fn toInt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     vm.bz_pushInteger(vm.bz_peek(0).bz_valueToInteger());
 
     return 1;
 }
 
-export fn toFloat(vm: *api.VM) c_int {
+export fn toFloat(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     vm.bz_pushFloat(vm.bz_peek(0).bz_valueToFloat());
 
     return 1;
 }
 
-export fn parseInt(vm: *api.VM) c_int {
+export fn parseInt(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const string = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -56,7 +56,7 @@ export fn parseInt(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn parseFloat(vm: *api.VM) c_int {
+export fn parseFloat(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var len: usize = 0;
     const string = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -79,7 +79,7 @@ export fn parseFloat(vm: *api.VM) c_int {
     return 1;
 }
 
-export fn char(vm: *api.VM) c_int {
+export fn char(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     var byte = vm.bz_peek(0).bz_valueToInteger();
 
     if (byte > 255) {

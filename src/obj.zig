@@ -214,7 +214,7 @@ pub const ObjFiber = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    pub fn over(vm: *VM) c_int {
+    pub fn over(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self = Self.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Boolean = self.fiber.status == .Over });
@@ -222,7 +222,7 @@ pub const ObjFiber = struct {
         return 1;
     }
 
-    pub fn cancel(vm: *VM) c_int {
+    pub fn cancel(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self = Self.cast(vm.peek(0).Obj).?;
 
         self.fiber.status = .Over;
@@ -425,7 +425,7 @@ pub const ObjPattern = struct {
         return results;
     }
 
-    pub fn match(vm: *VM) c_int {
+    pub fn match(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const self = Self.cast(vm.peek(1).Obj).?;
         const subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
@@ -444,7 +444,7 @@ pub const ObjPattern = struct {
         return 1;
     }
 
-    pub fn matchAll(vm: *VM) c_int {
+    pub fn matchAll(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
         var subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
@@ -578,7 +578,7 @@ pub const ObjString = struct {
         return vm.gc.copyString(new_string.items);
     }
 
-    pub fn trim(vm: *VM) c_int {
+    pub fn trim(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         var trimmed = std.mem.trim(u8, str.string, " ");
@@ -596,7 +596,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn len(vm: *VM) c_int {
+    pub fn len(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
@@ -604,7 +604,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn repeat(vm: *VM) c_int {
+    pub fn repeat(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str = Self.cast(vm.peek(1).Obj).?;
         const n = floatToInteger(vm.peek(0));
         const n_i = if (n == .Integer) n.Integer else null;
@@ -639,7 +639,7 @@ pub const ObjString = struct {
         return -1;
     }
 
-    pub fn byte(vm: *VM) c_int {
+    pub fn byte(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const self: *Self = Self.cast(vm.peek(1).Obj).?;
         const index = floatToInteger(vm.peek(0));
         const index_i = if (index == .Integer) index.Integer else null;
@@ -656,7 +656,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn indexOf(vm: *VM) c_int {
+    pub fn indexOf(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
@@ -667,7 +667,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn startsWith(vm: *VM) c_int {
+    pub fn startsWith(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
@@ -676,7 +676,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn endsWith(vm: *VM) c_int {
+    pub fn endsWith(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
@@ -685,7 +685,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn replace(vm: *VM) c_int {
+    pub fn replace(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var needle: *Self = Self.cast(vm.peek(1).Obj).?;
         var replacement: *Self = Self.cast(vm.peek(0).Obj).?;
@@ -709,7 +709,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn sub(vm: *VM) c_int {
+    pub fn sub(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var start_value = floatToInteger(vm.peek(1));
         var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
@@ -745,7 +745,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn split(vm: *VM) c_int {
+    pub fn split(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *Self = Self.cast(vm.peek(0).Obj).?;
 
@@ -844,7 +844,7 @@ pub const ObjString = struct {
         }
     }
 
-    pub fn encodeBase64(vm: *VM) c_int {
+    pub fn encodeBase64(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         var encoded = vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
@@ -869,7 +869,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn decodeBase64(vm: *VM) c_int {
+    pub fn decodeBase64(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
@@ -905,7 +905,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn upper(vm: *VM) c_int {
+    pub fn upper(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         if (str.string.len == 0) {
@@ -941,7 +941,7 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn lower(vm: *VM) c_int {
+    pub fn lower(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         if (str.string.len == 0) {
@@ -1214,7 +1214,13 @@ pub const ObjClosure = struct {
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = *const fn (*VM) c_int;
+pub const NativeFn = *const fn (
+    vm: *VM,
+    globals: ?[*]*Value,
+    globals_len: usize,
+    upvalues: ?[*]*ObjUpValue,
+    upvalues_len: usize,
+) c_int;
 
 /// Native function
 pub const ObjNative = struct {
@@ -1767,7 +1773,7 @@ pub const ObjList = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    fn forEach(vm: *VM) c_int {
+    fn forEach(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1792,7 +1798,7 @@ pub const ObjList = struct {
         return 0;
     }
 
-    fn reduce(vm: *VM) c_int {
+    fn reduce(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list = ObjList.cast(vm.peek(2).Obj).?;
         var closure = ObjClosure.cast(vm.peek(1).Obj).?;
         var accumulator = vm.peek(0);
@@ -1823,7 +1829,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    fn filter(vm: *VM) c_int {
+    fn filter(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1862,7 +1868,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    fn map(vm: *VM) c_int {
+    fn map(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1901,7 +1907,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    fn append(vm: *VM) c_int {
+    fn append(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
@@ -1924,7 +1930,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn insert(vm: *VM) c_int {
+    pub fn insert(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list_value: Value = vm.peek(2);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var index: i64 = vm.peek(1).Integer;
@@ -1954,7 +1960,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    fn len(vm: *VM) c_int {
+    fn len(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
@@ -1962,7 +1968,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn pop(vm: *VM) c_int {
+    pub fn pop(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         if (list.items.items.len > 0) {
@@ -1974,7 +1980,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn remove(vm: *VM) c_int {
+    pub fn remove(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list: *ObjList = ObjList.cast(vm.peek(1).Obj).?;
         var list_index_value = floatToInteger(vm.peek(0));
         var list_index: ?i64 = if (list_index_value == .Integer) list_index_value.Integer else null;
@@ -2018,7 +2024,7 @@ pub const ObjList = struct {
         return context.vm.pop().Boolean;
     }
 
-    pub fn sort(vm: *VM) c_int {
+    pub fn sort(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self = Self.cast(vm.peek(1).Obj).?;
         // fun compare(T lhs, T rhs) > bool
         var sort_closure = ObjClosure.cast(vm.peek(0).Obj).?;
@@ -2038,7 +2044,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn indexOf(vm: *VM) c_int {
+    pub fn indexOf(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: Value = vm.peek(0);
 
@@ -2058,7 +2064,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn join(vm: *VM) c_int {
+    pub fn join(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
 
@@ -2097,7 +2103,7 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn sub(vm: *VM) c_int {
+    pub fn sub(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var start_value = floatToInteger(vm.peek(1));
         var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
@@ -2164,7 +2170,7 @@ pub const ObjList = struct {
         }
     }
 
-    fn next(vm: *VM) c_int {
+    fn next(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
@@ -2961,7 +2967,7 @@ pub const ObjMap = struct {
         try gc.markObj(self.type_def.toObj());
     }
 
-    fn size(vm: *VM) c_int {
+    fn size(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var map: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         vm.push(Value{ .Integer = @intCast(i64, map.map.count()) });
@@ -2969,7 +2975,7 @@ pub const ObjMap = struct {
         return 1;
     }
 
-    pub fn remove(vm: *VM) c_int {
+    pub fn remove(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var map: *ObjMap = ObjMap.cast(vm.peek(1).Obj).?;
         var map_key: HashableValue = valueToHashable(vm.peek(0));
 
@@ -2982,7 +2988,7 @@ pub const ObjMap = struct {
         return 1;
     }
 
-    pub fn keys(vm: *VM) c_int {
+    pub fn keys(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_keys: []HashableValue = self.map.keys();
@@ -3038,7 +3044,7 @@ pub const ObjMap = struct {
         return 1;
     }
 
-    pub fn values(vm: *VM) c_int {
+    pub fn values(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_values: []Value = self.map.values();
