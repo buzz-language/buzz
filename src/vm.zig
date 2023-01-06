@@ -25,6 +25,7 @@ const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
+const NativeCtx = _obj.NativeCtx;
 const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
 const ObjClosure = _obj.ObjClosure;
@@ -3450,18 +3451,21 @@ pub const VM = struct {
     // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
         // Do we need to jit the function?
-        var native = closure.native;
+        var native = closure.function.native;
         // TODO: figure out threshold strategy
         if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
+            const compiled = try self.jit.jitFunction(closure);
+
             // If we're here it means there's no reason it would not compile
-            closure.native = (try self.jit.jitFunction(closure.function)).?;
+            closure.function.native = compiled.?[0];
+            closure.function.native_raw = compiled.?[1];
         }
 
         // Is there a jitted version of it?
         if (native) |jitted_function| {
             try self.callNative(
-                jitted_function,
                 closure,
+                jitted_function,
                 arg_count,
                 catch_value,
             );
@@ -3500,11 +3504,13 @@ pub const VM = struct {
 
         var result: Value = Value{ .Null = {} };
         const native_return = native.native(
-            self,
-            if (closure) |uclosure| uclosure.globals.items else null,
-            if (closure) |uclosure| uclosure.globals.items.len else 0,
-            if (closure) |uclosure| uclosure.upvalues.items else null,
-            if (closure) |uclosure| uclosure.upvalues.items.len else 0,
+            NativeCtx{
+                .vm = self,
+                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else null,
+                .globals_len = if (closure) |uclosure| uclosure.globals.items.len else 0,
+                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else null,
+                .upvalues_len = if (closure) |uclosure| uclosure.upvalues.items.len else 0,
+            },
         );
 
         self.currentFrame().?.in_native_call = false;
@@ -3558,17 +3564,35 @@ pub const VM = struct {
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
-                    return try self.call(closure, arg_count, catch_value);
+                    return try self.call(
+                        closure,
+                        arg_count,
+                        catch_value,
+                    );
                 } else {
                     assert(bound.native != null);
-                    return try self.callNative(bound.native.?, arg_count, catch_value);
+                    return try self.callNative(
+                        null,
+                        bound.native.?,
+                        arg_count,
+                        catch_value,
+                    );
                 }
             },
             .Closure => {
-                return try self.call(ObjClosure.cast(obj).?, arg_count, catch_value);
+                return try self.call(
+                    ObjClosure.cast(obj).?,
+                    arg_count,
+                    catch_value,
+                );
             },
             .Native => {
-                return try self.callNative(ObjNative.cast(obj).?, null, arg_count, catch_value);
+                return try self.callNative(
+                    null,
+                    ObjNative.cast(obj).?,
+                    arg_count,
+                    catch_value,
+                );
             },
             else => {
                 unreachable;

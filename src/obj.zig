@@ -214,15 +214,19 @@ pub const ObjFiber = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    pub fn over(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn over(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self = Self.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Boolean = self.fiber.status == .Over });
+        ctx.vm.push(Value{ .Boolean = self.fiber.status == .Over });
 
         return 1;
     }
 
-    pub fn cancel(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn cancel(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self = Self.cast(vm.peek(0).Obj).?;
 
         self.fiber.status = .Over;
@@ -425,7 +429,9 @@ pub const ObjPattern = struct {
         return results;
     }
 
-    pub fn match(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn match(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const self = Self.cast(vm.peek(1).Obj).?;
         const subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
@@ -436,15 +442,17 @@ pub const ObjPattern = struct {
 
             return -1;
         }) |results| {
-            vm.push(results.toValue());
+            ctx.vm.push(results.toValue());
         } else {
-            vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value{ .Null = {} });
         }
 
         return 1;
     }
 
-    pub fn matchAll(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn matchAll(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self = Self.cast(vm.peek(1).Obj).?;
         var subject = ObjString.cast(vm.peek(0).Obj).?.string;
 
@@ -454,9 +462,9 @@ pub const ObjPattern = struct {
 
             return -1;
         }) |results| {
-            vm.push(results.toValue());
+            ctx.vm.push(results.toValue());
         } else {
-            vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value{ .Null = {} });
         }
 
         return 1;
@@ -578,7 +586,9 @@ pub const ObjString = struct {
         return vm.gc.copyString(new_string.items);
     }
 
-    pub fn trim(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn trim(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         var trimmed = std.mem.trim(u8, str.string, " ");
@@ -586,7 +596,7 @@ pub const ObjString = struct {
         trimmed = std.mem.trim(u8, trimmed, "\r");
         trimmed = std.mem.trim(u8, trimmed, "\n");
 
-        vm.push((vm.gc.copyString(trimmed) catch {
+        ctx.vm.push((vm.gc.copyString(trimmed) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not trim string") catch null;
             vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
 
@@ -596,15 +606,19 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn len(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn len(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
+        ctx.vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
 
         return 1;
     }
 
-    pub fn repeat(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn repeat(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str = Self.cast(vm.peek(1).Obj).?;
         const n = floatToInteger(vm.peek(0));
         const n_i = if (n == .Integer) n.Integer else null;
@@ -628,7 +642,7 @@ pub const ObjString = struct {
                 return -1;
             };
 
-            vm.push(new_objstring.toValue());
+            ctx.vm.push(new_objstring.toValue());
 
             return 1;
         }
@@ -639,7 +653,9 @@ pub const ObjString = struct {
         return -1;
     }
 
-    pub fn byte(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn byte(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const self: *Self = Self.cast(vm.peek(1).Obj).?;
         const index = floatToInteger(vm.peek(0));
         const index_i = if (index == .Integer) index.Integer else null;
@@ -651,41 +667,49 @@ pub const ObjString = struct {
             return -1;
         }
 
-        vm.push(Value{ .Integer = @intCast(i64, self.string[@intCast(usize, index_i.?)]) });
+        ctx.vm.push(Value{ .Integer = @intCast(i64, self.string[@intCast(usize, index_i.?)]) });
 
         return 1;
     }
 
-    pub fn indexOf(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn indexOf(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
         var index = std.mem.indexOf(u8, self.string, needle.string);
 
-        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
+        ctx.vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
 
         return 1;
     }
 
-    pub fn startsWith(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn startsWith(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Boolean = std.mem.startsWith(u8, self.string, needle.string) });
+        ctx.vm.push(Value{ .Boolean = std.mem.startsWith(u8, self.string, needle.string) });
 
         return 1;
     }
 
-    pub fn endsWith(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn endsWith(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: *Self = Self.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Boolean = std.mem.endsWith(u8, self.string, needle.string) });
+        ctx.vm.push(Value{ .Boolean = std.mem.endsWith(u8, self.string, needle.string) });
 
         return 1;
     }
 
-    pub fn replace(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn replace(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var needle: *Self = Self.cast(vm.peek(1).Obj).?;
         var replacement: *Self = Self.cast(vm.peek(0).Obj).?;
@@ -697,7 +721,7 @@ pub const ObjString = struct {
             return -1;
         };
 
-        vm.push(
+        ctx.vm.push(
             (vm.gc.copyString(new_string) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not replace string") catch null;
                 vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
@@ -709,7 +733,9 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn sub(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn sub(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var start_value = floatToInteger(vm.peek(1));
         var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
@@ -733,7 +759,7 @@ pub const ObjString = struct {
         const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.string.len) @intCast(usize, start.? + upto.?) else self.string.len;
         var substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
 
-        vm.push(
+        ctx.vm.push(
             (vm.gc.copyString(substr) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not get sub string") catch null;
                 vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
@@ -745,7 +771,9 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn split(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn split(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *Self = Self.cast(vm.peek(0).Obj).?;
 
@@ -789,7 +817,7 @@ pub const ObjString = struct {
         };
 
         // Prevent gc & is result
-        vm.push(list.toValue());
+        ctx.vm.push(list.toValue());
 
         if (separator.string.len > 0) {
             var it = std.mem.split(u8, self.string, separator.string);
@@ -844,7 +872,9 @@ pub const ObjString = struct {
         }
     }
 
-    pub fn encodeBase64(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn encodeBase64(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         var encoded = vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
@@ -864,12 +894,14 @@ pub const ObjString = struct {
             return -1;
         };
 
-        vm.push(new_string.toValue());
+        ctx.vm.push(new_string.toValue());
 
         return 1;
     }
 
-    pub fn decodeBase64(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn decodeBase64(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
@@ -900,16 +932,18 @@ pub const ObjString = struct {
             return -1;
         };
 
-        vm.push(new_string.toValue());
+        ctx.vm.push(new_string.toValue());
 
         return 1;
     }
 
-    pub fn upper(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn upper(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         if (str.string.len == 0) {
-            vm.push(str.toValue());
+            ctx.vm.push(str.toValue());
 
             return 1;
         }
@@ -936,16 +970,18 @@ pub const ObjString = struct {
             return -1;
         };
 
-        vm.push(obj_string.toValue());
+        ctx.vm.push(obj_string.toValue());
 
         return 1;
     }
 
-    pub fn lower(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn lower(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         const str: *Self = Self.cast(vm.peek(0).Obj).?;
 
         if (str.string.len == 0) {
-            vm.push(str.toValue());
+            ctx.vm.push(str.toValue());
 
             return 1;
         }
@@ -972,7 +1008,7 @@ pub const ObjString = struct {
             return -1;
         };
 
-        vm.push(obj_string.toValue());
+        ctx.vm.push(obj_string.toValue());
 
         return 1;
     }
@@ -1163,12 +1199,6 @@ pub const ObjClosure = struct {
     // Buzz function
     function: *ObjFunction,
 
-    // Jitted function
-    native_raw: ?*ObjNative = null,
-
-    // Jitted function callable by buzz VM
-    native: ?*ObjNative = null,
-
     upvalues: std.ArrayList(*ObjUpValue),
     // Pointer to the global with which the function was declared
     globals: *std.ArrayList(Value),
@@ -1213,14 +1243,16 @@ pub const ObjClosure = struct {
     }
 };
 
-// 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = *const fn (
+pub const NativeCtx = extern struct {
     vm: *VM,
-    globals: ?[*]*Value,
-    globals_len: usize,
-    upvalues: ?[*]*ObjUpValue,
-    upvalues_len: usize,
-) c_int;
+    globals: ?[*]Value = null,
+    globals_len: usize = 0,
+    upvalues: ?[*]*ObjUpValue = null,
+    upvalues_len: usize = 0,
+};
+
+// 1 = return value on stack, 0 = no return value, -1 = error
+pub const NativeFn = *const fn (ctx: NativeCtx) c_int;
 
 /// Native function
 pub const ObjNative = struct {
@@ -1281,6 +1313,12 @@ pub const ObjFunction = struct {
     // How many time the function was run as bytecode
     // Stop incrementing once the function is jitted
     run_count: usize = 0,
+
+    // Jitted function
+    native_raw: ?*ObjNative = null,
+
+    // Jitted function callable by buzz VM
+    native: ?*ObjNative = null,
 
     pub fn init(allocator: Allocator, node: *FunctionNode, name: *ObjString) !Self {
         return Self{
@@ -1773,7 +1811,9 @@ pub const ObjList = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    fn forEach(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn forEach(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1798,7 +1838,9 @@ pub const ObjList = struct {
         return 0;
     }
 
-    fn reduce(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn reduce(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list = ObjList.cast(vm.peek(2).Obj).?;
         var closure = ObjClosure.cast(vm.peek(1).Obj).?;
         var accumulator = vm.peek(0);
@@ -1824,12 +1866,14 @@ pub const ObjList = struct {
             accumulator = vm.pop();
         }
 
-        vm.push(accumulator);
+        ctx.vm.push(accumulator);
 
         return 1;
     }
 
-    fn filter(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn filter(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1863,12 +1907,14 @@ pub const ObjList = struct {
             }
         }
 
-        vm.push(new_list.toValue());
+        ctx.vm.push(new_list.toValue());
 
         return 1;
     }
 
-    fn map(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn map(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list = ObjList.cast(vm.peek(1).Obj).?;
         var closure = ObjClosure.cast(vm.peek(0).Obj).?;
 
@@ -1902,12 +1948,14 @@ pub const ObjList = struct {
             new_list.rawAppend(vm.gc, vm.pop()) catch unreachable;
         }
 
-        vm.push(new_list.toValue());
+        ctx.vm.push(new_list.toValue());
 
         return 1;
     }
 
-    fn append(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn append(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var value: Value = vm.peek(0);
@@ -1925,12 +1973,14 @@ pub const ObjList = struct {
             return -1;
         };
 
-        vm.push(list_value);
+        ctx.vm.push(list_value);
 
         return 1;
     }
 
-    pub fn insert(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn insert(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list_value: Value = vm.peek(2);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var index: i64 = vm.peek(1).Integer;
@@ -1955,43 +2005,49 @@ pub const ObjList = struct {
             return -1;
         };
 
-        vm.push(value);
+        ctx.vm.push(value);
 
         return 1;
     }
 
-    fn len(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn len(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
+        ctx.vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
 
         return 1;
     }
 
-    pub fn pop(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn pop(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
 
         if (list.items.items.len > 0) {
-            vm.push(list.items.pop());
+            ctx.vm.push(list.items.pop());
         } else {
-            vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value{ .Null = {} });
         }
 
         return 1;
     }
 
-    pub fn remove(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn remove(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list: *ObjList = ObjList.cast(vm.peek(1).Obj).?;
         var list_index_value = floatToInteger(vm.peek(0));
         var list_index: ?i64 = if (list_index_value == .Integer) list_index_value.Integer else null;
 
         if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
-            vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value{ .Null = {} });
 
             return 1;
         }
 
-        vm.push(list.items.orderedRemove(@intCast(usize, list_index.?)));
+        ctx.vm.push(list.items.orderedRemove(@intCast(usize, list_index.?)));
         vm.gc.markObjDirty(&list.obj) catch {
             std.debug.print("Could not remove from list", .{});
             std.os.exit(1);
@@ -2024,7 +2080,9 @@ pub const ObjList = struct {
         return context.vm.pop().Boolean;
     }
 
-    pub fn sort(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn sort(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self = Self.cast(vm.peek(1).Obj).?;
         // fun compare(T lhs, T rhs) > bool
         var sort_closure = ObjClosure.cast(vm.peek(0).Obj).?;
@@ -2039,12 +2097,14 @@ pub const ObjList = struct {
             lessThan,
         );
 
-        vm.push(self.toValue());
+        ctx.vm.push(self.toValue());
 
         return 1;
     }
 
-    pub fn indexOf(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn indexOf(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var needle: Value = vm.peek(0);
 
@@ -2059,12 +2119,14 @@ pub const ObjList = struct {
             i += 1;
         }
 
-        vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
+        ctx.vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
 
         return 1;
     }
 
-    pub fn join(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn join(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(1).Obj).?;
         var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
 
@@ -2089,7 +2151,7 @@ pub const ObjList = struct {
             }
         }
 
-        vm.push(
+        ctx.vm.push(
             Value{
                 .Obj = (vm.gc.copyString(result.items) catch {
                     var err: ?*ObjString = vm.gc.copyString("could not join list") catch null;
@@ -2103,7 +2165,9 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn sub(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn sub(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *Self = Self.cast(vm.peek(2).Obj).?;
         var start_value = floatToInteger(vm.peek(1));
         var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
@@ -2143,7 +2207,7 @@ pub const ObjList = struct {
             return -1;
         };
 
-        vm.push(list.toValue());
+        ctx.vm.push(list.toValue());
 
         list.items.appendSlice(substr) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
@@ -2170,7 +2234,9 @@ pub const ObjList = struct {
         }
     }
 
-    fn next(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn next(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var list_value: Value = vm.peek(1);
         var list: *ObjList = ObjList.cast(list_value.Obj).?;
         var list_index: Value = vm.peek(0);
@@ -2181,7 +2247,7 @@ pub const ObjList = struct {
             std.os.exit(1);
         };
 
-        vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = {} });
+        ctx.vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = {} });
 
         return 1;
     }
@@ -2967,28 +3033,34 @@ pub const ObjMap = struct {
         try gc.markObj(self.type_def.toObj());
     }
 
-    fn size(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    fn size(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var map: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
-        vm.push(Value{ .Integer = @intCast(i64, map.map.count()) });
+        ctx.vm.push(Value{ .Integer = @intCast(i64, map.map.count()) });
 
         return 1;
     }
 
-    pub fn remove(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn remove(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var map: *ObjMap = ObjMap.cast(vm.peek(1).Obj).?;
         var map_key: HashableValue = valueToHashable(vm.peek(0));
 
         if (map.map.fetchOrderedRemove(map_key)) |removed| {
-            vm.push(removed.value);
+            ctx.vm.push(removed.value);
         } else {
-            vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value{ .Null = {} });
         }
 
         return 1;
     }
 
-    pub fn keys(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn keys(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_keys: []HashableValue = self.map.keys();
@@ -3023,7 +3095,7 @@ pub const ObjMap = struct {
         };
 
         // Prevent collection
-        vm.push(list_def_type.toValue());
+        ctx.vm.push(list_def_type.toValue());
 
         var list = vm.gc.allocateObject(
             ObjList,
@@ -3039,12 +3111,14 @@ pub const ObjMap = struct {
         list.items = result;
 
         _ = vm.pop();
-        vm.push(list.toValue());
+        ctx.vm.push(list.toValue());
 
         return 1;
     }
 
-    pub fn values(vm: *VM, _: null, _: 0, _: null, _: 0) c_int {
+    pub fn values(ctx: NativeCtx) c_int {
+        const vm = ctx.vm;
+
         var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
 
         var map_values: []Value = self.map.values();
@@ -3089,7 +3163,7 @@ pub const ObjMap = struct {
         list.items.deinit();
         list.items = result;
 
-        vm.push(list.toValue());
+        ctx.vm.push(list.toValue());
 
         return 1;
     }

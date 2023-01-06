@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Builder = std.build.Builder;
 
+// FIXME: instead of putting macos homebrew path etc., provide build options to pass them
+
 const BuzzDebugOptions = struct {
     debug: bool,
     stack: bool,
@@ -146,10 +148,16 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         exe.linkLibC();
     }
+    if (builtin.os.tag == .macos) {
+        exe.addIncludePath("/opt/homebrew/include");
+        exe.addLibraryPath("/opt/homebrew/lib");
+    }
 
     // LLVM
     exe.addIncludePath("/usr/local/opt/llvm/include");
     exe.addLibraryPath("/usr/local/opt/llvm/lib");
+    exe.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
+    exe.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
     exe.linkSystemLibrary("llvm");
 
     exe.setBuildMode(build_mode);
@@ -169,10 +177,16 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         lib.linkLibC();
     }
+    if (builtin.os.tag == .macos) {
+        lib.addIncludePath("/opt/homebrew/include");
+        lib.addLibraryPath("/opt/homebrew/lib");
+    }
 
     // LLVM
     lib.addIncludePath("/usr/local/opt/llvm/include");
     lib.addLibraryPath("/usr/local/opt/llvm/lib");
+    lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
+    lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
     lib.linkSystemLibrary("llvm");
 
     lib.setMainPkgPath("src");
@@ -236,9 +250,15 @@ pub fn build(b: *Builder) !void {
         if (builtin.os.tag == .linux) {
             std_lib.linkLibC();
         }
+        if (builtin.os.tag == .macos) {
+            std_lib.addIncludePath("/opt/homebrew/include");
+            std_lib.addLibraryPath("/opt/homebrew/lib");
+        }
         // LLVM
         std_lib.addIncludePath("/usr/local/opt/llvm/include");
         std_lib.addLibraryPath("/usr/local/opt/llvm/lib");
+        std_lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
+        std_lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
         std_lib.linkSystemLibrary("llvm");
         std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);
@@ -280,6 +300,10 @@ pub fn build(b: *Builder) !void {
     unit_tests.linkSystemLibrary("pcre");
     if (builtin.os.tag == .linux) {
         unit_tests.linkLibC();
+    }
+    if (builtin.os.tag == .macos) {
+        unit_tests.addIncludePath("/opt/homebrew/include");
+        unit_tests.addLibraryPath("/opt/homebrew/lib");
     }
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);

@@ -2,18 +2,18 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
-export fn time(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
-    vm.bz_pushInteger(std.time.milliTimestamp());
+export fn time(ctx: *api.NativeCtx) c_int {
+    ctx.vm.bz_pushInteger(std.time.milliTimestamp());
 
     return 1;
 }
 
-export fn env(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn env(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const key = vm.bz_peek(0).bz_valueToString(&len);
+    const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
@@ -26,14 +26,14 @@ export fn env(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     }
 
     if (key_slice == null) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
 
     if (std.os.getenvZ(key_slice.?)) |value| {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
@@ -41,7 +41,7 @@ export fn env(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
         return 1;
     }
 
-    vm.bz_pushNull();
+    ctx.vm.bz_pushNull();
 
     return 1;
 }
@@ -53,11 +53,11 @@ fn sysTempDir() []const u8 {
     };
 }
 
-export fn tmpDir(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn tmpDir(ctx: *api.NativeCtx) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     });
@@ -66,22 +66,22 @@ export fn tmpDir(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
 }
 
 // TODO: what if file with same random name exists already?
-export fn tmpFilename(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     var prefix_len: usize = 0;
-    const prefix = vm.bz_peek(0).bz_valueToString(&prefix_len);
+    const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
     var random_part = std.ArrayList(u8).init(api.VM.allocator);
     defer random_part.deinit();
     random_part.writer().print("{x}", .{std.crypto.random.int(i64)}) catch {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
 
     var random_part_b64 = std.ArrayList(u8).initCapacity(api.VM.allocator, std.base64.standard.Encoder.calcSize(random_part.items.len)) catch {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
@@ -94,13 +94,13 @@ export fn tmpFilename(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     defer final.deinit();
 
     final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     });
@@ -109,8 +109,8 @@ export fn tmpFilename(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
 }
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
-export fn buzzExit(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
-    const exitCode: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
+export fn buzzExit(ctx: *api.NativeCtx) c_int {
+    const exitCode: i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
 
     std.os.exit(@intCast(u8, exitCode));
 
@@ -152,11 +152,11 @@ fn handleSpawnError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn execute(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn execute(ctx: *api.NativeCtx) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
-    const argv = api.ObjList.bz_valueToList(vm.bz_peek(0));
+    const argv = api.ObjList.bz_valueToList(ctx.vm.bz_peek(0));
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
@@ -167,7 +167,7 @@ export fn execute(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
         std.debug.assert(arg_len > 0);
 
         command.append(arg_str.?[0..arg_len]) catch {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         };
@@ -177,13 +177,13 @@ export fn execute(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     child_process.disable_aslr = builtin.target.isDarwin();
 
     child_process.spawn() catch |err| {
-        handleSpawnError(vm, err);
+        handleSpawnError(ctx.vm, err);
 
         return -1;
     };
 
-    vm.bz_pushInteger(@intCast(i64, (child_process.wait() catch |err| {
-        handleSpawnError(vm, err);
+    ctx.vm.bz_pushInteger(@intCast(i64, (child_process.wait() catch |err| {
+        handleSpawnError(ctx.vm, err);
 
         return -1;
     }).Exited));
@@ -221,50 +221,50 @@ fn handleConnectError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketConnect(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
+    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
+    const port: ?i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
     if (port == null or port.? < 0) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
 
-    const protocol = api.Value.bz_valueToInteger(vm.bz_peek(0));
+    const protocol = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
 
     switch (protocol) {
         0 => {
             const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
-                handleConnectError(vm, err);
+                handleConnectError(ctx.vm, err);
 
                 return -1;
             };
 
-            vm.bz_pushInteger(@intCast(i64, stream.handle));
+            ctx.vm.bz_pushInteger(@intCast(i64, stream.handle));
 
             return 1;
         },
         1, // TODO: UDP
         2, // TODO: IPC
         => {
-            vm.bz_pushError("lib.errors.NotYetImplementedError", "lib.errors.NotYetImplementedError".len);
+            ctx.vm.bz_pushError("lib.errors.NotYetImplementedError", "lib.errors.NotYetImplementedError".len);
 
             return -1;
         },
         else => {
-            vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+            ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
             return -1;
         },
     }
 }
 
-export fn SocketClose(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketClose(ctx: *api.NativeCtx) c_int {
     const socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     std.os.closeSocket(socket);
@@ -304,24 +304,24 @@ fn handleReadAllError(vm: *api.VM, err: anytype) void {
     // error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
 }
 
-export fn SocketRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
-    const n: i64 = api.Value.bz_valueToInteger(vm.bz_peek(0));
+export fn SocketRead(ctx: *api.NativeCtx) c_int {
+    const n: i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
     if (n < 0) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
 
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
@@ -330,16 +330,16 @@ export fn SocketRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch |err| {
-        handleReadAllError(vm, err);
+        handleReadAllError(ctx.vm, err);
 
         return -1;
     };
 
     if (read == 0) {
-        vm.bz_pushNull();
+        ctx.vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
@@ -369,27 +369,27 @@ fn handleReadLineError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketReadLine(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
     var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
-        handleReadLineError(vm, err);
+        handleReadLineError(ctx.vm, err);
 
         return -1;
     };
 
     // EOF?
     if (buffer.len == 0) {
-        vm.bz_pushNull();
+        ctx.vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
@@ -398,27 +398,27 @@ export fn SocketReadLine(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     return 1;
 }
 
-export fn SocketReadAll(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
     var buffer = reader.readAllAlloc(api.VM.allocator, 16 * 8 * 64) catch |err| {
-        handleReadAllError(vm, err);
+        handleReadAllError(ctx.vm, err);
 
         return -1;
     };
 
     // EOF?
     if (buffer.len == 0) {
-        vm.bz_pushNull();
+        ctx.vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
@@ -427,16 +427,16 @@ export fn SocketReadAll(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     return 1;
 }
 
-export fn SocketWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
 
     var len: usize = 0;
-    var value = vm.bz_peek(0).bz_valueToString(&len);
+    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
         return 0;
@@ -444,19 +444,19 @@ export fn SocketWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
 
     _ = stream.write(value.?[0..len]) catch |err| {
         switch (err) {
-            error.AccessDenied => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
-            error.InputOutput => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "InputOutput", "InputOutput".len),
-            error.SystemResources => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
-            error.WouldBlock => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "WouldBlock", "WouldBlock".len),
-            error.OperationAborted => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "OperationAborted", "OperationAborted".len),
-            error.BrokenPipe => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "BrokenPipe", "BrokenPipe".len),
-            error.ConnectionResetByPeer => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
-            error.DiskQuota => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "DiskQuota", "DiskQuota".len),
-            error.FileTooBig => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "FileTooBig", "FileTooBig".len),
-            error.NoSpaceLeft => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoSpaceLeft", "NoSpaceLeft".len),
-            error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
-            error.NotOpenForWriting => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "NotOpenForWriting", "NotOpenForWriting".len),
-            error.LockViolation => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "LockViolation", "LockViolation".len),
+            error.AccessDenied => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
+            error.InputOutput => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "InputOutput", "InputOutput".len),
+            error.SystemResources => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
+            error.WouldBlock => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "WouldBlock", "WouldBlock".len),
+            error.OperationAborted => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "OperationAborted", "OperationAborted".len),
+            error.BrokenPipe => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "BrokenPipe", "BrokenPipe".len),
+            error.ConnectionResetByPeer => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
+            error.DiskQuota => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "DiskQuota", "DiskQuota".len),
+            error.FileTooBig => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "FileTooBig", "FileTooBig".len),
+            error.NoSpaceLeft => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoSpaceLeft", "NoSpaceLeft".len),
+            error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
+            error.NotOpenForWriting => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "NotOpenForWriting", "NotOpenForWriting".len),
+            error.LockViolation => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "LockViolation", "LockViolation".len),
         }
 
         return -1;
@@ -465,31 +465,31 @@ export fn SocketWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     return 0;
 }
 
-export fn SocketServerStart(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(vm.bz_peek(2), &len);
+    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i64 = api.Value.bz_valueToInteger(vm.bz_peek(1));
+    const port: ?i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
     if (port == null or port.? < 0) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
 
-    const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
+    const reuse_address: bool = api.Value.bz_valueToBool(ctx.vm.bz_peek(0));
 
     var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
 
     const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
         switch (err) {
-            error.ServiceUnavailable => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ServiceUnavailable", "ServiceUnavailable".len),
-            error.UnknownHostName => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "UnknownHostName", "UnknownHostName".len),
-            error.NameServerFailure => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NameServerFailure", "NameServerFailure".len),
-            error.TemporaryNameServerFailure => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "TemporaryNameServerFailure", "TemporaryNameServerFailure".len),
-            error.HostLacksNetworkAddresses => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "HostLacksNetworkAddresses", "HostLacksNetworkAddresses".len),
-            error.AddressFamilyNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressFamilyNotSupported", "AddressFamilyNotSupported".len),
-            error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
-            error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+            error.ServiceUnavailable => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ServiceUnavailable", "ServiceUnavailable".len),
+            error.UnknownHostName => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "UnknownHostName", "UnknownHostName".len),
+            error.NameServerFailure => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NameServerFailure", "NameServerFailure".len),
+            error.TemporaryNameServerFailure => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "TemporaryNameServerFailure", "TemporaryNameServerFailure".len),
+            error.HostLacksNetworkAddresses => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "HostLacksNetworkAddresses", "HostLacksNetworkAddresses".len),
+            error.AddressFamilyNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressFamilyNotSupported", "AddressFamilyNotSupported".len),
+            error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
+            error.OutOfMemory => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
         return -1;
@@ -497,55 +497,55 @@ export fn SocketServerStart(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     defer list.deinit();
 
     if (list.addrs.len == 0) {
-        vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotResolved", "AddressNotResolved".len);
+        ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotResolved", "AddressNotResolved".len);
 
         return -1;
     }
 
     server.listen(list.addrs[0]) catch |err| {
         switch (err) {
-            error.NoDevice => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoDevice", "NoDevice".len),
-            error.AlreadyConnected => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AlreadyConnected", "AlreadyConnected".len),
-            error.SocketNotBound => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketNotBound", "SocketNotBound".len),
-            error.AddressNotAvailable => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotAvailable", "AddressNotAvailable".len),
-            error.SymLinkLoop => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SymLinkLoop", "SymLinkLoop".len),
-            error.NameTooLong => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NameTooLong", "NameTooLong".len),
-            error.FileNotFound => vm.bz_pushError("lib.errors.FileNotFoundError", "lib.errors.FileNotFoundError".len),
-            error.NotDir => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NotDir", "NotDir".len),
-            error.ReadOnlyFileSystem => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "ReadOnlyFileSystem", "ReadOnlyFileSystem".len),
-            error.AlreadyBound => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AlreadyBound", "AlreadyBound".len),
-            error.InvalidProtocolOption => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "InvalidProtocolOption", "InvalidProtocolOption".len),
-            error.TimeoutTooBig => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "TimeoutTooBig", "TimeoutTooBig".len),
-            error.PermissionDenied => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "PermissionDenied", "PermissionDenied".len),
-            error.ProtocolFamilyNotAvailable => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolFamilyNotAvailable", "ProtocolFamilyNotAvailable".len),
-            error.ProcessFdQuotaExceeded => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProcessFdQuotaExceeded", "ProcessFdQuotaExceeded".len),
-            error.SystemFdQuotaExceeded => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemFdQuotaExceeded", "SystemFdQuotaExceeded".len),
-            error.ProtocolNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolNotSupported", "ProtocolNotSupported".len),
-            error.SocketTypeNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketTypeNotSupported", "SocketTypeNotSupported".len),
-            error.AddressInUse => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressInUse", "AddressInUse".len),
-            error.FileDescriptorNotASocket => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "FileDescriptorNotASocket", "FileDescriptorNotASocket".len),
-            error.OperationNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "OperationNotSupported", "OperationNotSupported".len),
-            error.NetworkSubsystemFailed => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NetworkSubsystemFailed", "NetworkSubsystemFailed".len),
-            error.AddressFamilyNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressFamilyNotSupported", "AddressFamilyNotSupported".len),
-            error.AccessDenied => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
-            error.SystemResources => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
-            error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
+            error.NoDevice => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoDevice", "NoDevice".len),
+            error.AlreadyConnected => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AlreadyConnected", "AlreadyConnected".len),
+            error.SocketNotBound => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketNotBound", "SocketNotBound".len),
+            error.AddressNotAvailable => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotAvailable", "AddressNotAvailable".len),
+            error.SymLinkLoop => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SymLinkLoop", "SymLinkLoop".len),
+            error.NameTooLong => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NameTooLong", "NameTooLong".len),
+            error.FileNotFound => ctx.vm.bz_pushError("lib.errors.FileNotFoundError", "lib.errors.FileNotFoundError".len),
+            error.NotDir => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NotDir", "NotDir".len),
+            error.ReadOnlyFileSystem => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "ReadOnlyFileSystem", "ReadOnlyFileSystem".len),
+            error.AlreadyBound => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AlreadyBound", "AlreadyBound".len),
+            error.InvalidProtocolOption => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "InvalidProtocolOption", "InvalidProtocolOption".len),
+            error.TimeoutTooBig => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "TimeoutTooBig", "TimeoutTooBig".len),
+            error.PermissionDenied => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "PermissionDenied", "PermissionDenied".len),
+            error.ProtocolFamilyNotAvailable => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolFamilyNotAvailable", "ProtocolFamilyNotAvailable".len),
+            error.ProcessFdQuotaExceeded => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProcessFdQuotaExceeded", "ProcessFdQuotaExceeded".len),
+            error.SystemFdQuotaExceeded => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemFdQuotaExceeded", "SystemFdQuotaExceeded".len),
+            error.ProtocolNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolNotSupported", "ProtocolNotSupported".len),
+            error.SocketTypeNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketTypeNotSupported", "SocketTypeNotSupported".len),
+            error.AddressInUse => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressInUse", "AddressInUse".len),
+            error.FileDescriptorNotASocket => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "FileDescriptorNotASocket", "FileDescriptorNotASocket".len),
+            error.OperationNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "OperationNotSupported", "OperationNotSupported".len),
+            error.NetworkSubsystemFailed => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NetworkSubsystemFailed", "NetworkSubsystemFailed".len),
+            error.AddressFamilyNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressFamilyNotSupported", "AddressFamilyNotSupported".len),
+            error.AccessDenied => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
+            error.SystemResources => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
+            error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
         }
 
         return -1;
     };
 
-    vm.bz_pushInteger(@intCast(i64, server.sockfd.?));
+    ctx.vm.bz_pushInteger(@intCast(i64, server.sockfd.?));
 
     return 1;
 }
 
-export fn SocketServerAccept(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
     const server_socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
     );
-    const reuse_address: bool = api.Value.bz_valueToBool(vm.bz_peek(0));
+    const reuse_address: bool = api.Value.bz_valueToBool(ctx.vm.bz_peek(0));
 
     const default_options = std.net.StreamServer.Options{};
     var server = std.net.StreamServer{
@@ -557,24 +557,24 @@ export fn SocketServerAccept(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
 
     const connection = server.accept() catch |err| {
         switch (err) {
-            error.ConnectionAborted => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ConnectionAborted", "ConnectionAborted".len),
-            error.ProcessFdQuotaExceeded => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProcessFdQuotaExceeded", "ProcessFdQuotaExceeded".len),
-            error.SystemFdQuotaExceeded => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemFdQuotaExceeded", "SystemFdQuotaExceeded".len),
-            error.SystemResources => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemResources", "SystemResources".len),
-            error.SocketNotListening => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketNotListening", "SocketNotListening".len),
-            error.ProtocolFailure => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolFailure", "ProtocolFailure".len),
-            error.BlockedByFirewall => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "BlockedByFirewall", "BlockedByFirewall".len),
-            error.FileDescriptorNotASocket => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "FileDescriptorNotASocket", "FileDescriptorNotASocket".len),
-            error.ConnectionResetByPeer => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
-            error.NetworkSubsystemFailed => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NetworkSubsystemFailed", "NetworkSubsystemFailed".len),
-            error.OperationNotSupported => vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "OperationNotSupported", "OperationNotSupported".len),
-            error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
+            error.ConnectionAborted => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ConnectionAborted", "ConnectionAborted".len),
+            error.ProcessFdQuotaExceeded => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProcessFdQuotaExceeded", "ProcessFdQuotaExceeded".len),
+            error.SystemFdQuotaExceeded => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemFdQuotaExceeded", "SystemFdQuotaExceeded".len),
+            error.SystemResources => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SystemResources", "SystemResources".len),
+            error.SocketNotListening => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "SocketNotListening", "SocketNotListening".len),
+            error.ProtocolFailure => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ProtocolFailure", "ProtocolFailure".len),
+            error.BlockedByFirewall => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "BlockedByFirewall", "BlockedByFirewall".len),
+            error.FileDescriptorNotASocket => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "FileDescriptorNotASocket", "FileDescriptorNotASocket".len),
+            error.ConnectionResetByPeer => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
+            error.NetworkSubsystemFailed => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "NetworkSubsystemFailed", "NetworkSubsystemFailed".len),
+            error.OperationNotSupported => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "OperationNotSupported", "OperationNotSupported".len),
+            error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
         }
 
         return -1;
     };
 
-    vm.bz_pushInteger(@intCast(i64, connection.stream.handle));
+    ctx.vm.bz_pushInteger(@intCast(i64, connection.stream.handle));
 
     return 1;
 }

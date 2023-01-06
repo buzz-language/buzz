@@ -4622,7 +4622,14 @@ pub const Parser = struct {
             defer self.gc.allocator.free(ssymbol);
 
             // Lookup symbol NativeFn
-            var symbol_method = dlib.lookup(NativeFn, ssymbol);
+            const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
+            const symbol_method = if (opaque_symbol_method) |ptr| @ptrCast(
+                NativeFn,
+                @alignCast(
+                    @alignOf(ParseNode),
+                    ptr,
+                ),
+            ) else null;
 
             if (symbol_method == null) {
                 try self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });

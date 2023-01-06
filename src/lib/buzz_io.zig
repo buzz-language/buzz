@@ -1,19 +1,19 @@
 const std = @import("std");
 const api = @import("./buzz_api.zig");
 
-export fn getStdIn(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn getStdIn(ctx: *api.NativeCtx) c_int {
     vm.bz_pushInteger(@intCast(i64, std.io.getStdIn().handle));
 
     return 1;
 }
 
-export fn getStdOut(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn getStdOut(ctx: *api.NativeCtx) c_int {
     vm.bz_pushInteger(@intCast(i64, std.io.getStdOut().handle));
 
     return 1;
 }
 
-export fn getStdErr(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn getStdErr(ctx: *api.NativeCtx) c_int {
     vm.bz_pushInteger(@intCast(i64, std.io.getStdErr().handle));
 
     return 1;
@@ -48,7 +48,7 @@ fn handleFileOpenError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn FileOpen(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileOpen(ctx: *api.NativeCtx) c_int {
     const mode: u8 = @intCast(u8, api.Value.bz_valueToInteger(vm.bz_peek(0)));
     var len: usize = 0;
     const filename = vm.bz_peek(1).bz_valueToString(&len);
@@ -85,7 +85,7 @@ export fn FileOpen(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
     return 1;
 }
 
-export fn FileClose(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileClose(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -116,7 +116,7 @@ fn handleFileReadWriteError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn FileReadAll(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -164,7 +164,7 @@ fn handleFileReadLineError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn FileReadLine(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
         api.Value.bz_valueToInteger(vm.bz_peek(0)),
@@ -215,7 +215,7 @@ fn handleFileReadAllError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn FileRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileRead(ctx: *api.NativeCtx) c_int {
     const n = api.Value.bz_valueToInteger(vm.bz_peek(0));
     if (n < 0) {
         vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
@@ -260,7 +260,7 @@ export fn FileRead(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
 }
 
 // extern fun File_write(int fd, [int] bytes) > void;
-export fn FileWrite(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn FileWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
         api.Value.bz_valueToInteger(vm.bz_peek(1)),

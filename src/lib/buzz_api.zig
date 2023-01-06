@@ -8,6 +8,26 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
 
 pub const GarbageCollector = opaque {};
 
+pub const ObjUpValue = opaque {};
+
+pub const ObjNative = opaque {
+    pub extern fn bz_toObjNative(value: *Value) *ObjNative;
+    pub extern fn bz_toObjNativeOpt(value: *Value) ?*ObjNative;
+};
+
+pub const ObjFunction = opaque {};
+
+// FIXME: do we need that simple struct to be opaque?
+pub const NativeCtx = extern struct {
+    vm: *VM,
+    globals: ?[*]Value = null,
+    globals_len: usize = 0,
+    upvalues: ?[*]*ObjUpValue = null,
+    upvalues_len: usize = 0,
+    pub extern fn bz_getGlobal(self: *NativeCtx, at: usize) *Value;
+    pub extern fn bz_getUpValue(self: *NativeCtx, at: usize) *ObjUpValue;
+};
+
 pub const VM = opaque {
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
@@ -38,6 +58,8 @@ pub const VM = opaque {
 
     pub extern fn bz_collect(self: *VM) bool;
 
+    pub extern fn bz_jitFunction(self: *VM, function: *ObjClosure) void;
+
     pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
     else if (BuildOptions.use_mimalloc)
@@ -55,6 +77,9 @@ pub const Value = opaque {
     pub extern fn bz_valueIsInteger(value: *Value) bool;
     pub extern fn bz_valueIsFloat(value: *Value) bool;
     pub extern fn bz_valueDump(value: *Value, vm: *VM) void;
+
+    pub extern fn bz_valueIsBuzzFn(value: *Value) bool;
+    pub extern fn bz_valueToClosure(value: *Value) *ObjClosure;
 };
 
 pub const ObjClosure = opaque {};
@@ -77,8 +102,6 @@ pub const ObjList = opaque {
     pub extern fn bz_listGet(self: *ObjList, index: usize) *Value;
     pub extern fn bz_listLen(self: *ObjList) usize;
 };
-
-pub const ObjFunction = opaque {};
 
 pub const UserData = anyopaque;
 

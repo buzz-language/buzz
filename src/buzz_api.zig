@@ -24,6 +24,8 @@ const ObjFunction = _obj.ObjFunction;
 const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
 const ObjClosure = _obj.ObjClosure;
+const ObjNative = _obj.ObjNative;
+const NativeCtx = _obj.NativeCtx;
 const UserData = _obj.UserData;
 const TypeRegistry = memory.TypeRegistry;
 const Parser = _parser.Parser;
@@ -614,4 +616,47 @@ export fn bz_getEnumCase(self: *ObjEnum, vm: *VM, case: [*]const u8, len: usize)
 
 export fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void {
     vm.push(payload.toValue());
+}
+
+export fn bz_getGlobal(ctx: *NativeCtx, at: usize) *Value {
+    return &ctx.globals.?[at];
+}
+
+export fn bz_getUpValue(ctx: *NativeCtx, at: usize) *ObjUpValue {
+    return ctx.upvalues.?[at];
+}
+
+export fn bz_jitFunction(self: *VM, closure: *ObjClosure) void {
+    if (closure.function.native == null) {
+        const compiled = self.jit.jitFunction(closure) catch {
+            @panic("Error while compiling function to machine code");
+        };
+
+        closure.function.native = compiled.?[0];
+        closure.function.native_raw = compiled.?[1];
+    }
+}
+
+export fn bz_valueIsBuzzFn(value: *Value) bool {
+    if (value.* != .Obj) {
+        return false;
+    }
+
+    if (ObjClosure.cast(value.Obj)) |closure| {
+        return closure.function.native == null;
+    }
+
+    return false;
+}
+
+export fn bz_valueToClosure(value: *Value) *ObjClosure {
+    return ObjClosure.cast(value.Obj).?;
+}
+
+export fn bz_toObjNative(value: *Value) *ObjNative {
+    return ObjNative.cast(value.Obj).?;
+}
+
+export fn bz_toObjNativeOpt(value: *Value) ?*ObjNative {
+    return ObjNative.cast(value.Obj);
 }

@@ -22,7 +22,7 @@ fn handleMakeDirectoryError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn makeDirectory(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn makeDirectory(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -64,7 +64,7 @@ fn handleDeleteDirectoryError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn delete(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn delete(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = vm.bz_peek(0).bz_valueToString(&len);
 
@@ -144,7 +144,7 @@ fn handleRealpathError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn move(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn move(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const source = vm.bz_peek(1).bz_valueToString(&len);
     const source_slice = source.?[0..len];
@@ -254,7 +254,7 @@ fn handleDirIterateError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn list(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn list(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = vm.bz_peek(0).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];

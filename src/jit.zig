@@ -31,6 +31,7 @@ const ObjFunction = _obj.ObjFunction;
 const ObjNative = _obj.ObjNative;
 const NativeFn = _obj.NativeFn;
 const PlaceholderDef = _obj.PlaceholderDef;
+const ObjClosure = _obj.ObjClosure;
 const llvm = @import("./llvm.zig");
 const Token = @import("./token.zig").Token;
 const disassembler = @import("./disassembler.zig");
@@ -138,14 +139,21 @@ pub const Frame = struct {
 
 pub const BuzzApiMethods = enum {
     nativefn,
+    nativectx,
     bz_push,
     bz_peek,
+    bz_getGlobal,
+    bz_getUpValue,
 
     pub fn name(self: BuzzApiMethods) []const u8 {
         return switch (self) {
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
+            .bz_getGlobal => "bz_getGlobal",
+            .bz_getUpValue => "bz_getUpValue",
+
             .nativefn => "NativeFn",
+            .nativectx => "NativeCtx",
         };
     }
 };
@@ -155,13 +163,11 @@ pub const JIT = struct {
 
     vm: *VM,
 
+    // Closure being jitted right now
+    closure: ?*ObjClosure = null,
+
     current: ?*Frame = null,
     state: GenState = undefined,
-
-    had_error: bool = false,
-    panic_mode: bool = false,
-
-    cli_args: ?*ObjList = null,
 
     vm_constant: ?*llvm.Value = null,
 
@@ -251,12 +257,26 @@ pub const JIT = struct {
             ),
             .bz_push => llvm.functionType(
                 self.state.context.voidType(),
-                &[_]*llvm.Type{ ptr_type, self.state.context.pointerType(0) },
+                &[_]*llvm.Type{ ptr_type, ptr_type },
                 2,
                 .False,
             ),
+            .bz_getGlobal,
+            .bz_getUpValue,
+            => llvm.functionType(
+                ptr_type,
+                &[_]*llvm.Type{ ptr_type, self.state.context.intType(64) },
+                2,
+                .False,
+            ),
+
             .nativefn => llvm.functionType(
                 self.state.context.intType(8),
+                &[_]*llvm.Type{try self.getBuzzApiLoweredType(.nativectx)},
+                1,
+                .False,
+            ),
+            .nativectx => self.state.context.structType(
                 &[_]*llvm.Type{
                     // vm
                     ptr_type,
@@ -269,7 +289,7 @@ pub const JIT = struct {
                     // upvalues len
                     self.state.context.intType(64),
                 },
-                1,
+                5,
                 .False,
             ),
         };
@@ -306,15 +326,24 @@ pub const JIT = struct {
         return self.vm_constant.?;
     }
 
-    pub fn jitFunction(self: *Self, function: *ObjFunction) VM.Error!?*ObjNative {
-        self.had_error = false;
-        self.panic_mode = false;
+    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error!?[2]*ObjNative {
+        self.closure = closure;
+        const function = closure.function;
 
         const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), function.node));
 
-        var qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, true);
-        try qualified_name.appendSlice(".raw");
+        var qualified_name = try self.getFunctionQualifiedName(
+            function_node.node.type_def.?.resolved_type.?.Function,
+            true,
+        );
         defer qualified_name.deinit();
+
+        var qualified_name_raw = try self.getFunctionQualifiedName(
+            function_node.node.type_def.?.resolved_type.?.Function,
+            true,
+        );
+        try qualified_name_raw.appendSlice(".raw");
+        defer qualified_name_raw.deinit();
 
         if (BuildOptions.debug) {
             var out = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -325,13 +354,9 @@ pub const JIT = struct {
             std.io.getStdOut().writer().print("\n{s}", .{out.items}) catch unreachable;
         }
 
-        std.debug.print("Generate LLVM IR...\n", .{});
+        std.debug.print("Generate LLVM IR for {s}...\n", .{qualified_name.items});
 
         _ = try self.generateNode(function_node.toNode());
-
-        if (self.had_error) {
-            return null;
-        }
 
         var error_message: [*:0]const u8 = undefined;
         // verifyModule always allocs the error_message even if there is no error
@@ -352,6 +377,7 @@ pub const JIT = struct {
         std.debug.print("Looking up jitted function `{s}`...\n", .{qualified_name.items});
 
         var fun_addr: u64 = undefined;
+        var fun_addr_raw: u64 = undefined;
 
         if (self.orc_jit.lookup(&fun_addr, @ptrCast([*:0]const u8, qualified_name.items))) |orc_error| {
             std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
@@ -359,12 +385,28 @@ pub const JIT = struct {
             @panic("Could find script symbol in module loaded in LLJIT");
         }
 
-        return try self.vm.gc.allocateObject(
-            ObjNative,
-            .{
-                .native = @intToPtr(NativeFn, fun_addr),
-            },
-        );
+        if (self.orc_jit.lookup(&fun_addr_raw, @ptrCast([*:0]const u8, qualified_name_raw.items))) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            @panic("Could find script symbol in module loaded in LLJIT");
+        }
+
+        self.closure = null;
+
+        return [_]*ObjNative{
+            try self.vm.gc.allocateObject(
+                ObjNative,
+                .{
+                    .native = @intToPtr(NativeFn, fun_addr),
+                },
+            ),
+            try self.vm.gc.allocateObject(
+                ObjNative,
+                .{
+                    .native = @intToPtr(NativeFn, fun_addr_raw),
+                },
+            ),
+        };
     }
 
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*llvm.Value {
@@ -420,48 +462,86 @@ pub const JIT = struct {
     }
 
     fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*llvm.Value {
-        const is_function = named_variable_node.node.type_def.?.def_type == .Function;
-        const is_non_extern_function = is_function and named_variable_node.node.type_def.?.resolved_type.?.Function.function_type != .Extern;
+        const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function) named_variable_node.node.type_def.?.resolved_type.?.Function.function_type else null;
+        const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
         const name = try toNullTerminatedCStr(self.vm.gc.allocator, named_variable_node.identifier.lexeme);
         defer self.vm.gc.allocator.free(name);
+        const qualified_name = try self.getFunctionQualifiedName(
+            named_variable_node.node.type_def.?.resolved_type.?.Function,
+            true,
+        );
+        defer qualified_name.deinit();
 
-        // TODO: qualified names!
         var variable = switch (named_variable_node.slot_type) {
             .Global => global: {
-                if (is_non_extern_function) {
-                    const qualified_name = try self.getFunctionQualifiedName(
-                        named_variable_node.node.type_def.?.resolved_type.?.Function,
-                        true,
-                    );
-                    defer qualified_name.deinit();
+                // Constant buzz function, does it need to be jitted?
+                if (is_constant_fn) {
+                    const closure = ObjClosure.cast(self.closure.?.globals.items[named_variable_node.slot].Obj).?;
 
-                    std.debug.print("query {s}\n", .{qualified_name.items});
+                    if (closure.function.native == null) {
+                        const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
 
-                    break :global self.state.module.getNamedFunction(
-                        @ptrCast(
-                            [*:0]const u8,
-                            qualified_name.items.ptr,
-                        ),
-                    ).?;
+                        // save current state
+                        const previous_current = self.current;
+                        const previous_closure = self.closure;
+
+                        self.current = null;
+                        self.closure = closure;
+
+                        _ = try self.generateFunctionNode(function_node);
+
+                        // restore state
+                        self.current = previous_current;
+                        self.closure = previous_closure;
+                        if (self.current != null and self.current.?.block != null) {
+                            self.state.builder.positionBuilderAtEnd(self.current.?.block.?);
+                        }
+                    }
                 }
 
-                std.debug.print("query {s}\n", .{name});
-
-                break :global self.state.module.getNamedGlobal(
+                break :global if (is_constant_fn) self.state.module.getNamedFunction(
                     @ptrCast(
                         [*:0]const u8,
-                        name,
+                        qualified_name.items.ptr,
                     ),
-                ).?;
+                ) orelse self.state.builder.buildCall(
+                    try self.getBuzzApiLoweredType(.bz_getGlobal),
+                    self.state.module.getNamedFunction("bz_getGlobal").?,
+                    &[_]*llvm.Value{
+                        self.current.?.function.?.getParam(0),
+                        self.state.context.intType(64).constInt(named_variable_node.slot, .False),
+                    },
+                    2,
+                    "",
+                ) else self.state.builder.buildCall(
+                    try self.getBuzzApiLoweredType(.bz_getGlobal),
+                    self.state.module.getNamedFunction("bz_getGlobal").?,
+                    &[_]*llvm.Value{
+                        self.current.?.function.?.getParam(0),
+                        self.state.context.intType(64).constInt(named_variable_node.slot, .False),
+                    },
+                    2,
+                    "",
+                );
             },
             .Local => unreachable,
-            .UpValue => unreachable,
+            .UpValue => self.state.builder.buildCall(
+                try self.getBuzzApiLoweredType(.bz_getUpValue),
+                self.state.module.getNamedFunction("bz_getUpValue").?,
+                &[_]*llvm.Value{
+                    self.current.?.function.?.getParam(0),
+                    self.state.context.intType(64).constInt(named_variable_node.slot, .False),
+                },
+                2,
+                "",
+            ),
         };
 
         // Set
         if (named_variable_node.value) |value| {
             return switch (named_variable_node.slot_type) {
+                // FIXME: not store but bz_setGlobal
                 .Global => self.state.builder.buildStore((try self.generateNode(value)).?, variable),
                 .Local => unreachable,
                 .UpValue => unreachable,
@@ -470,7 +550,7 @@ pub const JIT = struct {
 
         return switch (named_variable_node.slot_type) {
             .Global => global: {
-                if (is_non_extern_function) {
+                if (is_constant_fn) {
                     break :global variable;
                 }
 
@@ -480,8 +560,9 @@ pub const JIT = struct {
                     self.state.context,
                 );
 
+                // FIXME: nope
                 break :global self.state.builder.buildLoad(
-                    if (is_function) lowered.pointerType(0) else lowered,
+                    if (function_type != null) lowered.pointerType(0) else lowered,
                     variable,
                     "",
                 );
@@ -492,10 +573,6 @@ pub const JIT = struct {
     }
 
     fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*llvm.Value {
-        if (call_node.callee.type_def == null or call_node.callee.type_def.?.def_type == .Placeholder) {
-            try self.reportPlaceholder(call_node.callee.type_def.?.resolved_type.?.Placeholder);
-        }
-
         // This is not a call but an Enum(value)
         if (call_node.callee.type_def.?.def_type == .Enum) {
             // TODO
@@ -554,17 +631,15 @@ pub const JIT = struct {
         var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
 
-        // first args are alwas: vm, globals, globals.len, upvalues, upvalues.len
+        // first arg is ctx
         try arguments.append(self.current.?.function.?.getParam(0));
-        try arguments.append(self.current.?.function.?.getParam(1));
-        try arguments.append(self.current.?.function.?.getParam(2));
-        try arguments.append(self.current.?.function.?.getParam(3));
-        try arguments.append(self.current.?.function.?.getParam(4));
 
         var it = call_node.arguments.iterator();
         while (it.next()) |kv| {
             try arguments.append((try self.generateNode(kv.value_ptr.*)).?);
         }
+
+        // FIXME: if not a jitted function, with have a Value, how do we call it?
 
         return self.state.builder.buildCall(
             try lowerType(
@@ -792,12 +867,8 @@ pub const JIT = struct {
         defer arguments.deinit();
         const arg_count = function_def.parameters.count();
 
-        // vm, globals, globals.len, upvalues, upvalues.len
+        // first arg is ctx
         try arguments.append(self.current.?.function.?.getParam(0));
-        try arguments.append(self.current.?.function.?.getParam(1));
-        try arguments.append(self.current.?.function.?.getParam(2));
-        try arguments.append(self.current.?.function.?.getParam(3));
-        try arguments.append(self.current.?.function.?.getParam(4));
 
         if (arg_count > 0) {
             var i: i32 = @intCast(i32, arg_count - 1);
@@ -851,111 +922,5 @@ pub const JIT = struct {
                 .True,
             ),
         );
-    }
-
-    fn report(self: *Self, location: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try location.getLines(self.vm.gc.allocator, 3);
-        defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.vm.gc.allocator);
-        defer report_line.deinit();
-        var writer = report_line.writer();
-
-        try writer.print("", .{});
-        var l: usize = if (location.line > 0) location.line - 1 else 0;
-        for (lines.items) |line| {
-            if (l != location.line) {
-                try writer.print("\u{001b}[2m", .{});
-            }
-
-            var prefix_len: usize = report_line.items.len;
-            try writer.print(" {: >5} |", .{l + 1});
-            prefix_len = report_line.items.len - prefix_len;
-            try writer.print(" {s}\n\u{001b}[0m", .{line});
-
-            if (l == location.line) {
-                try writer.writeByteNTimes(' ', location.column + prefix_len);
-                try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
-            }
-
-            l += 1;
-        }
-        std.debug.print("{s}:{}:{}: \u{001b}[31mCompile error:\u{001b}[0m {s}\n{s}", .{
-            location.script_name,
-            location.line + 1,
-            location.column + 1,
-            message,
-            report_line.items,
-        });
-
-        if (BuildOptions.stop_on_report) {
-            unreachable;
-        }
-    }
-
-    // Unlocated error, should not be used
-    fn reportError(self: *Self, message: []const u8) !void {
-        if (self.panic_mode) {
-            return;
-        }
-
-        self.panic_mode = true;
-        self.had_error = true;
-
-        try self.report(
-            Token{
-                .token_type = .Error,
-                .source = "",
-                .script_name = "",
-                .lexeme = "",
-                .line = 0,
-                .column = 0,
-            },
-            message,
-        );
-    }
-
-    pub fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {
-        if (self.panic_mode) {
-            return;
-        }
-
-        self.panic_mode = true;
-        self.had_error = true;
-
-        try self.report(token, message);
-    }
-
-    pub fn reportErrorFmt(self: *Self, token: Token, comptime fmt: []const u8, args: anytype) !void {
-        var message = std.ArrayList(u8).init(self.vm.gc.allocator);
-        defer message.deinit();
-
-        var writer = message.writer();
-        try writer.print(fmt, args);
-
-        try self.reportErrorAt(token, message.items);
-    }
-
-    pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var error_message = std.ArrayList(u8).init(self.vm.gc.allocator);
-        var writer = &error_message.writer();
-
-        try writer.print("{s}: expected type `", .{message});
-        try expected_type.toString(writer);
-        try writer.writeAll("`, got `");
-        try actual_type.toString(writer);
-        try writer.writeAll("`");
-
-        try self.reportErrorAt(at, error_message.items);
-    }
-
-    // Got to the root placeholder and report it
-    pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) VM.Error!void {
-        if (placeholder.parent) |parent| {
-            try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
-        } else {
-            // Should be a root placeholder with a name
-            assert(placeholder.name != null);
-            try self.reportErrorFmt(placeholder.where, "`{s}` is not defined", .{placeholder.name.?.string});
-        }
     }
 };

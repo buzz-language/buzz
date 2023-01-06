@@ -518,7 +518,7 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 
 // We have to respect C ABI
-export fn assert(vm: *api.VM, _: null, _: 0, _: null, _: 0) c_int {
+export fn assert(ctx: *api.NativeCtx) c_int {
     var condition: bool = vm.bz_peek(1).bz_valueToBool();
 
     if (!condition) {
