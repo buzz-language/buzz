@@ -28,12 +28,13 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjList = _obj.ObjList;
 const ObjFunction = _obj.ObjFunction;
+const ObjNative = _obj.ObjNative;
+const NativeFn = _obj.NativeFn;
 const PlaceholderDef = _obj.PlaceholderDef;
 const llvm = @import("./llvm.zig");
 const Token = @import("./token.zig").Token;
 const disassembler = @import("./disassembler.zig");
 const disassembleChunk = disassembler.disassembleChunk;
-const Parser = @import("./parser.zig").Parser;
 const VM = @import("./vm.zig").VM;
 
 fn toNullTerminatedCStr(allocator: Allocator, source: []const u8) ![]const u8 {
@@ -45,7 +46,7 @@ fn toNullTerminatedCStr(allocator: Allocator, source: []const u8) ![]const u8 {
 }
 
 // TODO: lowered types register like we do for ObjTypeDef
-fn lowerType(allocator: Allocator, obj_typedef: *ObjTypeDef, context: *llvm.Context) anyerror!*llvm.Type {
+fn lowerType(allocator: Allocator, obj_typedef: *ObjTypeDef, context: *llvm.Context) VM.Error!*llvm.Type {
     return switch (obj_typedef.def_type) {
         .Bool => context.intType(8),
         .Integer => context.intType(64),
@@ -124,6 +125,7 @@ pub const Frame = struct {
 };
 
 pub const BuzzApiMethods = enum {
+    nativefn,
     bz_push,
     bz_peek,
 
@@ -131,6 +133,7 @@ pub const BuzzApiMethods = enum {
         return switch (self) {
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
+            .nativefn => "NativeFn",
         };
     }
 };
@@ -138,14 +141,11 @@ pub const BuzzApiMethods = enum {
 pub const JIT = struct {
     const Self = @This();
 
-    parser: *Parser,
     vm: *VM,
 
     current: ?*Frame = null,
     state: GenState = undefined,
-    testing: bool,
 
-    allocator: std.mem.Allocator,
     had_error: bool = false,
     panic_mode: bool = false,
 
@@ -157,7 +157,7 @@ pub const JIT = struct {
 
     orc_jit: *llvm.OrcLLJIT,
 
-    pub fn init(allocator: Allocator, vm: *VM, parser: *Parser, testing: bool) JIT {
+    pub fn init(vm: *VM) JIT {
         llvm.initializeLLVMTarget(builtin.target.cpu.arch);
         var builder = llvm.OrcLLJITBuilder.createBuilder();
 
@@ -189,28 +189,15 @@ pub const JIT = struct {
         var main_jit_dylib = orc_jit.getMainJITDylib();
         main_jit_dylib.addGenerator(process_definition_generator);
 
-        return .{
-            .allocator = allocator,
-            .vm = vm,
-            .parser = parser,
-            .testing = testing,
-            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *llvm.Type).init(allocator),
-            .orc_jit = orc_jit,
-        };
-    }
+        // Initialize module (assuming we can reuse the same all the time) and register it in LLJIT
+        var context = llvm.Context.create();
+        var module = llvm.Module.createWithName("buzz-jit", context);
 
-    pub fn deinit(self: *Self) void {
-        self.api_lowered_types.deinit();
-        self.state.deinit();
-    }
-
-    fn registerModule(self: *Self, module: *llvm.Module) void {
-        var main_jit_dylib = self.orc_jit.getMainJITDylib();
-
-        if (self.orc_jit.addLLVMIRModule(
+        if (orc_jit.addLLVMIRModule(
             main_jit_dylib,
             llvm.OrcThreadSafeModule.createNewThreadSafeModule(
                 module,
+                // TODO: Should i give it self.state.context ?
                 llvm.OrcThreadSafeContext.create(),
             ),
         )) |orc_error| {
@@ -218,6 +205,22 @@ pub const JIT = struct {
 
             @panic("Could add IR module to OrcJIT");
         }
+
+        return .{
+            .vm = vm,
+            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *llvm.Type).init(vm.gc.allocator),
+            .orc_jit = orc_jit,
+            .state = .{
+                .module = module,
+                .context = context,
+                .builder = context.createBuilder(),
+            },
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.api_lowered_types.deinit();
+        self.state.deinit();
     }
 
     fn getBuzzApiLoweredType(self: *Self, method: BuzzApiMethods) !*llvm.Type {
@@ -238,6 +241,12 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
+            .nativefn, .main => llvm.functionType(
+                self.state.context.intType(8),
+                &[_]*llvm.Type{self.state.context.pointerType(0)},
+                1,
+                .False,
+            ),
         };
 
         try self.api_lowered_types.put(
@@ -246,16 +255,6 @@ pub const JIT = struct {
         );
 
         return lowered;
-    }
-
-    // Return lowered type for NativeFN: *const fn (*VM) c_int
-    fn loweredNativeFnType(self: *Self) *llvm.Type {
-        return llvm.functionType(
-            self.state.context.intType(8),
-            &[_]*llvm.Type{self.state.context.pointerType(0)},
-            1,
-            .False,
-        );
     }
 
     fn declareBuzzApi(self: *Self) !void {
@@ -331,66 +330,28 @@ pub const JIT = struct {
         return arg_list;
     }
 
-    // Used for debugging, jits the whole script
-    pub fn execute(self: *Self, root: *FunctionNode, args: [][:0]u8) !void {
-        self.cli_args = try self.cliArgs(args);
-
-        if (try self.generate(root)) |module| {
-            // TODO: Pass manager etc.
-
-            var orc_jit = self.executionEngine(module);
-
-            var qualified_name = try self.getFunctionQualifiedName(root.node.type_def.?.resolved_type.?.Function, true);
-            try qualified_name.appendSlice(".raw");
-            defer qualified_name.deinit();
-
-            std.debug.print("Run script function `{s}`...\n", .{qualified_name.items});
-
-            var fun_addr: u64 = undefined;
-
-            if (orc_jit.lookup(&fun_addr, @ptrCast([*:0]const u8, qualified_name.items))) |orc_error| {
-                std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
-
-                @panic("Could find script symbol in module loaded in LLJIT");
-            }
-
-            const fun_ptr = @intToPtr(*const fn () void, fun_addr);
-
-            fun_ptr();
-        }
-    }
-
-    fn generate(self: *Self, root: *FunctionNode) !?*llvm.Module {
+    pub fn jitFunction(self: *Self, function: *ObjFunction) VM.Error!?*ObjNative {
         self.had_error = false;
         self.panic_mode = false;
 
-        const name = root.node.type_def.?.resolved_type.?.Function.name.string;
-        var namez = try toNullTerminatedCStr(self.vm.gc.allocator, name);
-        defer self.vm.gc.allocator.free(namez);
+        const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), function.node));
 
-        var context = llvm.Context.create();
-        var module = llvm.Module.createWithName(@ptrCast([*:0]const u8, namez), context);
-
-        self.state = .{
-            .module = module,
-            .context = context,
-            .builder = context.createBuilder(),
-        };
+        var qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, true);
+        try qualified_name.appendSlice(".raw");
+        defer qualified_name.deinit();
 
         if (BuildOptions.debug) {
             var out = std.ArrayList(u8).init(self.vm.gc.allocator);
             defer out.deinit();
 
-            try root.node.toJson(&root.node, &out.writer());
+            try function_node.node.toJson(&function_node.node, &out.writer());
 
-            try std.io.getStdOut().writer().print("\n{s}", .{out.items});
+            std.io.getStdOut().writer().print("\n{s}", .{out.items}) catch unreachable;
         }
-
-        try self.declareBuzzApi();
 
         std.debug.print("Generate LLVM IR...\n", .{});
 
-        _ = try self.generateNode(root.toNode());
+        _ = try self.generateNode(function_node.toNode());
 
         if (self.had_error) {
             return null;
@@ -402,20 +363,35 @@ pub const JIT = struct {
 
         std.debug.print("Verify LLVM module...\n", .{});
 
-        if (module.verify(.ReturnStatus, &error_message).toBool()) {
+        if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
             std.debug.print("\n{s}\n", .{error_message});
 
-            _ = module.printModuleToFile("./out.bc", &error_message);
+            _ = self.state.module.printModuleToFile("./out.bc", &error_message);
 
             @panic("LLVM module verification failed");
         }
 
-        _ = module.printModuleToFile("./out.bc", &error_message);
+        _ = self.state.module.printModuleToFile("./out.bc", &error_message);
 
-        return module;
+        std.debug.print("Looking up jitted function `{s}`...\n", .{qualified_name.items});
+
+        var fun_addr: u64 = undefined;
+
+        if (self.orc_jit.lookup(&fun_addr, @ptrCast([*:0]const u8, qualified_name.items))) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            @panic("Could find script symbol in module loaded in LLJIT");
+        }
+
+        return try self.vm.gc.allocateObject(
+            ObjNative,
+            .{
+                .native = @intToPtr(NativeFn, fun_addr),
+            },
+        );
     }
 
-    fn generateNode(self: *Self, node: *ParseNode) anyerror!?*llvm.Value {
+    fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*llvm.Value {
         const lowered_type = if (node.type_def) |type_def| try lowerType(
             self.vm.gc.allocator,
             type_def,
@@ -467,7 +443,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) anyerror!?*llvm.Value {
+    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*llvm.Value {
         const is_function = named_variable_node.node.type_def.?.def_type == .Function;
         const is_non_extern_function = is_function and named_variable_node.node.type_def.?.resolved_type.?.Function.function_type != .Extern;
 
@@ -539,7 +515,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateCall(self: *Self, call_node: *CallNode) anyerror!?*llvm.Value {
+    fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*llvm.Value {
         if (call_node.callee.type_def == null or call_node.callee.type_def.?.def_type == .Placeholder) {
             try self.reportPlaceholder(call_node.callee.type_def.?.resolved_type.?.Placeholder);
         }
@@ -620,7 +596,7 @@ pub const JIT = struct {
         );
     }
 
-    fn generateBlock(self: *Self, block_node: *BlockNode) anyerror!?*llvm.Value {
+    fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*llvm.Value {
         var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
         try block_name.appendSlice(self.current.?.function_node.node.type_def.?.resolved_type.?.Function.name.string);
         try block_name.appendSlice(".block");
@@ -642,11 +618,11 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) anyerror!?*llvm.Value {
+    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) VM.Error!?*llvm.Value {
         return try self.generateFunctionNode(fun_declaration_node.function);
     }
 
-    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) anyerror!?*llvm.Value {
+    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*llvm.Value {
         var global: *llvm.Value = undefined;
 
         const lowered_type = try lowerType(self.vm.gc.allocator, var_declaration_node.type_def, self.state.context);
@@ -696,8 +672,12 @@ pub const JIT = struct {
         var qualified_name = std.ArrayList(u8).init(self.vm.gc.allocator);
 
         try qualified_name.appendSlice(name);
-        // Don't qualify extern functions or `main`
-        if (function_type != .ScriptEntryPoint and function_type != .Extern and !std.mem.eql(u8, name, "main")) {
+
+        // Main and script are not allowed to be jitted
+        assert(function_type != .ScriptEntryPoint and function_type != .Script);
+
+        // Don't qualify extern functions
+        if (function_type != .Extern) {
             try qualified_name.append('.');
             try qualified_name.writer().print("{}", .{function_def.id});
         }
@@ -711,7 +691,7 @@ pub const JIT = struct {
 
     // We create 2 function at the LLVM level: one with the NativeFn signature that will be called by buzz code,
     // and one with a signature reflecting the buzz signature that will be called by JITted functions
-    fn generateFunctionNode(self: *Self, function_node: *FunctionNode) anyerror!?*llvm.Value {
+    fn generateFunctionNode(self: *Self, function_node: *FunctionNode) VM.Error!?*llvm.Value {
         const node = &function_node.node;
 
         var enclosing = self.current;
@@ -735,6 +715,8 @@ pub const JIT = struct {
         defer qualified_name.deinit();
         var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, false);
         defer nativefn_qualified_name.deinit();
+
+        std.debug.print("-> {s}\n", .{qualified_name.items});
 
         var function = if (function_type != .Extern)
             self.state.module.addFunction(
@@ -766,47 +748,10 @@ pub const JIT = struct {
                 _ = try self.generateNode(function_node.body.?.toNode());
             }
 
-            // If script, either export globals, call main or call tests
-            // Note it does not make much sense to JIT the script entry point so this is only for boostraping tests
-            if (function_type == .Script or function_type == .ScriptEntryPoint) {
-                // If top level, search `main` or `test` function(s) and call them
-                // Then put any exported globals on the stack
-                if (!self.testing and function_type == .ScriptEntryPoint) {
-                    if (function_node.main_slot != null) {
-                        if (self.state.module.getNamedFunction("main.raw")) |main_function| {
-                            _ = self.state.builder.buildCall(
-                                try lowerType(
-                                    self.vm.gc.allocator,
-                                    try self.parser.parseTypeDefFrom("Function main([str] args) > int"),
-                                    self.state.context,
-                                ), // FIXME: type of main
-                                main_function,
-                                &[_]*llvm.Value{
-                                    self.state.builder.buildIntToPtr(
-                                        self.state.context.intType(64).constInt(@ptrToInt(self.cli_args.?), .False),
-                                        self.state.context.pointerType(0),
-                                        "",
-                                    ),
-                                },
-                                1,
-                                "",
-                            );
-                        } else {
-                            try self.reportError("Missing main function");
-                        }
-                    }
-                } else if (self.testing and function_node.test_slots != null) {
-                    // TODO: Create an entry point wich runs all `test`
-                }
+            // Jitting main or the script function is not allowed
+            assert(function_type != .Script and function_type != .ScriptEntryPoint);
 
-                // If we're being imported, put all globals on the stack
-                if (function_node.import_root) {
-                    // TODO: export globals?
-                } else {
-                    _ = self.state.builder.buildRetVoid();
-                    self.current.?.return_emitted = true;
-                }
-            } else if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
+            if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
                 // TODO: detect if some branches of the function body miss a return statement
                 _ = self.state.builder.buildRetVoid();
             }
@@ -853,7 +798,7 @@ pub const JIT = struct {
 
         var native_fn = self.state.module.addFunction(
             @ptrCast([*:0]const u8, nativefn_qualified_name.items),
-            self.loweredNativeFnType(),
+            try self.getBuzzApiLoweredType(.nativefn),
         );
 
         // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
@@ -1014,7 +959,7 @@ pub const JIT = struct {
     }
 
     // Got to the root placeholder and report it
-    pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) anyerror!void {
+    pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) VM.Error!void {
         if (placeholder.parent) |parent| {
             try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
         } else {

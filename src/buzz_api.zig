@@ -468,7 +468,8 @@ export fn bz_newVM(self: *VM) ?*VM {
         .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
     };
 
-    vm.* = VM.init(gc, self.import_registry) catch {
+    // FIXME: give reference to JIT?
+    vm.* = VM.init(gc, self.import_registry, self.testing) catch {
         return null;
     };
 

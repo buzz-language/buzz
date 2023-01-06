@@ -111,3 +111,5 @@ zig-test/
 dist/
 
 .vscode/
+out.bc
+out.s

@@ -17,6 +17,8 @@ const Token = @import("./token.zig").Token;
 const BuildOptions = @import("build_options");
 const CodeGen = @import("./codegen.zig").CodeGen;
 const buzz_api = @import("./buzz_api.zig");
+const _node = @import("./node.zig");
+const FunctionNode = _node.FunctionNode;
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -509,39 +511,6 @@ pub const ObjPattern = struct {
         }
 
         return null;
-    }
-};
-
-// 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = *const fn (*VM) c_int;
-
-/// Native function
-pub const ObjNative = struct {
-    const Self = @This();
-
-    obj: Obj = .{ .obj_type = .Native },
-
-    // TODO: issue is list.member which separate its type definition from its runtime creation
-    // type_def: *ObjTypeDef,
-
-    native: NativeFn,
-
-    pub fn mark(_: *Self, _: *GarbageCollector) void {}
-
-    pub fn toObj(self: *Self) *Obj {
-        return &self.obj;
-    }
-
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Native) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
     }
 };
 
@@ -1191,7 +1160,15 @@ pub const ObjClosure = struct {
 
     obj: Obj = .{ .obj_type = .Closure },
 
+    // Buzz function
     function: *ObjFunction,
+
+    // Jitted function
+    native_raw: ?*ObjNative = null,
+
+    // Jitted function callable by buzz VM
+    native: ?*ObjNative = null,
+
     upvalues: std.ArrayList(*ObjUpValue),
     // Pointer to the global with which the function was declared
     globals: *std.ArrayList(Value),
@@ -1236,6 +1213,39 @@ pub const ObjClosure = struct {
     }
 };
 
+// 1 = return value on stack, 0 = no return value, -1 = error
+pub const NativeFn = *const fn (*VM) c_int;
+
+/// Native function
+pub const ObjNative = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .Native },
+
+    // TODO: issue is list.member which separate its type definition from its runtime creation
+    // type_def: *ObjTypeDef,
+
+    native: NativeFn,
+
+    pub fn mark(_: *Self, _: *GarbageCollector) void {}
+
+    pub fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub fn toValue(self: *Self) Value {
+        return Value{ .Obj = self.toObj() };
+    }
+
+    pub inline fn cast(obj: *Obj) ?*Self {
+        if (obj.obj_type != .Native) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "obj", obj);
+    }
+};
+
 /// Function
 pub const ObjFunction = struct {
     const Self = @This();
@@ -1260,9 +1270,16 @@ pub const ObjFunction = struct {
     chunk: Chunk,
     upvalue_count: u8 = 0,
 
-    pub fn init(allocator: Allocator, name: *ObjString) !Self {
+    // So we can JIT the function at runtime
+    node: *anyopaque,
+    // How many time the function was run as bytecode
+    // Stop incrementing once the function is jitted
+    run_count: usize = 0,
+
+    pub fn init(allocator: Allocator, node: *FunctionNode, name: *ObjString) !Self {
         return Self{
             .name = name,
+            .node = node,
             .chunk = Chunk.init(allocator),
         };
     }
@@ -3550,7 +3567,13 @@ pub const ObjTypeDef = struct {
         }
     }
 
-    pub fn populateGenerics(self: *Self, origin: usize, generics: []*Self, type_registry: *TypeRegistry, visited: ?*std.AutoHashMap(*Self, void)) anyerror!*Self {
+    pub fn populateGenerics(
+        self: *Self,
+        origin: usize,
+        generics: []*Self,
+        type_registry: *TypeRegistry,
+        visited: ?*std.AutoHashMap(*Self, void),
+    ) VM.Error!*Self {
         var visited_nodes = if (visited == null) std.AutoHashMap(*Self, void).init(type_registry.gc.allocator) else null;
         defer {
             if (visited == null) {

@@ -169,6 +169,12 @@ pub fn build(b: *Builder) !void {
     if (builtin.os.tag == .linux) {
         lib.linkLibC();
     }
+
+    // LLVM
+    lib.addIncludePath("/usr/local/opt/llvm/include");
+    lib.addLibraryPath("/usr/local/opt/llvm/lib");
+    lib.linkSystemLibrary("llvm");
+
     lib.setMainPkgPath("src");
     lib.setBuildMode(build_mode);
 
@@ -230,6 +236,10 @@ pub fn build(b: *Builder) !void {
         if (builtin.os.tag == .linux) {
             std_lib.linkLibC();
         }
+        // LLVM
+        std_lib.addIncludePath("/usr/local/opt/llvm/include");
+        std_lib.addLibraryPath("/usr/local/opt/llvm/lib");
+        std_lib.linkSystemLibrary("llvm");
         std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);

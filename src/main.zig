@@ -28,7 +28,6 @@ const RunFlavor = enum {
     Check,
     Fmt,
     Ast,
-    LLVM,
 };
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
@@ -39,7 +38,8 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
-    var vm = try VM.init(&gc, &import_registry);
+    var vm = try VM.init(&gc, &import_registry, flavor == .Test);
+    try vm.initJIT();
     var parser = Parser.init(&gc, &imports, false);
     var codegen = CodeGen.init(&gc, &parser, flavor == .Test);
     defer {
@@ -74,19 +74,6 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     if (try parser.parse(source, file_name)) |function_node| {
         parsing_time = timer.read();
         timer.reset();
-
-        if (flavor == .LLVM) {
-            var jit = JIT.init(
-                allocator,
-                &vm,
-                &parser,
-                flavor == .Test,
-            );
-
-            try jit.execute(FunctionNode.cast(function_node).?, args);
-
-            return;
-        }
 
         if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
             codegen_time = timer.read();
@@ -164,7 +151,6 @@ pub fn main() !void {
         \\-f, --fmt     Format script
         \\-a, --tree    Dump AST as JSON
         \\-v, --version Print version and exit
-        \\-l, --llvm    Use LLVM backend
         \\<str>...
         \\
     );
@@ -237,7 +223,7 @@ pub fn main() !void {
         positionals.deinit();
     }
 
-    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else if (res.args.fmt) RunFlavor.Fmt else if (res.args.tree) RunFlavor.Ast else if (res.args.llvm) RunFlavor.LLVM else RunFlavor.Run;
+    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else if (res.args.fmt) RunFlavor.Fmt else if (res.args.tree) RunFlavor.Ast else RunFlavor.Run;
 
     runFile(
         allocator,

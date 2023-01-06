@@ -10,6 +10,7 @@ const BuildOptions = @import("build_options");
 const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
+const JIT = @import("jit.zig").JIT;
 
 const Value = _value.Value;
 const HashableValue = _value.HashableValue;
@@ -303,13 +304,16 @@ pub const VM = struct {
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
+    jit: JIT = undefined,
+    testing: bool,
 
-    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry) !Self {
+    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, testing: bool) !Self {
         var self: Self = .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
             .current_fiber = try gc.allocator.create(Fiber),
+            .testing = testing,
         };
 
         return self;
@@ -318,6 +322,10 @@ pub const VM = struct {
     pub fn deinit(_: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
+    }
+
+    pub fn initJIT(self: *Self) !void {
+        self.jit = JIT.init(self);
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -1561,7 +1569,8 @@ pub const VM = struct {
                 panic(e);
                 unreachable;
             };
-            vm.* = VM.init(self.gc, self.import_registry) catch |e| {
+            // FIXME: give reference to JIT?
+            vm.* = VM.init(self.gc, self.import_registry, self.testing) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -3439,7 +3448,26 @@ pub const VM = struct {
     }
 
     // FIXME: catch_values should be on the stack like arguments
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) !void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
+        // Do we need to jit the function?
+        var native = closure.native;
+        // TODO: figure out threshold strategy
+        if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
+            // If we're here it means there's no reason it would not compile
+            closure.native = (try self.jit.jitFunction(closure.function)).?;
+        }
+
+        // Is there a jitted version of it?
+        if (native) |jitted_function| {
+            try self.callNative(
+                jitted_function,
+                arg_count,
+                catch_value,
+            );
+
+            return;
+        }
+
         // TODO: check for stack overflow
         var frame = CallFrame{
             .closure = closure,
@@ -3452,6 +3480,8 @@ pub const VM = struct {
                 null,
         };
 
+        closure.function.run_count += 1;
+
         frame.error_value = catch_value;
 
         if (self.current_fiber.frames.items.len <= self.current_fiber.frame_count) {
@@ -3463,6 +3493,7 @@ pub const VM = struct {
         self.current_fiber.frame_count += 1;
     }
 
+    // FIXME: must now handle upvalues and globals like a regular buzz function would
     fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
         self.currentFrame().?.in_native_call = true;
 
@@ -3512,7 +3543,7 @@ pub const VM = struct {
         self.push(Value{ .Obj = bound.toObj() });
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) !void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
         var obj: *Obj = callee.Obj;
         switch (obj.obj_type) {
             .Bound => {

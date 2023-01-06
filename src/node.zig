@@ -3098,6 +3098,7 @@ pub const FunctionNode = struct {
 
         var function = try ObjFunction.init(
             codegen.gc.allocator,
+            self,
             node.type_def.?.resolved_type.?.Function.name,
         );
 
