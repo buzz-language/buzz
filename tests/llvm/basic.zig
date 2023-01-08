@@ -1,14 +1,17 @@
-// zig build-lib -dynamic -lmimalloc -I/usr/local/include -I/usr/include -lpcre -lc -lbuzz -L/Users/giann/git/buzz/dist/lib -L/usr/local/lib/ -rpath /Users/giann/git/buzz/dist/lib tests/llvm/basic.zig --main-pkg-path ./src
-
 const std = @import("std");
 const api = @import("../../src/lib/buzz_api.zig");
 
-export fn print(obj_string_addr: usize) void {
-    const obj_string = @intToPtr(*api.ObjString, obj_string_addr);
-
+export fn print_raw(_: *api.NativeCtx, value: api.Value) void {
     var len: usize = undefined;
-    const string = obj_string.bz_objStringToString(&len);
-    const slice = if (string) |ustring| ustring[0..len] else "";
+    const slice = if (value.bz_valueToString(&len)) |ustring| ustring[0..len] else "";
 
     std.io.getStdOut().writer().print("{s}\n", .{slice}) catch unreachable;
+}
+
+export fn print(ctx: *api.NativeCtx) c_int {
+    const string = ctx.vm.bz_peek(0);
+
+    @call(.always_inline, print_raw, .{ ctx, string });
+
+    return 0;
 }

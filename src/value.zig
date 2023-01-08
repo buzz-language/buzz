@@ -15,42 +15,39 @@ pub const TagInteger: Tag = 1;
 pub const TagNull: Tag = 2;
 pub const TagVoid: Tag = 3;
 pub const TagObj: Tag = 4;
-
-const BooleanT: u32 = TagBoolean;
-const IntegerT: u32 = TagInteger;
-const NullT: u32 = TagNull;
-const VoidT: u32 = TagVoid;
-const ObjT: u32 = TagObj;
+pub const TagError: Tag = 5;
 
 /// Most significant bit.
-const SignMask: u64 = 1 << 63;
+pub const SignMask: u64 = 1 << 63;
 
 /// QNAN and one extra bit to the right.
-const TaggedValueMask: u64 = 0x7ffc000000000000;
+pub const TaggedValueMask: u64 = 0x7ffc000000000000;
 
 /// TaggedMask + Sign bit indicates a pointer value.
-const PointerMask: u64 = TaggedValueMask | SignMask;
+pub const PointerMask: u64 = TaggedValueMask | SignMask;
 
-const BooleanMask: u64 = TaggedValueMask | (@as(u64, TagBoolean) << 32);
-const FalseMask: u64 = BooleanMask;
-const TrueBitMask: u64 = 1;
-const TrueMask: u64 = BooleanMask | TrueBitMask;
+pub const BooleanMask: u64 = TaggedValueMask | (@as(u64, TagBoolean) << 32);
+pub const FalseMask: u64 = BooleanMask;
+pub const TrueBitMask: u64 = 1;
+pub const TrueMask: u64 = BooleanMask | TrueBitMask;
 
-const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
-const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
-const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
-const ObjMask: u64 = TaggedValueMask | (@as(u64, TagObj) << 32);
+pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
+pub const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
+pub const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
+pub const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
 
-const TagMask: u32 = (1 << 3) - 1;
-const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32);
+pub const TagMask: u32 = (1 << 3) - 1;
+pub const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32);
 
-pub const Value = extern struct {
+pub const Value = packed struct {
     val: u64,
 
     pub const Null = Value{ .val = NullMask };
     pub const Void = Value{ .val = VoidMask };
     pub const True = Value{ .val = TrueMask };
     pub const False = Value{ .val = FalseMask };
+    // We only need this so that an NativeFn can see the error returned by its raw function
+    pub const Error = Value{ .val = ErrorMask };
 
     pub inline fn fromBoolean(val: bool) Value {
         return if (val) True else False;
@@ -98,6 +95,10 @@ pub const Value = extern struct {
 
     pub inline fn isVoid(self: Value) bool {
         return self.val == VoidMask;
+    }
+
+    pub inline fn isError(self: Value) bool {
+        return self.val == ErrorMask;
     }
 
     pub inline fn boolean(self: Value) bool {

@@ -9,20 +9,24 @@ const _memory = @import("../memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 
-export fn dump(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_peek(0).bz_valueDump(ctx.vm);
+export fn dump_raw(ctx: *api.NativeCtx, value: api.Value) void {
+    value.bz_valueDump(ctx.vm);
 
     std.debug.print("\n", .{});
+}
+
+export fn dump(ctx: *api.NativeCtx) c_int {
+    dump_raw(ctx, ctx.vm.bz_peek(0));
 
     return 0;
 }
 
-export fn ast(ctx: *api.NativeCtx) c_int {
+export fn ast_raw(ctx: *api.NativeCtx, source_value: api.Value, script_name_value: api.Value) api.Value {
     var source_len: usize = 0;
-    const source = api.Value.bz_valueToString(ctx.vm.bz_peek(1), &source_len);
+    const source = api.Value.bz_valueToString(source_value, &source_len);
 
     var script_len: usize = 0;
-    const script_name = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &script_len);
+    const script_name = api.Value.bz_valueToString(script_name_value, &script_len);
 
     var gc = GarbageCollector.init(api.VM.allocator);
     gc.type_registry = TypeRegistry{
@@ -54,7 +58,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
-        return -1;
+        return api.Value.Error;
     };
 
     if (root != null) {
@@ -67,21 +71,33 @@ export fn ast(ctx: *api.NativeCtx) c_int {
                 => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
             }
 
-            return -1;
+            return api.Value.Error;
         };
 
-        ctx.vm.bz_pushString(
-            api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
-                ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        return (api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-                return -1;
-            },
-        );
-
-        return 1;
+            return api.Value.Error;
+        }).bz_objStringToValue();
     }
 
     ctx.vm.bz_pushError("lib.errors.CompileError", "lib.errors.CompileError".len);
 
-    return -1;
+    return api.Value.Error;
+}
+
+export fn ast(ctx: *api.NativeCtx) c_int {
+    const result = ast_raw(
+        ctx,
+        ctx.vm.bz_peek(1),
+        ctx.vm.bz_peek(0),
+    );
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
+
+    return 1;
 }

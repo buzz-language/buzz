@@ -211,49 +211,54 @@ pub const ObjFiber = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    pub fn over(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn over_raw(_: *NativeCtx, fiber_value: Value) Value {
+        return Value.fromBoolean(Self.cast(fiber_value.obj()).?.fiber.status == .Over);
+    }
 
-        var self = Self.cast(vm.peek(0).obj()).?;
-
-        ctx.vm.push(Value.fromBoolean(self.fiber.status == .Over));
+    fn over(ctx: *NativeCtx) c_int {
+        ctx.vm.push(over_raw(ctx, ctx.vm.peek(0)));
 
         return 1;
     }
 
-    pub fn cancel(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn cancel_raw(_: *NativeCtx, fiber_value: Value) void {
+        Self.cast(fiber_value.obj()).?.fiber.status = .Over;
+    }
 
-        var self = Self.cast(vm.peek(0).obj()).?;
-
-        self.fiber.status = .Over;
+    fn cancel(ctx: *NativeCtx) c_int {
+        cancel_raw(ctx, ctx.vm.peek(0));
 
         return 0;
     }
 
-    pub fn rawMember(method: []const u8) ?NativeFn {
-        if (mem.eql(u8, method, "over")) {
-            return over;
-        } else if (mem.eql(u8, method, "cancel")) {
-            return cancel;
-        }
+    const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "over", over },
+            .{ "cancel", cancel },
+        },
+    );
 
-        return null;
-    }
+    const raw_members = std.ComptimeStringMap(
+        *const anyopaque,
+        .{
+            .{ "over", @ptrCast(*const anyopaque, &over) },
+            .{ "cancel", @ptrCast(*const anyopaque, &cancel) },
+        },
+    );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objfiber_members.get(method)) |umethod| {
             return umethod;
         }
 
-        var nativeFn: ?NativeFn = rawMember(method.string);
-
-        if (nativeFn) |unativeFn| {
+        if (members.get(method.string)) |unativeFn| {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
                     .native = @intToPtr(*anyopaque, @ptrToInt(unativeFn)),
+                    .native_raw = @intToPtr(*anyopaque, @ptrToInt(raw_members.get(method.string).?)),
                 },
             );
 
@@ -427,52 +432,93 @@ pub const ObjPattern = struct {
         return results;
     }
 
-    pub fn match(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        const self = Self.cast(vm.peek(1).obj()).?;
-        const subject = ObjString.cast(vm.peek(0).obj()).?.string;
+    fn match_raw(ctx: *NativeCtx, pattern_value: Value, subject_value: Value) Value {
+        const self = Self.cast(pattern_value.obj()).?;
+        const subject = ObjString.cast(subject_value.obj()).?.string;
 
         var offset: usize = 0;
-        if (self.rawMatch(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len, &offset) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        if (self.rawMatch(
+            ctx.vm,
+            if (subject.len > 0) @ptrCast([*]const u8, subject) else null,
+            subject.len,
+            &offset,
+        ) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not match") catch null;
+            ctx.vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         }) |results| {
-            ctx.vm.push(results.toValue());
+            return results.toValue();
         } else {
-            ctx.vm.push(Value.Null);
+            return Value.Null;
         }
+    }
+
+    fn match(ctx: *NativeCtx) c_int {
+        const result = match_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn matchAll(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn matchAll_raw(ctx: *NativeCtx, pattern_value: Value, subject_value: Value) Value {
+        const self = Self.cast(pattern_value.obj()).?;
+        const subject = ObjString.cast(subject_value.obj()).?.string;
 
-        var self = Self.cast(vm.peek(1).obj()).?;
-        var subject = ObjString.cast(vm.peek(0).obj()).?.string;
+        if (self.rawMatchAll(
+            ctx.vm,
+            if (subject.len > 0) @ptrCast([*]const u8, subject) else null,
+            subject.len,
+        ) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not match") catch null;
+            ctx.vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-        if (self.rawMatchAll(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
+            return Value.Error;
         }) |results| {
-            ctx.vm.push(results.toValue());
+            return results.toValue();
         } else {
-            ctx.vm.push(Value.Null);
+            return Value.Null;
         }
+    }
+
+    fn matchAll(ctx: *NativeCtx) c_int {
+        const result = match_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub const members = std.ComptimeStringMap(
+    const members = std.ComptimeStringMap(
         NativeFn,
         .{
             .{ "match", match },
             .{ "matchAll", matchAll },
+        },
+    );
+
+    const raw_members = std.ComptimeStringMap(
+        *const anyopaque,
+        .{
+            .{ "match", @ptrCast(*const anyopaque, &match_raw) },
+            .{ "matchAll", @ptrCast(*const anyopaque, &matchAll_raw) },
         },
     );
 
@@ -487,6 +533,7 @@ pub const ObjPattern = struct {
                 .{
                     // Complains about const qualifier discard otherwise
                     .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native_raw = @intToPtr(*anyopaque, @ptrToInt(raw_members.get(method.string).?)),
                 },
             );
 
@@ -585,41 +632,50 @@ pub const ObjString = struct {
         return vm.gc.copyString(new_string.items);
     }
 
-    pub fn trim(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        const str: *Self = Self.cast(vm.peek(0).obj()).?;
+    fn trim_raw(ctx: *NativeCtx, str_value: Value) Value {
+        const str = Self.cast(str_value.obj()).?;
 
         var trimmed = std.mem.trim(u8, str.string, " ");
         trimmed = std.mem.trim(u8, trimmed, "\t");
         trimmed = std.mem.trim(u8, trimmed, "\r");
         trimmed = std.mem.trim(u8, trimmed, "\n");
 
-        ctx.vm.push((vm.gc.copyString(trimmed) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not trim string") catch null;
-            vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        return (ctx.vm.gc.copyString(trimmed) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not trim string") catch null;
+            ctx.vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
+            return Value.Error;
+        }).toValue();
+    }
+
+    fn trim(ctx: *NativeCtx) c_int {
+        const result = trim_raw(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
             return -1;
-        }).toValue());
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn len(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn len_raw(_: *NativeCtx, str_value: Value) Value {
+        const str = Self.cast(str_value.obj()).?;
 
-        const str: *Self = Self.cast(vm.peek(0).obj()).?;
+        return Value.fromInteger(@intCast(i32, str.string.len));
+    }
 
-        ctx.vm.push(Value.fromInteger(@intCast(i32, str.string.len)));
+    fn len(ctx: *NativeCtx) c_int {
+        ctx.vm.push(len_raw(ctx, ctx.vm.peek(0)));
 
         return 1;
     }
 
-    pub fn repeat(ctx: NativeCtx) c_int {
+    fn repeat_raw(ctx: *NativeCtx, str_value: Value, n_value: Value) Value {
         const vm = ctx.vm;
-
-        const str = Self.cast(vm.peek(1).obj()).?;
-        const n = floatToInteger(vm.peek(0));
+        const str = Self.cast(str_value.obj()).?;
+        const n = floatToInteger(n_value);
         const n_i = if (n.isInteger()) n.integer() else null;
 
         if (n_i) |ni| {
@@ -630,7 +686,7 @@ pub const ObjString = struct {
                     var err: ?*ObjString = vm.gc.copyString("Could not repeat string") catch null;
                     vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                    return -1;
+                    return Value.Error;
                 };
             }
 
@@ -638,154 +694,223 @@ pub const ObjString = struct {
                 var err: ?*ObjString = vm.gc.copyString("Could not repeat string") catch null;
                 vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                return -1;
+                return Value.Error;
             };
 
-            ctx.vm.push(new_objstring.toValue());
-
-            return 1;
+            return new_objstring.toValue();
         }
 
         var err: ?*ObjString = vm.gc.copyString("`n` should be an integer") catch null;
         vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-        return -1;
+        return Value.Error;
     }
 
-    pub fn byte(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn repeat(ctx: *NativeCtx) c_int {
+        const str = ctx.vm.peek(1);
+        const n = ctx.vm.peek(0);
 
-        const self: *Self = Self.cast(vm.peek(1).obj()).?;
-        const index = floatToInteger(vm.peek(0));
+        const result = repeat_raw(ctx, str, n);
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
+
+        return 1;
+    }
+
+    fn byte_raw(ctx: *NativeCtx, str_value: Value, index_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const index = floatToInteger(index_value);
         const index_i = if (index.isInteger()) index.integer() else null;
 
         if (index_i == null or index_i.? < 0 or index_i.? >= self.string.len) {
-            var err: ?*ObjString = vm.gc.copyString("Out of bound access to str") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("Out of bound access to str") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
+            return Value.Error;
+        }
+
+        return Value.fromInteger(@intCast(i32, self.string[@intCast(usize, index_i.?)]));
+    }
+
+    fn byte(ctx: *NativeCtx) c_int {
+        const result = byte_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
             return -1;
         }
 
-        ctx.vm.push(Value.fromInteger(@intCast(i32, self.string[@intCast(usize, index_i.?)])));
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn indexOf(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
+    fn indexOf_raw(_: *NativeCtx, str_value: Value, needle_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const needle: *Self = Self.cast(needle_value.obj()).?;
 
         var index = std.mem.indexOf(u8, self.string, needle.string);
 
-        ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
-
-        return 1;
+        return if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null;
     }
 
-    pub fn startsWith(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
-
-        ctx.vm.push(Value.fromBoolean(std.mem.startsWith(u8, self.string, needle.string)));
-
-        return 1;
-    }
-
-    pub fn endsWith(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
-
-        ctx.vm.push(Value.fromBoolean(std.mem.endsWith(u8, self.string, needle.string)));
-
-        return 1;
-    }
-
-    pub fn replace(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(2).obj()).?;
-        var needle: *Self = Self.cast(vm.peek(1).obj()).?;
-        var replacement: *Self = Self.cast(vm.peek(0).obj()).?;
-
-        const new_string = std.mem.replaceOwned(u8, vm.gc.allocator, self.string, needle.string, replacement.string) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not replace string") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
-
+    fn indexOf(ctx: *NativeCtx) c_int {
         ctx.vm.push(
-            (vm.gc.copyString(new_string) catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not replace string") catch null;
-                vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-                return -1;
-            }).toValue(),
+            indexOf_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
         );
 
         return 1;
     }
 
-    pub fn sub(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn startsWith_raw(_: *NativeCtx, str_value: Value, needle_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const needle: *Self = Self.cast(needle_value.obj()).?;
 
-        var self: *Self = Self.cast(vm.peek(2).obj()).?;
-        var start_value = floatToInteger(vm.peek(1));
-        var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
-        var upto_value: Value = floatToInteger(vm.peek(0));
-        var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
+        return Value.fromBoolean(std.mem.startsWith(u8, self.string, needle.string));
+    }
+
+    fn startsWith(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            startsWith_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
+
+        return 1;
+    }
+
+    fn endsWith_raw(_: *NativeCtx, str_value: Value, needle_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const needle: *Self = Self.cast(needle_value.obj()).?;
+
+        return Value.fromBoolean(std.mem.endsWith(u8, self.string, needle.string));
+    }
+
+    fn endsWith(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            endsWith_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
+
+        return 1;
+    }
+
+    fn replace_raw(ctx: *NativeCtx, str_value: Value, needle_value: Value, replacement_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const needle: *Self = Self.cast(needle_value.obj()).?;
+        const replacement: *Self = Self.cast(replacement_value.obj()).?;
+
+        const new_string = std.mem.replaceOwned(u8, ctx.vm.gc.allocator, self.string, needle.string, replacement.string) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not replace string") catch null;
+            ctx.vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+
+        return (ctx.vm.gc.copyString(new_string) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not replace string") catch null;
+            ctx.vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        }).toValue();
+    }
+
+    fn replace(ctx: *NativeCtx) c_int {
+        const result = replace_raw(
+            ctx,
+            ctx.vm.peek(2),
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
+
+        return 1;
+    }
+
+    fn sub_raw(ctx: *NativeCtx, str_value: Value, start_value: Value, upto_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const start_index = floatToInteger(start_value);
+        const start: ?i32 = if (start_index.isInteger()) start_index.integer() else null;
+        const upto_index: Value = floatToInteger(upto_value);
+        const upto: ?i32 = if (upto_index.isInteger()) upto_index.integer() else if (upto_index.isFloat()) @floatToInt(i32, upto_index.float()) else null;
 
         if (start == null or start.? < 0 or start.? >= self.string.len) {
-            var err: ?*ObjString = vm.gc.copyString("`start` is out of bound") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         }
 
         if (upto != null and upto.? < 0) {
-            var err: ?*ObjString = vm.gc.copyString("`len` must greater or equal to 0") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         }
 
         const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.string.len) @intCast(usize, start.? + upto.?) else self.string.len;
-        var substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
+        const substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
 
-        ctx.vm.push(
-            (vm.gc.copyString(substr) catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not get sub string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        return (ctx.vm.gc.copyString(substr) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                return -1;
-            }).toValue(),
+            return Value.Error;
+        }).toValue();
+    }
+
+    fn sub(ctx: *NativeCtx) c_int {
+        const result = sub_raw(
+            ctx,
+            ctx.vm.peek(2),
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
         );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn split(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var separator: *Self = Self.cast(vm.peek(0).obj()).?;
+    fn split_raw(ctx: *NativeCtx, str_value: Value, separator_value: Value) Value {
+        const self: *Self = Self.cast(str_value.obj()).?;
+        const separator: *Self = Self.cast(separator_value.obj()).?;
 
         // std.mem.split(u8, self.string, separator.string);
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.gc.allocator,
-            vm.gc.type_registry.getTypeDef(ObjTypeDef{
+            ctx.vm.gc.allocator,
+            ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
                 .def_type = .String,
             }) catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+                ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                return -1;
+                return Value.Error;
             },
         );
 
@@ -794,25 +919,25 @@ pub const ObjString = struct {
         };
 
         // TODO: reuse already allocated similar typedef
-        var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
+        var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
-        var list: *ObjList = vm.gc.allocateObject(
+        var list: *ObjList = ctx.vm.gc.allocateObject(
             ObjList,
-            ObjList.init(vm.gc.allocator, list_def_type),
+            ObjList.init(ctx.vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
         // Prevent gc & is result
@@ -821,37 +946,53 @@ pub const ObjString = struct {
         if (separator.string.len > 0) {
             var it = std.mem.split(u8, self.string, separator.string);
             while (it.next()) |fragment| {
-                var fragment_str: ?*ObjString = vm.gc.copyString(fragment) catch {
-                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                var fragment_str: ?*ObjString = ctx.vm.gc.copyString(fragment) catch {
+                    var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+                    ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                    return -1;
+                    return Value.Error;
                 };
 
-                list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
-                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch {
+                    var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+                    ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                    return -1;
+                    return Value.Error;
                 };
             }
         } else {
             for (self.string) |char| {
-                var fragment_str: ?*ObjString = vm.gc.copyString(&([_]u8{char})) catch {
-                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                var fragment_str: ?*ObjString = ctx.vm.gc.copyString(&([_]u8{char})) catch {
+                    var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+                    ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                    return -1;
+                    return Value.Error;
                 };
 
-                list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
-                    var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch {
+                    var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
+                    ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                    return -1;
+                    return Value.Error;
                 };
             }
         }
+
+        return ctx.vm.pop();
+    }
+
+    fn split(ctx: *NativeCtx) c_int {
+        const result = split_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
@@ -871,89 +1012,101 @@ pub const ObjString = struct {
         }
     }
 
-    pub fn encodeBase64(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn encodeBase64_raw(ctx: *NativeCtx, str_value: Value) Value {
+        const str: *Self = Self.cast(str_value.obj()).?;
 
-        var str: *Self = Self.cast(vm.peek(0).obj()).?;
+        var encoded = ctx.vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not encode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-        var encoded = vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not encode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
+            return Value.Error;
         };
-        defer vm.gc.allocator.free(encoded);
+        defer ctx.vm.gc.allocator.free(encoded);
 
-        var new_string = vm.gc.copyString(
+        var new_string = ctx.vm.gc.copyString(
             std.base64.standard.Encoder.encode(encoded, str.string),
         ) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not encode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not encode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
-        ctx.vm.push(new_string.toValue());
-
-        return 1;
+        return new_string.toValue();
     }
 
-    pub fn decodeBase64(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn encodeBase64(ctx: *NativeCtx) c_int {
+        const result = encodeBase64_raw(ctx, ctx.vm.peek(0));
 
-        const str: *Self = Self.cast(vm.peek(0).obj()).?;
-
-        const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
+        if (result.isError()) {
             return -1;
-        };
-        var decoded = vm.gc.allocator.alloc(u8, size) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
-        defer vm.gc.allocator.free(decoded);
-
-        std.base64.standard.Decoder.decode(decoded, str.string) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
-
-        var new_string = vm.gc.copyString(decoded) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
-
-        ctx.vm.push(new_string.toValue());
-
-        return 1;
-    }
-
-    pub fn upper(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        const str: *Self = Self.cast(vm.peek(0).obj()).?;
-
-        if (str.string.len == 0) {
-            ctx.vm.push(str.toValue());
-
-            return 1;
         }
 
-        var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        ctx.vm.push(result);
 
-            return -1;
+        return 1;
+    }
+
+    fn decodeBase64_raw(ctx: *NativeCtx, str_value: Value) Value {
+        const str: *Self = Self.cast(str_value.obj()).?;
+
+        const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
         };
-        defer vm.gc.allocator.free(new_str);
+        var decoded = ctx.vm.gc.allocator.alloc(u8, size) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+        defer ctx.vm.gc.allocator.free(decoded);
+
+        std.base64.standard.Decoder.decode(decoded, str.string) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+
+        var new_string = ctx.vm.gc.copyString(decoded) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+
+        return new_string.toValue();
+    }
+
+    fn decodeBase64(ctx: *NativeCtx) c_int {
+        const result = decodeBase64_raw(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
+
+        return 1;
+    }
+
+    fn upper_raw(ctx: *NativeCtx, str_value: Value) Value {
+        const str: *Self = Self.cast(str_value.obj()).?;
+
+        if (str.string.len == 0) {
+            return str.toValue();
+        }
+
+        var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+        defer ctx.vm.gc.allocator.free(new_str);
 
         for (str.string) |char, index| {
             switch (char) {
@@ -962,36 +1115,42 @@ pub const ObjString = struct {
             }
         }
 
-        var obj_string = vm.gc.copyString(new_str) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        var obj_string = ctx.vm.gc.copyString(new_str) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
-        ctx.vm.push(obj_string.toValue());
+        return obj_string.toValue();
+    }
+
+    fn upper(ctx: *NativeCtx) c_int {
+        const result = upper_raw(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn lower(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        const str: *Self = Self.cast(vm.peek(0).obj()).?;
+    fn lower_raw(ctx: *NativeCtx, str_value: Value) Value {
+        const str: *Self = Self.cast(str_value.obj()).?;
 
         if (str.string.len == 0) {
-            ctx.vm.push(str.toValue());
-
-            return 1;
+            return str.toValue();
         }
 
-        var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
-        defer vm.gc.allocator.free(new_str);
+        defer ctx.vm.gc.allocator.free(new_str);
 
         for (str.string) |char, index| {
             switch (char) {
@@ -1000,17 +1159,47 @@ pub const ObjString = struct {
             }
         }
 
-        var obj_string = vm.gc.copyString(new_str) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+        var obj_string = ctx.vm.gc.copyString(new_str) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
-        ctx.vm.push(obj_string.toValue());
+        return obj_string.toValue();
+    }
+
+    fn lower(ctx: *NativeCtx) c_int {
+        const result = upper_raw(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
+
+    pub const raw_members = std.ComptimeStringMap(
+        *const anyopaque,
+        .{
+            .{ "len", @ptrCast(*const anyopaque, &len_raw) },
+            .{ "trim", @ptrCast(*const anyopaque, &trim_raw) },
+            .{ "byte", @ptrCast(*const anyopaque, &byte_raw) },
+            .{ "indexOf", @ptrCast(*const anyopaque, &indexOf_raw) },
+            .{ "split", @ptrCast(*const anyopaque, &split_raw) },
+            .{ "sub", @ptrCast(*const anyopaque, &sub_raw) },
+            .{ "startsWith", @ptrCast(*const anyopaque, &startsWith_raw) },
+            .{ "endsWith", @ptrCast(*const anyopaque, &endsWith_raw) },
+            .{ "replace", @ptrCast(*const anyopaque, &replace_raw) },
+            .{ "repeat", @ptrCast(*const anyopaque, &repeat_raw) },
+            .{ "encodeBase64", @ptrCast(*const anyopaque, &encodeBase64_raw) },
+            .{ "decodeBase64", @ptrCast(*const anyopaque, &decodeBase64_raw) },
+            .{ "upper", @ptrCast(*const anyopaque, &upper_raw) },
+            .{ "lower", @ptrCast(*const anyopaque, &lower_raw) },
+        },
+    );
 
     pub const members = std.ComptimeStringMap(
         NativeFn,
@@ -1044,6 +1233,7 @@ pub const ObjString = struct {
                 .{
                     // Complains about const qualifier discard otherwise
                     .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native_raw = @intToPtr(*anyopaque, @ptrToInt(raw_members.get(method.string).?)),
                 },
             );
 
@@ -1245,14 +1435,13 @@ pub const ObjClosure = struct {
 
 pub const NativeCtx = extern struct {
     vm: *VM,
-    globals: ?[*]Value = null,
-    globals_len: usize = 0,
-    upvalues: ?[*]*ObjUpValue = null,
-    upvalues_len: usize = 0,
+    globals: [*]Value,
+    upvalues: [*]*ObjUpValue,
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
-pub const NativeFn = *const fn (ctx: NativeCtx) c_int;
+pub const Native = fn (ctx: *NativeCtx) c_int;
+pub const NativeFn = *const Native;
 
 /// Native function
 pub const ObjNative = struct {
@@ -1262,11 +1451,9 @@ pub const ObjNative = struct {
 
     // TODO: issue is list.member which separate its type definition from its runtime creation
     // type_def: *ObjTypeDef,
-    name: []const u8,
-
     native: *anyopaque,
 
-    native_raw: ?*anyopaque = null,
+    native_raw: *anyopaque,
 
     pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
@@ -1757,7 +1944,7 @@ pub const ObjList = struct {
         return @fieldParentPtr(Self, "obj", obj);
     }
 
-    pub const members = std.ComptimeStringMap(
+    const members = std.ComptimeStringMap(
         NativeFn,
         .{
             .{ "append", append },
@@ -1777,6 +1964,26 @@ pub const ObjList = struct {
         },
     );
 
+    const raw_members = std.ComptimeStringMap(
+        *const anyopaque,
+        .{
+            .{ "append", @ptrCast(*const anyopaque, &append) },
+            .{ "remove", @ptrCast(*const anyopaque, &remove) },
+            .{ "len", @ptrCast(*const anyopaque, &len) },
+            .{ "next", @ptrCast(*const anyopaque, &next) },
+            .{ "sub", @ptrCast(*const anyopaque, &sub) },
+            .{ "indexOf", @ptrCast(*const anyopaque, &indexOf) },
+            .{ "join", @ptrCast(*const anyopaque, &join) },
+            .{ "insert", @ptrCast(*const anyopaque, &insert) },
+            .{ "pop", @ptrCast(*const anyopaque, &pop) },
+            .{ "forEach", @ptrCast(*const anyopaque, &forEach) },
+            .{ "map", @ptrCast(*const anyopaque, &map) },
+            .{ "filter", @ptrCast(*const anyopaque, &filter) },
+            .{ "reduce", @ptrCast(*const anyopaque, &reduce) },
+            .{ "sort", @ptrCast(*const anyopaque, &sort) },
+        },
+    );
+
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
@@ -1789,6 +1996,7 @@ pub const ObjList = struct {
                 .{
                     // Complains about const qualifier discard otherwise
                     .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native_raw = @intToPtr(*anyopaque, @ptrToInt(raw_members.get(method.string).?)),
                 },
             );
 
@@ -1815,14 +2023,12 @@ pub const ObjList = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    fn forEach(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list = ObjList.cast(vm.peek(1).obj()).?;
-        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
+    fn forEach_raw(ctx: *NativeCtx, list_value: Value, closure_value: Value) void {
+        const list = ObjList.cast(list_value.obj()).?;
+        const closure = ObjClosure.cast(closure_value.obj()).?;
 
         for (list.items.items) |item, index| {
-            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
@@ -1831,26 +2037,32 @@ pub const ObjList = struct {
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
-                vm,
+                ctx.vm,
                 closure,
                 @ptrCast([*]const *const Value, args.items),
                 @intCast(u8, args.items.len),
                 null,
             );
         }
+    }
+
+    fn forEach(ctx: *NativeCtx) c_int {
+        forEach_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
 
         return 0;
     }
 
-    fn reduce(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list = ObjList.cast(vm.peek(2).obj()).?;
-        var closure = ObjClosure.cast(vm.peek(1).obj()).?;
-        var accumulator = vm.peek(0);
+    fn reduce_raw(ctx: *NativeCtx, list_value: Value, closure_value: Value, accumulator_value: Value) Value {
+        const list = ObjList.cast(list_value.obj()).?;
+        const closure = ObjClosure.cast(closure_value.obj()).?;
+        var accumulator = accumulator_value;
 
         for (list.items.items) |item, index| {
-            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
@@ -1860,37 +2072,46 @@ pub const ObjList = struct {
             args.append(&accumulator) catch unreachable;
 
             buzz_api.bz_call(
-                vm,
+                ctx.vm,
                 closure,
                 @ptrCast([*]const *const Value, args.items),
                 @intCast(u8, args.items.len),
                 null,
             );
 
-            accumulator = vm.pop();
+            accumulator = ctx.vm.pop();
         }
 
-        ctx.vm.push(accumulator);
+        return accumulator;
+    }
+
+    fn reduce(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            reduce_raw(
+                ctx,
+                ctx.vm.peek(2),
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
 
-    fn filter(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn filter_raw(ctx: *NativeCtx, list_value: Value, closure_value: Value) Value {
+        const list = ObjList.cast(list_value.obj()).?;
+        const closure = ObjClosure.cast(closure_value.obj()).?;
 
-        var list = ObjList.cast(vm.peek(1).obj()).?;
-        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
-
-        var new_list: *ObjList = vm.gc.allocateObject(
+        const new_list: *ObjList = ctx.vm.gc.allocateObject(
             ObjList,
             ObjList.init(
-                vm.gc.allocator,
+                ctx.vm.gc.allocator,
                 list.type_def.resolved_type.?.List.item_type,
             ),
         ) catch unreachable; // TODO: handle error
 
         for (list.items.items) |item, index| {
-            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
@@ -1899,41 +2120,49 @@ pub const ObjList = struct {
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
-                vm,
+                ctx.vm,
                 closure,
                 @ptrCast([*]const *const Value, args.items),
                 @intCast(u8, args.items.len),
                 null,
             );
 
-            if (vm.pop().boolean()) {
-                new_list.rawAppend(vm.gc, item) catch unreachable;
+            if (ctx.vm.pop().boolean()) {
+                new_list.rawAppend(ctx.vm.gc, item) catch unreachable;
             }
         }
 
-        ctx.vm.push(new_list.toValue());
+        return new_list.toValue();
+    }
+
+    fn filter(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            filter_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
 
-    fn map(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list = ObjList.cast(vm.peek(1).obj()).?;
-        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
+    fn map_raw(ctx: *NativeCtx, list_value: Value, closure_value: Value) Value {
+        const list = ObjList.cast(list_value.obj()).?;
+        const closure = ObjClosure.cast(closure_value.obj()).?;
 
         // FIXME: how to get concret generic type here? for now we use the generic type
-        var function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;
-        var new_list: *ObjList = vm.gc.allocateObject(
+        const function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;
+        const new_list: *ObjList = ctx.vm.gc.allocateObject(
             ObjList,
             ObjList.init(
-                vm.gc.allocator,
+                ctx.vm.gc.allocator,
                 function_generic_types,
             ),
         ) catch unreachable; // TODO: handle error
 
         for (list.items.items) |item, index| {
-            var args = std.ArrayList(*const Value).init(vm.gc.allocator);
+            var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
@@ -1942,53 +2171,70 @@ pub const ObjList = struct {
             args.append(&item) catch unreachable;
 
             buzz_api.bz_call(
-                vm,
+                ctx.vm,
                 closure,
                 @ptrCast([*]const *const Value, args.items),
                 @intCast(u8, args.items.len),
                 null,
             );
 
-            new_list.rawAppend(vm.gc, vm.pop()) catch unreachable;
+            new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch unreachable;
         }
 
-        ctx.vm.push(new_list.toValue());
+        return new_list.toValue();
+    }
+
+    fn map(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            map_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
 
-    fn append(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn append_raw(ctx: *NativeCtx, list_value: Value, value: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
 
-        var list_value: Value = vm.peek(1);
-        var list: *ObjList = ObjList.cast(list_value.obj()).?;
-        var value: Value = vm.peek(0);
-
-        list.rawAppend(vm.gc, value) catch |err| {
-            const messageValue: Value = (vm.gc.copyString("Could not append to list") catch {
+        list.rawAppend(ctx.vm.gc, value) catch |err| {
+            const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
                 std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             }).toValue();
 
-            vm.throw(err, messageValue) catch {
+            ctx.vm.throw(err, messageValue) catch {
                 std.debug.print("Could not append to list", .{});
                 std.os.exit(1);
             };
-            return -1;
+
+            return Value.Error;
         };
 
-        ctx.vm.push(list_value);
+        return list_value;
+    }
+
+    fn append(ctx: *NativeCtx) c_int {
+        const result = append_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn insert(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list_value: Value = vm.peek(2);
-        var list: *ObjList = ObjList.cast(list_value.obj()).?;
-        var index: i32 = vm.peek(1).integer();
-        var value: Value = vm.peek(0);
+    fn insert_raw(ctx: *NativeCtx, list_value: Value, index_value: Value, value: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
+        var index: i32 = index_value.integer();
 
         if (index < 0 or list.items.items.len == 0) {
             index = 0;
@@ -1996,66 +2242,88 @@ pub const ObjList = struct {
             index = @intCast(i32, list.items.items.len) - 1;
         }
 
-        list.rawInsert(vm.gc, @intCast(usize, index), value) catch |err| {
-            const messageValue: Value = (vm.gc.copyString("Could not insert into list") catch {
+        list.rawInsert(ctx.vm.gc, @intCast(usize, index), value) catch |err| {
+            const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
                 std.debug.print("Could not insert into list", .{});
                 std.os.exit(1);
             }).toValue();
 
-            vm.throw(err, messageValue) catch {
+            ctx.vm.throw(err, messageValue) catch {
                 std.debug.print("Could not insert into list", .{});
                 std.os.exit(1);
             };
-            return -1;
+
+            return Value.Error;
         };
 
-        ctx.vm.push(value);
+        return value;
+    }
+
+    fn insert(ctx: *NativeCtx) c_int {
+        const result = insert_raw(
+            ctx,
+            ctx.vm.peek(2),
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    fn len(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn len_raw(_: *NativeCtx, list_value: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
 
-        var list: *ObjList = ObjList.cast(vm.peek(0).obj()).?;
+        return Value.fromInteger(@intCast(i32, list.items.items.len));
+    }
 
-        ctx.vm.push(Value.fromInteger(@intCast(i32, list.items.items.len)));
+    fn len(ctx: *NativeCtx) c_int {
+        ctx.vm.push(len_raw(ctx, ctx.vm.peek(0)));
 
         return 1;
     }
 
-    pub fn pop(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list: *ObjList = ObjList.cast(vm.peek(0).obj()).?;
+    fn pop_raw(_: *NativeCtx, list_value: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
 
         if (list.items.items.len > 0) {
-            ctx.vm.push(list.items.pop());
+            return list.items.pop();
         } else {
-            ctx.vm.push(Value.Null);
+            return Value.Null;
         }
+    }
+
+    fn pop(ctx: *NativeCtx) c_int {
+        ctx.vm.push(pop_raw(ctx, ctx.vm.peek(0)));
 
         return 1;
     }
 
-    pub fn remove(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var list: *ObjList = ObjList.cast(vm.peek(1).obj()).?;
-        var list_index_value = floatToInteger(vm.peek(0));
-        var list_index: ?i32 = if (list_index_value.isInteger()) list_index_value.integer() else null;
+    fn remove_raw(ctx: *NativeCtx, list_value: Value, index_value: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
+        const list_index_value = floatToInteger(index_value);
+        const list_index: ?i32 = if (list_index_value.isInteger()) list_index_value.integer() else null;
 
         if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
-            ctx.vm.push(Value.Null);
-
-            return 1;
+            return Value.Null;
         }
 
-        ctx.vm.push(list.items.orderedRemove(@intCast(usize, list_index.?)));
-        vm.gc.markObjDirty(&list.obj) catch {
+        const result = list.items.orderedRemove(@intCast(usize, list_index.?));
+        ctx.vm.gc.markObjDirty(&list.obj) catch {
             std.debug.print("Could not remove from list", .{});
             std.os.exit(1);
         };
+
+        return result;
+    }
+
+    fn remove(ctx: *NativeCtx) c_int {
+        ctx.vm.push(remove_raw(ctx, ctx.vm.peek(1), ctx.vm.peek(0)));
 
         return 1;
     }
@@ -2084,33 +2352,38 @@ pub const ObjList = struct {
         return context.vm.pop().boolean();
     }
 
-    pub fn sort(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self = Self.cast(vm.peek(1).obj()).?;
+    fn sort_raw(ctx: *NativeCtx, list_value: Value, closure_value: Value) Value {
+        const self = Self.cast(list_value.obj()).?;
         // fun compare(T lhs, T rhs) > bool
-        var sort_closure = ObjClosure.cast(vm.peek(0).obj()).?;
+        const sort_closure = ObjClosure.cast(closure_value.obj()).?;
 
         std.sort.sort(
             Value,
             self.items.items,
             SortContext{
                 .sort_closure = sort_closure,
-                .vm = vm,
+                .vm = ctx.vm,
             },
             lessThan,
         );
 
-        ctx.vm.push(self.toValue());
+        return self.toValue();
+    }
+
+    fn sort(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            sort_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
 
-    pub fn indexOf(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var needle: Value = vm.peek(0);
+    fn indexOf_raw(_: *NativeCtx, list_value: Value, needle: Value) Value {
+        const self: *Self = Self.cast(list_value.obj()).?;
 
         var index: ?usize = null;
         var i: usize = 0;
@@ -2123,106 +2396,140 @@ pub const ObjList = struct {
             i += 1;
         }
 
-        ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
-
-        return 1;
+        return if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null;
     }
 
-    pub fn join(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *Self = Self.cast(vm.peek(1).obj()).?;
-        var separator: *ObjString = ObjString.cast(vm.peek(0).obj()).?;
-
-        var result = std.ArrayList(u8).init(vm.gc.allocator);
-        var writer = result.writer();
-        defer result.deinit();
-        for (self.items.items) |item, i| {
-            valueToString(&writer, item) catch {
-                var err: ?*ObjString = vm.gc.copyString("could not stringify item") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-                return -1;
-            };
-
-            if (i + 1 < self.items.items.len) {
-                writer.writeAll(separator.string) catch {
-                    var err: ?*ObjString = vm.gc.copyString("could not join list") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-                    return -1;
-                };
-            }
-        }
-
+    fn indexOf(ctx: *NativeCtx) c_int {
         ctx.vm.push(
-            Value.fromObj(
-                (vm.gc.copyString(result.items) catch {
-                    var err: ?*ObjString = vm.gc.copyString("could not join list") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-                    return -1;
-                }).toObj(),
+            indexOf_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
             ),
         );
 
         return 1;
     }
 
-    pub fn sub(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn join_raw(ctx: *NativeCtx, list_value: Value, separator_value: Value) Value {
+        const self: *Self = Self.cast(list_value.obj()).?;
+        const separator: *ObjString = ObjString.cast(separator_value.obj()).?;
 
-        var self: *Self = Self.cast(vm.peek(2).obj()).?;
-        var start_value = floatToInteger(vm.peek(1));
-        var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
-        var upto_value: Value = floatToInteger(vm.peek(0));
-        var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
+        var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+        var writer = result.writer();
+        defer result.deinit();
+        for (self.items.items) |item, i| {
+            valueToString(&writer, item) catch {
+                var err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
+                ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-        if (start == null or start.? < 0 or start.? >= self.items.items.len) {
-            var err: ?*ObjString = vm.gc.copyString("`start` is out of bound") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                return Value.Error;
+            };
 
+            if (i + 1 < self.items.items.len) {
+                writer.writeAll(separator.string) catch {
+                    var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+                    ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+                    return Value.Error;
+                };
+            }
+        }
+
+        return Value.fromObj(
+            (ctx.vm.gc.copyString(result.items) catch {
+                var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+                ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+                return Value.Error;
+            }).toObj(),
+        );
+    }
+
+    fn join(ctx: *NativeCtx) c_int {
+        const result = join_raw(
+            ctx,
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
             return -1;
         }
 
-        if (upto != null and upto.? < 0) {
-            var err: ?*ObjString = vm.gc.copyString("`len` must greater or equal to 0") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        }
-
-        const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len) @intCast(usize, start.? + upto.?) else self.items.items.len;
-        var substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
-
-        var list = vm.gc.allocateObject(ObjList, ObjList{
-            .type_def = self.type_def,
-            .methods = self.methods.clone() catch {
-                var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-                return -1;
-            },
-            .items = std.ArrayList(Value).init(vm.gc.allocator),
-        }) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
-
-        ctx.vm.push(list.toValue());
-
-        list.items.appendSlice(substr) catch {
-            var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
-
-            return -1;
-        };
+        ctx.vm.push(result);
 
         return 1;
     }
 
+    fn sub_raw(ctx: *NativeCtx, list_value: Value, start_value: Value, upto_value: Value) Value {
+        const self: *Self = Self.cast(list_value.obj()).?;
+        const start_number = floatToInteger(start_value);
+        const start: ?i32 = if (start_number.isInteger()) start_number.integer() else null;
+        const upto_number: Value = floatToInteger(upto_value);
+        const upto: ?i32 = if (upto_number.isInteger()) upto_number.integer() else if (upto_number.isFloat()) @floatToInt(i32, upto_number.float()) else null;
+
+        if (start == null or start.? < 0 or start.? >= self.items.items.len) {
+            var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        }
+
+        if (upto != null and upto.? < 0) {
+            var err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        }
+
+        const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len) @intCast(usize, start.? + upto.?) else self.items.items.len;
+        const substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
+
+        var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
+            .type_def = self.type_def,
+            .methods = self.methods.clone() catch {
+                var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+                ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+                return Value.Error;
+            },
+            .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
+        }) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+
+        list.items.appendSlice(substr) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+
+            return Value.Error;
+        };
+
+        return list.toValue();
+    }
+
+    fn sub(ctx: *NativeCtx) c_int {
+        const result = sub_raw(
+            ctx,
+            ctx.vm.peek(2),
+            ctx.vm.peek(1),
+            ctx.vm.peek(0),
+        );
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
+
+        return 1;
+    }
+
+    // Used also by the VM
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?i32) !?i32 {
         if (list_index) |index| {
             if (index < 0 or index >= @intCast(i32, self.items.items.len)) {
@@ -2238,20 +2545,30 @@ pub const ObjList = struct {
         }
     }
 
-    fn next(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    // NativeFn raw version
+    fn next_raw(ctx: *NativeCtx, list_value: Value, list_index: Value) Value {
+        const list: *ObjList = ObjList.cast(list_value.obj()).?;
 
-        var list_value: Value = vm.peek(1);
-        var list: *ObjList = ObjList.cast(list_value.obj()).?;
-        var list_index: Value = vm.peek(0);
-
-        var next_index: ?i32 = list.rawNext(vm, if (list_index.isNull()) null else list_index.integer()) catch |err| {
+        var next_index: ?i32 = list.rawNext(
+            ctx.vm,
+            if (list_index.isNull()) null else list_index.integer(),
+        ) catch |err| {
             // TODO: should we distinguish NativeFn and ExternFn ?
             std.debug.print("{}\n", .{err});
             std.os.exit(1);
         };
 
-        ctx.vm.push(if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null);
+        return if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null;
+    }
+
+    fn next(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            next_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
@@ -2989,13 +3306,23 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub const members = std.ComptimeStringMap(
+    const members = std.ComptimeStringMap(
         NativeFn,
         .{
             .{ "remove", remove },
             .{ "size", size },
             .{ "keys", keys },
             .{ "values", values },
+        },
+    );
+
+    const raw_members = std.ComptimeStringMap(
+        *const anyopaque,
+        .{
+            .{ "remove", @ptrCast(*const anyopaque, &remove) },
+            .{ "size", @ptrCast(*const anyopaque, &size) },
+            .{ "keys", @ptrCast(*const anyopaque, &keys) },
+            .{ "values", @ptrCast(*const anyopaque, &values) },
         },
     );
 
@@ -3010,6 +3337,7 @@ pub const ObjMap = struct {
                 .{
                     // Complains about const qualifier discard otherwise
                     .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native_raw = @intToPtr(*anyopaque, @ptrToInt(raw_members.get(method.string).?)),
                 },
             );
 
@@ -3037,49 +3365,56 @@ pub const ObjMap = struct {
         try gc.markObj(self.type_def.toObj());
     }
 
-    fn size(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn size_raw(_: *NativeCtx, map_value: Value) Value {
+        const map: *ObjMap = ObjMap.cast(map_value.obj()).?;
 
-        var map: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
+        return Value.fromInteger(@intCast(i32, map.map.count()));
+    }
 
-        ctx.vm.push(Value.fromInteger(@intCast(i32, map.map.count())));
+    fn size(ctx: *NativeCtx) c_int {
+        ctx.vm.push(size_raw(ctx, ctx.vm.peek(0)));
 
         return 1;
     }
 
-    pub fn remove(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var map: *ObjMap = ObjMap.cast(vm.peek(1).obj()).?;
-        var map_key = vm.peek(0);
+    fn remove_raw(_: *NativeCtx, map_value: Value, map_key: Value) Value {
+        const map: *ObjMap = ObjMap.cast(map_value.obj()).?;
 
         if (map.map.fetchOrderedRemove(map_key)) |removed| {
-            ctx.vm.push(removed.value);
+            return removed.value;
         } else {
-            ctx.vm.push(Value.Null);
+            return Value.Null;
         }
+    }
+
+    fn remove(ctx: *NativeCtx) c_int {
+        ctx.vm.push(
+            remove_raw(
+                ctx,
+                ctx.vm.peek(1),
+                ctx.vm.peek(0),
+            ),
+        );
 
         return 1;
     }
 
-    pub fn keys(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
+    fn keys_value(ctx: *NativeCtx, map_value: Value) Value {
+        const self: *ObjMap = ObjMap.cast(map_value.obj()).?;
 
-        var self: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
-
-        var map_keys: []Value = self.map.keys();
-        var result = std.ArrayList(Value).init(vm.gc.allocator);
+        const map_keys: []Value = self.map.keys();
+        var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
         for (map_keys) |key| {
             result.append(key) catch {
-                var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+                var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+                ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-                return -1;
+                return Value.Error;
             };
         }
 
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.gc.allocator,
+            ctx.vm.gc.allocator,
             self.type_def.resolved_type.?.Map.key_type,
         );
 
@@ -3087,55 +3422,64 @@ pub const ObjMap = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
+        var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
         // Prevent collection
         ctx.vm.push(list_def_type.toValue());
 
-        var list = vm.gc.allocateObject(
+        var list = ctx.vm.gc.allocateObject(
             ObjList,
-            ObjList.init(vm.gc.allocator, list_def_type),
+            ObjList.init(ctx.vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
         list.items.deinit();
         list.items = result;
 
-        _ = vm.pop();
-        ctx.vm.push(list.toValue());
+        _ = ctx.vm.pop();
+
+        return list.toValue();
+    }
+
+    fn keys(ctx: *NativeCtx) c_int {
+        const result = keys_value(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }
 
-    pub fn values(ctx: NativeCtx) c_int {
-        const vm = ctx.vm;
-
-        var self: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
+    fn values_raw(ctx: *NativeCtx, map_value: Value) Value {
+        const self: *ObjMap = ObjMap.cast(map_value.obj()).?;
 
         var map_values: []Value = self.map.values();
-        var result = std.ArrayList(Value).init(vm.gc.allocator);
+        var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
         result.appendSlice(map_values) catch {
-            var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
-            vm.gc.allocator,
+            ctx.vm.gc.allocator,
             self.type_def.resolved_type.?.Map.value_type,
         );
 
@@ -3143,31 +3487,41 @@ pub const ObjMap = struct {
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
+        var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = list_def_union,
         }) catch {
-            var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
-        var list = vm.gc.allocateObject(
+        var list = ctx.vm.gc.allocateObject(
             ObjList,
-            ObjList.init(vm.gc.allocator, list_def_type),
+            ObjList.init(ctx.vm.gc.allocator, list_def_type),
         ) catch {
-            var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
+            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+            ctx.vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
-            return -1;
+            return Value.Error;
         };
 
         list.items.deinit();
         list.items = result;
 
-        ctx.vm.push(list.toValue());
+        return list.toValue();
+    }
+
+    fn values(ctx: *NativeCtx) c_int {
+        const result = values_raw(ctx, ctx.vm.peek(0));
+
+        if (result.isError()) {
+            return -1;
+        }
+
+        ctx.vm.push(result);
 
         return 1;
     }

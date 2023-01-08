@@ -22,6 +22,7 @@ const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
 const NativeFn = _obj.NativeFn;
+const Native = _obj.Native;
 const NativeCtx = _obj.NativeCtx;
 const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
@@ -3426,13 +3427,21 @@ pub const VM = struct {
             // If we're here it means there's no reason it would not compile
             closure.function.native = compiled[0];
             closure.function.native_raw = compiled[1];
+
+            native = closure.function.native;
         }
 
         // Is there a jitted version of it?
         if (native) |jitted_function| {
             try self.callNative(
                 closure,
-                @ptrCast(NativeFn, @alignCast(@alignOf(NativeFn), jitted_function)),
+                @ptrCast(
+                    NativeFn,
+                    @alignCast(
+                        @alignOf(Native),
+                        jitted_function,
+                    ),
+                ),
                 arg_count,
                 catch_value,
             );
@@ -3471,12 +3480,10 @@ pub const VM = struct {
 
         var result: Value = Value.Null;
         const native_return = native(
-            NativeCtx{
+            &NativeCtx{
                 .vm = self,
-                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else null,
-                .globals_len = if (closure) |uclosure| uclosure.globals.items.len else 0,
-                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else null,
-                .upvalues_len = if (closure) |uclosure| uclosure.upvalues.items.len else 0,
+                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
+                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
             },
         );
 

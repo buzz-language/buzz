@@ -22,6 +22,14 @@ const BuzzDebugOptions = struct {
     }
 };
 
+const BuzzJITOptions = struct {
+    debug: bool,
+
+    pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
+        options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
+    }
+};
+
 const BuzzGCOptions = struct {
     debug: bool,
     debug_light: bool,
@@ -46,6 +54,7 @@ const BuzzBuildOptions = struct {
     use_mimalloc: bool,
     debug: BuzzDebugOptions,
     gc: BuzzGCOptions,
+    jit: BuzzJITOptions,
 
     pub fn step(self: BuzzBuildOptions, b: *std.build.Builder) *std.build.OptionsStep {
         var options = b.addOptions();
@@ -55,6 +64,7 @@ const BuzzBuildOptions = struct {
 
         self.debug.step(options);
         self.gc.step(options);
+        self.jit.step(options);
 
         return options;
     }
@@ -131,6 +141,9 @@ pub fn build(b: *Builder) !void {
             .next_gc_ratio = b.option(usize, "next_gc_ratio", "Ratio applied to get the next GC threshold") orelse 2,
             .next_full_gc_ratio = b.option(usize, "next_full_gc_ratio", "Ratio applied to get the next full GC threshold") orelse 4,
         },
+        .jit = .{
+            .debug = b.option(bool, "jit_debug", "Show debug information for the JIT engine") orelse false,
+        },
     };
 
     const build_mode = b.standardReleaseOptions();
@@ -154,8 +167,8 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
-    exe.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
-    exe.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
+    exe.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
+    exe.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
     exe.linkSystemLibrary("llvm");
 
     exe.setBuildMode(build_mode);
@@ -181,8 +194,8 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
-    lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
-    lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
+    lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
+    lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
     lib.linkSystemLibrary("llvm");
 
     lib.setMainPkgPath("src");
@@ -251,8 +264,8 @@ pub fn build(b: *Builder) !void {
             std_lib.addLibraryPath("/opt/homebrew/lib");
         }
         // LLVM
-        std_lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
-        std_lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
+        std_lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
+        std_lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
         std_lib.linkSystemLibrary("llvm");
         std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);

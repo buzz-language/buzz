@@ -47,19 +47,19 @@ else
 // Stack manipulation
 
 /// Push a Value to the stack
-export fn bz_push(self: *VM, value: *Value) void {
-    self.push(value.*);
+export fn bz_push(self: *VM, value: Value) void {
+    self.push(value);
 }
 
 /// Pop a Value from the stack and returns it
-export fn bz_pop(self: *VM) *Value {
+export fn bz_pop(self: *VM) Value {
     self.current_fiber.stack_top -= 1;
-    return @ptrCast(*Value, self.current_fiber.stack_top);
+    return @ptrCast(*Value, self.current_fiber.stack_top).*;
 }
 
 /// Peeks at the stack at [distance] from the stack top
-export fn bz_peek(self: *VM, distance: u32) *Value {
-    return @ptrCast(*Value, self.current_fiber.stack_top - 1 - distance);
+export fn bz_peek(self: *VM, distance: u32) Value {
+    return @ptrCast(*Value, self.current_fiber.stack_top - 1 - distance).*;
 }
 
 // Value manipulations
@@ -104,14 +104,9 @@ export fn bz_pushUserData(self: *VM, value: *ObjUserData) void {
     self.push(value.toValue());
 }
 
-/// Converts a value to a boolean
-export fn bz_valueToBool(value: *Value) bool {
-    return value.boolean();
-}
-
 /// Converts a value to a string
-export fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8 {
-    if (!value.*.isObj() or value.obj().obj_type != .String) {
+export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
+    if (!value.isObj() or value.obj().obj_type != .String) {
         return null;
     }
 
@@ -287,25 +282,8 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
     }
 }
 
-/// Converts a value to a float
-export fn bz_valueToFloat(value: *Value) f64 {
-    return if (value.*.isInteger()) @intToFloat(f64, value.integer()) else value.float();
-}
-
-/// Converts a value to a integer, returns null if float value with decimal part
-export fn bz_valueToInteger(value: *Value) i32 {
-    return if (value.*.isFloat()) value.integer() else @floatToInt(i32, value.float());
-}
-
-export fn bz_valueToUserData(value: *Value) *UserData {
+export fn bz_valueToUserData(value: Value) *UserData {
     return ObjUserData.cast(value.obj()).?.userdata;
-}
-
-export fn bz_valueIsInteger(value: *Value) bool {
-    return value.*.isInteger();
-}
-export fn bz_valueIsFloat(value: *Value) bool {
-    return value.*.isFloat();
 }
 
 // Obj manipulations
@@ -320,6 +298,11 @@ export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8
     len.* = obj_string.string.len;
 
     return if (obj_string.string.len > 0) @ptrCast([*]const u8, obj_string.string) else null;
+}
+
+/// ObjString -> Value
+export fn bz_objStringToValue(obj_string: *ObjString) Value {
+    return obj_string.toValue();
 }
 
 // Other stuff
@@ -404,20 +387,20 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
     };
 }
 
-export fn bz_listAppend(self: *ObjList, gc: *GarbageCollector, value: *Value) bool {
-    self.rawAppend(gc, value.*) catch {
+export fn bz_listAppend(self: *ObjList, gc: *GarbageCollector, value: Value) bool {
+    self.rawAppend(gc, value) catch {
         return false;
     };
 
     return true;
 }
 
-export fn bz_valueToList(value: *Value) *ObjList {
+export fn bz_valueToList(value: Value) *ObjList {
     return ObjList.cast(value.obj()).?;
 }
 
-export fn bz_listGet(self: *ObjList, index: usize) *Value {
-    return &self.items.items[index];
+export fn bz_listGet(self: *ObjList, index: usize) Value {
+    return self.items.items[index];
 }
 
 export fn bz_listLen(self: *ObjList) usize {
@@ -437,8 +420,12 @@ export fn bz_getUserData(userdata: *ObjUserData) *UserData {
     return userdata.userdata;
 }
 
-export fn bz_throw(vm: *VM, value: *Value) void {
-    vm.push(value.*);
+export fn bz_userDataToValue(userdata: *ObjUserData) Value {
+    return userdata.toValue();
+}
+
+export fn bz_throw(vm: *VM, value: Value) void {
+    vm.push(value);
 }
 
 export fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void {
@@ -527,7 +514,7 @@ pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *cons
 
 // Assumes the global exists
 export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
-    const object = bz_getQualified(self, qualified_name, len).?;
+    const object = bz_getQualified(self, qualified_name, len);
 
     self.push(
         // Dismiss error because if we fail to create the error payload there's not much to salvage anyway
@@ -539,16 +526,16 @@ export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void 
 }
 
 export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void {
-    const enum_set = ObjEnum.cast(bz_getQualified(self, qualified_name, name_len).?.obj()).?;
+    const enum_set = ObjEnum.cast(bz_getQualified(self, qualified_name, name_len).obj()).?;
 
     self.push(
         bz_getEnumCase(enum_set, self, case, case_len).?.toValue(),
     );
 }
 
-export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ?*Value {
-    for (self.globals.items) |*global| {
-        if (global.*.isObj()) {
+export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value {
+    for (self.globals.items) |global| {
+        if (global.isObj()) {
             switch (global.obj().obj_type) {
                 .Enum => {
                     const obj_enum = ObjEnum.cast(global.obj()).?;
@@ -569,7 +556,7 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ?*
         }
     }
 
-    return null;
+    unreachable;
 }
 
 export fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance {
@@ -579,7 +566,7 @@ export fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance {
     ) catch null;
 }
 
-export fn bz_valueToObject(value: *Value) *ObjObject {
+export fn bz_valueToObject(value: Value) *ObjObject {
     return ObjObject.cast(value.obj()).?;
 }
 
@@ -621,8 +608,8 @@ export fn bz_jitFunction(self: *VM, closure: *ObjClosure) void {
     }
 }
 
-export fn bz_valueIsBuzzFn(value: *Value) bool {
-    if (!value.*.isObj()) {
+export fn bz_valueIsBuzzFn(value: Value) bool {
+    if (!value.isObj()) {
         return false;
     }
 
@@ -633,14 +620,18 @@ export fn bz_valueIsBuzzFn(value: *Value) bool {
     return false;
 }
 
-export fn bz_valueToClosure(value: *Value) *ObjClosure {
+export fn bz_valueToClosure(value: Value) *ObjClosure {
     return ObjClosure.cast(value.obj()).?;
 }
 
-export fn bz_toObjNative(value: *Value) *ObjNative {
+export fn bz_toObjNative(value: Value) *ObjNative {
     return ObjNative.cast(value.obj()).?;
 }
 
-export fn bz_toObjNativeOpt(value: *Value) ?*ObjNative {
+export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
     return ObjNative.cast(value.obj());
+}
+
+export fn bz_valueToRawNativeFn(value: u64) *anyopaque {
+    return ObjNative.cast((Value{ .val = value }).obj()).?.native_raw;
 }

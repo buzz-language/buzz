@@ -2,20 +2,24 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
+export fn time_raw(_: *api.NativeCtx) api.Value {
+    return api.Value.fromFloat(@intToFloat(f64, std.time.milliTimestamp()));
+}
+
 export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushFloat(@intToFloat(f64, std.time.milliTimestamp()));
+    ctx.vm.bz_push(time_raw(ctx));
 
     return 1;
 }
 
-export fn env(ctx: *api.NativeCtx) c_int {
+export fn env_raw(ctx: *api.NativeCtx, key_value: api.Value) api.Value {
     var len: usize = 0;
-    const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const key = key_value.bz_valueToString(&len);
 
     if (len == 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
     const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch null;
@@ -28,20 +32,28 @@ export fn env(ctx: *api.NativeCtx) c_int {
     if (key_slice == null) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
     if (std.os.getenvZ(key_slice.?)) |value| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
+        return (api.ObjString.bz_string(ctx.vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
             ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-            return -1;
-        });
-
-        return 1;
+            return api.Value.Error;
+        }).bz_objStringToValue();
     }
 
-    ctx.vm.bz_pushNull();
+    return api.Value.Null;
+}
+
+export fn env(ctx: *api.NativeCtx) c_int {
+    const result = env_raw(ctx, ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
@@ -53,22 +65,36 @@ fn sysTempDir() []const u8 {
     };
 }
 
-export fn tmpDir(ctx: *api.NativeCtx) c_int {
+export fn tmpDir_raw(ctx: *api.NativeCtx) api.Value {
     const tmp_dir: []const u8 = sysTempDir();
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
+    return (api.ObjString.bz_string(
+        ctx.vm,
+        if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null,
+        tmp_dir.len,
+    ) orelse {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
+        return api.Value.Error;
+    }).bz_objStringToValue();
+}
+
+export fn tmpDir(ctx: *api.NativeCtx) c_int {
+    const result = tmpDir_raw(ctx);
+
+    if (result.isError()) {
         return -1;
-    });
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
 
 // TODO: what if file with same random name exists already?
-export fn tmpFilename(ctx: *api.NativeCtx) c_int {
+export fn tmpFilename_raw(ctx: *api.NativeCtx, prefix_value: api.Value) api.Value {
     var prefix_len: usize = 0;
-    const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
+    const prefix = prefix_value.bz_valueToString(&prefix_len);
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
@@ -77,13 +103,13 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     random_part.writer().print("{x}", .{std.crypto.random.int(i32)}) catch {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-        return -1;
+        return api.Value.Error;
     };
 
     var random_part_b64 = std.ArrayList(u8).initCapacity(api.VM.allocator, std.base64.standard.Encoder.calcSize(random_part.items.len)) catch {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-        return -1;
+        return api.Value.Error;
     };
     random_part_b64.expandToCapacity();
     defer random_part_b64.deinit();
@@ -96,23 +122,37 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-        return -1;
+        return api.Value.Error;
     };
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
+    return (api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
+        return api.Value.Error;
+    }).bz_objStringToValue();
+}
+
+export fn tmpFilename(ctx: *api.NativeCtx) c_int {
+    const result = tmpFilename_raw(ctx, ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
         return -1;
-    });
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
-export fn buzzExit(ctx: *api.NativeCtx) c_int {
-    const exitCode: i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
+export fn buzzExit_raw(_: *api.NativeCtx, exit_value: api.Value) void {
+    const exitCode: i32 = exit_value.integer();
 
     std.os.exit(@intCast(u8, exitCode));
+}
+
+export fn buzzExit(ctx: *api.NativeCtx) c_int {
+    buzzExit_raw(ctx, ctx.vm.bz_peek(0));
 
     return 0;
 }
@@ -152,11 +192,11 @@ fn handleSpawnError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn execute(ctx: *api.NativeCtx) c_int {
+export fn execute_raw(ctx: *api.NativeCtx, argv_value: api.Value) api.Value {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
-    const argv = api.ObjList.bz_valueToList(ctx.vm.bz_peek(0));
+    const argv = api.ObjList.bz_valueToList(argv_value);
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
@@ -169,7 +209,7 @@ export fn execute(ctx: *api.NativeCtx) c_int {
         command.append(arg_str.?[0..arg_len]) catch {
             ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-            return -1;
+            return api.Value.Error;
         };
     }
 
@@ -179,14 +219,24 @@ export fn execute(ctx: *api.NativeCtx) c_int {
     child_process.spawn() catch |err| {
         handleSpawnError(ctx.vm, err);
 
-        return -1;
+        return api.Value.Error;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, (child_process.wait() catch |err| {
+    return api.Value.fromInteger(@intCast(i32, (child_process.wait() catch |err| {
         handleSpawnError(ctx.vm, err);
 
-        return -1;
+        return api.Value.Error;
     }).Exited));
+}
+
+export fn execute(ctx: *api.NativeCtx) c_int {
+    const result = execute_raw(ctx, ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
@@ -221,53 +271,73 @@ fn handleConnectError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketConnect(ctx: *api.NativeCtx) c_int {
+export fn SocketConnect_raw(ctx: *api.NativeCtx, address_value: api.Value, port_value: api.Value, protocol_value: api.Value) api.Value {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
-    const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
-    if (port == null or port.? < 0) {
+    const address_str = api.Value.bz_valueToString(address_value, &len);
+    const address = if (len > 0) address_str.?[0..len] else "";
+    const port: i32 = port_value.integer();
+    if (port < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
-    const protocol = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
-
-    switch (protocol) {
+    switch (protocol_value.integer()) {
         0 => {
-            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
+            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @intCast(
+                u16,
+                port,
+            )) catch |err| {
                 handleConnectError(ctx.vm, err);
 
-                return -1;
+                return api.Value.Error;
             };
 
-            ctx.vm.bz_pushInteger(@intCast(i32, stream.handle));
-
-            return 1;
+            return api.Value.fromInteger(@intCast(i32, stream.handle));
         },
         1, // TODO: UDP
         2, // TODO: IPC
         => {
             ctx.vm.bz_pushError("lib.errors.NotYetImplementedError", "lib.errors.NotYetImplementedError".len);
 
-            return -1;
+            return api.Value.Error;
         },
         else => {
             ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-            return -1;
+            return api.Value.Error;
         },
     }
 }
 
-export fn SocketClose(ctx: *api.NativeCtx) c_int {
+export fn SocketConnect(ctx: *api.NativeCtx) c_int {
+    const result = SocketConnect_raw(
+        ctx,
+        ctx.vm.bz_peek(2),
+        ctx.vm.bz_peek(1),
+        ctx.vm.bz_peek(0),
+    );
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
+
+    return 1;
+}
+
+export fn SocketClose_raw(_: *api.NativeCtx, handle_value: api.Value) void {
     const socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
+        handle_value.integer(),
     );
 
     std.os.closeSocket(socket);
+}
+
+export fn SocketClose(ctx: *api.NativeCtx) c_int {
+    SocketClose_raw(ctx, ctx.vm.bz_peek(0));
 
     return 0;
 }
@@ -304,17 +374,17 @@ fn handleReadAllError(vm: *api.VM, err: anytype) void {
     // error.OutOfMemory => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
 }
 
-export fn SocketRead(ctx: *api.NativeCtx) c_int {
-    const n: i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
+export fn SocketRead_raw(ctx: *api.NativeCtx, handle_value: api.Value, n_value: api.Value) api.Value {
+    const n = n_value.integer();
     if (n < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
+        handle_value.integer(),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -323,7 +393,7 @@ export fn SocketRead(ctx: *api.NativeCtx) c_int {
     var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
-        return -1;
+        return api.Value.Error;
     };
 
     // bz_string will copy it
@@ -332,18 +402,27 @@ export fn SocketRead(ctx: *api.NativeCtx) c_int {
     const read = reader.readAll(buffer) catch |err| {
         handleReadAllError(ctx.vm, err);
 
-        return -1;
+        return api.Value.Error;
     };
 
     if (read == 0) {
-        ctx.vm.bz_pushNull();
-    } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
-            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
-
-            return -1;
-        });
+        return api.Value.Null;
     }
+    return (api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+
+        return api.Value.Error;
+    }).bz_objStringToValue();
+}
+
+export fn SocketRead(ctx: *api.NativeCtx) c_int {
+    const result = SocketRead_raw(ctx, ctx.vm.bz_peek(1), ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
@@ -369,10 +448,10 @@ fn handleReadLineError(vm: *api.VM, err: anytype) void {
     }
 }
 
-export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
+export fn SocketReadLine_raw(ctx: *api.NativeCtx, handle_value: api.Value) api.Value {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
+        handle_value.integer(),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -381,27 +460,36 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
         handleReadLineError(ctx.vm, err);
 
-        return -1;
+        return api.Value.Error;
     };
 
     // EOF?
     if (buffer.len == 0) {
-        ctx.vm.bz_pushNull();
-    } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
-
-            return -1;
-        });
+        return api.Value.Null;
     }
+    return (api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+
+        return api.Value.Error;
+    }).bz_objStringToValue();
+}
+
+export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
+    const result = SocketReadLine_raw(ctx, ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
 
-export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
+export fn SocketReadAll_raw(ctx: *api.NativeCtx, handle_value: api.Value) api.Value {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
+        handle_value.integer(),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -410,36 +498,45 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     var buffer = reader.readAllAlloc(api.VM.allocator, 16 * 8 * 64) catch |err| {
         handleReadAllError(ctx.vm, err);
 
-        return -1;
+        return api.Value.Error;
     };
 
     // EOF?
     if (buffer.len == 0) {
-        ctx.vm.bz_pushNull();
-    } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
-            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
-
-            return -1;
-        });
+        return api.Value.Null;
     }
+    return (api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+
+        return api.Value.Error;
+    }).bz_objStringToValue();
+}
+
+export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
+    const result = SocketReadAll_raw(ctx, ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
 
-export fn SocketWrite(ctx: *api.NativeCtx) c_int {
+export fn SocketWrite_raw(ctx: *api.NativeCtx, handle_value: api.Value, value_value: api.Value) api.Value {
     const handle: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
+        handle_value.integer(),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
 
     var len: usize = 0;
-    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    var value = value_value.bz_valueToString(&len);
 
     if (len == 0) {
-        return 0;
+        return api.Value.Void;
     }
 
     _ = stream.write(value.?[0..len]) catch |err| {
@@ -459,28 +556,36 @@ export fn SocketWrite(ctx: *api.NativeCtx) c_int {
             error.LockViolation => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "LockViolation", "LockViolation".len),
         }
 
-        return -1;
+        return api.Value.Error;
     };
+
+    return api.Value.Void;
+}
+
+export fn SocketWrite(ctx: *api.NativeCtx) c_int {
+    if (SocketWrite_raw(ctx, ctx.vm.bz_peek(1), ctx.vm.bz_peek(0)).isError()) {
+        return -1;
+    }
 
     return 0;
 }
 
-export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
+export fn SocketServerStart_raw(ctx: *api.NativeCtx, address_value: api.Value, port_value: api.Value, reuse_address_value: api.Value) api.Value {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
-    const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
-    if (port == null or port.? < 0) {
+    const address_str = api.Value.bz_valueToString(address_value, &len);
+    const address = if (len > 0) address_str.?[0..len] else "";
+    const port = port_value.integer();
+    if (port < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
-    const reuse_address: bool = api.Value.bz_valueToBool(ctx.vm.bz_peek(0));
+    const reuse_address: bool = reuse_address_value.boolean();
 
     var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
 
-    const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
+    const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port)) catch |err| {
         switch (err) {
             error.ServiceUnavailable => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "ServiceUnavailable", "ServiceUnavailable".len),
             error.UnknownHostName => ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "UnknownHostName", "UnknownHostName".len),
@@ -492,14 +597,14 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.OutOfMemory => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
-        return -1;
+        return api.Value.Error;
     };
     defer list.deinit();
 
     if (list.addrs.len == 0) {
         ctx.vm.bz_pushErrorEnum("lib.errors.SocketError", "lib.errors.SocketError".len, "AddressNotResolved", "AddressNotResolved".len);
 
-        return -1;
+        return api.Value.Error;
     }
 
     server.listen(list.addrs[0]) catch |err| {
@@ -532,20 +637,35 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
         }
 
-        return -1;
+        return api.Value.Error;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, server.sockfd.?));
+    return api.Value.fromInteger(@intCast(i32, server.sockfd.?));
+}
+
+export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
+    const result = SocketServerStart_raw(
+        ctx,
+        ctx.vm.bz_peek(2),
+        ctx.vm.bz_peek(1),
+        ctx.vm.bz_peek(0),
+    );
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
 
-export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
+export fn SocketServerAccept_raw(ctx: *api.NativeCtx, handle_value: api.Value, reuse_addresse_value: api.Value) api.Value {
     const server_socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
+        handle_value.integer(),
     );
-    const reuse_address: bool = api.Value.bz_valueToBool(ctx.vm.bz_peek(0));
+    const reuse_address: bool = reuse_addresse_value.boolean();
 
     const default_options = std.net.StreamServer.Options{};
     var server = std.net.StreamServer{
@@ -571,10 +691,20 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
             error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
         }
 
-        return -1;
+        return api.Value.Error;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, connection.stream.handle));
+    return api.Value.fromInteger(@intCast(i32, connection.stream.handle));
+}
+
+export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
+    const result = SocketServerAccept_raw(ctx, ctx.vm.bz_peek(1), ctx.vm.bz_peek(0));
+
+    if (result.isError()) {
+        return -1;
+    }
+
+    ctx.vm.bz_push(result);
 
     return 1;
 }
