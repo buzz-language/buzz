@@ -24,18 +24,18 @@ fn handleMakeDirectoryError(vm: *api.VM, err: anytype) void {
 
 export fn makeDirectory(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const filename = vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     const filename_slice = filename.?[0..len];
     if (std.fs.path.isAbsolute(filename_slice)) {
         std.fs.makeDirAbsolute(filename_slice) catch |err| {
-            handleMakeDirectoryError(vm, err);
+            handleMakeDirectoryError(ctx.vm, err);
 
             return -1;
         };
     } else {
         std.fs.cwd().makeDir(filename_slice) catch |err| {
-            handleMakeDirectoryError(vm, err);
+            handleMakeDirectoryError(ctx.vm, err);
 
             return -1;
         };
@@ -66,19 +66,19 @@ fn handleDeleteDirectoryError(vm: *api.VM, err: anytype) void {
 
 export fn delete(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const filename = vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     const filename_slice = filename.?[0..len];
 
     if (std.fs.path.isAbsolute(filename_slice)) {
         std.fs.deleteTreeAbsolute(filename_slice) catch |err| {
-            handleDeleteDirectoryError(vm, err);
+            handleDeleteDirectoryError(ctx.vm, err);
 
             return -1;
         };
     } else {
         std.fs.cwd().deleteTree(filename_slice) catch |err| {
-            handleDeleteDirectoryError(vm, err);
+            handleDeleteDirectoryError(ctx.vm, err);
 
             return -1;
         };
@@ -146,10 +146,10 @@ fn handleRealpathError(vm: *api.VM, err: anytype) void {
 
 export fn move(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const source = vm.bz_peek(1).bz_valueToString(&len);
+    const source = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const source_slice = source.?[0..len];
 
-    const destination = vm.bz_peek(0).bz_valueToString(&len);
+    const destination = ctx.vm.bz_peek(0).bz_valueToString(&len);
     const destination_slice = destination.?[0..len];
 
     const source_is_absolute = std.fs.path.isAbsolute(source_slice);
@@ -157,24 +157,24 @@ export fn move(ctx: *api.NativeCtx) c_int {
 
     if (source_is_absolute and destination_is_absolute) {
         std.fs.renameAbsolute(source_slice, destination_slice) catch |err| {
-            handleMoveError(vm, err);
+            handleMoveError(ctx.vm, err);
 
             return -1;
         };
     } else if (!source_is_absolute and !destination_is_absolute) {
         std.fs.cwd().rename(source_slice, destination_slice) catch |err| {
-            handleMoveError(vm, err);
+            handleMoveError(ctx.vm, err);
 
             return -1;
         };
     } else {
         const source_absolute = if (source_is_absolute) source_slice else std.fs.cwd().realpathAlloc(api.VM.allocator, source_slice) catch |err| {
-            handleRealpathError(vm, err);
+            handleRealpathError(ctx.vm, err);
 
             return -1;
         };
         const destination_absolute = if (destination_is_absolute) destination_slice else std.fs.cwd().realpathAlloc(api.VM.allocator, destination_slice) catch |err| {
-            handleRealpathError(vm, err);
+            handleRealpathError(ctx.vm, err);
 
             return -1;
         };
@@ -189,7 +189,7 @@ export fn move(ctx: *api.NativeCtx) c_int {
         }
 
         std.fs.renameAbsolute(source_absolute, destination_absolute) catch |err| {
-            handleMoveError(vm, err);
+            handleMoveError(ctx.vm, err);
 
             return -1;
         };
@@ -256,48 +256,48 @@ fn handleDirIterateError(vm: *api.VM, err: anytype) void {
 
 export fn list(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const filename = vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
 
     const dir = if (std.fs.path.isAbsolute(filename_slice))
         std.fs.openIterableDirAbsolute(filename_slice, .{}) catch |err| {
-            handleOpenDirAbsoluteError(vm, err);
+            handleOpenDirAbsoluteError(ctx.vm, err);
 
             return -1;
         }
     else
         std.fs.cwd().openIterableDir(filename_slice, .{}) catch |err| {
-            handleOpenDirError(vm, err);
+            handleOpenDirError(ctx.vm, err);
 
             return -1;
         };
 
-    var file_list = api.ObjList.bz_newList(vm, api.ObjTypeDef.bz_stringType() orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    var file_list = api.ObjList.bz_newList(ctx.vm, api.ObjTypeDef.bz_stringType() orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     }) orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
 
-    vm.bz_pushList(file_list);
+    ctx.vm.bz_pushList(file_list);
 
     var it = dir.iterate();
     while (it.next() catch |err| {
-        handleDirIterateError(vm, err);
+        handleDirIterateError(ctx.vm, err);
 
         return -1;
     }) |element| {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null, element.name.len) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null, element.name.len) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
 
-        if (!file_list.bz_listAppend(vm.bz_getGC(), vm.bz_pop())) {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        if (!file_list.bz_listAppend(ctx.vm.bz_getGC(), ctx.vm.bz_pop())) {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         }

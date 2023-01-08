@@ -1,7 +1,7 @@
 import "lib/errors";
 
 || @return epoch time in ms
-extern fun time() > int;
+extern fun time() > float;
 
 || Returns environment variable under `key`
 || @param key environment variable name

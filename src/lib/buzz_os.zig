@@ -3,7 +3,7 @@ const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
 export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(std.time.milliTimestamp());
+    ctx.vm.bz_pushFloat(@intToFloat(f64, std.time.milliTimestamp()));
 
     return 1;
 }
@@ -74,7 +74,7 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 
     var random_part = std.ArrayList(u8).init(api.VM.allocator);
     defer random_part.deinit();
-    random_part.writer().print("{x}", .{std.crypto.random.int(i64)}) catch {
+    random_part.writer().print("{x}", .{std.crypto.random.int(i32)}) catch {
         ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
@@ -110,7 +110,7 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
 export fn buzzExit(ctx: *api.NativeCtx) c_int {
-    const exitCode: i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
+    const exitCode: i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
 
     std.os.exit(@intCast(u8, exitCode));
 
@@ -182,7 +182,7 @@ export fn execute(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i64, (child_process.wait() catch |err| {
+    ctx.vm.bz_pushInteger(@intCast(i32, (child_process.wait() catch |err| {
         handleSpawnError(ctx.vm, err);
 
         return -1;
@@ -225,7 +225,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
+    const port: ?i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
     if (port == null or port.? < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
@@ -242,7 +242,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_pushInteger(@intCast(i64, stream.handle));
+            ctx.vm.bz_pushInteger(@intCast(i32, stream.handle));
 
             return 1;
         },
@@ -305,7 +305,7 @@ fn handleReadAllError(vm: *api.VM, err: anytype) void {
 }
 
 export fn SocketRead(ctx: *api.NativeCtx) c_int {
-    const n: i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
+    const n: i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
     if (n < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
@@ -469,7 +469,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i64 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
+    const port: ?i32 = api.Value.bz_valueToInteger(ctx.vm.bz_peek(1));
     if (port == null or port.? < 0) {
         ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
@@ -535,7 +535,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i64, server.sockfd.?));
+    ctx.vm.bz_pushInteger(@intCast(i32, server.sockfd.?));
 
     return 1;
 }
@@ -574,7 +574,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i64, connection.stream.handle));
+    ctx.vm.bz_pushInteger(@intCast(i32, connection.stream.handle));
 
     return 1;
 }

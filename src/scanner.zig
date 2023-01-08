@@ -238,7 +238,7 @@ pub const Scanner = struct {
             if (is_float) .FloatValue else .IntegerValue,
             null,
             if (is_float) try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) else null,
-            if (!is_float) try std.fmt.parseInt(i64, self.source[self.current.start..self.current.offset], 10) else null,
+            if (!is_float) try std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) else null,
         );
     }
 
@@ -254,7 +254,7 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            try std.fmt.parseInt(i64, self.source[self.current.start + 2 .. self.current.offset], 2),
+            try std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 2),
         );
     }
 
@@ -272,7 +272,7 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            try std.fmt.parseInt(i64, self.source[self.current.start + 2 .. self.current.offset], 16),
+            try std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 16),
         );
     }
 
@@ -401,7 +401,7 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i64) Token {
+    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
         self.token_index += 1;
         return Token{
             .token_type = token_type,

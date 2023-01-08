@@ -2513,7 +2513,7 @@ pub const Parser = struct {
 
         var cases = std.ArrayList(*ParseNode).init(self.gc.allocator);
         var picked = std.ArrayList(bool).init(self.gc.allocator);
-        var case_index: i64 = 0;
+        var case_index: i32 = 0;
         while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
             if (case_index > 255) {
                 try self.reportError("Too many enum cases.");
@@ -3806,7 +3806,7 @@ pub const Parser = struct {
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
         const start_location = left.location;
 
-        const constant = Value{ .Obj = (try self.parseTypeDef(null)).toObj() };
+        const constant = Value.fromObj((try self.parseTypeDef(null)).toObj());
 
         var node = try self.gc.allocator.create(IsNode);
         node.* = IsNode{
@@ -4265,7 +4265,7 @@ pub const Parser = struct {
                         } else if (param_type.optional) {
                             try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(
                                 arg_name,
-                                Value{ .Null = {} },
+                                Value.Null,
                             );
                         }
                     }
@@ -4623,21 +4623,19 @@ pub const Parser = struct {
 
             // Lookup symbol NativeFn
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
-            const symbol_method = if (opaque_symbol_method) |ptr| @ptrCast(
-                NativeFn,
-                @alignCast(
-                    @alignOf(ParseNode),
-                    ptr,
-                ),
-            ) else null;
 
-            if (symbol_method == null) {
+            if (opaque_symbol_method == null) {
                 try self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
                 return null;
             }
 
             // Create a ObjNative with it
-            return try self.gc.allocateObject(ObjNative, .{ .native = symbol_method.? });
+            return try self.gc.allocateObject(
+                ObjNative,
+                .{
+                    .native = opaque_symbol_method.?,
+                },
+            );
         }
 
         if (builtin.os.tag == .macos) {
@@ -4745,7 +4743,7 @@ pub const Parser = struct {
 
                     try defaults.put(arg_name, try expr.toValue(expr, self.gc));
                 } else if (param_type.optional) {
-                    try defaults.put(arg_name, Value{ .Null = {} });
+                    try defaults.put(arg_name, Value.Null);
                 }
 
                 if (!try self.match(.Comma)) break;

@@ -146,7 +146,7 @@ Convert degree to radian
 Read and write data to a string buffer
 ## os
 
-### `extern fun time() > int `
+### `extern fun time() > float `
 
 
 **Returns:**  epoch time in ms

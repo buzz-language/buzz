@@ -38,14 +38,6 @@ const disassembler = @import("./disassembler.zig");
 const disassembleChunk = disassembler.disassembleChunk;
 const VM = @import("./vm.zig").VM;
 
-fn toNullTerminatedCStr(allocator: Allocator, source: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    try result.appendSlice(source);
-    try result.append(0);
-
-    return result.items;
-}
-
 // TODO: lowered types register like we do for ObjTypeDef
 fn lowerType(allocator: Allocator, obj_typedef: *ObjTypeDef, context: *llvm.Context) VM.Error!*llvm.Type {
     return switch (obj_typedef.def_type) {
@@ -149,8 +141,6 @@ pub const BuzzApiMethods = enum {
         return switch (self) {
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
-            .bz_getGlobal => "bz_getGlobal",
-            .bz_getUpValue => "bz_getUpValue",
 
             .nativefn => "NativeFn",
             .nativectx => "NativeCtx",
@@ -326,20 +316,49 @@ pub const JIT = struct {
         return self.vm_constant.?;
     }
 
-    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error!?[2]*ObjNative {
+    pub fn jitNative(self: *Self, native: *ObjNative) VM.Error!*anyopaque {
+        const name = self.vm.gc.allocator.dupeZ(u8, native.name);
+        defer self.vm.gc.allocator.free(name);
+
+        self.state.module.addFunction(
+            name.ptr,
+            try self.getBuzzApiLoweredType(.nativefn),
+        );
+
+        var error_message: [*:0]const u8 = undefined;
+        // verifyModule always allocs the error_message even if there is no error
+        defer llvm.disposeMessage(error_message);
+
+        if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
+            std.debug.print("\n{s}\n", .{error_message});
+
+            @panic("LLVM module verification failed");
+        }
+
+        var fun_addr: u64 = undefined;
+        if (self.orc_jit.lookup(&fun_addr, name.ptr)) |orc_error| {
+            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
+
+            @panic("Could find script symbol in module loaded in LLJIT");
+        }
+
+        return @intToPtr(*anyopaque, fun_addr);
+    }
+
+    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error![2]*anyopaque {
         self.closure = closure;
         const function = closure.function;
 
         const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), function.node));
 
         var qualified_name = try self.getFunctionQualifiedName(
-            function_node.node.type_def.?.resolved_type.?.Function,
+            function_node,
             true,
         );
         defer qualified_name.deinit();
 
         var qualified_name_raw = try self.getFunctionQualifiedName(
-            function_node.node.type_def.?.resolved_type.?.Function,
+            function_node,
             true,
         );
         try qualified_name_raw.appendSlice(".raw");
@@ -393,19 +412,9 @@ pub const JIT = struct {
 
         self.closure = null;
 
-        return [_]*ObjNative{
-            try self.vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    .native = @intToPtr(NativeFn, fun_addr),
-                },
-            ),
-            try self.vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    .native = @intToPtr(NativeFn, fun_addr_raw),
-                },
-            ),
+        return [_]*anyopaque{
+            @intToPtr(*anyopaque, fun_addr),
+            @intToPtr(*anyopaque, fun_addr_raw),
         };
     }
 
@@ -465,10 +474,10 @@ pub const JIT = struct {
         const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function) named_variable_node.node.type_def.?.resolved_type.?.Function.function_type else null;
         const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
-        const name = try toNullTerminatedCStr(self.vm.gc.allocator, named_variable_node.identifier.lexeme);
+        const name = try self.vm.gc.allocator.dupeZ(u8, named_variable_node.identifier.lexeme);
         defer self.vm.gc.allocator.free(name);
         const qualified_name = try self.getFunctionQualifiedName(
-            named_variable_node.node.type_def.?.resolved_type.?.Function,
+            named_variable_node,
             true,
         );
         defer qualified_name.deinit();
@@ -477,7 +486,7 @@ pub const JIT = struct {
             .Global => global: {
                 // Constant buzz function, does it need to be jitted?
                 if (is_constant_fn) {
-                    const closure = ObjClosure.cast(self.closure.?.globals.items[named_variable_node.slot].Obj).?;
+                    const closure = ObjClosure.cast(self.closure.?.globals.items[named_variable_node.slot].obj()).?;
 
                     if (closure.function.native == null) {
                         const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
@@ -686,7 +695,7 @@ pub const JIT = struct {
         const lowered_type = try lowerType(self.vm.gc.allocator, var_declaration_node.type_def, self.state.context);
 
         if (var_declaration_node.slot_type == .Global) {
-            const var_name = try toNullTerminatedCStr(self.vm.gc.allocator, var_declaration_node.name.lexeme);
+            const var_name = try self.vm.gc.allocator.dupeZ(u8, var_declaration_node.name.lexeme);
             defer self.vm.gc.allocator.free(var_name);
 
             // Create and store new value to global
@@ -708,7 +717,7 @@ pub const JIT = struct {
             const initial_value = try self.generateNode(value);
 
             if (var_declaration_node.slot_type == .Global) {
-                const var_name = try toNullTerminatedCStr(self.vm.gc.allocator, var_declaration_node.name.lexeme);
+                const var_name = try self.vm.gc.allocator.dupeZ(u8, var_declaration_node.name.lexeme);
                 defer self.vm.gc.allocator.free(var_name);
 
                 global.setInitializer(initial_value.?);
@@ -723,7 +732,8 @@ pub const JIT = struct {
     }
 
     // FIXME: multiple function can be defined at the same depth, so increment an id
-    fn getFunctionQualifiedName(self: *Self, function_def: ObjFunction.FunctionDef, raw: bool) !std.ArrayList(u8) {
+    fn getFunctionQualifiedName(self: *Self, function_node: *FunctionNode, raw: bool) !std.ArrayList(u8) {
+        const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
         const name = function_def.name.string;
 
@@ -769,9 +779,9 @@ pub const JIT = struct {
         );
 
         // Get fully qualified name of function
-        var qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, true);
+        var qualified_name = try self.getFunctionQualifiedName(function_node, true);
         defer qualified_name.deinit();
-        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node.node.type_def.?.resolved_type.?.Function, false);
+        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node, false);
         defer nativefn_qualified_name.deinit();
 
         std.debug.print("-> {s}\n", .{qualified_name.items});
@@ -818,7 +828,7 @@ pub const JIT = struct {
 
             // Add the NativeFn version of the function
             try self.generateNativeFn(
-                function_def,
+                function_node,
                 function,
                 ret_type,
             );
@@ -846,12 +856,13 @@ pub const JIT = struct {
         };
     }
 
-    fn generateNativeFn(self: *Self, function_def: ObjFunction.FunctionDef, raw_fn: *llvm.Value, ret_type: *llvm.Type) !void {
+    fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *llvm.Value, ret_type: *llvm.Type) !void {
+        const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
 
         assert(function_type != .Extern);
 
-        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_def, false);
+        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node, false);
         defer nativefn_qualified_name.deinit();
 
         var native_fn = self.state.module.addFunction(

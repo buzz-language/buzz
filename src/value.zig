@@ -7,72 +7,140 @@ const objToString = _obj.objToString;
 const copyObj = _obj.copyObj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
-pub const ValueType = enum {
-    Boolean,
-    Float,
-    Integer,
-    Null,
-    Void,
-    Obj,
+// TODO: do it for little endian?
+
+const Tag = u3;
+pub const TagBoolean: Tag = 0;
+pub const TagInteger: Tag = 1;
+pub const TagNull: Tag = 2;
+pub const TagVoid: Tag = 3;
+pub const TagObj: Tag = 4;
+
+const BooleanT: u32 = TagBoolean;
+const IntegerT: u32 = TagInteger;
+const NullT: u32 = TagNull;
+const VoidT: u32 = TagVoid;
+const ObjT: u32 = TagObj;
+
+/// Most significant bit.
+const SignMask: u64 = 1 << 63;
+
+/// QNAN and one extra bit to the right.
+const TaggedValueMask: u64 = 0x7ffc000000000000;
+
+/// TaggedMask + Sign bit indicates a pointer value.
+const PointerMask: u64 = TaggedValueMask | SignMask;
+
+const BooleanMask: u64 = TaggedValueMask | (@as(u64, TagBoolean) << 32);
+const FalseMask: u64 = BooleanMask;
+const TrueBitMask: u64 = 1;
+const TrueMask: u64 = BooleanMask | TrueBitMask;
+
+const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
+const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
+const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
+const ObjMask: u64 = TaggedValueMask | (@as(u64, TagObj) << 32);
+
+const TagMask: u32 = (1 << 3) - 1;
+const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32);
+
+pub const Value = extern struct {
+    val: u64,
+
+    pub const Null = Value{ .val = NullMask };
+    pub const Void = Value{ .val = VoidMask };
+    pub const True = Value{ .val = TrueMask };
+    pub const False = Value{ .val = FalseMask };
+
+    pub inline fn fromBoolean(val: bool) Value {
+        return if (val) True else False;
+    }
+
+    pub inline fn fromInteger(val: i32) Value {
+        return .{ .val = IntegerMask | @bitCast(u32, val) };
+    }
+
+    pub inline fn fromFloat(val: f64) Value {
+        return .{ .val = @bitCast(u64, val) };
+    }
+
+    pub inline fn fromObj(val: *Obj) Value {
+        return .{ .val = PointerMask | @ptrToInt(val) };
+    }
+
+    pub inline fn getTag(self: Value) u3 {
+        return @intCast(Tag, @intCast(u32, self.val >> 32) & TagMask);
+    }
+
+    pub inline fn isBool(self: Value) bool {
+        return self.val & (TaggedPrimitiveMask | SignMask) == BooleanMask;
+    }
+
+    pub inline fn isInteger(self: Value) bool {
+        return self.val & (TaggedPrimitiveMask | SignMask) == IntegerMask;
+    }
+
+    pub inline fn isFloat(self: Value) bool {
+        return self.val & TaggedValueMask != TaggedValueMask;
+    }
+
+    pub inline fn isNumber(self: Value) bool {
+        return self.isFloat() or self.isInteger();
+    }
+
+    pub inline fn isObj(self: Value) bool {
+        return self.val & PointerMask == PointerMask;
+    }
+
+    pub inline fn isNull(self: Value) bool {
+        return self.val == NullMask;
+    }
+
+    pub inline fn isVoid(self: Value) bool {
+        return self.val == VoidMask;
+    }
+
+    pub inline fn boolean(self: Value) bool {
+        return self.val == TrueMask;
+    }
+
+    pub inline fn integer(self: Value) i32 {
+        return @bitCast(i32, @intCast(u32, self.val & 0xffffffff));
+    }
+
+    pub inline fn float(self: Value) f64 {
+        return @bitCast(f64, self.val);
+    }
+
+    pub inline fn obj(self: Value) *Obj {
+        return @intToPtr(*Obj, self.val & ~PointerMask);
+    }
 };
 
-pub const Value = union(ValueType) {
-    Boolean: bool,
-    Float: f64,
-    Integer: i64,
-    Null: void,
-    Void: void,
-    Obj: *Obj,
-};
+test "NaN boxing" {
+    const boolean = Value.fromBoolean(true);
+    const integer = Value.fromInteger(42);
+    const float = Value.fromFloat(42.24);
 
-// We can't hash f64
-pub const HashableValue = union(ValueType) {
-    Boolean: bool,
-    Float: i64,
-    Integer: i64,
-    Null: void,
-    Void: void,
-    Obj: *Obj,
-};
+    std.debug.assert(boolean.isBool() and boolean.boolean());
+    std.debug.assert(integer.isInteger() and integer.integer() == 42);
+    std.debug.assert(float.isFloat() and float.float() == 42.24);
+    std.debug.assert(Value.Null.isNull());
+    std.debug.assert(Value.Void.isVoid());
+    std.debug.assert(Value.False.isBool());
+    std.debug.assert(Value.True.isBool());
+}
 
 // If nothing in its decimal part, will return a Value.Integer
 pub inline fn floatToInteger(value: Value) Value {
-    if (value == .Float and value.Float - @intToFloat(f64, @floatToInt(i64, value.Float)) == 0) {
-        return Value{ .Integer = @floatToInt(i64, value.Float) };
+    const float = value.float();
+
+    // FIXME also check that the f64 can fit in the i32
+    if (value.isFloat() and std.math.floor(float) == float) {
+        return Value.fromInteger(@floatToInt(i32, float));
     }
 
     return value;
-}
-
-pub fn valueToHashable(value: Value) HashableValue {
-    return switch (value) {
-        .Boolean => HashableValue{ .Boolean = value.Boolean },
-        .Integer => HashableValue{ .Integer = value.Integer },
-        .Float => {
-            const number: f64 = value.Float;
-            if (number - @intToFloat(f64, @floatToInt(i64, number)) == 0) {
-                return HashableValue{ .Float = @floatToInt(i64, value.Float) };
-            } else {
-                // TODO: something like: https://github.com/lua/lua/blob/master/ltable.c#L117-L143
-                // See: https://github.com/ziglang/zig/pull/6145
-                unreachable;
-            }
-        },
-        .Null => HashableValue{ .Null = value.Null },
-        .Void => HashableValue{ .Void = value.Void },
-        .Obj => HashableValue{ .Obj = value.Obj },
-    };
-}
-
-pub fn hashableToValue(hashable: HashableValue) Value {
-    return switch (hashable) {
-        .Boolean => Value{ .Boolean = hashable.Boolean },
-        .Integer => Value{ .Integer = hashable.Integer },
-        .Float => Value{ .Float = @intToFloat(f64, hashable.Float) },
-        .Null => Value{ .Null = hashable.Null },
-        .Void => Value{ .Void = hashable.Void },
-        .Obj => Value{ .Obj = hashable.Obj },
-    };
 }
 
 pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
@@ -84,83 +152,94 @@ pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error |
 }
 
 pub fn valueToString(writer: *const std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
-    switch (value) {
-        .Boolean => try writer.print("{}", .{value.Boolean}),
-        .Integer => try writer.print("{d}", .{value.Integer}),
-        .Float => try writer.print("{d}", .{value.Float}),
-        .Null => try writer.print("null", .{}),
-        .Void => try writer.print("void", .{}),
+    if (value.isObj()) {
+        try objToString(writer, value.obj());
 
-        .Obj => try objToString(writer, value.Obj),
+        return;
+    }
+
+    switch (value.getTag()) {
+        TagBoolean => try writer.print("{}", .{value.boolean()}),
+        TagInteger => try writer.print("{d}", .{value.integer()}),
+        TagNull => try writer.print("null", .{}),
+        TagVoid => try writer.print("void", .{}),
+        else => try writer.print("{d}", .{value.float()}),
     }
 }
 
 pub fn valueEql(a: Value, b: Value) bool {
     // zig fmt: off
-    if (@as(ValueType, a) != @as(ValueType, b)
-        and (
-            ((a == .Integer or a == .Float) and b != .Float and b != .Integer)
-            or ((b == .Integer or b == .Float) and a != .Float and a != .Integer)
-            or (a != .Integer and a != .Float and b != .Integer and b != .Float)
-        )
-    ) {
+    if (a.isObj() != b.isObj()
+        or a.isNumber() != b.isNumber()
+        or (!a.isNumber() and !b.isNumber() and a.getTag() != b.getTag())) {
         return false;
     }
     // zig fmt: on
 
-    return switch (a) {
-        .Boolean => a.Boolean == b.Boolean,
-        .Integer, .Float => number: {
-            const aa = floatToInteger(a);
-            const bb = floatToInteger(b);
+    if (a.isObj()) {
+        return a.obj().eql(b.obj());
+    }
 
-            const a_f: ?f64 = if (aa == .Float) aa.Float else null;
-            const b_f: ?f64 = if (bb == .Float) bb.Float else null;
-            const a_i: ?i64 = if (aa == .Integer) aa.Integer else null;
-            const b_i: ?i64 = if (bb == .Integer) bb.Integer else null;
+    if (a.isInteger() or a.isFloat()) {
+        const aa = floatToInteger(a);
+        const bb = floatToInteger(b);
 
-            if (a_f) |af| {
-                if (b_f) |bf| {
-                    break :number af == bf;
-                } else {
-                    break :number af == @intToFloat(f64, b_i.?);
-                }
+        const a_f: ?f64 = if (aa.isFloat()) aa.float() else null;
+        const b_f: ?f64 = if (bb.isFloat()) bb.float() else null;
+        const a_i: ?i32 = if (aa.isInteger()) aa.integer() else null;
+        const b_i: ?i32 = if (bb.isInteger()) bb.integer() else null;
+
+        if (a_f) |af| {
+            if (b_f) |bf| {
+                return af == bf;
             } else {
-                if (b_f) |bf| {
-                    break :number @intToFloat(f64, a_i.?) == bf;
-                } else {
-                    break :number a_i.? == b_i.?;
-                }
+                return af == @intToFloat(f64, b_i.?);
             }
-        },
-        .Null => true,
-        .Void => true,
-        .Obj => a.Obj.eql(b.Obj),
+        } else {
+            if (b_f) |bf| {
+                return @intToFloat(f64, a_i.?) == bf;
+            } else {
+                return a_i.? == b_i.?;
+            }
+        }
+    }
+
+    return switch (a.getTag()) {
+        TagBoolean => a.boolean() == b.boolean(),
+        TagNull => true,
+        TagVoid => true,
+        else => unreachable,
     };
 }
 
 pub fn valueIs(type_def_val: Value, value: Value) bool {
-    const type_def: *ObjTypeDef = ObjTypeDef.cast(type_def_val.Obj).?;
+    const type_def: *ObjTypeDef = ObjTypeDef.cast(type_def_val.obj()).?;
 
-    return switch (value) {
-        .Boolean => type_def.def_type == .Bool,
-        .Integer => type_def.def_type == .Integer,
-        .Float => type_def.def_type == .Float,
+    if (value.isObj()) {
+        return value.obj().is(type_def);
+    }
+
+    return switch (value.getTag()) {
+        TagBoolean => type_def.def_type == .Bool,
+        TagInteger => type_def.def_type == .Integer,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
-        .Null => type_def.def_type == .Void or type_def.optional,
-        .Void => type_def.def_type == .Void,
-        .Obj => value.Obj.is(type_def),
+        TagNull => type_def.def_type == .Void or type_def.optional,
+        TagVoid => type_def.def_type == .Void,
+        else => type_def.def_type == .Float,
     };
 }
 
-pub fn valueTypeEql(self: Value, type_def: *ObjTypeDef) bool {
-    return switch (self) {
-        .Boolean => type_def.def_type == .Bool,
-        .Integer => type_def.def_type == .Integer,
-        .Float => type_def.def_type == .Float,
+pub fn valueTypeEql(value: Value, type_def: *ObjTypeDef) bool {
+    if (value.isObj()) {
+        return value.obj().typeEql(type_def);
+    }
+
+    return switch (value.getTag()) {
+        TagBoolean => type_def.def_type == .Bool,
+        TagInteger => type_def.def_type == .Integer,
         // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
-        .Null => type_def.def_type == .Void or type_def.optional,
-        .Void => type_def.def_type == .Void,
-        .Obj => self.Obj.typeEql(type_def),
+        TagNull => type_def.def_type == .Void or type_def.optional,
+        TagVoid => type_def.def_type == .Void,
+        else => type_def.def_type == .Float,
     };
 }

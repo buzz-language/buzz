@@ -78,7 +78,7 @@ str multiline = `
     lines
     yes
 `;
-int aNumber = 23; | i64
+int aNumber = 23; | i32
 aNumber = 0b110;
 aNumber = 0xA12F;
 float aFloat = 23.123; | f64

@@ -12,7 +12,7 @@ pub const Token = struct {
     // Literal is either a string or a number
     literal_string: ?[]const u8 = null,
     literal_float: ?f64 = null,
-    literal_integer: ?i64 = null,
+    literal_integer: ?i32 = null,
     line: usize,
     column: usize,
     offset: usize = 0,

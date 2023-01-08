@@ -154,8 +154,6 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
-    exe.addIncludePath("/usr/local/opt/llvm/include");
-    exe.addLibraryPath("/usr/local/opt/llvm/lib");
     exe.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
     exe.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
     exe.linkSystemLibrary("llvm");
@@ -183,8 +181,6 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
-    lib.addIncludePath("/usr/local/opt/llvm/include");
-    lib.addLibraryPath("/usr/local/opt/llvm/lib");
     lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
     lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
     lib.linkSystemLibrary("llvm");
@@ -255,8 +251,6 @@ pub fn build(b: *Builder) !void {
             std_lib.addLibraryPath("/opt/homebrew/lib");
         }
         // LLVM
-        std_lib.addIncludePath("/usr/local/opt/llvm/include");
-        std_lib.addLibraryPath("/usr/local/opt/llvm/lib");
         std_lib.addIncludePath("/opt/homebrew/Cellar/llvm/15.0.6/include");
         std_lib.addLibraryPath("/opt/homebrew/Cellar/llvm/15.0.6/lib");
         std_lib.linkSystemLibrary("llvm");

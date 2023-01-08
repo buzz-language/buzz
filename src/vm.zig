@@ -13,10 +13,6 @@ const TypeRegistry = _memory.TypeRegistry;
 const JIT = @import("jit.zig").JIT;
 
 const Value = _value.Value;
-const HashableValue = _value.HashableValue;
-const ValueType = _value.ValueType;
-const valueToHashable = _value.valueToHashable;
-const hashableToValue = _value.hashableToValue;
 const floatToInteger = _value.floatToInteger;
 const valueToString = _value.valueToString;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -25,6 +21,7 @@ const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
+const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const ObjString = _obj.ObjString;
 const ObjUpValue = _obj.ObjUpValue;
@@ -266,7 +263,7 @@ pub const Fiber = struct {
         } else {
             // We did `resume fiber` and hit return
             // We don't yet care about that value;
-            vm.push(Value{ .Null = {} });
+            vm.push(Value.Null);
         }
 
         // Do we need to finish OP_CODE that triggered the yield?
@@ -280,7 +277,7 @@ pub const Fiber = struct {
 
                     var value_slot: *Value = @ptrCast(*Value, vm.current_fiber.stack_top - 2);
 
-                    value_slot.* = Value{ .Null = {} };
+                    value_slot.* = Value.Null;
                 },
                 else => {},
             }
@@ -372,9 +369,7 @@ pub const VM = struct {
                 }
 
                 try arg_list.items.append(
-                    Value{
-                        .Obj = (try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj(),
-                    },
+                    Value.fromObj((try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj()),
                 );
             }
         }
@@ -414,19 +409,11 @@ pub const VM = struct {
         }
     }
 
-    fn cloneValue(self: *Self, value: Value) !Value {
-        return switch (value) {
-            .Boolean,
-            .Integer,
-            .Float,
-            .Null,
-            .Void,
-            => value,
-            .Obj => try cloneObject(value.Obj, self),
-        };
+    inline fn cloneValue(self: *Self, value: Value) !Value {
+        return if (value.isObj()) try cloneObject(value.obj(), self) else value;
     }
 
-    fn clone(self: *Self) !void {
+    inline fn clone(self: *Self) !void {
         self.push(try self.cloneValue(self.pop()));
     }
 
@@ -512,7 +499,7 @@ pub const VM = struct {
     }
 
     inline fn readString(self: *Self, arg: u24) *ObjString {
-        return ObjString.cast(self.readConstant(arg).Obj).?;
+        return ObjString.cast(self.readConstant(arg).obj()).?;
     }
 
     const OpFn = *const fn (*Self, *CallFrame, u32, OpCode, u24) void;
@@ -686,7 +673,7 @@ pub const VM = struct {
     }
 
     fn OP_NULL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Null = {} });
+        self.push(Value.Null);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -703,7 +690,7 @@ pub const VM = struct {
     }
 
     fn OP_VOID(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Void = {} });
+        self.push(Value.Void);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -720,7 +707,7 @@ pub const VM = struct {
     }
 
     fn OP_TRUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Boolean = true });
+        self.push(Value.True);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -737,7 +724,7 @@ pub const VM = struct {
     }
 
     fn OP_FALSE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Boolean = false });
+        self.push(Value.False);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -972,12 +959,12 @@ pub const VM = struct {
             unreachable;
         };
         self.push(
-            Value{
-                .Obj = (self.gc.copyString(str) catch |e| {
+            Value.fromObj(
+                (self.gc.copyString(str) catch |e| {
                     panic(e);
                     unreachable;
                 }).toObj(),
-            },
+            ),
         );
         self.gc.allocator.free(str);
 
@@ -998,10 +985,10 @@ pub const VM = struct {
     fn OP_NEGATE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const value = self.pop();
 
-        if (value == .Integer) {
-            self.push(Value{ .Integer = -value.Integer });
+        if (value.isInteger()) {
+            self.push(Value.fromInteger(-value.integer()));
         } else {
-            self.push(Value{ .Float = -value.Float });
+            self.push(Value.fromFloat(-value.float()));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1019,7 +1006,7 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).Obj).?;
+        var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).obj()).?;
         var closure: *ObjClosure = self.gc.allocateObject(
             ObjClosure,
             ObjClosure.init(self.gc.allocator, self, function) catch |e| {
@@ -1031,7 +1018,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(Value{ .Obj = closure.toObj() });
+        self.push(closure.toValue());
 
         var i: usize = 0;
         while (i < function.upvalue_count) : (i += 1) {
@@ -1114,7 +1101,7 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+        const type_def = ObjTypeDef.cast(self.pop().obj()).?;
 
         // Put new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
@@ -1171,7 +1158,7 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = ObjTypeDef.cast(self.pop().Obj).?;
+        const type_def = ObjTypeDef.cast(self.pop().obj()).?;
 
         // Push new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
@@ -1199,7 +1186,7 @@ pub const VM = struct {
     }
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+        const obj_fiber = ObjFiber.cast(self.pop().obj()).?;
         obj_fiber.fiber.resume_(self) catch |e| {
             panic(e);
             unreachable;
@@ -1220,7 +1207,7 @@ pub const VM = struct {
     }
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const obj_fiber = ObjFiber.cast(self.pop().Obj).?;
+        const obj_fiber = ObjFiber.cast(self.pop().obj()).?;
         obj_fiber.fiber.resolve_(self) catch |e| {
             panic(e);
             unreachable;
@@ -1294,7 +1281,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(arg_count).Obj).?;
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(arg_count).obj()).?;
 
         assert(instance.object != null);
 
@@ -1337,7 +1324,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = Value{ .Obj = member.toObj() };
+        var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value) catch |e| {
@@ -1370,7 +1357,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = Value{ .Obj = member.toObj() };
+        var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value) catch |e| {
@@ -1403,7 +1390,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = Value{ .Obj = member.toObj() };
+        var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value) catch |e| {
             panic(e);
@@ -1431,13 +1418,13 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const list = ObjList.cast(self.peek(arg_count).Obj).?;
+        const list = ObjList.cast(self.peek(arg_count).obj()).?;
         const member = (list.member(self, method) catch |e| {
             panic(e);
             unreachable;
         }).?;
 
-        var member_value: Value = Value{ .Obj = member.toObj() };
+        var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value) catch |e| {
             panic(e);
@@ -1465,13 +1452,13 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(u8, 0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const map = ObjMap.cast(self.peek(arg_count).Obj).?;
+        const map = ObjMap.cast(self.peek(arg_count).obj()).?;
         const member = (map.member(self, method) catch |e| {
             panic(e);
             unreachable;
         }).?;
 
-        var member_value: Value = Value{ .Obj = member.toObj() };
+        var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value) catch |e| {
             panic(e);
@@ -1549,14 +1536,14 @@ pub const VM = struct {
     }
 
     fn OP_EXPORT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        self.push(Value{ .Integer = @intCast(i64, arg) });
+        self.push(Value.fromInteger(@intCast(i32, arg)));
 
         // Ends program, so we don't call dispatch
     }
 
     fn OP_IMPORT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const fullpath = ObjString.cast(self.peek(1).Obj).?;
-        const closure = ObjClosure.cast(self.peek(0).Obj).?;
+        const fullpath = ObjString.cast(self.peek(1).obj()).?;
+        const closure = ObjClosure.cast(self.peek(0).obj()).?;
 
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
@@ -1587,7 +1574,7 @@ pub const VM = struct {
             };
 
             // Top of stack is how many export we got
-            var exported_count: u8 = @intCast(u8, vm.peek(0).Integer);
+            var exported_count: u8 = @intCast(u8, vm.peek(0).integer());
 
             // Copy them to this vm globals
             var import_cache = std.ArrayList(Value).init(self.gc.allocator);
@@ -1690,13 +1677,13 @@ pub const VM = struct {
     fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var list: *ObjList = self.gc.allocateObject(
             ObjList,
-            ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+            ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).obj()).?),
         ) catch |e| {
             panic(e);
             unreachable;
         };
 
-        self.push(Value{ .Obj = list.toObj() });
+        self.push(Value.fromObj(list.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1713,7 +1700,7 @@ pub const VM = struct {
     }
 
     fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
+        var list: *ObjList = ObjList.cast(self.peek(1).obj()).?;
         var list_value: Value = self.peek(0);
 
         list.rawAppend(self.gc, list_value) catch |e| {
@@ -1740,13 +1727,13 @@ pub const VM = struct {
     fn OP_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var map: *ObjMap = self.gc.allocateObject(ObjMap, ObjMap.init(
             self.gc.allocator,
-            ObjTypeDef.cast(self.readConstant(arg).Obj).?,
+            ObjTypeDef.cast(self.readConstant(arg).obj()).?,
         )) catch |e| {
             panic(e);
             unreachable;
         };
 
-        self.push(Value{ .Obj = map.toObj() });
+        self.push(Value.fromObj(map.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1763,7 +1750,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
+        var map: *ObjMap = ObjMap.cast(self.peek(2).obj()).?;
         var key: Value = self.peek(1);
         var value: Value = self.peek(0);
 
@@ -1790,8 +1777,8 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = ObjList.cast(self.peek(1).Obj).?;
-        const index = self.peek(0).Integer;
+        var list: *ObjList = ObjList.cast(self.peek(1).obj()).?;
+        const index = self.peek(0).integer();
 
         if (index < 0) {
             self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
@@ -1841,18 +1828,18 @@ pub const VM = struct {
     }
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(1).Obj).?;
+        var map: *ObjMap = ObjMap.cast(self.peek(1).obj()).?;
         var index: Value = floatToInteger(self.peek(0));
 
         // Pop map and key
         _ = self.pop();
         _ = self.pop();
 
-        if (map.map.get(valueToHashable(index))) |value| {
+        if (map.map.get(index)) |value| {
             // Push value
             self.push(value);
         } else {
-            self.push(Value{ .Null = {} });
+            self.push(Value.Null);
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1870,8 +1857,8 @@ pub const VM = struct {
     }
 
     fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var str = ObjString.cast(self.peek(1).Obj).?;
-        const index = self.peek(0).Integer;
+        var str = ObjString.cast(self.peek(1).obj()).?;
+        const index = self.peek(0).integer();
 
         if (index < 0) {
             self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound string access.") catch |e| {
@@ -1922,11 +1909,11 @@ pub const VM = struct {
     }
 
     fn OP_SET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list = ObjList.cast(self.peek(2).Obj).?;
+        var list = ObjList.cast(self.peek(2).obj()).?;
         const index = self.peek(1);
         const value = self.peek(0);
 
-        if (index.Integer < 0) {
+        if (index.integer() < 0) {
             self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
                 panic(e);
                 unreachable;
@@ -1936,7 +1923,7 @@ pub const VM = struct {
             };
         }
 
-        const list_index: usize = @intCast(usize, index.Integer);
+        const list_index: usize = @intCast(usize, index.integer());
 
         if (list_index < list.items.items.len) {
             list.set(self.gc, list_index, value) catch |e| {
@@ -1976,7 +1963,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(2).Obj).?;
+        var map: *ObjMap = ObjMap.cast(self.peek(2).obj()).?;
         const index = self.peek(1);
         const value = self.peek(0);
 
@@ -2010,13 +1997,13 @@ pub const VM = struct {
     fn OP_ENUM(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var enum_: *ObjEnum = self.gc.allocateObject(
             ObjEnum,
-            ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).Obj).?),
+            ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).obj()).?),
         ) catch |e| {
             panic(e);
             unreachable;
         };
 
-        self.push(Value{ .Obj = enum_.toObj() });
+        self.push(Value.fromObj(enum_.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2033,7 +2020,7 @@ pub const VM = struct {
     }
 
     fn OP_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).Obj).?;
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).obj()).?;
         var enum_value: Value = self.peek(0);
 
         enum_.cases.append(enum_value) catch |e| {
@@ -2062,7 +2049,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).obj()).?;
 
         _ = self.pop();
 
@@ -2074,7 +2061,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(Value{ .Obj = enum_case.toObj() });
+        self.push(Value.fromObj(enum_case.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2091,7 +2078,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).Obj).?;
+        var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).obj()).?;
 
         _ = self.pop();
         self.push(enum_case.enum_ref.cases.items[enum_case.case]);
@@ -2112,7 +2099,7 @@ pub const VM = struct {
 
     fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var case_value = self.pop();
-        var enum_: *ObjEnum = ObjEnum.cast(self.pop().Obj).?;
+        var enum_: *ObjEnum = ObjEnum.cast(self.pop().obj()).?;
 
         var found = false;
         for (enum_.cases.items) |case, index| {
@@ -2125,7 +2112,7 @@ pub const VM = struct {
                     unreachable;
                 };
 
-                self.push(Value{ .Obj = enum_case.toObj() });
+                self.push(Value.fromObj(enum_case.toObj()));
                 found = true;
 
                 break;
@@ -2133,7 +2120,7 @@ pub const VM = struct {
         }
 
         if (!found) {
-            self.push(Value{ .Null = {} });
+            self.push(Value.Null);
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2155,15 +2142,15 @@ pub const VM = struct {
             ObjObject,
             ObjObject.init(
                 self.gc.allocator,
-                ObjString.cast(self.readConstant(arg).Obj).?,
-                ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).Obj).?,
+                ObjString.cast(self.readConstant(arg).obj()).?,
+                ObjTypeDef.cast(self.readConstant(@intCast(u24, self.readInstruction())).obj()).?,
             ),
         ) catch |e| {
             panic(e);
             unreachable;
         };
 
-        self.push(Value{ .Obj = object.toObj() });
+        self.push(Value.fromObj(object.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2180,7 +2167,7 @@ pub const VM = struct {
     }
 
     fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const object_or_type = self.pop().Obj;
+        const object_or_type = self.pop().obj();
         var instance: *ObjObjectInstance = self.gc.allocateObject(
             ObjObjectInstance,
             ObjObjectInstance.init(
@@ -2231,9 +2218,9 @@ pub const VM = struct {
     fn OP_METHOD(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
         var method: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+        var object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
 
-        object.methods.put(name, ObjClosure.cast(method.Obj).?) catch |e| {
+        object.methods.put(name, ObjClosure.cast(method.obj()).?) catch |e| {
             panic(e);
             unreachable;
         };
@@ -2257,7 +2244,7 @@ pub const VM = struct {
     fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
         var property: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+        var object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
             object.setField(self.gc, name, property) catch |e| {
@@ -2289,7 +2276,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const object: *ObjObject = ObjObject.cast(self.peek(0).Obj).?;
+        const object: *ObjObject = ObjObject.cast(self.peek(0).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         _ = self.pop(); // Pop instance
@@ -2310,7 +2297,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).Obj).?;
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         if (instance.fields.get(name)) |field| {
@@ -2342,7 +2329,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const list = ObjList.cast(self.peek(0).Obj).?;
+        const list = ObjList.cast(self.peek(0).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         if (list.member(self, name) catch |e| {
@@ -2371,7 +2358,7 @@ pub const VM = struct {
         );
     }
     fn OP_GET_MAP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const map = ObjMap.cast(self.peek(0).Obj).?;
+        const map = ObjMap.cast(self.peek(0).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         if (map.member(self, name) catch |e| {
@@ -2486,7 +2473,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const object: *ObjObject = ObjObject.cast(self.peek(1).Obj).?;
+        const object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         // Set new value
@@ -2515,7 +2502,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).Obj).?;
+        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).obj()).?;
         const name: *ObjString = self.readString(arg);
 
         // Set new value
@@ -2544,7 +2531,7 @@ pub const VM = struct {
     }
 
     fn OP_NOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Boolean = !self.pop().Boolean });
+        self.push(Value.fromBoolean(!self.pop().boolean()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2563,7 +2550,7 @@ pub const VM = struct {
     fn OP_BNOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const value = self.pop();
 
-        self.push(Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) });
+        self.push(Value.fromInteger(~(if (value.isInteger()) value.integer() else @floatToInt(i32, value.float()))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2583,22 +2570,22 @@ pub const VM = struct {
         const right_value = floatToInteger(self.pop());
         const left_value = floatToInteger(self.pop());
 
-        const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
-        const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
-        const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
-        const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+        const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
+        const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
+        const right_f: ?f64 = if (right_value.isFloat()) right_value.float() else null;
+        const right_i: ?i32 = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
             if (right_f) |rf| {
-                self.push(Value{ .Boolean = lf > rf });
+                self.push(Value.fromBoolean(lf > rf));
             } else {
-                self.push(Value{ .Boolean = lf > @intToFloat(f64, right_i.?) });
+                self.push(Value.fromBoolean(lf > @intToFloat(f64, right_i.?)));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) > rf });
+                self.push(Value.fromBoolean(@intToFloat(f64, left_i.?) > rf));
             } else {
-                self.push(Value{ .Boolean = left_i.? > right_i.? });
+                self.push(Value.fromBoolean(left_i.? > right_i.?));
             }
         }
 
@@ -2620,22 +2607,22 @@ pub const VM = struct {
         const right_value = floatToInteger(self.pop());
         const left_value = floatToInteger(self.pop());
 
-        const left_f: ?f64 = if (left_value == .Float) left_value.Float else null;
-        const left_i: ?i64 = if (left_value == .Integer) left_value.Integer else null;
-        const right_f: ?f64 = if (right_value == .Float) right_value.Float else null;
-        const right_i: ?i64 = if (right_value == .Integer) right_value.Integer else null;
+        const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
+        const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
+        const right_f: ?f64 = if (right_value.isFloat()) right_value.float() else null;
+        const right_i: ?i32 = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
             if (right_f) |rf| {
-                self.push(Value{ .Boolean = lf < rf });
+                self.push(Value.fromBoolean(lf < rf));
             } else {
-                self.push(Value{ .Boolean = lf < @intToFloat(f64, right_i.?) });
+                self.push(Value.fromBoolean(lf < @intToFloat(f64, right_i.?)));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value{ .Boolean = @intToFloat(f64, left_i.?) < rf });
+                self.push(Value.fromBoolean(@intToFloat(f64, left_i.?) < rf));
             } else {
-                self.push(Value{ .Boolean = left_i.? < right_i.? });
+                self.push(Value.fromBoolean(left_i.? < right_i.?));
             }
         }
 
@@ -2654,13 +2641,13 @@ pub const VM = struct {
     }
 
     fn OP_ADD_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjString = ObjString.cast(self.pop().Obj).?;
-        const left: *ObjString = ObjString.cast(self.pop().Obj).?;
+        const right: *ObjString = ObjString.cast(self.pop().obj()).?;
+        const left: *ObjString = ObjString.cast(self.pop().obj()).?;
 
-        self.push(Value{ .Obj = (left.concat(self, right) catch |e| {
+        self.push(Value.fromObj((left.concat(self, right) catch |e| {
             panic(e);
             unreachable;
-        }).toObj() });
+        }).toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2677,8 +2664,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjList = ObjList.cast(self.pop().Obj).?;
-        const left: *ObjList = ObjList.cast(self.pop().Obj).?;
+        const right: *ObjList = ObjList.cast(self.pop().obj()).?;
+        const left: *ObjList = ObjList.cast(self.pop().obj()).?;
 
         var new_list = std.ArrayList(Value).init(self.gc.allocator);
         new_list.appendSlice(left.items.items) catch |e| {
@@ -2716,8 +2703,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjMap = ObjMap.cast(self.pop().Obj).?;
-        const left: *ObjMap = ObjMap.cast(self.pop().Obj).?;
+        const right: *ObjMap = ObjMap.cast(self.pop().obj()).?;
+        const left: *ObjMap = ObjMap.cast(self.pop().obj()).?;
 
         var new_map = left.map.clone() catch |e| {
             panic(e);
@@ -2760,20 +2747,16 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value{
-                .Float = (left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?)),
-            });
+            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?))));
         } else {
             // both integers
-            self.push(Value{
-                .Integer = left_i.? + right_i.?,
-            });
+            self.push(Value.fromInteger(left_i.? + right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2794,15 +2777,15 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?)) });
+            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?))));
         } else {
-            self.push(Value{ .Integer = left_i.? - right_i.? });
+            self.push(Value.fromInteger(left_i.? - right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2823,15 +2806,15 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value{ .Float = (left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?)) });
+            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?))));
         } else {
-            self.push(Value{ .Integer = left_i.? * right_i.? });
+            self.push(Value.fromInteger(left_i.? * right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2852,15 +2835,13 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         self.push(
-            Value{
-                .Float = (left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?)),
-            },
+            Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?))),
         );
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2881,15 +2862,15 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value{ .Float = @mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?))) });
+            self.push(Value.fromFloat(@mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?)))));
         } else {
-            self.push(Value{ .Integer = @mod(left_i.?, right_i.?) });
+            self.push(Value.fromInteger(@mod(left_i.?, right_i.?)));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2910,14 +2891,12 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
-        self.push(Value{
-            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
-        });
+        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) & (right_i orelse @floatToInt(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2937,14 +2916,12 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
-        self.push(Value{
-            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
-        });
+        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) | (right_i orelse @floatToInt(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2964,13 +2941,11 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-        self.push(Value{
-            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
-        });
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) ^ (right_i orelse @floatToInt(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2990,27 +2965,23 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-        const b = right_i orelse @floatToInt(i64, right_f.?);
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+        const b = right_i orelse @floatToInt(i32, right_f.?);
 
         if (b < 0) {
-            if (b * -1 > std.math.maxInt(u6)) {
-                self.push(Value{ .Integer = 0 });
+            if (b * -1 > std.math.maxInt(u5)) {
+                self.push(Value.fromInteger(0));
             } else {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
-                });
+                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1))));
             }
         } else {
-            if (b > std.math.maxInt(u6)) {
-                self.push(Value{ .Integer = 0 });
+            if (b > std.math.maxInt(u5)) {
+                self.push(Value.fromInteger(0));
             } else {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
-                });
+                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b))));
             }
         }
 
@@ -3032,27 +3003,23 @@ pub const VM = struct {
         const right: Value = floatToInteger(self.pop());
         const left: Value = floatToInteger(self.pop());
 
-        const right_f: ?f64 = if (right == .Float) right.Float else null;
-        const left_f: ?f64 = if (left == .Float) left.Float else null;
-        const right_i: ?i64 = if (right == .Integer) right.Integer else null;
-        const left_i: ?i64 = if (left == .Integer) left.Integer else null;
-        const b = right_i orelse @floatToInt(i64, right_f.?);
+        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+        const b = right_i orelse @floatToInt(i32, right_f.?);
 
         if (b < 0) {
-            if (b * -1 > std.math.maxInt(u6)) {
-                self.push(Value{ .Integer = 0 });
+            if (b * -1 > std.math.maxInt(u5)) {
+                self.push(Value.fromInteger(0));
             } else {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
-                });
+                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1))));
             }
         } else {
-            if (b > std.math.maxInt(u6)) {
-                self.push(Value{ .Integer = 0 });
+            if (b > std.math.maxInt(u5)) {
+                self.push(Value.fromInteger(0));
             } else {
-                self.push(Value{
-                    .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
-                });
+                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b))));
             }
         }
 
@@ -3071,7 +3038,7 @@ pub const VM = struct {
     }
 
     fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Boolean = valueEql(self.pop(), self.pop()) });
+        self.push(Value.fromBoolean(valueEql(self.pop(), self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3088,7 +3055,7 @@ pub const VM = struct {
     }
 
     fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value{ .Boolean = valueIs(self.pop(), self.pop()) });
+        self.push(Value.fromBoolean(valueIs(self.pop(), self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3122,7 +3089,7 @@ pub const VM = struct {
     }
 
     fn OP_JUMP_IF_FALSE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        if (!self.peek(0).Boolean) {
+        if (!self.peek(0).boolean()) {
             current_frame.ip += arg;
         }
 
@@ -3141,7 +3108,7 @@ pub const VM = struct {
     }
 
     fn OP_JUMP_IF_NOT_NULL(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        if (self.peek(0) != .Null) {
+        if (!self.peek(0).isNull()) {
             current_frame.ip += arg;
         }
 
@@ -3179,19 +3146,19 @@ pub const VM = struct {
     fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-        const str: *ObjString = ObjString.cast(self.peek(0).Obj).?;
+        const str: *ObjString = ObjString.cast(self.peek(0).obj()).?;
 
-        key_slot.* = if (str.next(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+        key_slot.* = if (str.next(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
             panic(e);
             unreachable;
         }) |new_index|
-            Value{ .Integer = new_index }
+            Value.fromInteger(new_index)
         else
-            Value{ .Null = {} };
+            Value.Null;
 
         // Set new value
-        if (key_slot.* != .Null) {
-            value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.Integer)]})) catch |e| {
+        if (!key_slot.*.isInteger()) {
+            value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.integer())]})) catch |e| {
                 panic(e);
                 unreachable;
             }).toValue();
@@ -3214,20 +3181,20 @@ pub const VM = struct {
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
         var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-        var list: *ObjList = ObjList.cast(self.peek(0).Obj).?;
+        var list: *ObjList = ObjList.cast(self.peek(0).obj()).?;
 
         // Get next index
-        key_slot.* = if (list.rawNext(self, if (key_slot.* == .Null) null else key_slot.Integer) catch |e| {
+        key_slot.* = if (list.rawNext(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
             panic(e);
             unreachable;
         }) |new_index|
-            Value{ .Integer = new_index }
+            Value.fromInteger(new_index)
         else
-            Value{ .Null = {} };
+            Value.Null;
 
         // Set new value
-        if (key_slot.* != .Null) {
-            value_slot.* = list.items.items[@intCast(usize, key_slot.Integer)];
+        if (!key_slot.*.isInteger()) {
+            value_slot.* = list.items.items[@intCast(usize, key_slot.integer())];
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -3246,15 +3213,15 @@ pub const VM = struct {
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-        var enum_case: ?*ObjEnumInstance = if (value_slot.* == .Null) null else ObjEnumInstance.cast(value_slot.Obj).?;
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).Obj).?;
+        var enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull()) null else ObjEnumInstance.cast(value_slot.obj()).?;
+        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).obj()).?;
 
         // Get next enum case
         var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
             panic(e);
             unreachable;
         };
-        value_slot.* = (if (next_case) |new_case| Value{ .Obj = new_case.toObj() } else Value{ .Null = {} });
+        value_slot.* = (if (next_case) |new_case| Value.fromObj(new_case.toObj()) else Value.Null);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3273,14 +3240,14 @@ pub const VM = struct {
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 3);
         var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-        var map: *ObjMap = ObjMap.cast(self.peek(0).Obj).?;
-        var current_key: ?HashableValue = if (key_slot.* != .Null) valueToHashable(key_slot.*) else null;
+        var map: *ObjMap = ObjMap.cast(self.peek(0).obj()).?;
+        var current_key: ?Value = if (!key_slot.*.isNull()) key_slot.* else null;
 
-        var next_key: ?HashableValue = map.rawNext(current_key);
-        key_slot.* = if (next_key) |unext_key| hashableToValue(unext_key) else Value{ .Null = {} };
+        var next_key: ?Value = map.rawNext(current_key);
+        key_slot.* = if (next_key) |unext_key| unext_key else Value.Null;
 
         if (next_key) |unext_key| {
-            value_slot.* = map.map.get(unext_key) orelse Value{ .Null = {} };
+            value_slot.* = map.map.get(unext_key) orelse Value.Null;
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -3299,10 +3266,10 @@ pub const VM = struct {
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(*Value, self.current_fiber.stack_top - 2);
-        var fiber = ObjFiber.cast(self.peek(0).Obj).?;
+        var fiber = ObjFiber.cast(self.peek(0).obj()).?;
 
         if (fiber.fiber.status == .Over) {
-            value_slot.* = Value{ .Null = {} };
+            value_slot.* = Value.Null;
         } else {
             fiber.fiber.resume_(self) catch |e| {
                 panic(e);
@@ -3325,7 +3292,7 @@ pub const VM = struct {
     }
 
     fn OP_UNWRAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        if (self.peek(0) == .Null) {
+        if (self.peek(0).isNull()) {
             self.throw(Error.UnwrappedNull, (self.gc.copyString("Force unwrapped optional is null") catch |e| {
                 panic(e);
                 unreachable;
@@ -3402,8 +3369,8 @@ pub const VM = struct {
                 // Raise the runtime error
                 // If object instance, does it have a str `message` field ?
                 var processed_payload = payload;
-                if (payload == .Obj) {
-                    if (ObjObjectInstance.cast(payload.Obj)) |instance| {
+                if (payload.isObj()) {
+                    if (ObjObjectInstance.cast(payload.obj())) |instance| {
                         processed_payload = instance.fields.get(try self.gc.copyString("message")) orelse payload;
                     }
                 }
@@ -3457,15 +3424,15 @@ pub const VM = struct {
             const compiled = try self.jit.jitFunction(closure);
 
             // If we're here it means there's no reason it would not compile
-            closure.function.native = compiled.?[0];
-            closure.function.native_raw = compiled.?[1];
+            closure.function.native = compiled[0];
+            closure.function.native_raw = compiled[1];
         }
 
         // Is there a jitted version of it?
         if (native) |jitted_function| {
             try self.callNative(
                 closure,
-                jitted_function,
+                @ptrCast(NativeFn, @alignCast(@alignOf(NativeFn), jitted_function)),
                 arg_count,
                 catch_value,
             );
@@ -3499,11 +3466,11 @@ pub const VM = struct {
     }
 
     // FIXME: must now handle upvalues and globals like a regular buzz function would
-    fn callNative(self: *Self, closure: ?*ObjClosure, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
+    fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         self.currentFrame().?.in_native_call = true;
 
-        var result: Value = Value{ .Null = {} };
-        const native_return = native.native(
+        var result: Value = Value.Null;
+        const native_return = native(
             NativeCtx{
                 .vm = self,
                 .globals = if (closure) |uclosure| uclosure.globals.items.ptr else null,
@@ -3553,11 +3520,11 @@ pub const VM = struct {
         });
 
         _ = self.pop(); // Pop instane
-        self.push(Value{ .Obj = bound.toObj() });
+        self.push(Value.fromObj(bound.toObj()));
     }
 
     pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
-        var obj: *Obj = callee.Obj;
+        var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
                 var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
@@ -3573,7 +3540,7 @@ pub const VM = struct {
                     assert(bound.native != null);
                     return try self.callNative(
                         null,
-                        bound.native.?,
+                        @ptrCast(NativeFn, @alignCast(@alignOf(NativeFn), bound.native.?.native)),
                         arg_count,
                         catch_value,
                     );
@@ -3589,7 +3556,7 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(
                     null,
-                    ObjNative.cast(obj).?,
+                    @ptrCast(NativeFn, @alignCast(@alignOf(NativeFn), ObjNative.cast(obj).?.native)),
                     arg_count,
                     catch_value,
                 );
@@ -3612,7 +3579,7 @@ pub const VM = struct {
     fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {
         var receiver: Value = self.peek(arg_count);
 
-        var obj: *Obj = receiver.Obj;
+        var obj: *Obj = receiver.obj();
         switch (obj.obj_type) {
             .ObjectInstance => {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
@@ -3629,7 +3596,7 @@ pub const VM = struct {
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
-                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_value);
@@ -3639,7 +3606,7 @@ pub const VM = struct {
             },
             .Pattern => {
                 if (try ObjPattern.member(self, name)) |member| {
-                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_value);
@@ -3649,7 +3616,7 @@ pub const VM = struct {
             },
             .Fiber => {
                 if (try ObjFiber.member(self, name)) |member| {
-                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_value);
@@ -3661,7 +3628,7 @@ pub const VM = struct {
                 var list: *ObjList = ObjList.cast(obj).?;
 
                 if (try list.member(self, name)) |member| {
-                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_value);
@@ -3673,7 +3640,7 @@ pub const VM = struct {
                 var map: *ObjMap = ObjMap.cast(obj).?;
 
                 if (try map.member(self, name)) |member| {
-                    var member_value: Value = Value{ .Obj = member.toObj() };
+                    var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     return try self.callValue(member_value, arg_count, catch_value);

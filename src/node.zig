@@ -546,7 +546,7 @@ pub const IntegerNode = struct {
         .render = render,
     },
 
-    integer_constant: i64,
+    integer_constant: i32,
 
     fn cnst(_: *anyopaque) bool {
         return true;
@@ -556,7 +556,7 @@ pub const IntegerNode = struct {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
 
-        return Value{ .Integer = self.integer_constant };
+        return Value.fromInteger(self.integer_constant);
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -569,7 +569,7 @@ pub const IntegerNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitConstant(self.node.location, Value{ .Integer = self.integer_constant });
+        try codegen.emitConstant(self.node.location, Value.fromInteger(self.integer_constant));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -633,7 +633,7 @@ pub const FloatNode = struct {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
 
-        return Value{ .Float = self.float_constant };
+        return Value.fromFloat(self.float_constant);
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -646,7 +646,7 @@ pub const FloatNode = struct {
 
         var self = Self.cast(node).?;
 
-        try codegen.emitConstant(self.node.location, Value{ .Float = self.float_constant });
+        try codegen.emitConstant(self.node.location, Value.fromFloat(self.float_constant));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -708,7 +708,7 @@ pub const BooleanNode = struct {
 
     fn val(nodePtr: *anyopaque, _: *GarbageCollector) anyerror!Value {
         var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
-        return Value{ .Boolean = Self.cast(node).?.constant };
+        return Value.fromBoolean(Self.cast(node).?.constant);
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1104,7 +1104,7 @@ pub const NullNode = struct {
     }
 
     fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        return Value{ .Null = {} };
+        return Value.Null;
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1168,7 +1168,7 @@ pub const VoidNode = struct {
     }
 
     fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        return Value{ .Void = {} };
+        return Value.Void;
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
@@ -1292,7 +1292,7 @@ pub const ListNode = struct {
             }
         }
 
-        const list_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
+        const list_type_constant: u24 = try codegen.makeConstant(Value.fromObj(node.type_def.?.toObj()));
         try codegen.patchList(list_offset, list_type_constant);
 
         try node.patchOptJumps(codegen);
@@ -1425,7 +1425,7 @@ pub const MapNode = struct {
             for (self.keys) |key, index| {
                 const value = self.values[index];
                 try map.map.put(
-                    _value.valueToHashable(try key.toValue(key, gc)),
+                    try key.toValue(key, gc),
                     try value.toValue(value, gc),
                 );
             }
@@ -1478,7 +1478,7 @@ pub const MapNode = struct {
             }
         }
 
-        const map_type_constant: u24 = try codegen.makeConstant(Value{ .Obj = node.type_def.?.toObj() });
+        const map_type_constant: u24 = try codegen.makeConstant(Value.fromObj(node.type_def.?.toObj()));
         try codegen.patchMap(map_offset, map_type_constant);
 
         try node.patchOptJumps(codegen);
@@ -1712,7 +1712,7 @@ pub const ForceUnwrapNode = struct {
 
             const value = try self.unwrapped.toValue(self.unwrapped, gc);
 
-            if (value == .Null) {
+            if (value.isNull()) {
                 return VM.Error.UnwrappedNull;
             }
 
@@ -1815,7 +1815,7 @@ pub const IsNode = struct {
             const self = Self.cast(node).?;
             const left = try self.left.toValue(self.left, gc);
 
-            return Value{ .Boolean = _value.valueIs(left, self.constant) };
+            return Value.fromBoolean(_value.valueIs(left, self.constant));
         }
         return GenError.NotConstant;
     }
@@ -1830,11 +1830,11 @@ pub const IsNode = struct {
 
         var self = Self.cast(node).?;
 
-        assert(self.constant == .Obj);
-        assert(self.constant.Obj.obj_type == .Type);
+        assert(self.constant.isObj());
+        assert(self.constant.obj().obj_type == .Type);
 
-        if (ObjTypeDef.cast(self.constant.Obj).?.def_type == .Placeholder) {
-            try codegen.reportPlaceholder(ObjTypeDef.cast(self.constant.Obj).?.resolved_type.?.Placeholder);
+        if (ObjTypeDef.cast(self.constant.obj()).?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(ObjTypeDef.cast(self.constant.obj()).?.resolved_type.?.Placeholder);
         }
 
         _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -1872,7 +1872,7 @@ pub const IsNode = struct {
 
         try self.left.render(self.left, out, depth);
         try out.writeAll(" is ");
-        try ObjTypeDef.cast(self.constant.Obj).?.toStringUnqualified(out);
+        try ObjTypeDef.cast(self.constant.obj()).?.toStringUnqualified(out);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
@@ -1919,13 +1919,13 @@ pub const UnaryNode = struct {
             const value = try self.left.toValue(self.left, gc);
 
             return switch (self.operator) {
-                .Bnot => Value{ .Integer = ~(if (value == .Integer) value.Integer else @floatToInt(i64, value.Float)) },
-                .Bang => Value{ .Boolean = !value.Boolean },
+                .Bnot => Value.fromInteger(~(if (value.isInteger()) value.integer() else @floatToInt(i32, value.float()))),
+                .Bang => Value.fromBoolean(!value.boolean()),
                 .Minus => number: {
-                    if (value == .Integer) {
-                        break :number Value{ .Integer = -value.Integer };
+                    if (value.isInteger()) {
+                        break :number Value.fromInteger(-value.integer());
                     } else {
-                        break :number Value{ .Float = -value.Float };
+                        break :number Value.fromFloat(-value.float());
                     }
                 },
                 else => unreachable,
@@ -2068,71 +2068,61 @@ pub const BinaryNode = struct {
 
             var left = floatToInteger(try self.left.toValue(self.left, gc));
             var right = floatToInteger(try self.right.toValue(self.right, gc));
-            var left_f: ?f64 = if (left == .Float) left.Float else null;
-            var right_f: ?f64 = if (right == .Float) right.Float else null;
-            var left_i: ?i64 = if (left == .Integer) left.Integer else null;
-            var right_i: ?i64 = if (right == .Integer) right.Integer else null;
+            var left_f: ?f64 = if (left.isFloat()) left.float() else null;
+            var right_f: ?f64 = if (right.isFloat()) right.float() else null;
+            var left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+            var right_i: ?i32 = if (right.isInteger()) right.integer() else null;
 
             switch (self.operator) {
                 .Ampersand => {
-                    return Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) & (right_i orelse @floatToInt(i64, right_f.?)),
-                    };
+                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) & (right_i orelse @floatToInt(i32, right_f.?)));
                 },
                 .Bor => {
-                    return Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) | (right_i orelse @floatToInt(i64, right_f.?)),
-                    };
+                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) | (right_i orelse @floatToInt(i32, right_f.?)));
                 },
                 .Xor => {
-                    return Value{
-                        .Integer = (left_i orelse @floatToInt(i64, left_f.?)) ^ (right_i orelse @floatToInt(i64, right_f.?)),
-                    };
+                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) ^ (right_i orelse @floatToInt(i32, right_f.?)));
                 },
                 .ShiftLeft => {
-                    const b = right_i orelse @floatToInt(i64, right_f.?);
+                    const b = right_i orelse @floatToInt(i32, right_f.?);
 
                     if (b < 0) {
                         if (b * -1 > std.math.maxInt(u6)) {
-                            return Value{ .Integer = 0 };
+                            return Value.fromInteger(0);
                         }
 
-                        return Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b * -1)),
-                        };
+                        return Value.fromInteger(
+                            (left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1)),
+                        );
                     } else {
                         if (b > std.math.maxInt(u6)) {
-                            return Value{ .Integer = 0 };
+                            return Value.fromInteger(0);
                         }
 
-                        return Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b)),
-                        };
+                        return Value.fromInteger(
+                            (left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b)),
+                        );
                     }
                 },
                 .ShiftRight => {
-                    const b = right_i orelse @floatToInt(i64, right_f.?);
+                    const b = right_i orelse @floatToInt(i32, right_f.?);
 
                     if (b < 0) {
                         if (b * -1 > std.math.maxInt(u6)) {
-                            return Value{ .Integer = 0 };
+                            return Value.fromInteger(0);
                         }
 
-                        return Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) << @truncate(u6, @intCast(u64, b * -1)),
-                        };
+                        return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1)));
                     } else {
                         if (b > std.math.maxInt(u6)) {
-                            return Value{ .Integer = 0 };
+                            return Value.fromInteger(0);
                         }
 
-                        return Value{
-                            .Integer = (left_i orelse @floatToInt(i64, left_f.?)) >> @truncate(u6, @intCast(u64, b)),
-                        };
+                        return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b)));
                     }
                 },
                 .QuestionQuestion => {
-                    if (left == .Null) {
+                    if (left.isNull()) {
                         return right;
                     }
 
@@ -2141,82 +2131,82 @@ pub const BinaryNode = struct {
                 .Greater => {
                     if (left_f) |lf| {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = lf > rf };
+                            return Value.fromBoolean(lf > rf);
                         } else {
-                            return Value{ .Boolean = lf > @intToFloat(f64, right_i.?) };
+                            return Value.fromBoolean(lf > @intToFloat(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = @intToFloat(f64, left_i.?) > rf };
+                            return Value.fromBoolean(@intToFloat(f64, left_i.?) > rf);
                         } else {
-                            return Value{ .Boolean = left_i.? > right_i.? };
+                            return Value.fromBoolean(left_i.? > right_i.?);
                         }
                     }
-                    return Value{ .Boolean = (left_f orelse left_i.?) > (right_f orelse right_i.?) };
+                    return Value.fromBoolean((left_f orelse left_i.?) > (right_f orelse right_i.?));
                 },
                 .Less => {
                     if (left_f) |lf| {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = lf < rf };
+                            return Value.fromBoolean(lf < rf);
                         } else {
-                            return Value{ .Boolean = lf < @intToFloat(f64, right_i.?) };
+                            return Value.fromBoolean(lf < @intToFloat(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = @intToFloat(f64, left_i.?) < rf };
+                            return Value.fromBoolean(@intToFloat(f64, left_i.?) < rf);
                         } else {
-                            return Value{ .Boolean = left_i.? < right_i.? };
+                            return Value.fromBoolean(left_i.? < right_i.?);
                         }
                     }
-                    return Value{ .Boolean = (left_f orelse left_i.?) < (right_f orelse right_i.?) };
+                    return Value.fromBoolean((left_f orelse left_i.?) < (right_f orelse right_i.?));
                 },
                 .GreaterEqual => {
                     if (left_f) |lf| {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = lf >= rf };
+                            return Value.fromBoolean(lf >= rf);
                         } else {
-                            return Value{ .Boolean = lf >= @intToFloat(f64, right_i.?) };
+                            return Value.fromBoolean(lf >= @intToFloat(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = @intToFloat(f64, left_i.?) >= rf };
+                            return Value.fromBoolean(@intToFloat(f64, left_i.?) >= rf);
                         } else {
-                            return Value{ .Boolean = left_i.? >= right_i.? };
+                            return Value.fromBoolean(left_i.? >= right_i.?);
                         }
                     }
-                    return Value{ .Boolean = (left_f orelse left_i.?) >= (right_f orelse right_i.?) };
+                    return Value.fromBoolean((left_f orelse left_i.?) >= (right_f orelse right_i.?));
                 },
                 .LessEqual => {
                     if (left_f) |lf| {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = lf <= rf };
+                            return Value.fromBoolean(lf <= rf);
                         } else {
-                            return Value{ .Boolean = lf <= @intToFloat(f64, right_i.?) };
+                            return Value.fromBoolean(lf <= @intToFloat(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value{ .Boolean = @intToFloat(f64, left_i.?) <= rf };
+                            return Value.fromBoolean(@intToFloat(f64, left_i.?) <= rf);
                         } else {
-                            return Value{ .Boolean = left_i.? <= right_i.? };
+                            return Value.fromBoolean(left_i.? <= right_i.?);
                         }
                     }
-                    return Value{ .Boolean = (left_f orelse left_i.?) <= (right_f orelse right_i.?) };
+                    return Value.fromBoolean((left_f orelse left_i.?) <= (right_f orelse right_i.?));
                 },
                 .BangEqual => {
-                    return Value{ .Boolean = !_value.valueEql(left, right) };
+                    return Value.fromBoolean(!_value.valueEql(left, right));
                 },
                 .EqualEqual => {
-                    return Value{ .Boolean = _value.valueEql(left, right) };
+                    return Value.fromBoolean(_value.valueEql(left, right));
                 },
                 .Plus => {
-                    const right_s: ?*ObjString = if (right == .Obj) ObjString.cast(right.Obj) else null;
-                    const left_s: ?*ObjString = if (left == .Obj) ObjString.cast(left.Obj) else null;
+                    const right_s: ?*ObjString = if (right.isObj()) ObjString.cast(right.obj()) else null;
+                    const left_s: ?*ObjString = if (left.isObj()) ObjString.cast(left.obj()) else null;
 
-                    const right_l: ?*ObjList = if (right == .Obj) ObjList.cast(right.Obj) else null;
-                    const left_l: ?*ObjList = if (left == .Obj) ObjList.cast(left.Obj) else null;
+                    const right_l: ?*ObjList = if (right.isObj()) ObjList.cast(right.obj()) else null;
+                    const left_l: ?*ObjList = if (left.isObj()) ObjList.cast(left.obj()) else null;
 
-                    const right_m: ?*ObjMap = if (right == .Obj) ObjMap.cast(right.Obj) else null;
-                    const left_m: ?*ObjMap = if (left == .Obj) ObjMap.cast(left.Obj) else null;
+                    const right_m: ?*ObjMap = if (right.isObj()) ObjMap.cast(right.obj()) else null;
+                    const left_m: ?*ObjMap = if (left.isObj()) ObjMap.cast(left.obj()) else null;
 
                     if (right_s != null) {
                         var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(gc.allocator);
@@ -2225,13 +2215,9 @@ pub const BinaryNode = struct {
 
                         return (try gc.copyString(new_string.items)).toValue();
                     } else if (right_f != null or left_f != null) {
-                        return Value{
-                            .Float = (right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)),
-                        };
+                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)));
                     } else if (right_i != null or left_i != null) {
-                        return Value{
-                            .Integer = right_i.? + left_i.?,
-                        };
+                        return Value.fromInteger(right_i.? + left_i.?);
                     } else if (right_l != null) {
                         var new_list = std.ArrayList(Value).init(gc.allocator);
                         try new_list.appendSlice(left_l.?.items.items);
@@ -2269,37 +2255,37 @@ pub const BinaryNode = struct {
                 },
                 .Minus => {
                     if (right_f != null or left_f != null) {
-                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) - (left_f orelse @intToFloat(f64, left_i.?)) };
+                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) - (left_f orelse @intToFloat(f64, left_i.?)));
                     }
 
-                    return Value{ .Integer = right_i.? - left_i.? };
+                    return Value.fromInteger(right_i.? - left_i.?);
                 },
                 .Star => {
                     if (right_f != null or left_f != null) {
-                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) * (left_f orelse @intToFloat(f64, left_i.?)) };
+                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) * (left_f orelse @intToFloat(f64, left_i.?)));
                     }
 
-                    return Value{ .Integer = right_i.? * left_i.? };
+                    return Value.fromInteger(right_i.? * left_i.?);
                 },
                 .Slash => {
                     if (right_f != null or left_f != null) {
-                        return Value{ .Float = (right_f orelse @intToFloat(f64, right_i.?)) / (left_f orelse @intToFloat(f64, left_i.?)) };
+                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) / (left_f orelse @intToFloat(f64, left_i.?)));
                     }
 
-                    return Value{ .Float = @intToFloat(f64, right_i.?) / @intToFloat(f64, left_i.?) };
+                    return Value.fromFloat(@intToFloat(f64, right_i.?) / @intToFloat(f64, left_i.?));
                 },
                 .Percent => {
                     if (right_f != null or left_f != null) {
-                        return Value{ .Float = @mod((right_f orelse @intToFloat(f64, right_i.?)), (left_f orelse @intToFloat(f64, left_i.?))) };
+                        return Value.fromFloat(@mod((right_f orelse @intToFloat(f64, right_i.?)), (left_f orelse @intToFloat(f64, left_i.?))));
                     }
 
-                    return Value{ .Integer = @mod(right_i.?, left_i.?) };
+                    return Value.fromInteger(@mod(right_i.?, left_i.?));
                 },
                 .And => {
-                    return Value{ .Boolean = left.Boolean and right.Boolean };
+                    return Value.fromBoolean(left.boolean() and right.boolean());
                 },
                 .Or => {
-                    return Value{ .Boolean = left.Boolean or right.Boolean };
+                    return Value.fromBoolean(left.boolean() or right.boolean());
                 },
                 else => unreachable,
             }
@@ -2664,14 +2650,14 @@ pub const SubscriptNode = struct {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            const subscriptable = (try self.subscripted.toValue(self.subscripted, gc)).Obj;
+            const subscriptable = (try self.subscripted.toValue(self.subscripted, gc)).obj();
             const index = floatToInteger(try self.index.toValue(self.index, gc));
 
             switch (subscriptable.obj_type) {
                 .List => {
                     const list: *ObjList = ObjList.cast(subscriptable).?;
 
-                    const list_index_i: ?i64 = if (index == .Integer) index.Integer else null;
+                    const list_index_i: ?i32 = if (index.isInteger()) index.integer() else null;
 
                     if (list_index_i == null or list_index_i.? < 0) {
                         return VM.Error.OutOfBound;
@@ -2688,16 +2674,16 @@ pub const SubscriptNode = struct {
                 .Map => {
                     const map: *ObjMap = ObjMap.cast(subscriptable).?;
 
-                    if (map.map.get(_value.valueToHashable(index))) |value| {
+                    if (map.map.get(index)) |value| {
                         return value;
                     } else {
-                        return Value{ .Null = {} };
+                        return Value.Null;
                     }
                 },
                 .String => {
                     const str: *ObjString = ObjString.cast(subscriptable).?;
 
-                    const str_index_i: ?i64 = if (index == .Integer) index.Integer else null;
+                    const str_index_i: ?i32 = if (index.isInteger()) index.integer() else null;
 
                     if (str_index_i == null or str_index_i.? < 0) {
                         return VM.Error.OutOfBound;
@@ -3047,6 +3033,8 @@ pub const TryNode = struct {
 pub const FunctionNode = struct {
     const Self = @This();
 
+    var next_id: usize = 0;
+
     node: ParseNode = .{
         .node_type = .Function,
         .toJson = stringify,
@@ -3056,6 +3044,7 @@ pub const FunctionNode = struct {
         .render = render,
     },
 
+    id: usize,
     static: bool = false,
     body: ?*BlockNode = null,
     arrow_expr: ?*ParseNode = null,
@@ -3069,6 +3058,12 @@ pub const FunctionNode = struct {
     main_slot: ?usize = null,
     test_slots: ?[]usize = null,
     exported_count: ?usize = null,
+
+    pub fn nextId() usize {
+        Self.next_id += 1;
+
+        return Self.next_id;
+    }
 
     fn constant(_: *anyopaque) bool {
         // TODO: should be true but requires to codegen the node
@@ -3135,9 +3130,10 @@ pub const FunctionNode = struct {
         }
 
         // First chunk constant is the empty string
-        _ = try function.chunk.addConstant(null, Value{
-            .Obj = (try codegen.gc.copyString("")).toObj(),
-        });
+        _ = try function.chunk.addConstant(
+            null,
+            Value.fromObj((try codegen.gc.copyString("")).toObj()),
+        );
 
         codegen.current.?.function = try codegen.gc.allocateObject(ObjFunction, function);
 
@@ -3277,6 +3273,7 @@ pub const FunctionNode = struct {
 
     pub fn init(parser: *Parser, function_type: FunctionType, script_name: []const u8, name: ?[]const u8) !Self {
         var self = Self{
+            .id = Self.nextId(),
             .body = try parser.gc.allocator.create(BlockNode),
             .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(parser.gc.allocator),
         };
@@ -4933,7 +4930,7 @@ pub const InlineIfNode = struct {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            if ((try self.condition.toValue(self.condition, gc)).Boolean) {
+            if ((try self.condition.toValue(self.condition, gc)).boolean()) {
                 return self.body.toValue(self.body, gc);
             } else {
                 return self.else_branch.toValue(self.else_branch, gc);
@@ -4980,7 +4977,7 @@ pub const InlineIfNode = struct {
         if (self.condition.isConstant(self.condition)) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
-            if (condition.Boolean) {
+            if (condition.boolean()) {
                 _ = try self.body.toByteCode(self.body, codegen, breaks);
             } else {
                 _ = try self.else_branch.toByteCode(self.else_branch, codegen, breaks);
@@ -5116,7 +5113,7 @@ pub const IfNode = struct {
         if (self.condition.isConstant(self.condition) and self.unwrapped_identifier != null and self.casted_type == null) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
-            if (condition.Boolean) {
+            if (condition.boolean()) {
                 _ = try self.body.toByteCode(self.body, codegen, breaks);
             } else if (self.else_branch) |else_branch| {
                 _ = try else_branch.toByteCode(else_branch, codegen, breaks);
@@ -5380,7 +5377,7 @@ pub const ForNode = struct {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
 
-        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).Boolean) {
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).boolean()) {
             try node.patchOptJumps(codegen);
 
             return null;
@@ -5658,7 +5655,7 @@ pub const ForEachNode = struct {
 
         // If iterable constant and empty, skip the node
         if (self.iterable.isConstant(self.iterable)) {
-            const iterable = (try self.iterable.toValue(self.iterable, codegen.gc)).Obj;
+            const iterable = (try self.iterable.toValue(self.iterable, codegen.gc)).obj();
 
             if (switch (iterable.obj_type) {
                 .List => ObjList.cast(iterable).?.items.items.len == 0,
@@ -5831,7 +5828,7 @@ pub const WhileNode = struct {
         var self = Self.cast(node).?;
 
         // If condition constant and false, skip the node
-        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).Boolean) {
+        if (self.condition.isConstant(self.condition) and !(try self.condition.toValue(self.condition, codegen.gc)).boolean()) {
             try node.patchOptJumps(codegen);
             try node.endScope(codegen);
 

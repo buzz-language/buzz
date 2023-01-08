@@ -482,8 +482,8 @@ pub const GarbageCollector = struct {
             .UpValue => {
                 var obj_upvalue = ObjUpValue.cast(obj).?;
                 if (obj_upvalue.closed) |value| {
-                    if (value == .Obj) {
-                        try freeObj(self, value.Obj);
+                    if (value.isObj()) {
+                        try freeObj(self, value.obj());
                     }
                 }
 
@@ -545,8 +545,8 @@ pub const GarbageCollector = struct {
     }
 
     pub fn markValue(self: *Self, value: Value) !void {
-        if (value == .Obj) {
-            try self.markObj(value.Obj);
+        if (value.isObj()) {
+            try self.markObj(value.obj());
         }
     }
 

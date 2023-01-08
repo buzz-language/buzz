@@ -2,19 +2,19 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 
 export fn getStdIn(ctx: *api.NativeCtx) c_int {
-    vm.bz_pushInteger(@intCast(i64, std.io.getStdIn().handle));
+    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdIn().handle));
 
     return 1;
 }
 
 export fn getStdOut(ctx: *api.NativeCtx) c_int {
-    vm.bz_pushInteger(@intCast(i64, std.io.getStdOut().handle));
+    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdOut().handle));
 
     return 1;
 }
 
 export fn getStdErr(ctx: *api.NativeCtx) c_int {
-    vm.bz_pushInteger(@intCast(i64, std.io.getStdErr().handle));
+    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdErr().handle));
 
     return 1;
 }
@@ -49,38 +49,38 @@ fn handleFileOpenError(vm: *api.VM, err: anytype) void {
 }
 
 export fn FileOpen(ctx: *api.NativeCtx) c_int {
-    const mode: u8 = @intCast(u8, api.Value.bz_valueToInteger(vm.bz_peek(0)));
+    const mode: u8 = @intCast(u8, api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)));
     var len: usize = 0;
-    const filename = vm.bz_peek(1).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
 
     var file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
         switch (mode) {
             0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch |err| {
-                handleFileOpenError(vm, err);
+                handleFileOpenError(ctx.vm, err);
 
                 return -1;
             },
             else => std.fs.createFileAbsolute(filename_slice, .{ .read = mode != 1 }) catch |err| {
-                handleFileOpenError(vm, err);
+                handleFileOpenError(ctx.vm, err);
 
                 return -1;
             },
         }
     else switch (mode) {
         0 => std.fs.cwd().openFile(filename_slice, .{ .mode = .read_only }) catch |err| {
-            handleFileOpenError(vm, err);
+            handleFileOpenError(ctx.vm, err);
 
             return -1;
         },
         else => std.fs.cwd().createFile(filename_slice, .{ .read = mode != 1 }) catch |err| {
-            handleFileOpenError(vm, err);
+            handleFileOpenError(ctx.vm, err);
 
             return -1;
         },
     };
 
-    vm.bz_pushInteger(@intCast(i64, file.handle));
+    ctx.vm.bz_pushInteger(@intCast(i32, file.handle));
 
     return 1;
 }
@@ -88,7 +88,7 @@ export fn FileOpen(ctx: *api.NativeCtx) c_int {
 export fn FileClose(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -119,7 +119,7 @@ fn handleFileReadWriteError(vm: *api.VM, err: anytype) void {
 export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -131,13 +131,13 @@ export fn FileReadAll(ctx: *api.NativeCtx) c_int {
         @alignOf(u8),
         null,
     ) catch |err| {
-        handleFileReadWriteError(vm, err);
+        handleFileReadWriteError(ctx.vm, err);
 
         return -1;
     };
 
-    vm.bz_pushString(api.ObjString.bz_string(vm, if (content.len > 0) @ptrCast([*]const u8, content) else null, content.len) orelse {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (content.len > 0) @ptrCast([*]const u8, content) else null, content.len) orelse {
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     });
@@ -167,32 +167,32 @@ fn handleFileReadLineError(vm: *api.VM, err: anytype) void {
 export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToInteger(vm.bz_peek(0)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(0)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
     var buffer = reader.readUntilDelimiterOrEofAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
-        handleFileReadLineError(vm, err);
+        handleFileReadLineError(ctx.vm, err);
 
         return -1;
     };
 
     if (buffer) |ubuffer| {
-        vm.bz_pushString(
+        ctx.vm.bz_pushString(
             api.ObjString.bz_string(
-                vm,
+                ctx.vm,
                 if (ubuffer.len > 0) @ptrCast([*]const u8, ubuffer) else null,
                 ubuffer.len,
             ) orelse {
-                vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+                ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
                 return -1;
             },
         );
     } else {
-        vm.bz_pushNull();
+        ctx.vm.bz_pushNull();
     }
 
     return 1;
@@ -216,23 +216,23 @@ fn handleFileReadAllError(vm: *api.VM, err: anytype) void {
 }
 
 export fn FileRead(ctx: *api.NativeCtx) c_int {
-    const n = api.Value.bz_valueToInteger(vm.bz_peek(0));
+    const n = api.Value.bz_valueToInteger(ctx.vm.bz_peek(0));
     if (n < 0) {
-        vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
+        ctx.vm.bz_pushError("lib.errors.InvalidArgumentError", "lib.errors.InvalidArgumentError".len);
 
         return -1;
     }
 
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToInteger(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
-        vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
         return -1;
     };
@@ -241,16 +241,16 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch |err| {
-        handleFileReadAllError(vm, err);
+        handleFileReadAllError(ctx.vm, err);
 
         return -1;
     };
 
     if (read == 0) {
-        vm.bz_pushNull();
+        ctx.vm.bz_pushNull();
     } else {
-        vm.bz_pushString(api.ObjString.bz_string(vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
-            vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
             return -1;
         });
@@ -263,13 +263,13 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
 export fn FileWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         std.fs.File.Handle,
-        api.Value.bz_valueToInteger(vm.bz_peek(1)),
+        api.Value.bz_valueToInteger(ctx.vm.bz_peek(1)),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
     var len: usize = 0;
-    var value = vm.bz_peek(0).bz_valueToString(&len);
+    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
         return 0;
@@ -277,19 +277,19 @@ export fn FileWrite(ctx: *api.NativeCtx) c_int {
 
     _ = file.write(value.?[0..len]) catch |err| {
         switch (err) {
-            error.AccessDenied => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
-            error.InputOutput => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "InputOutput", "InputOutput".len),
-            error.SystemResources => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
-            error.WouldBlock => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "WouldBlock", "WouldBlock".len),
-            error.OperationAborted => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "OperationAborted", "OperationAborted".len),
-            error.BrokenPipe => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "BrokenPipe", "BrokenPipe".len),
-            error.ConnectionResetByPeer => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
-            error.DiskQuota => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "DiskQuota", "DiskQuota".len),
-            error.FileTooBig => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "FileTooBig", "FileTooBig".len),
-            error.NoSpaceLeft => vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoSpaceLeft", "NoSpaceLeft".len),
-            error.Unexpected => vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
-            error.NotOpenForWriting => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "NotOpenForWriting", "NotOpenForWriting".len),
-            error.LockViolation => vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "LockViolation", "LockViolation".len),
+            error.AccessDenied => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "AccessDenied", "AccessDenied".len),
+            error.InputOutput => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "InputOutput", "InputOutput".len),
+            error.SystemResources => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "SystemResources", "SystemResources".len),
+            error.WouldBlock => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "WouldBlock", "WouldBlock".len),
+            error.OperationAborted => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "OperationAborted", "OperationAborted".len),
+            error.BrokenPipe => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "BrokenPipe", "BrokenPipe".len),
+            error.ConnectionResetByPeer => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "ConnectionResetByPeer", "ConnectionResetByPeer".len),
+            error.DiskQuota => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "DiskQuota", "DiskQuota".len),
+            error.FileTooBig => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "FileTooBig", "FileTooBig".len),
+            error.NoSpaceLeft => ctx.vm.bz_pushErrorEnum("lib.errors.FileSystemError", "lib.errors.FileSystemError".len, "NoSpaceLeft", "NoSpaceLeft".len),
+            error.Unexpected => ctx.vm.bz_pushError("lib.errors.UnexpectedError", "lib.errors.UnexpectedError".len),
+            error.NotOpenForWriting => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "NotOpenForWriting", "NotOpenForWriting".len),
+            error.LockViolation => ctx.vm.bz_pushErrorEnum("lib.errors.ReadWriteError", "lib.errors.ReadWriteError".len, "LockViolation", "LockViolation".len),
         }
 
         return -1;

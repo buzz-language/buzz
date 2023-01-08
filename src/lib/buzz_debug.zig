@@ -10,7 +10,7 @@ const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 
 export fn dump(ctx: *api.NativeCtx) c_int {
-    vm.bz_peek(0).bz_valueDump(vm);
+    ctx.vm.bz_peek(0).bz_valueDump(ctx.vm);
 
     std.debug.print("\n", .{});
 
@@ -19,10 +19,10 @@ export fn dump(ctx: *api.NativeCtx) c_int {
 
 export fn ast(ctx: *api.NativeCtx) c_int {
     var source_len: usize = 0;
-    const source = api.Value.bz_valueToString(vm.bz_peek(1), &source_len);
+    const source = api.Value.bz_valueToString(ctx.vm.bz_peek(1), &source_len);
 
     var script_len: usize = 0;
-    const script_name = api.Value.bz_valueToString(vm.bz_peek(0), &script_len);
+    const script_name = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &script_len);
 
     var gc = GarbageCollector.init(api.VM.allocator);
     gc.type_registry = TypeRegistry{
@@ -51,7 +51,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             error.Overflow,
             error.InvalidCharacter,
             error.NoSpaceLeft,
-            => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+            => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
         }
 
         return -1;
@@ -64,15 +64,15 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             switch (err) {
                 error.OutOfMemory,
                 error.NoSpaceLeft,
-                => vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+                => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
             }
 
             return -1;
         };
 
-        vm.bz_pushString(
-            api.ObjString.bz_string(vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
-                vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(
+            api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
+                ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
                 return -1;
             },
@@ -81,7 +81,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    vm.bz_pushError("lib.errors.CompileError", "lib.errors.CompileError".len);
+    ctx.vm.bz_pushError("lib.errors.CompileError", "lib.errors.CompileError".len);
 
     return -1;
 }

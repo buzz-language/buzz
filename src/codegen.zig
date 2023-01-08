@@ -226,9 +226,7 @@ pub const CodeGen = struct {
 
     pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
         return try self.makeConstant(
-            Value{
-                .Obj = (try self.gc.copyString(name)).toObj(),
-            },
+            Value.fromObj((try self.gc.copyString(name)).toObj()),
         );
     }
 

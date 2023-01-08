@@ -24,8 +24,6 @@ pub const NativeCtx = extern struct {
     globals_len: usize = 0,
     upvalues: ?[*]*ObjUpValue = null,
     upvalues_len: usize = 0,
-    pub extern fn bz_getGlobal(self: *NativeCtx, at: usize) *Value;
-    pub extern fn bz_getUpValue(self: *NativeCtx, at: usize) *ObjUpValue;
 };
 
 pub const VM = opaque {
@@ -39,7 +37,7 @@ pub const VM = opaque {
     pub extern fn bz_peek(self: *VM, distance: u32) *Value;
     pub extern fn bz_pushBool(self: *VM, value: bool) void;
     pub extern fn bz_pushFloat(self: *VM, value: f64) void;
-    pub extern fn bz_pushInteger(self: *VM, value: i64) void;
+    pub extern fn bz_pushInteger(self: *VM, value: i32) void;
     pub extern fn bz_pushString(self: *VM, value: *ObjString) void;
     pub extern fn bz_pushList(self: *VM, value: *ObjList) void;
     pub extern fn bz_pushUserData(self: *VM, value: *ObjUserData) void;
@@ -68,10 +66,12 @@ pub const VM = opaque {
         std.heap.c_allocator;
 };
 
-pub const Value = opaque {
+pub const Value = extern struct {
+    val: u64,
+
     pub extern fn bz_valueToBool(value: *Value) bool;
     pub extern fn bz_valueToString(value: *Value, len: *usize) ?[*]const u8;
-    pub extern fn bz_valueToInteger(value: *Value) i64;
+    pub extern fn bz_valueToInteger(value: *Value) i32;
     pub extern fn bz_valueToFloat(value: *Value) f64;
     pub extern fn bz_valueToUserData(value: *Value) *UserData;
     pub extern fn bz_valueIsInteger(value: *Value) bool;

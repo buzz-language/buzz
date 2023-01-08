@@ -23,10 +23,7 @@ const FunctionNode = _node.FunctionNode;
 pub const pcre = @import("./pcre.zig").pcre;
 
 const Value = _value.Value;
-const HashableValue = _value.HashableValue;
 const ValueType = _value.ValueType;
-const valueToHashable = _value.valueToHashable;
-const hashableToValue = _value.hashableToValue;
 const floatToInteger = _value.floatToInteger;
 const valueToString = _value.valueToString;
 const valueEql = _value.valueEql;
@@ -79,7 +76,7 @@ pub const Obj = struct {
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
                 break :upvalue valueIs(
-                    Value{ .Obj = type_def.toObj() },
+                    Value.fromObj(type_def.toObj()),
                     upvalue.closed orelse upvalue.location.*,
                 );
             },
@@ -89,8 +86,8 @@ pub const Obj = struct {
             .Bound => bound: {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
                 break :bound valueIs(
-                    Value{ .Obj = type_def.toObj() },
-                    Value{ .Obj = if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj() },
+                    Value.fromObj(type_def.toObj()),
+                    Value.fromObj(if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj()),
                 );
             },
 
@@ -198,12 +195,12 @@ pub const ObjFiber = struct {
         try gc.markObj(self.type_def.toObj());
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -217,9 +214,9 @@ pub const ObjFiber = struct {
     pub fn over(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self = Self.cast(vm.peek(0).Obj).?;
+        var self = Self.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Boolean = self.fiber.status == .Over });
+        ctx.vm.push(Value.fromBoolean(self.fiber.status == .Over));
 
         return 1;
     }
@@ -227,7 +224,7 @@ pub const ObjFiber = struct {
     pub fn cancel(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self = Self.cast(vm.peek(0).Obj).?;
+        var self = Self.cast(vm.peek(0).obj()).?;
 
         self.fiber.status = .Over;
 
@@ -255,7 +252,8 @@ pub const ObjFiber = struct {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = unativeFn,
+                    // Complains about const qualifier discard otherwise
+                    .native = @intToPtr(*anyopaque, @ptrToInt(unativeFn)),
                 },
             );
 
@@ -319,12 +317,12 @@ pub const ObjPattern = struct {
 
     pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -432,19 +430,19 @@ pub const ObjPattern = struct {
     pub fn match(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const self = Self.cast(vm.peek(1).Obj).?;
-        const subject = ObjString.cast(vm.peek(0).Obj).?.string;
+        const self = Self.cast(vm.peek(1).obj()).?;
+        const subject = ObjString.cast(vm.peek(0).obj()).?.string;
 
         var offset: usize = 0;
         if (self.rawMatch(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len, &offset) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }) |results| {
             ctx.vm.push(results.toValue());
         } else {
-            ctx.vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value.Null);
         }
 
         return 1;
@@ -453,18 +451,18 @@ pub const ObjPattern = struct {
     pub fn matchAll(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self = Self.cast(vm.peek(1).Obj).?;
-        var subject = ObjString.cast(vm.peek(0).Obj).?.string;
+        var self = Self.cast(vm.peek(1).obj()).?;
+        var subject = ObjString.cast(vm.peek(0).obj()).?.string;
 
         if (self.rawMatchAll(vm, if (subject.len > 0) @ptrCast([*]const u8, subject) else null, subject.len) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not match") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }) |results| {
             ctx.vm.push(results.toValue());
         } else {
-            ctx.vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value.Null);
         }
 
         return 1;
@@ -487,7 +485,8 @@ pub const ObjPattern = struct {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = nativeFn,
+                    // Complains about const qualifier discard otherwise
+                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
                 },
             );
 
@@ -534,12 +533,12 @@ pub const ObjUserData = struct {
 
     pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -562,12 +561,12 @@ pub const ObjString = struct {
 
     pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -589,7 +588,7 @@ pub const ObjString = struct {
     pub fn trim(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).obj()).?;
 
         var trimmed = std.mem.trim(u8, str.string, " ");
         trimmed = std.mem.trim(u8, trimmed, "\t");
@@ -598,7 +597,7 @@ pub const ObjString = struct {
 
         ctx.vm.push((vm.gc.copyString(trimmed) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not trim string") catch null;
-            vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }).toValue());
@@ -609,9 +608,9 @@ pub const ObjString = struct {
     pub fn len(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Integer = @intCast(i64, str.string.len) });
+        ctx.vm.push(Value.fromInteger(@intCast(i32, str.string.len)));
 
         return 1;
     }
@@ -619,9 +618,9 @@ pub const ObjString = struct {
     pub fn repeat(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str = Self.cast(vm.peek(1).Obj).?;
+        const str = Self.cast(vm.peek(1).obj()).?;
         const n = floatToInteger(vm.peek(0));
-        const n_i = if (n == .Integer) n.Integer else null;
+        const n_i = if (n.isInteger()) n.integer() else null;
 
         if (n_i) |ni| {
             var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.gc.allocator);
@@ -629,7 +628,7 @@ pub const ObjString = struct {
             while (i < ni) : (i += 1) {
                 new_string.appendSlice(str.string) catch {
                     var err: ?*ObjString = vm.gc.copyString("Could not repeat string") catch null;
-                    vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
@@ -637,7 +636,7 @@ pub const ObjString = struct {
 
             const new_objstring = vm.gc.copyString(new_string.items) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not repeat string") catch null;
-                vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             };
@@ -648,7 +647,7 @@ pub const ObjString = struct {
         }
 
         var err: ?*ObjString = vm.gc.copyString("`n` should be an integer") catch null;
-        vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+        vm.throw(VM.Error.BadNumber, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
         return -1;
     }
@@ -656,18 +655,18 @@ pub const ObjString = struct {
     pub fn byte(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const self: *Self = Self.cast(vm.peek(1).Obj).?;
+        const self: *Self = Self.cast(vm.peek(1).obj()).?;
         const index = floatToInteger(vm.peek(0));
-        const index_i = if (index == .Integer) index.Integer else null;
+        const index_i = if (index.isInteger()) index.integer() else null;
 
         if (index_i == null or index_i.? < 0 or index_i.? >= self.string.len) {
             var err: ?*ObjString = vm.gc.copyString("Out of bound access to str") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }
 
-        ctx.vm.push(Value{ .Integer = @intCast(i64, self.string[@intCast(usize, index_i.?)]) });
+        ctx.vm.push(Value.fromInteger(@intCast(i32, self.string[@intCast(usize, index_i.?)])));
 
         return 1;
     }
@@ -675,12 +674,12 @@ pub const ObjString = struct {
     pub fn indexOf(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
+        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
 
         var index = std.mem.indexOf(u8, self.string, needle.string);
 
-        ctx.vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
+        ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
 
         return 1;
     }
@@ -688,10 +687,10 @@ pub const ObjString = struct {
     pub fn startsWith(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
+        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Boolean = std.mem.startsWith(u8, self.string, needle.string) });
+        ctx.vm.push(Value.fromBoolean(std.mem.startsWith(u8, self.string, needle.string)));
 
         return 1;
     }
@@ -699,10 +698,10 @@ pub const ObjString = struct {
     pub fn endsWith(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var needle: *Self = Self.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
+        var needle: *Self = Self.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Boolean = std.mem.endsWith(u8, self.string, needle.string) });
+        ctx.vm.push(Value.fromBoolean(std.mem.endsWith(u8, self.string, needle.string)));
 
         return 1;
     }
@@ -710,13 +709,13 @@ pub const ObjString = struct {
     pub fn replace(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(2).Obj).?;
-        var needle: *Self = Self.cast(vm.peek(1).Obj).?;
-        var replacement: *Self = Self.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(2).obj()).?;
+        var needle: *Self = Self.cast(vm.peek(1).obj()).?;
+        var replacement: *Self = Self.cast(vm.peek(0).obj()).?;
 
         const new_string = std.mem.replaceOwned(u8, vm.gc.allocator, self.string, needle.string, replacement.string) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not replace string") catch null;
-            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -724,7 +723,7 @@ pub const ObjString = struct {
         ctx.vm.push(
             (vm.gc.copyString(new_string) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not replace string") catch null;
-                vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.Custom, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             }).toValue(),
@@ -736,22 +735,22 @@ pub const ObjString = struct {
     pub fn sub(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(2).Obj).?;
+        var self: *Self = Self.cast(vm.peek(2).obj()).?;
         var start_value = floatToInteger(vm.peek(1));
-        var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
+        var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
         var upto_value: Value = floatToInteger(vm.peek(0));
-        var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
+        var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
 
         if (start == null or start.? < 0 or start.? >= self.string.len) {
             var err: ?*ObjString = vm.gc.copyString("`start` is out of bound") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }
 
         if (upto != null and upto.? < 0) {
             var err: ?*ObjString = vm.gc.copyString("`len` must greater or equal to 0") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }
@@ -762,7 +761,7 @@ pub const ObjString = struct {
         ctx.vm.push(
             (vm.gc.copyString(substr) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not get sub string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             }).toValue(),
@@ -774,8 +773,8 @@ pub const ObjString = struct {
     pub fn split(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var separator: *Self = Self.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
+        var separator: *Self = Self.cast(vm.peek(0).obj()).?;
 
         // std.mem.split(u8, self.string, separator.string);
         var list_def: ObjList.ListDef = ObjList.ListDef.init(
@@ -784,7 +783,7 @@ pub const ObjString = struct {
                 .def_type = .String,
             }) catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             },
@@ -801,7 +800,7 @@ pub const ObjString = struct {
             .resolved_type = list_def_union,
         }) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -811,7 +810,7 @@ pub const ObjString = struct {
             ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -824,14 +823,14 @@ pub const ObjString = struct {
             while (it.next()) |fragment| {
                 var fragment_str: ?*ObjString = vm.gc.copyString(fragment) catch {
                     var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
 
                 list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
                     var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
@@ -840,14 +839,14 @@ pub const ObjString = struct {
             for (self.string) |char| {
                 var fragment_str: ?*ObjString = vm.gc.copyString(&([_]u8{char})) catch {
                     var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
 
                 list.rawAppend(vm.gc, fragment_str.?.toValue()) catch {
                     var err: ?*ObjString = vm.gc.copyString("Could not split string") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
@@ -857,29 +856,29 @@ pub const ObjString = struct {
         return 1;
     }
 
-    pub fn next(self: *Self, vm: *VM, str_index: ?i64) !?i64 {
+    pub fn next(self: *Self, vm: *VM, str_index: ?i32) !?i32 {
         if (str_index) |index| {
-            if (index < 0 or index >= @intCast(i64, self.string.len)) {
+            if (index < 0 or index >= @intCast(i32, self.string.len)) {
                 try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to str")).toValue());
             }
 
-            return if (index + 1 >= @intCast(i64, self.string.len))
+            return if (index + 1 >= @intCast(i32, self.string.len))
                 null
             else
                 index + 1;
         } else {
-            return if (self.string.len > 0) @intCast(i64, 0) else null;
+            return if (self.string.len > 0) @intCast(i32, 0) else null;
         }
     }
 
     pub fn encodeBase64(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var str: *Self = Self.cast(vm.peek(0).Obj).?;
+        var str: *Self = Self.cast(vm.peek(0).obj()).?;
 
         var encoded = vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not encode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -889,7 +888,7 @@ pub const ObjString = struct {
             std.base64.standard.Encoder.encode(encoded, str.string),
         ) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not encode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -902,17 +901,17 @@ pub const ObjString = struct {
     pub fn decodeBase64(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).obj()).?;
 
         const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
         var decoded = vm.gc.allocator.alloc(u8, size) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -920,14 +919,14 @@ pub const ObjString = struct {
 
         std.base64.standard.Decoder.decode(decoded, str.string) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
 
         var new_string = vm.gc.copyString(decoded) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not decode string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -940,7 +939,7 @@ pub const ObjString = struct {
     pub fn upper(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).obj()).?;
 
         if (str.string.len == 0) {
             ctx.vm.push(str.toValue());
@@ -950,7 +949,7 @@ pub const ObjString = struct {
 
         var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -965,7 +964,7 @@ pub const ObjString = struct {
 
         var obj_string = vm.gc.copyString(new_str) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -978,7 +977,7 @@ pub const ObjString = struct {
     pub fn lower(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        const str: *Self = Self.cast(vm.peek(0).Obj).?;
+        const str: *Self = Self.cast(vm.peek(0).obj()).?;
 
         if (str.string.len == 0) {
             ctx.vm.push(str.toValue());
@@ -988,7 +987,7 @@ pub const ObjString = struct {
 
         var new_str = vm.gc.allocator.alloc(u8, str.string.len) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -1003,7 +1002,7 @@ pub const ObjString = struct {
 
         var obj_string = vm.gc.copyString(new_str) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get uppercased string") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -1043,7 +1042,8 @@ pub const ObjString = struct {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = nativeFn,
+                    // Complains about const qualifier discard otherwise
+                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
                 },
             );
 
@@ -1173,12 +1173,12 @@ pub const ObjUpValue = struct {
         }
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1226,12 +1226,12 @@ pub const ObjClosure = struct {
         self.upvalues.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1262,17 +1262,20 @@ pub const ObjNative = struct {
 
     // TODO: issue is list.member which separate its type definition from its runtime creation
     // type_def: *ObjTypeDef,
+    name: []const u8,
 
-    native: NativeFn,
+    native: *anyopaque,
+
+    native_raw: ?*anyopaque = null,
 
     pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1314,11 +1317,11 @@ pub const ObjFunction = struct {
     // Stop incrementing once the function is jitted
     run_count: usize = 0,
 
-    // Jitted function
-    native_raw: ?*ObjNative = null,
+    // Jitted function, since we don't know its signature -> *anyopaque
+    native_raw: ?*anyopaque = null,
 
     // Jitted function callable by buzz VM
-    native: ?*ObjNative = null,
+    native: ?*anyopaque = null,
 
     pub fn init(allocator: Allocator, node: *FunctionNode, name: *ObjString) !Self {
         return Self{
@@ -1346,12 +1349,12 @@ pub const ObjFunction = struct {
         }
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1464,12 +1467,12 @@ pub const ObjObjectInstance = struct {
         self.fields.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1563,12 +1566,12 @@ pub const ObjObject = struct {
         self.static_fields.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1738,12 +1741,12 @@ pub const ObjList = struct {
         self.methods.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1784,7 +1787,8 @@ pub const ObjList = struct {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = nativeFn,
+                    // Complains about const qualifier discard otherwise
+                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
                 },
             );
 
@@ -1814,15 +1818,15 @@ pub const ObjList = struct {
     fn forEach(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list = ObjList.cast(vm.peek(1).Obj).?;
-        var closure = ObjClosure.cast(vm.peek(0).Obj).?;
+        var list = ObjList.cast(vm.peek(1).obj()).?;
+        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
 
         for (list.items.items) |item, index| {
             var args = std.ArrayList(*const Value).init(vm.gc.allocator);
             defer args.deinit();
 
             // TODO: handle error
-            const index_value = Value{ .Integer = @intCast(i64, index) };
+            const index_value = Value.fromInteger(@intCast(i32, index));
             args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
@@ -1841,8 +1845,8 @@ pub const ObjList = struct {
     fn reduce(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list = ObjList.cast(vm.peek(2).Obj).?;
-        var closure = ObjClosure.cast(vm.peek(1).Obj).?;
+        var list = ObjList.cast(vm.peek(2).obj()).?;
+        var closure = ObjClosure.cast(vm.peek(1).obj()).?;
         var accumulator = vm.peek(0);
 
         for (list.items.items) |item, index| {
@@ -1850,7 +1854,7 @@ pub const ObjList = struct {
             defer args.deinit();
 
             // TODO: handle error
-            const index_value = Value{ .Integer = @intCast(i64, index) };
+            const index_value = Value.fromInteger(@intCast(i32, index));
             args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
             args.append(&accumulator) catch unreachable;
@@ -1874,8 +1878,8 @@ pub const ObjList = struct {
     fn filter(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list = ObjList.cast(vm.peek(1).Obj).?;
-        var closure = ObjClosure.cast(vm.peek(0).Obj).?;
+        var list = ObjList.cast(vm.peek(1).obj()).?;
+        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
 
         var new_list: *ObjList = vm.gc.allocateObject(
             ObjList,
@@ -1890,7 +1894,7 @@ pub const ObjList = struct {
             defer args.deinit();
 
             // TODO: handle error
-            const index_value = Value{ .Integer = @intCast(i64, index) };
+            const index_value = Value.fromInteger(@intCast(i32, index));
             args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
@@ -1902,7 +1906,7 @@ pub const ObjList = struct {
                 null,
             );
 
-            if (vm.pop().Boolean) {
+            if (vm.pop().boolean()) {
                 new_list.rawAppend(vm.gc, item) catch unreachable;
             }
         }
@@ -1915,8 +1919,8 @@ pub const ObjList = struct {
     fn map(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list = ObjList.cast(vm.peek(1).Obj).?;
-        var closure = ObjClosure.cast(vm.peek(0).Obj).?;
+        var list = ObjList.cast(vm.peek(1).obj()).?;
+        var closure = ObjClosure.cast(vm.peek(0).obj()).?;
 
         // FIXME: how to get concret generic type here? for now we use the generic type
         var function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;
@@ -1933,7 +1937,7 @@ pub const ObjList = struct {
             defer args.deinit();
 
             // TODO: handle error
-            const index_value = Value{ .Integer = @intCast(i64, index) };
+            const index_value = Value.fromInteger(@intCast(i32, index));
             args.append(&index_value) catch unreachable;
             args.append(&item) catch unreachable;
 
@@ -1957,7 +1961,7 @@ pub const ObjList = struct {
         const vm = ctx.vm;
 
         var list_value: Value = vm.peek(1);
-        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var list: *ObjList = ObjList.cast(list_value.obj()).?;
         var value: Value = vm.peek(0);
 
         list.rawAppend(vm.gc, value) catch |err| {
@@ -1982,14 +1986,14 @@ pub const ObjList = struct {
         const vm = ctx.vm;
 
         var list_value: Value = vm.peek(2);
-        var list: *ObjList = ObjList.cast(list_value.Obj).?;
-        var index: i64 = vm.peek(1).Integer;
+        var list: *ObjList = ObjList.cast(list_value.obj()).?;
+        var index: i32 = vm.peek(1).integer();
         var value: Value = vm.peek(0);
 
         if (index < 0 or list.items.items.len == 0) {
             index = 0;
         } else if (index >= list.items.items.len) {
-            index = @intCast(i64, list.items.items.len) - 1;
+            index = @intCast(i32, list.items.items.len) - 1;
         }
 
         list.rawInsert(vm.gc, @intCast(usize, index), value) catch |err| {
@@ -2013,9 +2017,9 @@ pub const ObjList = struct {
     fn len(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
+        var list: *ObjList = ObjList.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Integer = @intCast(i64, list.items.items.len) });
+        ctx.vm.push(Value.fromInteger(@intCast(i32, list.items.items.len)));
 
         return 1;
     }
@@ -2023,12 +2027,12 @@ pub const ObjList = struct {
     pub fn pop(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list: *ObjList = ObjList.cast(vm.peek(0).Obj).?;
+        var list: *ObjList = ObjList.cast(vm.peek(0).obj()).?;
 
         if (list.items.items.len > 0) {
             ctx.vm.push(list.items.pop());
         } else {
-            ctx.vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value.Null);
         }
 
         return 1;
@@ -2037,12 +2041,12 @@ pub const ObjList = struct {
     pub fn remove(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var list: *ObjList = ObjList.cast(vm.peek(1).Obj).?;
+        var list: *ObjList = ObjList.cast(vm.peek(1).obj()).?;
         var list_index_value = floatToInteger(vm.peek(0));
-        var list_index: ?i64 = if (list_index_value == .Integer) list_index_value.Integer else null;
+        var list_index: ?i32 = if (list_index_value.isInteger()) list_index_value.integer() else null;
 
         if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
-            ctx.vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value.Null);
 
             return 1;
         }
@@ -2077,15 +2081,15 @@ pub const ObjList = struct {
             null,
         );
 
-        return context.vm.pop().Boolean;
+        return context.vm.pop().boolean();
     }
 
     pub fn sort(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self = Self.cast(vm.peek(1).Obj).?;
+        var self = Self.cast(vm.peek(1).obj()).?;
         // fun compare(T lhs, T rhs) > bool
-        var sort_closure = ObjClosure.cast(vm.peek(0).Obj).?;
+        var sort_closure = ObjClosure.cast(vm.peek(0).obj()).?;
 
         std.sort.sort(
             Value,
@@ -2105,7 +2109,7 @@ pub const ObjList = struct {
     pub fn indexOf(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
         var needle: Value = vm.peek(0);
 
         var index: ?usize = null;
@@ -2119,7 +2123,7 @@ pub const ObjList = struct {
             i += 1;
         }
 
-        ctx.vm.push(if (index) |uindex| Value{ .Integer = @intCast(i64, uindex) } else Value{ .Null = {} });
+        ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
 
         return 1;
     }
@@ -2127,8 +2131,8 @@ pub const ObjList = struct {
     pub fn join(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(1).Obj).?;
-        var separator: *ObjString = ObjString.cast(vm.peek(0).Obj).?;
+        var self: *Self = Self.cast(vm.peek(1).obj()).?;
+        var separator: *ObjString = ObjString.cast(vm.peek(0).obj()).?;
 
         var result = std.ArrayList(u8).init(vm.gc.allocator);
         var writer = result.writer();
@@ -2136,7 +2140,7 @@ pub const ObjList = struct {
         for (self.items.items) |item, i| {
             valueToString(&writer, item) catch {
                 var err: ?*ObjString = vm.gc.copyString("could not stringify item") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             };
@@ -2144,7 +2148,7 @@ pub const ObjList = struct {
             if (i + 1 < self.items.items.len) {
                 writer.writeAll(separator.string) catch {
                     var err: ?*ObjString = vm.gc.copyString("could not join list") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 };
@@ -2152,14 +2156,14 @@ pub const ObjList = struct {
         }
 
         ctx.vm.push(
-            Value{
-                .Obj = (vm.gc.copyString(result.items) catch {
+            Value.fromObj(
+                (vm.gc.copyString(result.items) catch {
                     var err: ?*ObjString = vm.gc.copyString("could not join list") catch null;
-                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                    vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                     return -1;
                 }).toObj(),
-            },
+            ),
         );
 
         return 1;
@@ -2168,22 +2172,22 @@ pub const ObjList = struct {
     pub fn sub(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *Self = Self.cast(vm.peek(2).Obj).?;
+        var self: *Self = Self.cast(vm.peek(2).obj()).?;
         var start_value = floatToInteger(vm.peek(1));
-        var start: ?i64 = if (start_value == .Integer) start_value.Integer else null;
+        var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
         var upto_value: Value = floatToInteger(vm.peek(0));
-        var upto: ?i64 = if (upto_value == .Integer) upto_value.Integer else if (upto_value == .Float) @floatToInt(i64, upto_value.Float) else null;
+        var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
 
         if (start == null or start.? < 0 or start.? >= self.items.items.len) {
             var err: ?*ObjString = vm.gc.copyString("`start` is out of bound") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }
 
         if (upto != null and upto.? < 0) {
             var err: ?*ObjString = vm.gc.copyString("`len` must greater or equal to 0") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         }
@@ -2195,14 +2199,14 @@ pub const ObjList = struct {
             .type_def = self.type_def,
             .methods = self.methods.clone() catch {
                 var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             },
             .items = std.ArrayList(Value).init(vm.gc.allocator),
         }) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -2211,7 +2215,7 @@ pub const ObjList = struct {
 
         list.items.appendSlice(substr) catch {
             var err: ?*ObjString = vm.gc.copyString("Could not get sub list") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -2219,18 +2223,18 @@ pub const ObjList = struct {
         return 1;
     }
 
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?i64) !?i64 {
+    pub fn rawNext(self: *Self, vm: *VM, list_index: ?i32) !?i32 {
         if (list_index) |index| {
-            if (index < 0 or index >= @intCast(i64, self.items.items.len)) {
+            if (index < 0 or index >= @intCast(i32, self.items.items.len)) {
                 try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to list")).toValue());
             }
 
-            return if (index + 1 >= @intCast(i64, self.items.items.len))
+            return if (index + 1 >= @intCast(i32, self.items.items.len))
                 null
             else
                 index + 1;
         } else {
-            return if (self.items.items.len > 0) @intCast(i64, 0) else null;
+            return if (self.items.items.len > 0) @intCast(i32, 0) else null;
         }
     }
 
@@ -2238,16 +2242,16 @@ pub const ObjList = struct {
         const vm = ctx.vm;
 
         var list_value: Value = vm.peek(1);
-        var list: *ObjList = ObjList.cast(list_value.Obj).?;
+        var list: *ObjList = ObjList.cast(list_value.obj()).?;
         var list_index: Value = vm.peek(0);
 
-        var next_index: ?i64 = list.rawNext(vm, if (list_index == .Null) null else list_index.Integer) catch |err| {
+        var next_index: ?i32 = list.rawNext(vm, if (list_index.isNull()) null else list_index.integer()) catch |err| {
             // TODO: should we distinguish NativeFn and ExternFn ?
             std.debug.print("{}\n", .{err});
             std.os.exit(1);
         };
 
-        ctx.vm.push(if (next_index) |unext_index| Value{ .Integer = unext_index } else Value{ .Null = {} });
+        ctx.vm.push(if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null);
 
         return 1;
     }
@@ -2456,7 +2460,7 @@ pub const ObjList = struct {
                 );
 
                 var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
-                try defaults.put(len_str, Value{ .Null = {} });
+                try defaults.put(len_str, Value.Null);
 
                 var method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
@@ -2968,21 +2972,20 @@ pub const ObjMap = struct {
     type_def: *ObjTypeDef,
 
     // We need an ArrayHashMap for `next`
-    // In order to use a regular HashMap, we would have to hack are away around it to implement next
-    map: std.AutoArrayHashMap(HashableValue, Value),
+    map: std.AutoArrayHashMap(Value, Value),
 
     methods: std.AutoHashMap(*ObjString, *ObjNative),
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
         return .{
             .type_def = type_def,
-            .map = std.AutoArrayHashMap(HashableValue, Value).init(allocator),
+            .map = std.AutoArrayHashMap(Value, Value).init(allocator),
             .methods = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
         };
     }
 
     pub fn set(self: *Self, gc: *GarbageCollector, key: Value, value: Value) !void {
-        try self.map.put(valueToHashable(key), value);
+        try self.map.put(key, value);
         try gc.markObjDirty(&self.obj);
     }
 
@@ -3005,7 +3008,8 @@ pub const ObjMap = struct {
             var native: *ObjNative = try vm.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native = nativeFn,
+                    // Complains about const qualifier discard otherwise
+                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
                 },
             );
 
@@ -3020,7 +3024,7 @@ pub const ObjMap = struct {
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         var it = self.map.iterator();
         while (it.next()) |kv| {
-            try gc.markValue(hashableToValue(kv.key_ptr.*));
+            try gc.markValue(kv.key_ptr.*);
             try gc.markValue(kv.value_ptr.*);
         }
 
@@ -3036,9 +3040,9 @@ pub const ObjMap = struct {
     fn size(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var map: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+        var map: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
 
-        ctx.vm.push(Value{ .Integer = @intCast(i64, map.map.count()) });
+        ctx.vm.push(Value.fromInteger(@intCast(i32, map.map.count())));
 
         return 1;
     }
@@ -3046,13 +3050,13 @@ pub const ObjMap = struct {
     pub fn remove(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var map: *ObjMap = ObjMap.cast(vm.peek(1).Obj).?;
-        var map_key: HashableValue = valueToHashable(vm.peek(0));
+        var map: *ObjMap = ObjMap.cast(vm.peek(1).obj()).?;
+        var map_key = vm.peek(0);
 
         if (map.map.fetchOrderedRemove(map_key)) |removed| {
             ctx.vm.push(removed.value);
         } else {
-            ctx.vm.push(Value{ .Null = {} });
+            ctx.vm.push(Value.Null);
         }
 
         return 1;
@@ -3061,14 +3065,14 @@ pub const ObjMap = struct {
     pub fn keys(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+        var self: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
 
-        var map_keys: []HashableValue = self.map.keys();
+        var map_keys: []Value = self.map.keys();
         var result = std.ArrayList(Value).init(vm.gc.allocator);
         for (map_keys) |key| {
-            result.append(hashableToValue(key)) catch {
+            result.append(key) catch {
                 var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+                vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
                 return -1;
             };
@@ -3089,7 +3093,7 @@ pub const ObjMap = struct {
             .resolved_type = list_def_union,
         }) catch {
             var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -3102,7 +3106,7 @@ pub const ObjMap = struct {
             ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
             var err: ?*ObjString = vm.gc.copyString("could not get map keys") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -3119,13 +3123,13 @@ pub const ObjMap = struct {
     pub fn values(ctx: NativeCtx) c_int {
         const vm = ctx.vm;
 
-        var self: *ObjMap = ObjMap.cast(vm.peek(0).Obj).?;
+        var self: *ObjMap = ObjMap.cast(vm.peek(0).obj()).?;
 
         var map_values: []Value = self.map.values();
         var result = std.ArrayList(Value).init(vm.gc.allocator);
         result.appendSlice(map_values) catch {
             var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -3145,7 +3149,7 @@ pub const ObjMap = struct {
             .resolved_type = list_def_union,
         }) catch {
             var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -3155,7 +3159,7 @@ pub const ObjMap = struct {
             ObjList.init(vm.gc.allocator, list_def_type),
         ) catch {
             var err: ?*ObjString = vm.gc.copyString("could not get map values") catch null;
-            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value{ .Boolean = false }) catch unreachable;
+            vm.throw(VM.Error.OutOfBound, if (err) |uerr| uerr.toValue() else Value.False) catch unreachable;
 
             return -1;
         };
@@ -3168,8 +3172,8 @@ pub const ObjMap = struct {
         return 1;
     }
 
-    pub fn rawNext(self: *Self, key: ?HashableValue) ?HashableValue {
-        const map_keys: []HashableValue = self.map.keys();
+    pub fn rawNext(self: *Self, key: ?Value) ?Value {
+        const map_keys: []Value = self.map.keys();
 
         if (key) |ukey| {
             const index: usize = self.map.getIndex(ukey).?;
@@ -3189,12 +3193,12 @@ pub const ObjMap = struct {
         self.methods.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -3435,7 +3439,7 @@ pub const ObjEnum = struct {
         self.cases.deinit();
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
@@ -3489,12 +3493,12 @@ pub const ObjEnumInstance = struct {
         try gc.markObj(self.enum_ref.toObj());
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -3530,12 +3534,12 @@ pub const ObjBoundMethod = struct {
         }
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -4196,12 +4200,12 @@ pub const ObjTypeDef = struct {
         }
     }
 
-    pub fn toObj(self: *Self) *Obj {
+    pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
     }
 
-    pub fn toValue(self: *Self) Value {
-        return Value{ .Obj = self.toObj() };
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
     }
 
     pub fn toParentType(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
@@ -4421,7 +4425,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .UserData,
         .Pattern,
         .Fiber,
-        => return Value{ .Obj = obj },
+        => return Value.fromObj(obj),
 
         .List => {
             const list = ObjList.cast(obj).?;
