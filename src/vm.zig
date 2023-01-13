@@ -3418,35 +3418,41 @@ pub const VM = struct {
 
     // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
-        // Do we need to jit the function?
-        var native = closure.function.native;
-        // TODO: figure out threshold strategy
-        if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
-            const compiled = try self.jit.jitFunction(closure);
+        if (!BuildOptions.jit_off) {
+            // Do we need to jit the function?
+            var native = closure.function.native;
+            // TODO: figure out threshold strategy
+            if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
+                const compiled = try self.jit.jitFunction(closure);
 
-            // If we're here it means there's no reason it would not compile
-            closure.function.native = compiled[0];
-            closure.function.native_raw = compiled[1];
+                // If we're here it means there's no reason it would not compile
+                closure.function.native = compiled[0];
+                closure.function.native_raw = compiled[1];
 
-            native = closure.function.native;
-        }
+                native = closure.function.native;
+            }
 
-        // Is there a jitted version of it?
-        if (native) |jitted_function| {
-            try self.callNative(
-                closure,
-                @ptrCast(
-                    NativeFn,
-                    @alignCast(
-                        @alignOf(Native),
-                        jitted_function,
+            // Is there a jitted version of it?
+            if (native) |jitted_function| {
+                if (BuildOptions.jit_debug) {
+                    std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
+                }
+
+                try self.callNative(
+                    closure,
+                    @ptrCast(
+                        NativeFn,
+                        @alignCast(
+                            @alignOf(Native),
+                            jitted_function,
+                        ),
                     ),
-                ),
-                arg_count,
-                catch_value,
-            );
+                    arg_count,
+                    catch_value,
+                );
 
-            return;
+                return;
+            }
         }
 
         // TODO: check for stack overflow
@@ -3563,7 +3569,7 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(
                     null,
-                    @ptrCast(NativeFn, @alignCast(@alignOf(NativeFn), ObjNative.cast(obj).?.native)),
+                    @ptrCast(NativeFn, @alignCast(@alignOf(Native), ObjNative.cast(obj).?.native)),
                     arg_count,
                     catch_value,
                 );

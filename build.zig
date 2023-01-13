@@ -23,10 +23,12 @@ const BuzzDebugOptions = struct {
 };
 
 const BuzzJITOptions = struct {
+    off: bool,
     debug: bool,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
+        options.addOption(@TypeOf(self.off), "jit_off", self.off);
     }
 };
 
@@ -143,6 +145,7 @@ pub fn build(b: *Builder) !void {
         },
         .jit = .{
             .debug = b.option(bool, "jit_debug", "Show debug information for the JIT engine") orelse false,
+            .off = b.option(bool, "jit_off", "Turn off JIT engine") orelse false,
         },
     };
 

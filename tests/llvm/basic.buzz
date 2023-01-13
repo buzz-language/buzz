@@ -1,9 +1,9 @@
 extern fun print(str value) > void;
 
-fun jitSayHello() > void {
-    print("hello world fucking yeah");
+fun jitSayHello(str what) > void {
+    print(what);
 }
 
 fun main([str] args) > void {
-    jitSayHello();
+    jitSayHello("hello joe");
 }

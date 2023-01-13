@@ -247,7 +247,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
 
             print("{}\t{} {s}", .{ instruction, constant, value_str[0..std.math.min(value_str.len, 100)] });
 
-            var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].Obj).?;
+            var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].obj()).?;
             var i: u8 = 0;
             while (i < function.upvalue_count) : (i += 1) {
                 var is_local: bool = chunk.code.items[off_offset] == 1;

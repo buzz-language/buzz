@@ -32,16 +32,16 @@ const ObjNative = _obj.ObjNative;
 const NativeFn = _obj.NativeFn;
 const PlaceholderDef = _obj.PlaceholderDef;
 const ObjClosure = _obj.ObjClosure;
-const llvm = @import("./llvm.zig");
+const l = @import("./llvm.zig");
 const Token = @import("./token.zig").Token;
 const disassembler = @import("./disassembler.zig");
 const disassembleChunk = disassembler.disassembleChunk;
 const VM = @import("./vm.zig").VM;
 
 const GenState = struct {
-    module: *llvm.OrcThreadSafeModule,
-    context: *llvm.OrcThreadSafeContext,
-    builder: *llvm.Builder,
+    module: *l.OrcThreadSafeModule,
+    context: *l.OrcThreadSafeContext,
+    builder: *l.Builder,
 
     pub fn deinit(self: GenState) void {
         self.builder.dispose();
@@ -58,8 +58,10 @@ pub const Frame = struct {
 
     try_should_handle: ?std.AutoHashMap(*ObjTypeDef, void) = null,
 
-    function: ?*llvm.Value = null,
-    block: ?*llvm.BasicBlock = null,
+    function: ?*l.Value = null,
+    block: ?*l.BasicBlock = null,
+
+    locals: std.ArrayList(*l.Value),
 };
 
 pub const BuzzApiMethods = enum {
@@ -96,21 +98,21 @@ pub const JIT = struct {
     current: ?*Frame = null,
     state: GenState = undefined,
 
-    vm_constant: ?*llvm.Value = null,
+    vm_constant: ?*l.Value = null,
 
-    api_lowered_types: std.AutoHashMap(BuzzApiMethods, *llvm.Type),
+    api_lowered_types: std.AutoHashMap(BuzzApiMethods, *l.Type),
 
-    orc_jit: *llvm.OrcLLJIT,
+    orc_jit: *l.OrcLLJIT,
 
     pub fn init(vm: *VM) JIT {
-        llvm.initializeLLVMTarget(builtin.target.cpu.arch);
-        var builder = llvm.OrcLLJITBuilder.createBuilder();
+        l.initializeLLVMTarget(builtin.target.cpu.arch);
+        var builder = l.OrcLLJITBuilder.createBuilder();
 
         // TODO: LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator ?
 
         // Initialize LLJIT
-        var orc_jit: *llvm.OrcLLJIT = undefined;
-        if (llvm.OrcLLJITBuilder.createOrcLLJIT(&orc_jit, builder)) |orc_error| {
+        var orc_jit: *l.OrcLLJIT = undefined;
+        if (l.OrcLLJITBuilder.createOrcLLJIT(&orc_jit, builder)) |orc_error| {
             std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
 
             // Return error instead of panicking
@@ -118,8 +120,8 @@ pub const JIT = struct {
         }
 
         // Register host program symbols into the LLJIT
-        var process_definition_generator: *llvm.OrcDefinitionGenerator = undefined;
-        if (llvm.OrcDefinitionGenerator.createDynamicLibrarySearchGeneratorForProcess(
+        var process_definition_generator: *l.OrcDefinitionGenerator = undefined;
+        if (l.OrcDefinitionGenerator.createDynamicLibrarySearchGeneratorForProcess(
             &process_definition_generator,
             '_', // FIXME: adjust depending on the object format type?
             null,
@@ -136,7 +138,7 @@ pub const JIT = struct {
 
         var self = Self{
             .vm = vm,
-            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *llvm.Type).init(vm.gc.allocator),
+            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *l.Type).init(vm.gc.allocator),
             .orc_jit = orc_jit,
             .state = undefined,
         };
@@ -150,7 +152,7 @@ pub const JIT = struct {
     }
 
     // TODO: lowered types register like we do for ObjTypeDef
-    fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*llvm.Type {
+    fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
         return switch (obj_typedef.def_type) {
             .Bool => self.state.context.getContext().intType(8),
             .Integer => self.state.context.getContext().intType(64),
@@ -176,7 +178,7 @@ pub const JIT = struct {
 
                 const return_type = try self.lowerType(function_type.return_type);
                 // TODO yield_type
-                var param_types = std.ArrayList(*llvm.Type).init(self.vm.gc.allocator);
+                var param_types = std.ArrayList(*l.Type).init(self.vm.gc.allocator);
                 defer param_types.deinit();
 
                 try param_types.append((try self.lowerBuzzApiType(.nativectx)).pointerType(0));
@@ -186,7 +188,7 @@ pub const JIT = struct {
                     try param_types.append(try self.lowerType(kv.value_ptr.*));
                 }
 
-                break :function llvm.functionType(
+                break :function l.functionType(
                     return_type,
                     param_types.items.ptr,
                     @intCast(c_uint, param_types.items.len),
@@ -206,7 +208,7 @@ pub const JIT = struct {
         };
     }
 
-    inline fn lowerBuzzApiType(self: *Self, method: BuzzApiMethods) !*llvm.Type {
+    inline fn lowerBuzzApiType(self: *Self, method: BuzzApiMethods) !*l.Type {
         if (self.api_lowered_types.get(method)) |lowered| {
             return lowered;
         }
@@ -214,27 +216,27 @@ pub const JIT = struct {
         const ptr_type = self.state.context.getContext().pointerType(0);
 
         const lowered = switch (method) {
-            .bz_peek => llvm.functionType(
-                ptr_type,
-                &[_]*llvm.Type{ ptr_type, self.state.context.getContext().intType(32) },
+            .bz_peek => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{ ptr_type, self.state.context.getContext().intType(32) },
                 2,
                 .False,
             ),
-            .bz_push => llvm.functionType(
+            .bz_push => l.functionType(
                 self.state.context.getContext().voidType(),
-                &[_]*llvm.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
                 2,
                 .False,
             ),
-            .bz_valueToRawNativeFn => llvm.functionType(
+            .bz_valueToRawNativeFn => l.functionType(
                 ptr_type,
-                &[_]*llvm.Type{self.state.context.getContext().intType(64)},
+                &[_]*l.Type{self.state.context.getContext().intType(64)},
                 1,
                 .False,
             ),
-            .nativefn => llvm.functionType(
+            .nativefn => l.functionType(
                 self.state.context.getContext().intType(8),
-                &[_]*llvm.Type{
+                &[_]*l.Type{
                     (try self.lowerBuzzApiType(.nativectx)).pointerType(0),
                 },
                 1,
@@ -243,7 +245,7 @@ pub const JIT = struct {
             .value => self.state.context.getContext().intType(64),
             .nativectx => self.state.context.getContext().structCreateNamed(
                 "NativeCtx",
-                &[_]*llvm.Type{
+                &[_]*l.Type{
                     // vm
                     ptr_type,
                     // globals
@@ -278,7 +280,7 @@ pub const JIT = struct {
         }
     }
 
-    inline fn vmConstant(self: *Self) *llvm.Value {
+    inline fn vmConstant(self: *Self) *l.Value {
         self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
             self.state.context.getContext().intType(64).constInt(
                 @ptrToInt(self.vm),
@@ -302,7 +304,7 @@ pub const JIT = struct {
 
         var error_message: [*:0]const u8 = undefined;
         // verifyModule always allocs the error_message even if there is no error
-        defer llvm.disposeMessage(error_message);
+        defer l.disposeMessage(error_message);
 
         if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
             std.debug.print("\n{s}\n", .{error_message});
@@ -321,9 +323,9 @@ pub const JIT = struct {
     }
 
     pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error![2]*anyopaque {
-        var thread_safe_context = llvm.OrcThreadSafeContext.create();
-        var module = llvm.Module.createWithName("buzz-jit", thread_safe_context.getContext());
-        var thread_safe_module = llvm.OrcThreadSafeModule.createNewThreadSafeModule(
+        var thread_safe_context = l.OrcThreadSafeContext.create();
+        var module = l.Module.createWithName("buzz-jit", thread_safe_context.getContext());
+        var thread_safe_module = l.OrcThreadSafeModule.createNewThreadSafeModule(
             module,
             thread_safe_context,
         );
@@ -371,7 +373,7 @@ pub const JIT = struct {
 
         var error_message: [*:0]const u8 = undefined;
         // verifyModule always allocs the error_message even if there is no error
-        defer llvm.disposeMessage(error_message);
+        defer l.disposeMessage(error_message);
 
         if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
             std.debug.print("\n{s}\n", .{error_message});
@@ -420,7 +422,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*llvm.Value {
+    fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
         return switch (node.node_type) {
@@ -453,7 +455,7 @@ pub const JIT = struct {
             .Function => try self.generateFunctionNode(FunctionNode.cast(node).?),
             .FunDeclaration => try self.generateFunDeclaration(FunDeclarationNode.cast(node).?),
             .VarDeclaration => try self.generateVarDeclaration(VarDeclarationNode.cast(node).?),
-            .Block => try self.generateBlock(BlockNode.cast(node).?),
+            .Block => try self.generateBlock(BlockNode.cast(node).?, false),
             .Call => try self.generateCall(CallNode.cast(node).?),
             .NamedVariable => try self.generateNamedVariable(NamedVariableNode.cast(node).?),
 
@@ -464,7 +466,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*llvm.Value {
+    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*l.Value {
         const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function) named_variable_node.node.type_def.?.resolved_type.?.Function.function_type else null;
         const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
@@ -522,12 +524,21 @@ pub const JIT = struct {
                     break :global try self.buildGetGlobal(named_variable_node.slot);
                 }
             },
-            .Local => unreachable,
+            .Local => local: {
+                if (named_variable_node.value) |value| {
+                    break :local try self.buildSetLocal(
+                        named_variable_node.slot,
+                        (try self.generateNode(value)).?,
+                    );
+                }
+
+                break :local try self.buildGetLocal(named_variable_node.slot);
+            },
             .UpValue => unreachable,
         };
     }
 
-    fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*llvm.Value {
+    fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*l.Value {
         // This is not a call but an Enum(value)
         if (call_node.callee.type_def.?.def_type == .Enum) {
             // TODO
@@ -584,7 +595,7 @@ pub const JIT = struct {
             unreachable;
         }
 
-        var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
+        var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
 
         // first arg is ctx
@@ -608,7 +619,7 @@ pub const JIT = struct {
             callee = self.state.builder.buildCall(
                 try self.lowerBuzzApiType(.bz_valueToRawNativeFn),
                 self.state.module.getNamedFunction("bz_valueToRawNativeFn").?,
-                &[_]*llvm.Value{callee},
+                &[_]*l.Value{callee},
                 1,
                 "",
             );
@@ -617,26 +628,28 @@ pub const JIT = struct {
         return self.state.builder.buildCall(
             try self.lowerType(function_type_def),
             callee,
-            @ptrCast([*]*llvm.Value, arguments.items.ptr),
+            @ptrCast([*]*l.Value, arguments.items.ptr),
             @intCast(c_uint, arguments.items.len),
             "",
         );
     }
 
-    fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*llvm.Value {
-        var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
-        try block_name.appendSlice(self.current.?.function_node.node.type_def.?.resolved_type.?.Function.name.string);
-        try block_name.appendSlice(".block");
-        try block_name.append(0);
-        defer block_name.deinit();
+    fn generateBlock(self: *Self, block_node: *BlockNode, contiguous: bool) VM.Error!?*l.Value {
+        if (!contiguous) {
+            var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+            try block_name.appendSlice(self.current.?.function_node.node.type_def.?.resolved_type.?.Function.name.string);
+            try block_name.appendSlice(".block");
+            try block_name.append(0);
+            defer block_name.deinit();
 
-        const block = self.state.context.getContext().appendBasicBlock(
-            self.current.?.function.?,
-            @ptrCast([*:0]const u8, block_name.items),
-        );
+            const block = self.state.context.getContext().appendBasicBlock(
+                self.current.?.function.?,
+                @ptrCast([*:0]const u8, block_name.items),
+            );
 
-        self.state.builder.positionBuilderAtEnd(block);
-        self.current.?.block = block;
+            self.state.builder.positionBuilderAtEnd(block);
+            self.current.?.block = block;
+        }
 
         for (block_node.statements.items) |statement| {
             _ = try self.generateNode(statement);
@@ -645,11 +658,11 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) VM.Error!?*llvm.Value {
+    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) VM.Error!?*l.Value {
         return try self.generateFunctionNode(fun_declaration_node.function);
     }
 
-    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*llvm.Value {
+    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*l.Value {
         _ = try self.lowerType(var_declaration_node.type_def);
 
         // We should only declare locals
@@ -686,7 +699,7 @@ pub const JIT = struct {
 
     // We create 2 function at the LLVM level: one with the NativeFn signature that will be called by buzz code,
     // and one with a signature reflecting the buzz signature that will be called by JITted functions
-    fn generateFunctionNode(self: *Self, function_node: *FunctionNode) VM.Error!?*llvm.Value {
+    fn generateFunctionNode(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
         const node = &function_node.node;
 
         var enclosing = self.current;
@@ -694,10 +707,14 @@ pub const JIT = struct {
         self.current.?.* = Frame{
             .enclosing = enclosing,
             .function_node = function_node,
+            .locals = std.ArrayList(*l.Value).init(self.vm.gc.allocator),
         };
 
         const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
+
+        // Those are not allowed to be jitted
+        assert(function_type != .Extern and function_type != .Anonymous and function_type != .Script and function_type != .ScriptEntryPoint);
 
         const ret_type = try self.lowerType(node.type_def.?);
 
@@ -705,78 +722,106 @@ pub const JIT = struct {
         var qualified_name = try self.getFunctionQualifiedName(function_node, true);
         defer qualified_name.deinit();
 
-        var function = if (function_type != .Extern)
-            self.state.module.addFunction(
-                @ptrCast([*:0]const u8, qualified_name.items),
-                ret_type,
-            )
-        else // FIXME: could be a local
-            self.state.module.addGlobal(
-                ret_type.pointerType(0),
-                @ptrCast([*:0]const u8, qualified_name.items),
-            );
+        var function = self.state.module.addFunction(
+            @ptrCast([*:0]const u8, qualified_name.items),
+            ret_type,
+        );
 
-        if (function_type != .Extern) {
-            self.current.?.function = function;
+        self.current.?.function = function;
 
-            // Can't have both arrow expression and body
-            assert((function_node.arrow_expr != null and function_node.body == null) or (function_node.arrow_expr == null and function_node.body != null));
+        var block = self.state.context.getContext().appendBasicBlock(
+            function,
+            @ptrCast(
+                [*:0]const u8,
+                qualified_name.items,
+            ),
+        );
+        self.state.builder.positionBuilderAtEnd(block);
+        self.current.?.block = block;
 
-            if (function_node.arrow_expr) |arrow_expr| {
-                var block = self.state.context.getContext().appendBasicBlock(function, @ptrCast([*:0]const u8, qualified_name.items));
-                self.state.builder.positionBuilderAtEnd(block);
-                self.current.?.block = block;
+        // First arg is reserved for an eventual `this` or cli arguments
+        _ = switch (function_type) {
+            .Method => unreachable, // this
+            .Extern, .Anonymous, .EntryPoint, .ScriptEntryPoint => unreachable, // those are not allowed here
+            else => try self.buildSetLocal(
+                0,
+                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+            ),
+        };
 
-                const arrow_value = try self.generateNode(arrow_expr);
-
-                _ = self.state.builder.buildRet(arrow_value.?);
-                self.current.?.return_emitted = true;
-            } else {
-                _ = try self.generateNode(function_node.body.?.toNode());
-            }
-
-            // Jitting main or the script function is not allowed
-            assert(function_type != .Script and function_type != .ScriptEntryPoint);
-
-            if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
-                // TODO: detect if some branches of the function body miss a return statement
-                _ = self.state.builder.buildRetVoid();
-            }
-
-            // TODO: upvalues? closures?
-
-            // Add the NativeFn version of the function
-            try self.generateNativeFn(
-                function_node,
-                function,
-                ret_type,
+        // Put function arguments as locals
+        var i: usize = 1;
+        while (i <= function_def.parameters.count()) : (i += 1) {
+            _ = try self.buildSetLocal(
+                i,
+                // Since actual function first arg is NativeCtx, no need to correct back with -1
+                self.current.?.function.?.getParam(@intCast(c_uint, i)),
             );
         }
 
+        if (function_node.arrow_expr) |arrow_expr| {
+            const arrow_value = try self.generateNode(arrow_expr);
+
+            _ = self.state.builder.buildRet(arrow_value.?);
+            self.current.?.return_emitted = true;
+        } else {
+            _ = try self.generateBlock(function_node.body.?, true);
+        }
+
+        if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
+            // TODO: detect if some branches of the function body miss a return statement
+            _ = self.state.builder.buildRetVoid();
+        }
+
+        // TODO: upvalues? closures?
+
+        // Add the NativeFn version of the function
+        try self.generateNativeFn(
+            function_node,
+            function,
+            ret_type,
+        );
+
+        self.current.?.locals.deinit();
         self.current = self.current.?.enclosing;
         if (self.current != null and self.current.?.block != null) {
             self.state.builder.positionBuilderAtEnd(self.current.?.block.?);
         }
 
-        return switch (function_type) {
-            .Extern => ext: {
-                function.setInitializer(
-                    self.state.builder.buildIntToPtr(
-                        self.state.context.getContext().intType(64).constInt(@ptrToInt(function_node.native.?.native), .False),
-                        ret_type.pointerType(0),
-                        "",
-                    ),
-                );
+        return function;
+    }
 
-                break :ext function;
-            },
-            // TODO: closure
-            else => function,
-        };
+    /// Build instructions to get local at given index
+    inline fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
+        assert(slot < self.current.?.locals.items.len);
+        return self.state.builder.buildLoad(
+            try self.lowerBuzzApiType(.value),
+            self.current.?.locals.items[slot],
+            "",
+        );
+    }
+
+    /// Build instructinos to set local at given index
+    fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
+        assert(self.current.?.locals.items.len >= slot);
+
+        if (slot >= self.current.?.locals.items.len) {
+            try self.current.?.locals.append(
+                self.state.builder.buildAlloca(
+                    try self.lowerBuzzApiType(.value),
+                    "",
+                ),
+            );
+        }
+
+        return self.state.builder.buildStore(
+            value,
+            self.current.?.locals.items[slot],
+        );
     }
 
     /// Build instructions to get global at given index
-    fn buildGetGlobal(self: *Self, slot: usize) !*llvm.Value {
+    fn buildGetGlobal(self: *Self, slot: usize) !*l.Value {
         // Get ptr on NativeCtx `globals` field
         const globals_ptr = self.state.builder.buildStructGEP(
             try self.lowerBuzzApiType(.nativectx),
@@ -796,7 +841,7 @@ pub const JIT = struct {
         const value_ptr = self.state.builder.buildInBoundsGEP(
             try self.lowerBuzzApiType(.value),
             globals,
-            &[_]*llvm.Value{
+            &[_]*l.Value{
                 self.state.context.getContext().intType(64).constInt(slot, .False),
             },
             1,
@@ -812,7 +857,7 @@ pub const JIT = struct {
     }
 
     /// Build instructions to set global at given index
-    fn buildSetGlobal(self: *Self, slot: usize, value: *llvm.Value) !*llvm.Value {
+    fn buildSetGlobal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
         // Get ptr on NativeCtx `globals` field
         const globals_ptr = self.state.builder.buildStructGEP(
             try self.lowerBuzzApiType(.nativectx),
@@ -832,7 +877,7 @@ pub const JIT = struct {
         const value_ptr = self.state.builder.buildInBoundsGEP(
             try self.lowerBuzzApiType(.value),
             globals,
-            &[_]*llvm.Value{
+            &[_]*l.Value{
                 self.state.context.getContext().intType(64).constInt(slot, .False),
             },
             1,
@@ -846,7 +891,7 @@ pub const JIT = struct {
         );
     }
 
-    fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *llvm.Value, ret_type: *llvm.Type) !void {
+    fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *l.Value, ret_type: *l.Type) !void {
         const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
 
@@ -864,7 +909,7 @@ pub const JIT = struct {
         var block = self.state.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
         self.state.builder.positionBuilderAtEnd(block);
 
-        var arguments = std.ArrayList(*llvm.Value).init(self.vm.gc.allocator);
+        var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
         const arg_count = function_def.parameters.count();
 
@@ -879,7 +924,7 @@ pub const JIT = struct {
                     self.state.builder.buildCall(
                         try self.lowerBuzzApiType(.bz_peek),
                         self.state.module.getNamedFunction("bz_peek").?,
-                        &[_]*llvm.Value{
+                        &[_]*l.Value{
                             self.vmConstant(),
                             self.state.context.getContext().intType(32).constInt(@intCast(c_ulonglong, i), .False),
                         },
@@ -894,7 +939,7 @@ pub const JIT = struct {
         const result = self.state.builder.buildCall(
             ret_type,
             raw_fn,
-            @ptrCast([*]*llvm.Value, arguments.items.ptr),
+            @ptrCast([*]*l.Value, arguments.items.ptr),
             @intCast(c_uint, arguments.items.len),
             "",
         );
@@ -906,8 +951,8 @@ pub const JIT = struct {
             _ = self.state.builder.buildCall(
                 try self.lowerBuzzApiType(.bz_push),
                 self.state.module.getNamedFunction("bz_push").?,
-                &[_]*llvm.Value{
-                    self.vmConstant(),
+                &[_]*l.Value{
+                    self.current.?.function.?.getParam(0),
                     result,
                 },
                 2,
