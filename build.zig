@@ -218,8 +218,6 @@ pub fn build(b: *Builder) !void {
         "src/lib/buzz_math.zig",
         "src/lib/buzz_debug.zig",
         "src/lib/buzz_buffer.zig",
-
-        "tests/llvm/basic.zig",
     };
     // Zig only libs
     const lib_names = [_][]const u8{
@@ -231,8 +229,6 @@ pub fn build(b: *Builder) !void {
         "math",
         "debug",
         "buffer",
-
-        "basic",
     };
     const all_lib_names = [_][]const u8{
         "std",

@@ -1,4 +1,4 @@
-extern fun print(str value) > void;
+import "lib/std";
 
 fun jitSayHello(str what) > void {
     print(what);

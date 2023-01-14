@@ -101,6 +101,7 @@ pub const JIT = struct {
     vm_constant: ?*l.Value = null,
 
     api_lowered_types: std.AutoHashMap(BuzzApiMethods, *l.Type),
+    lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
 
     orc_jit: *l.OrcLLJIT,
 
@@ -139,6 +140,7 @@ pub const JIT = struct {
         var self = Self{
             .vm = vm,
             .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *l.Type).init(vm.gc.allocator),
+            .lowered_types = std.AutoHashMap(*ObjTypeDef, *l.Type).init(vm.gc.allocator),
             .orc_jit = orc_jit,
             .state = undefined,
         };
@@ -148,12 +150,18 @@ pub const JIT = struct {
 
     pub fn deinit(self: *Self) void {
         self.api_lowered_types.deinit();
+        self.lowered_types.deinit();
         self.state.deinit();
     }
 
-    // TODO: lowered types register like we do for ObjTypeDef
     fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
-        return switch (obj_typedef.def_type) {
+        var lowered = self.lowered_types.get(obj_typedef);
+
+        if (lowered) |ulowered| {
+            return ulowered;
+        }
+
+        lowered = switch (obj_typedef.def_type) {
             .Bool => self.state.context.getContext().intType(8),
             .Integer => self.state.context.getContext().intType(64),
             .Float => self.state.context.getContext().doubleType(),
@@ -206,6 +214,10 @@ pub const JIT = struct {
             // TODO
             .Fiber => unreachable,
         };
+
+        try self.lowered_types.put(obj_typedef, lowered.?);
+
+        return lowered.?;
     }
 
     inline fn lowerBuzzApiType(self: *Self, method: BuzzApiMethods) !*l.Type {
