@@ -1,9 +1,11 @@
 import "lib/std";
 
-fun jitSayHello(str who, int age) > void {
+fun jitSayHello(str who, int age) > int {
     print("Hello {who} you're {age}!");
+
+    return 12;
 }
 
 fun main([str] args) > void {
-    jitSayHello("Joe", age: 36);
+    print("Got: {jitSayHello("Joe", age: 36)}");
 }

@@ -20,6 +20,7 @@ const CallNode = _node.CallNode;
 const DotNode = _node.DotNode;
 const BlockNode = _node.BlockNode;
 const NamedVariableNode = _node.NamedVariableNode;
+const ReturnNode = _node.ReturnNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -501,12 +502,13 @@ pub const JIT = struct {
 
             .String => try self.generateString(StringNode.cast(node).?),
             .Expression, .Grouping => try self.generateNode(ExpressionNode.cast(node).?.expression),
-            .Function => try self.generateFunctionNode(FunctionNode.cast(node).?),
+            .Function => try self.generateFunction(FunctionNode.cast(node).?),
             .FunDeclaration => try self.generateFunDeclaration(FunDeclarationNode.cast(node).?),
             .VarDeclaration => try self.generateVarDeclaration(VarDeclarationNode.cast(node).?),
             .Block => try self.generateBlock(BlockNode.cast(node).?, false),
             .Call => try self.generateCall(CallNode.cast(node).?),
             .NamedVariable => try self.generateNamedVariable(NamedVariableNode.cast(node).?),
+            .Return => try self.generateReturn(ReturnNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -559,7 +561,10 @@ pub const JIT = struct {
     }
 
     fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*l.Value {
-        const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function) named_variable_node.node.type_def.?.resolved_type.?.Function.function_type else null;
+        const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function)
+            named_variable_node.node.type_def.?.resolved_type.?.Function.function_type
+        else
+            null;
         const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
         const name = try self.vm.gc.allocator.dupeZ(u8, named_variable_node.identifier.lexeme);
@@ -596,7 +601,7 @@ pub const JIT = struct {
                         self.closure = closure;
 
                         // Compile function
-                        _ = try self.generateFunctionNode(function_node);
+                        _ = try self.generateFunction(function_node);
 
                         // restore state
                         self.current = previous_current;
@@ -723,6 +728,19 @@ pub const JIT = struct {
         );
     }
 
+    fn generateReturn(self: *Self, return_node: *ReturnNode) VM.Error!?*l.Value {
+        if (return_node.unconditional) {
+            self.current.?.return_emitted = true;
+        }
+
+        return self.state.builder.buildRet(
+            if (return_node.value) |value|
+                (try self.generateNode(value)).?
+            else
+                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+        );
+    }
+
     fn generateBlock(self: *Self, block_node: *BlockNode, contiguous: bool) VM.Error!?*l.Value {
         if (!contiguous) {
             var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -748,7 +766,7 @@ pub const JIT = struct {
     }
 
     fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) VM.Error!?*l.Value {
-        return try self.generateFunctionNode(fun_declaration_node.function);
+        return try self.generateFunction(fun_declaration_node.function);
     }
 
     fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*l.Value {
@@ -788,7 +806,7 @@ pub const JIT = struct {
 
     // We create 2 function at the LLVM level: one with the NativeFn signature that will be called by buzz code,
     // and one with a signature reflecting the buzz signature that will be called by JITted functions
-    fn generateFunctionNode(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
+    fn generateFunction(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
         const node = &function_node.node;
 
         var enclosing = self.current;
@@ -1014,7 +1032,10 @@ pub const JIT = struct {
                         .bz_peek,
                         &[_]*l.Value{
                             self.vmConstant(),
-                            self.state.context.getContext().intType(32).constInt(@intCast(c_ulonglong, i), .False),
+                            self.state.context.getContext().intType(32).constInt(
+                                @intCast(c_ulonglong, i),
+                                .False,
+                            ),
                         },
                     ),
                 );
@@ -1037,7 +1058,7 @@ pub const JIT = struct {
             _ = try self.buildBuzzApiCall(
                 .bz_push,
                 &[_]*l.Value{
-                    self.current.?.function.?.getParam(0),
+                    self.vmConstant(),
                     result,
                 },
             );

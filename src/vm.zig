@@ -3425,7 +3425,6 @@ pub const VM = struct {
             if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
                 const compiled = try self.jit.jitFunction(closure);
 
-                // If we're here it means there's no reason it would not compile
                 closure.function.native = compiled[0];
                 closure.function.native_raw = compiled[1];
 
@@ -3480,7 +3479,6 @@ pub const VM = struct {
         self.current_fiber.frame_count += 1;
     }
 
-    // FIXME: must now handle upvalues and globals like a regular buzz function would
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         self.currentFrame().?.in_native_call = true;
 
