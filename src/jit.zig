@@ -181,13 +181,10 @@ pub const JIT = struct {
         }
 
         lowered = switch (obj_typedef.def_type) {
-            .Bool => self.state.context.getContext().intType(8),
-            .Integer => self.state.context.getContext().intType(64),
-            .Float => self.state.context.getContext().doubleType(),
-            .Void => self.state.context.getContext().voidType(),
-
-            // Pointer to Obj, so we can continue to use the same data from the VM and LLVM IR
-            // usize that will be converted to a pointer
+            .Bool,
+            .Integer,
+            .Float,
+            .Void,
             .String,
             .Pattern,
             .ObjectInstance,
@@ -486,15 +483,16 @@ pub const JIT = struct {
 
         return switch (node.node_type) {
             .Boolean => lowered_type.?.constInt(
-                if (BooleanNode.cast(node).?.constant) 1 else 0,
+                Value.fromBoolean(BooleanNode.cast(node).?.constant).val,
                 .False,
             ),
-            .Float => lowered_type.?.constReal(
-                FloatNode.cast(node).?.float_constant,
+            .Float => lowered_type.?.constInt(
+                Value.fromFloat(FloatNode.cast(node).?.float_constant).val,
+                .False,
             ),
             .Integer => lowered_type.?.constInt(
-                @intCast(c_ulonglong, IntegerNode.cast(node).?.integer_constant),
-                .True,
+                @intCast(c_ulonglong, Value.fromInteger(IntegerNode.cast(node).?.integer_constant).val),
+                .False,
             ),
             .StringLiteral => self.state.context.getContext().intType(64).constInt(
                 StringLiteralNode.cast(node).?.constant.toValue().val,
