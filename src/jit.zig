@@ -89,6 +89,21 @@ pub const BuzzApiMethods = enum {
             .bz_toString => "bz_toString",
         };
     }
+
+    pub fn namez(self: BuzzApiMethods) [*:0]const u8 {
+        return switch (self) {
+            .bz_push => "bz_push",
+            .bz_peek => "bz_peek",
+
+            .nativefn => "NativeFn",
+            .nativectx => "NativeCtx",
+            .value => "Value",
+            .globals => "globals",
+            .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
+            .bz_objStringConcat => "bz_objStringConcat",
+            .bz_toString => "bz_toString",
+        };
+    }
 };
 
 pub const JIT = struct {
@@ -314,6 +329,16 @@ pub const JIT = struct {
         }
     }
 
+    fn buildBuzzApiCall(self: *Self, method: BuzzApiMethods, args: []*l.Value) !*l.Value {
+        return self.state.builder.buildCall(
+            try self.lowerBuzzApiType(method),
+            self.state.module.getNamedFunction(method.namez()).?,
+            args.ptr,
+            @intCast(c_uint, args.len),
+            "",
+        );
+    }
+
     inline fn vmConstant(self: *Self) *l.Value {
         self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
             self.state.context.getContext().intType(64).constInt(
@@ -509,22 +534,23 @@ pub const JIT = struct {
             var value = (try self.generateNode(element)).?;
 
             if (element.type_def.?.def_type != .String or element.type_def.?.optional) {
-                value = self.state.builder.buildCall(
-                    try self.lowerBuzzApiType(.bz_toString),
-                    self.state.module.getNamedFunction("bz_toString").?,
-                    &[_]*l.Value{ self.vmConstant(), value },
-                    2,
-                    "",
+                value = try self.buildBuzzApiCall(
+                    .bz_toString,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        value,
+                    },
                 );
             }
 
             if (index >= 1) {
-                value = self.state.builder.buildCall(
-                    try self.lowerBuzzApiType(.bz_objStringConcat),
-                    self.state.module.getNamedFunction("bz_objStringConcat").?,
-                    &[_]*l.Value{ self.vmConstant(), previous.?, value },
-                    3,
-                    "",
+                value = try self.buildBuzzApiCall(
+                    .bz_objStringConcat,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        previous.?,
+                        value,
+                    },
                 );
             }
 
@@ -684,12 +710,9 @@ pub const JIT = struct {
             var error_message: [*:0]const u8 = undefined;
             _ = self.state.module.printModuleToFile("./out.bc", &error_message);
 
-            callee = self.state.builder.buildCall(
-                try self.lowerBuzzApiType(.bz_valueToRawNativeFn),
-                self.state.module.getNamedFunction("bz_valueToRawNativeFn").?,
+            callee = try self.buildBuzzApiCall(
+                .bz_valueToRawNativeFn,
                 &[_]*l.Value{callee},
-                1,
-                "",
             );
         }
 
@@ -989,15 +1012,12 @@ pub const JIT = struct {
             // Each argument is a bz_peek(i) call
             while (i >= 0) : (i -= 1) {
                 try arguments.append(
-                    self.state.builder.buildCall(
-                        try self.lowerBuzzApiType(.bz_peek),
-                        self.state.module.getNamedFunction("bz_peek").?,
+                    try self.buildBuzzApiCall(
+                        .bz_peek,
                         &[_]*l.Value{
                             self.vmConstant(),
                             self.state.context.getContext().intType(32).constInt(@intCast(c_ulonglong, i), .False),
                         },
-                        2,
-                        "",
                     ),
                 );
             }
@@ -1016,15 +1036,12 @@ pub const JIT = struct {
 
         // Push its result back into the VM
         if (should_return) {
-            _ = self.state.builder.buildCall(
-                try self.lowerBuzzApiType(.bz_push),
-                self.state.module.getNamedFunction("bz_push").?,
+            _ = try self.buildBuzzApiCall(
+                .bz_push,
                 &[_]*l.Value{
                     self.current.?.function.?.getParam(0),
                     result,
                 },
-                2,
-                "",
             );
         }
 
