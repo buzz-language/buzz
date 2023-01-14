@@ -193,6 +193,8 @@ pub const ObjString = opaque {
     pub extern fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString;
     pub extern fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8;
     pub extern fn bz_objStringToValue(obj_string: *ObjString) Value;
+    pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
+    pub extern fn bz_toString(vm: *VM, value: Value) Value;
 };
 
 pub const ObjList = opaque {

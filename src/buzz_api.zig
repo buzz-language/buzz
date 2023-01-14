@@ -9,7 +9,6 @@ const _codegen = @import("./codegen.zig");
 const BuildOptions = @import("build_options");
 
 const Value = _value.Value;
-const valueToString = _value.valueToString;
 const valueToStringAlloc = _value.valueToStringAlloc;
 const ObjString = _obj.ObjString;
 const ObjPattern = _obj.ObjPattern;
@@ -303,6 +302,26 @@ export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8
 /// ObjString -> Value
 export fn bz_objStringToValue(obj_string: *ObjString) Value {
     return obj_string.toValue();
+}
+
+export fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value {
+    return (ObjString.cast(obj_string.obj()).?.concat(
+        vm,
+        ObjString.cast(other.obj()).?,
+    ) catch @panic("Could not concat strings")).toValue();
+}
+
+export fn bz_toString(vm: *VM, value: Value) Value {
+    const str = valueToStringAlloc(vm.gc.allocator, value) catch {
+        @panic("Could not convert value to string");
+    };
+    defer vm.gc.allocator.free(str);
+
+    return Value.fromObj(
+        (vm.gc.copyString(str) catch {
+            @panic("Could not convert value to string");
+        }).toObj(),
+    );
 }
 
 // Other stuff

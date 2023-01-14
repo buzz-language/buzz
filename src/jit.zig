@@ -71,6 +71,8 @@ pub const BuzzApiMethods = enum {
     bz_push,
     bz_peek,
     bz_valueToRawNativeFn,
+    bz_objStringConcat,
+    bz_toString,
     globals,
 
     pub fn name(self: BuzzApiMethods) []const u8 {
@@ -83,6 +85,8 @@ pub const BuzzApiMethods = enum {
             .value => "Value",
             .globals => "globals",
             .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
+            .bz_objStringConcat => "bz_objStringConcat",
+            .bz_toString => "bz_toString",
         };
     }
 };
@@ -246,6 +250,22 @@ pub const JIT = struct {
                 1,
                 .False,
             ),
+            .bz_objStringConcat => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    ptr_type,
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                3,
+                .False,
+            ),
+            .bz_toString => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                2,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.state.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -284,6 +304,8 @@ pub const JIT = struct {
             .bz_peek,
             .bz_push,
             .bz_valueToRawNativeFn,
+            .bz_objStringConcat,
+            .bz_toString,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -454,16 +476,8 @@ pub const JIT = struct {
                 .False,
             ),
 
-            .String => string: {
-                const elements = StringNode.cast(node).?.elements;
-
-                // TODO: only supports lone string literal for now
-                assert(elements.len == 1 and elements[0].node_type == .StringLiteral);
-
-                break :string try self.generateNode(elements[0]);
-            },
-
-            .Expression => try self.generateNode(ExpressionNode.cast(node).?.expression),
+            .String => try self.generateString(StringNode.cast(node).?),
+            .Expression, .Grouping => try self.generateNode(ExpressionNode.cast(node).?.expression),
             .Function => try self.generateFunctionNode(FunctionNode.cast(node).?),
             .FunDeclaration => try self.generateFunDeclaration(FunDeclarationNode.cast(node).?),
             .VarDeclaration => try self.generateVarDeclaration(VarDeclarationNode.cast(node).?),
@@ -476,6 +490,48 @@ pub const JIT = struct {
                 unreachable;
             },
         };
+    }
+
+    inline fn readConstant(self: *Self, arg: u24) Value {
+        return self.closure.?.function.chunk.constants.items[arg];
+    }
+
+    fn generateString(self: *Self, string_node: *StringNode) VM.Error!?*l.Value {
+        if (string_node.elements.len == 0) {
+            return (try self.lowerBuzzApiType(.value)).constInt(
+                self.readConstant(0).val,
+                .False,
+            ); // Constant 0 is the empty string
+        }
+
+        var previous: ?*l.Value = null;
+        for (string_node.elements) |element, index| {
+            var value = (try self.generateNode(element)).?;
+
+            if (element.type_def.?.def_type != .String or element.type_def.?.optional) {
+                value = self.state.builder.buildCall(
+                    try self.lowerBuzzApiType(.bz_toString),
+                    self.state.module.getNamedFunction("bz_toString").?,
+                    &[_]*l.Value{ self.vmConstant(), value },
+                    2,
+                    "",
+                );
+            }
+
+            if (index >= 1) {
+                value = self.state.builder.buildCall(
+                    try self.lowerBuzzApiType(.bz_objStringConcat),
+                    self.state.module.getNamedFunction("bz_objStringConcat").?,
+                    &[_]*l.Value{ self.vmConstant(), previous.?, value },
+                    3,
+                    "",
+                );
+            }
+
+            previous = value;
+        }
+
+        return previous.?;
     }
 
     fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*l.Value {
