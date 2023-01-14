@@ -21,6 +21,7 @@ const DotNode = _node.DotNode;
 const BlockNode = _node.BlockNode;
 const NamedVariableNode = _node.NamedVariableNode;
 const ReturnNode = _node.ReturnNode;
+const IfNode = _node.IfNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -505,10 +506,11 @@ pub const JIT = struct {
             .Function => try self.generateFunction(FunctionNode.cast(node).?),
             .FunDeclaration => try self.generateFunDeclaration(FunDeclarationNode.cast(node).?),
             .VarDeclaration => try self.generateVarDeclaration(VarDeclarationNode.cast(node).?),
-            .Block => try self.generateBlock(BlockNode.cast(node).?, false),
+            .Block => try self.generateBlock(BlockNode.cast(node).?),
             .Call => try self.generateCall(CallNode.cast(node).?),
             .NamedVariable => try self.generateNamedVariable(NamedVariableNode.cast(node).?),
             .Return => try self.generateReturn(ReturnNode.cast(node).?),
+            .If => try self.generateIf(IfNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -741,23 +743,68 @@ pub const JIT = struct {
         );
     }
 
-    fn generateBlock(self: *Self, block_node: *BlockNode, contiguous: bool) VM.Error!?*l.Value {
-        if (!contiguous) {
-            var block_name = std.ArrayList(u8).init(self.vm.gc.allocator);
-            try block_name.appendSlice(self.current.?.function_node.node.type_def.?.resolved_type.?.Function.name.string);
-            try block_name.appendSlice(".block");
-            try block_name.append(0);
-            defer block_name.deinit();
+    fn generateIf(self: *Self, if_node: *IfNode) VM.Error!?*l.Value {
+        // Generate condition
+        const condition_value = (try self.generateNode(if_node.condition)).?;
 
-            const block = self.state.context.getContext().appendBasicBlock(
-                self.current.?.function.?,
-                @ptrCast([*:0]const u8, block_name.items),
-            );
+        // Get boolean from buzz value
+        const condition = try self.buildValueToBoolean(condition_value);
 
-            self.state.builder.positionBuilderAtEnd(block);
-            self.current.?.block = block;
+        if (if_node.unwrapped_identifier != null) {
+            unreachable;
+        } else if (if_node.casted_type != null) {
+            unreachable;
         }
 
+        // Continuation block
+        var out_block = self.state.context.getContext().createBasicBlock("out");
+
+        // If block
+        var then_block = self.state.context.getContext().createBasicBlock("if");
+
+        // Else block
+        var else_block = if (if_node.else_branch != null)
+            self.state.context.getContext().createBasicBlock("else")
+        else
+            null;
+
+        _ = self.state.builder.buildCondBr(
+            condition,
+            then_block,
+            if (if_node.else_branch != null) else_block.? else out_block,
+        );
+
+        self.current.?.function.?.appendExistingBasicBlock(then_block);
+        self.state.builder.positionBuilderAtEnd(then_block);
+        self.current.?.block = then_block;
+
+        _ = try self.generateNode(if_node.body);
+
+        // Jump after else
+        _ = self.state.builder.buildBr(out_block);
+
+        if (if_node.else_branch) |else_branch| {
+            self.current.?.function.?.appendExistingBasicBlock(else_block.?);
+            self.state.builder.positionBuilderAtEnd(else_block.?);
+            self.current.?.block = else_block.?;
+
+            _ = try self.generateNode(else_branch);
+
+            // Jump after else
+            _ = self.state.builder.buildBr(out_block);
+        }
+
+        self.current.?.function.?.appendExistingBasicBlock(out_block);
+
+        // Continue writing after the if else
+        self.current.?.block = out_block;
+        self.state.builder.positionBuilderAtEnd(out_block);
+
+        // Statement don't return values
+        return null;
+    }
+
+    fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
         for (block_node.statements.items) |statement| {
             _ = try self.generateNode(statement);
         }
@@ -872,7 +919,7 @@ pub const JIT = struct {
             _ = self.state.builder.buildRet(arrow_value.?);
             self.current.?.return_emitted = true;
         } else {
-            _ = try self.generateBlock(function_node.body.?, true);
+            _ = try self.generateBlock(function_node.body.?);
         }
 
         if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
@@ -995,6 +1042,15 @@ pub const JIT = struct {
         return self.state.builder.buildStore(
             value,
             value_ptr,
+        );
+    }
+
+    fn buildValueToBoolean(self: *Self, value: *l.Value) !*l.Value {
+        return self.state.builder.buildICmp(
+            .EQ,
+            value,
+            (try self.lowerBuzzApiType(.value)).constInt(_value.TrueMask, .False),
+            "",
         );
     }
 
