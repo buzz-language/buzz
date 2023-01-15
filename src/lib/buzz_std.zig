@@ -125,3 +125,29 @@ export fn char(ctx: *api.NativeCtx) c_int {
 
     return 1;
 }
+
+export fn assert_raw(_: *api.NativeCtx, condition_value: api.Value, message_value: api.Value) void {
+    if (!condition_value.boolean()) {
+        var len: usize = 0;
+        const message = api.Value.bz_valueToString(message_value, &len).?;
+        // TODO: debug.getTrace
+        std.io.getStdOut().writer().print(
+            "Assert failed: {s}\n",
+            .{
+                message[0..len],
+            },
+        ) catch unreachable;
+
+        std.os.exit(1);
+    }
+}
+
+export fn assert(ctx: *api.NativeCtx) c_int {
+    assert_raw(
+        ctx,
+        ctx.vm.bz_peek(1),
+        ctx.vm.bz_peek(0),
+    );
+
+    return 0;
+}

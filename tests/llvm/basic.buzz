@@ -1,7 +1,7 @@
 import "lib/std";
 
 fun jitSayHello(str who, int age) > int {
-    if (true) {
+    if (age > 12) {
         print("yeah if!");
     } else {
         print("yeah else!");

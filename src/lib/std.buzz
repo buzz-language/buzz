@@ -3,13 +3,7 @@ import "lib/os" as os;
 || If condition is false print message and exit program
 || @param condition assert condition
 || @param message message printed if `condition` is false
-fun assert(bool condition, str message) > void {
-    if (!condition) {
-        | TODO: debug.getTrace
-        print("Assert failed: {message}");
-        os.exit(1);
-    }
-}
+extern fun assert(bool condition, str message) > void;
 
 || Prints value on stdout
 || @param value value to print

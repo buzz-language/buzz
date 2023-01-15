@@ -208,7 +208,6 @@ pub const JIT = struct {
             .Function => function: {
                 const function_type = obj_typedef.resolved_type.?.Function;
 
-                const return_type = try self.lowerType(function_type.return_type);
                 // TODO yield_type
                 var param_types = std.ArrayList(*l.Type).init(self.vm.gc.allocator);
                 defer param_types.deinit();
@@ -221,7 +220,7 @@ pub const JIT = struct {
                 }
 
                 break :function l.functionType(
-                    return_type,
+                    try self.lowerBuzzApiType(.value),
                     param_types.items.ptr,
                     @intCast(c_uint, param_types.items.len),
                     .False,
@@ -768,7 +767,7 @@ pub const JIT = struct {
         const condition_value = (try self.generateNode(if_node.condition)).?;
 
         // Get boolean from buzz value
-        const condition = try self.buildValueToBoolean(condition_value);
+        const condition = self.unwrap(.Bool, condition_value);
 
         if (if_node.unwrapped_identifier != null) {
             unreachable;
@@ -829,31 +828,46 @@ pub const JIT = struct {
         const right_type_def = binary_node.right.type_def.?.def_type;
 
         return switch (binary_node.operator) {
-            .Ampersand => self.state.builder.buildAnd(
-                (try self.generateNode(binary_node.left)).?,
-                (try self.generateNode(binary_node.right)).?,
-                "",
+            .Ampersand => self.wrap(
+                .Integer,
+                self.state.builder.buildAnd(
+                    (try self.generateNode(binary_node.left)).?,
+                    (try self.generateNode(binary_node.right)).?,
+                    "",
+                ),
             ),
-            .Bor => self.state.builder.buildOr(
-                (try self.generateNode(binary_node.left)).?,
-                (try self.generateNode(binary_node.right)).?,
-                "",
+            .Bor => self.wrap(
+                .Integer,
+                self.state.builder.buildOr(
+                    (try self.generateNode(binary_node.left)).?,
+                    (try self.generateNode(binary_node.right)).?,
+                    "",
+                ),
             ),
-            .Xor => self.state.builder.buildXor(
-                (try self.generateNode(binary_node.left)).?,
-                (try self.generateNode(binary_node.right)).?,
-                "",
+            .Xor => self.wrap(
+                .Integer,
+                self.state.builder.buildXor(
+                    (try self.generateNode(binary_node.left)).?,
+                    (try self.generateNode(binary_node.right)).?,
+                    "",
+                ),
             ),
-            .ShiftLeft => self.state.builder.buildShl(
-                (try self.generateNode(binary_node.left)).?,
-                (try self.generateNode(binary_node.right)).?,
-                "",
+            .ShiftLeft => self.wrap(
+                .Integer,
+                self.state.builder.buildShl(
+                    (try self.generateNode(binary_node.left)).?,
+                    (try self.generateNode(binary_node.right)).?,
+                    "",
+                ),
             ),
             // ashr (https://llvm.org/docs/LangRef.html#ashr-instruction) ?
-            .ShiftRight => self.state.builder.buildLShr(
-                (try self.generateNode(binary_node.left)).?,
-                (try self.generateNode(binary_node.right)).?,
-                "",
+            .ShiftRight => self.wrap(
+                .Integer,
+                self.state.builder.buildLShr(
+                    (try self.generateNode(binary_node.left)).?,
+                    (try self.generateNode(binary_node.right)).?,
+                    "",
+                ),
             ),
             .QuestionQuestion, .And, .Or => cond: {
                 const value = self.state.builder.buildAlloca(try self.lowerBuzzApiType(.value), "");
@@ -914,47 +928,49 @@ pub const JIT = struct {
                 const left = try self.generateNode(binary_node.left);
                 const right = try self.generateNode(binary_node.right);
 
-                const left_i = if (left_type_def == .Integer) self.buildValueToInteger(left.?) else null;
-                const left_f = if (left_type_def == .Float)
-                    // Convert u64 to f64
-                    self.state.builder.buildBitCast(
-                        left.?,
-                        self.state.context.getContext().doubleType(),
-                        "",
-                    )
-                else
-                    null;
-                const right_i = if (right_type_def == .Integer) self.buildValueToInteger(right.?) else null;
-                const right_f = if (right_type_def == .Float)
-                    // Convert u64 to f64
-                    self.state.builder.buildBitCast(
-                        right.?,
-                        self.state.context.getContext().doubleType(),
-                        "",
-                    )
-                else
-                    null;
+                const left_i = if (left_type_def == .Integer) self.unwrap(.Integer, left.?) else null;
+                const left_f = if (left_type_def == .Float) self.unwrap(.Float, left.?) else null;
+                const right_i = if (right_type_def == .Integer) self.unwrap(.Integer, right.?) else null;
+                const right_f = if (right_type_def == .Float) self.unwrap(.Float, right.?) else null;
+                const left_s = if (left_type_def == .String) self.unwrap(.String, left.?) else null;
+                const right_s = if (right_type_def == .String) self.unwrap(.String, right.?) else null;
 
                 switch (binary_node.operator) {
-                    .Greater, .Less, .GreaterEqual, .LessEqual, .BangEqual, .EqualEqual => {
-                        if (left_f != null or right_f != null) {
-                            return self.state.builder.buildFCmp(
-                                switch (binary_node.operator) {
-                                    .Greater => .OGT,
-                                    .Less => .OLT,
-                                    .GreaterEqual => .OGE,
-                                    .LessEqual => .OLE,
-                                    .BangEqual => .ONE,
-                                    .EqualEqual => .OEQ,
-                                    else => unreachable,
-                                },
-                                if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                "",
+                    .EqualEqual, .Greater, .Less, .GreaterEqual, .LessEqual, .BangEqual => {
+                        if (left_s != null) {
+                            return self.wrap(
+                                .Bool,
+                                self.state.builder.buildICmp(
+                                    .EQ,
+                                    left_s.?,
+                                    right_s.?,
+                                    "",
+                                ),
                             );
                         }
 
-                        break :bin self.buildValueFromInteger(
+                        if (left_f != null or right_f != null) {
+                            return self.wrap(
+                                .Bool,
+                                self.state.builder.buildFCmp(
+                                    switch (binary_node.operator) {
+                                        .Greater => .OGT,
+                                        .Less => .OLT,
+                                        .GreaterEqual => .OGE,
+                                        .LessEqual => .OLE,
+                                        .BangEqual => .ONE,
+                                        .EqualEqual => .OEQ,
+                                        else => unreachable,
+                                    },
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    "",
+                                ),
+                            );
+                        }
+
+                        break :bin self.wrap(
+                            .Bool,
                             self.state.builder.buildICmp(
                                 switch (binary_node.operator) {
                                     .Greater => .SGT,
@@ -975,14 +991,18 @@ pub const JIT = struct {
                         switch (binary_node.left.type_def.?.def_type) {
                             .Integer, .Float => {
                                 if (left_f != null or right_f != null) {
-                                    break :bin self.state.builder.buildFAdd(
-                                        if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                        if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                        "",
+                                    break :bin self.wrap(
+                                        .Float,
+                                        self.state.builder.buildFAdd(
+                                            if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                            if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                            "",
+                                        ),
                                     );
                                 }
 
-                                break :bin self.buildValueFromInteger(
+                                break :bin self.wrap(
+                                    .Integer,
                                     self.state.builder.buildAdd(
                                         left_i.?,
                                         right_i.?,
@@ -998,10 +1018,13 @@ pub const JIT = struct {
                     },
                     .Minus => {
                         if (left_f != null or right_f != null) {
-                            break :bin self.state.builder.buildFSub(
-                                if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                "",
+                            break :bin self.wrap(
+                                .Float,
+                                self.state.builder.buildFSub(
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    "",
+                                ),
                             );
                         }
 
@@ -1015,14 +1038,18 @@ pub const JIT = struct {
                     },
                     .Star => {
                         if (left_f != null or right_f != null) {
-                            break :bin self.state.builder.buildFMul(
-                                if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                "",
+                            break :bin self.wrap(
+                                .Float,
+                                self.state.builder.buildFMul(
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    "",
+                                ),
                             );
                         }
 
-                        break :bin self.buildValueFromInteger(
+                        break :bin self.wrap(
+                            .Integer,
                             self.state.builder.buildMul(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
@@ -1032,10 +1059,13 @@ pub const JIT = struct {
                     },
                     .Slash => {
                         if (left_f != null or right_f != null) {
-                            break :bin self.state.builder.buildFDiv(
-                                if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                "",
+                            break :bin self.wrap(
+                                .Float,
+                                self.state.builder.buildFDiv(
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    "",
+                                ),
                             );
                         }
 
@@ -1048,14 +1078,18 @@ pub const JIT = struct {
                     },
                     .Percent => {
                         if (left_f != null or right_f != null) {
-                            break :bin self.state.builder.buildFRem(
-                                if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
-                                "",
+                            break :bin self.wrap(
+                                .Float,
+                                self.state.builder.buildFRem(
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    "",
+                                ),
                             );
                         }
 
-                        break :bin self.buildValueFromInteger(
+                        break :bin self.wrap(
+                            .Integer,
                             self.state.builder.buildSRem(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
@@ -1087,7 +1121,16 @@ pub const JIT = struct {
         // We should only declare locals
         assert(var_declaration_node.slot_type == .Local);
 
-        unreachable;
+        return try self.buildSetLocal(
+            var_declaration_node.slot,
+            if (var_declaration_node.value) |value|
+                (try self.generateNode(value)).?
+            else
+                (try self.lowerBuzzApiType(.value)).constInt(
+                    Value.Null.val,
+                    .False,
+                ),
+        );
     }
 
     // FIXME: multiple function can be defined at the same depth, so increment an id
@@ -1189,7 +1232,9 @@ pub const JIT = struct {
 
         if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
-            _ = self.state.builder.buildRetVoid();
+            _ = self.state.builder.buildRet(
+                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+            );
         }
 
         // TODO: upvalues? closures?
@@ -1310,11 +1355,25 @@ pub const JIT = struct {
         );
     }
 
-    fn buildValueToBoolean(self: *Self, value: *l.Value) !*l.Value {
+    fn buildValueToBoolean(self: *Self, value: *l.Value) *l.Value {
         return self.state.builder.buildICmp(
             .EQ,
             value,
-            (try self.lowerBuzzApiType(.value)).constInt(_value.TrueMask, .False),
+            self.state.context.getContext().intType(64).constInt(_value.TrueMask, .False),
+            "",
+        );
+    }
+
+    fn buildValueFromBoolean(self: *Self, value: *l.Value) *l.Value {
+        return self.state.builder.buildSelect(
+            self.state.builder.buildICmp(
+                .EQ,
+                value,
+                self.state.context.getContext().intType(1).constInt(1, .False),
+                "",
+            ),
+            self.state.context.getContext().intType(64).constInt(Value.True.val, .False),
+            self.state.context.getContext().intType(64).constInt(Value.False.val, .False),
             "",
         );
     }
@@ -1330,7 +1389,7 @@ pub const JIT = struct {
         );
     }
 
-    fn buildValueFromInteger(self: *Self, integer: *l.Value) !*l.Value {
+    fn buildValueFromInteger(self: *Self, integer: *l.Value) *l.Value {
         return self.state.builder.buildOr(
             self.state.context.getContext().intType(64).constInt(
                 _value.IntegerMask,
@@ -1339,6 +1398,92 @@ pub const JIT = struct {
             integer,
             "",
         );
+    }
+
+    fn buildValueToObj(self: *Self, value: *l.Value) *l.Value {
+        return self.state.builder.buildAnd(
+            value,
+            self.state.builder.buildNeg(
+                self.state.context.getContext().intType(64).constInt(_value.PointerMask, .False),
+                "",
+            ),
+            "",
+        );
+    }
+
+    fn buildValueFromObj(self: *Self, value: *l.Value) *l.Value {
+        return self.state.builder.buildOr(
+            self.state.context.getContext().intType(64).constInt(
+                _value.PointerMask,
+                .False,
+            ),
+            value,
+            "",
+        );
+    }
+
+    // Unwrap buzz value to its raw llvm Value
+    fn unwrap(self: *Self, def_type: ObjTypeDef.Type, value: *l.Value) *l.Value {
+        return switch (def_type) {
+            .Bool => self.buildValueToBoolean(value),
+            .Integer => self.buildValueToInteger(value),
+            .Float => self.state.builder.buildBitCast(
+                value,
+                self.state.context.getContext().doubleType(),
+                "",
+            ),
+            .Void => value,
+            .String,
+            .Pattern,
+            .ObjectInstance,
+            .Object,
+            .Protocol,
+            .ProtocolInstance,
+            .Enum,
+            .EnumInstance,
+            .List,
+            .Map,
+            .Function,
+            .Type,
+            .Fiber,
+            .UserData,
+            => self.buildValueToObj(value),
+            .Placeholder,
+            .Generic,
+            => unreachable,
+        };
+    }
+
+    // Wrap llvm value to buzz Value
+    fn wrap(self: *Self, def_type: ObjTypeDef.Type, value: *l.Value) *l.Value {
+        return switch (def_type) {
+            .Bool => self.buildValueFromBoolean(value),
+            .Integer => self.buildValueFromInteger(value),
+            .Float => self.state.builder.buildBitCast(
+                value,
+                self.state.context.getContext().intType(64),
+                "",
+            ),
+            .Void => value,
+            .String,
+            .Pattern,
+            .ObjectInstance,
+            .Object,
+            .Protocol,
+            .ProtocolInstance,
+            .Enum,
+            .EnumInstance,
+            .List,
+            .Map,
+            .Function,
+            .Type,
+            .Fiber,
+            .UserData,
+            => self.buildValueFromObj(value),
+            .Placeholder,
+            .Generic,
+            => unreachable,
+        };
     }
 
     fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *l.Value, ret_type: *l.Type) !void {
