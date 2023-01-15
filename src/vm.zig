@@ -3418,11 +3418,14 @@ pub const VM = struct {
 
     // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
+        closure.function.call_count += 1;
+        self.jit.call_count += 1;
+
+        var native = closure.function.native;
         if (!BuildOptions.jit_off) {
             // Do we need to jit the function?
-            var native = closure.function.native;
             // TODO: figure out threshold strategy
-            if (std.mem.startsWith(u8, closure.function.type_def.resolved_type.?.Function.name.string, "jit")) {
+            if (self.jit.shouldlJitFunction(closure)) {
                 const compiled = try self.jit.jitFunction(closure);
 
                 closure.function.native = compiled[0];
@@ -3430,28 +3433,28 @@ pub const VM = struct {
 
                 native = closure.function.native;
             }
+        }
 
-            // Is there a jitted version of it?
-            if (native) |jitted_function| {
-                if (BuildOptions.jit_debug) {
-                    std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
-                }
-
-                try self.callNative(
-                    closure,
-                    @ptrCast(
-                        NativeFn,
-                        @alignCast(
-                            @alignOf(Native),
-                            jitted_function,
-                        ),
-                    ),
-                    arg_count,
-                    catch_value,
-                );
-
-                return;
+        // Is there a jitted version of it?
+        if (native) |jitted_function| {
+            if (BuildOptions.jit_debug) {
+                std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
             }
+
+            try self.callNative(
+                closure,
+                @ptrCast(
+                    NativeFn,
+                    @alignCast(
+                        @alignOf(Native),
+                        jitted_function,
+                    ),
+                ),
+                arg_count,
+                catch_value,
+            );
+
+            return;
         }
 
         // TODO: check for stack overflow
@@ -3465,8 +3468,6 @@ pub const VM = struct {
             else
                 null,
         };
-
-        closure.function.run_count += 1;
 
         frame.error_value = catch_value;
 

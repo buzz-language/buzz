@@ -127,6 +127,11 @@ pub const JIT = struct {
 
     orc_jit: *l.OrcLLJIT,
 
+    // Thresholds data
+
+    // Call call of all functions
+    call_count: u128 = 0,
+
     pub fn init(vm: *VM) JIT {
         l.initializeLLVMTarget(builtin.target.cpu.arch);
         var builder = l.OrcLLJITBuilder.createBuilder();
@@ -379,6 +384,19 @@ pub const JIT = struct {
         }
 
         return @intToPtr(*anyopaque, fun_addr);
+    }
+
+    pub fn shouldlJitFunction(self: *Self, closure: *ObjClosure) bool {
+        const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
+
+        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .Anonymous or function_type == .EntryPoint) {
+            return false;
+        }
+
+        return if (BuildOptions.jit_debug)
+            return true
+        else
+            (closure.function.call_count / self.call_count) == BuildOptions.jit_prof_threshold;
     }
 
     pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error![2]*anyopaque {

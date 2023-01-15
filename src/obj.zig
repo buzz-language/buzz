@@ -1500,9 +1500,8 @@ pub const ObjFunction = struct {
 
     // So we can JIT the function at runtime
     node: *anyopaque,
-    // How many time the function was run as bytecode
-    // Stop incrementing once the function is jitted
-    run_count: usize = 0,
+    // How many time the function was called
+    call_count: u128 = 0,
 
     // Jitted function, since we don't know its signature -> *anyopaque
     native_raw: ?*anyopaque = null,
