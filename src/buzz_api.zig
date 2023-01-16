@@ -343,16 +343,12 @@ export fn bz_boolType() ?*ObjTypeDef {
 }
 
 /// Returns the [str] type
-export fn bz_stringType() ?*ObjTypeDef {
-    var bool_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
+export fn bz_stringType() Value {
+    const bool_type = allocator.create(ObjTypeDef) catch @panic("Could not create type");
 
-    if (bool_type == null) {
-        return null;
-    }
+    bool_type.* = ObjTypeDef{ .def_type = .String, .optional = false };
 
-    bool_type.?.* = ObjTypeDef{ .def_type = .String, .optional = false };
-
-    return bool_type;
+    return bool_type.toValue();
 }
 
 /// Returns the [void] type
@@ -380,10 +376,10 @@ export fn bz_collect(self: *VM) bool {
     return true;
 }
 
-export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
+export fn bz_newList(vm: *VM, of_type: Value) Value {
     var list_def: ObjList.ListDef = ObjList.ListDef.init(
         vm.gc.allocator,
-        of_type,
+        ObjTypeDef.cast(of_type.obj()).?,
     );
 
     var list_def_union: ObjTypeDef.TypeUnion = .{
@@ -394,24 +390,16 @@ export fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList {
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
-    }) catch {
-        return null;
-    };
+    }) catch @panic("Could not create list");
 
-    return vm.gc.allocateObject(
+    return (vm.gc.allocateObject(
         ObjList,
         ObjList.init(vm.gc.allocator, list_def_type),
-    ) catch {
-        return null;
-    };
+    ) catch @panic("Could not create list")).toValue();
 }
 
-export fn bz_listAppend(self: *ObjList, gc: *GarbageCollector, value: Value) bool {
-    self.rawAppend(gc, value) catch {
-        return false;
-    };
-
-    return true;
+export fn bz_listAppend(vm: *VM, list: Value, value: Value) void {
+    ObjList.cast(list.obj()).?.rawAppend(vm.gc, value) catch @panic("Could not add element to list");
 }
 
 export fn bz_valueToList(value: Value) *ObjList {

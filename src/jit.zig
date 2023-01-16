@@ -28,6 +28,7 @@ const DoUntilNode = _node.DoUntilNode;
 const ForNode = _node.ForNode;
 const BreakNode = _node.BreakNode;
 const ContinueNode = _node.ContinueNode;
+const ListNode = _node.ListNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -85,6 +86,8 @@ pub const BuzzApiMethods = enum {
     bz_valueToRawNativeFn,
     bz_objStringConcat,
     bz_toString,
+    bz_newList,
+    bz_listAppend,
     globals,
 
     pub fn name(self: BuzzApiMethods) []const u8 {
@@ -99,6 +102,8 @@ pub const BuzzApiMethods = enum {
             .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
+            .bz_newList => "bz_newList",
+            .bz_listAppend => "bz_listAppend",
         };
     }
 
@@ -114,6 +119,8 @@ pub const BuzzApiMethods = enum {
             .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
+            .bz_newList => "bz_newList",
+            .bz_listAppend => "bz_listAppend",
         };
     }
 };
@@ -296,6 +303,22 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
+            .bz_newList => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                2,
+                .False,
+            ),
+            .bz_listAppend => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    ptr_type,
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                3,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -336,6 +359,8 @@ pub const JIT = struct {
             .bz_valueToRawNativeFn,
             .bz_objStringConcat,
             .bz_toString,
+            .bz_newList,
+            .bz_listAppend,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -544,6 +569,7 @@ pub const JIT = struct {
             .For => try self.generateFor(ForNode.cast(node).?),
             .Break => try self.generateBreak(BreakNode.cast(node).?),
             .Continue => try self.generateContinue(ContinueNode.cast(node).?),
+            .List => try self.generateList(ListNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1298,6 +1324,34 @@ pub const JIT = struct {
         self.buildBr(self.current.?.continue_block.?);
 
         return null;
+    }
+
+    fn generateList(self: *Self, list_node: *ListNode) VM.Error!?*l.Value {
+        const item_type = (try self.lowerBuzzApiType(.value)).constInt(
+            list_node.node.type_def.?.resolved_type.?.List.item_type.toValue().val,
+            .False,
+        );
+
+        const list = try self.buildBuzzApiCall(
+            .bz_newList,
+            &[_]*l.Value{
+                self.vmConstant(),
+                item_type,
+            },
+        );
+
+        for (list_node.items) |item| {
+            _ = try self.buildBuzzApiCall(
+                .bz_listAppend,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    list,
+                    (try self.generateNode(item)).?,
+                },
+            );
+        }
+
+        return list;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {

@@ -302,17 +302,9 @@ export fn list_raw(ctx: *api.NativeCtx, filename_value: api.Value) api.Value {
             return api.Value.Error;
         };
 
-    var file_list = api.ObjList.bz_newList(ctx.vm, api.ObjTypeDef.bz_stringType() orelse {
-        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+    var file_list = api.ObjList.bz_newList(ctx.vm, api.ObjTypeDef.bz_stringType());
 
-        return api.Value.Error;
-    }) orelse {
-        ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
-
-        return api.Value.Error;
-    };
-
-    ctx.vm.bz_pushList(file_list);
+    ctx.vm.bz_push(file_list);
 
     var it = dir.iterate();
     while (it.next() catch |err| {
@@ -320,17 +312,15 @@ export fn list_raw(ctx: *api.NativeCtx, filename_value: api.Value) api.Value {
 
         return api.Value.Error;
     }) |element| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null, element.name.len) orelse {
-            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+        ctx.vm.bz_pushString(
+            api.ObjString.bz_string(
+                ctx.vm,
+                if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null,
+                element.name.len,
+            ) orelse @panic("Could not create string"),
+        );
 
-            return api.Value.Error;
-        });
-
-        if (!file_list.bz_listAppend(ctx.vm.bz_getGC(), ctx.vm.bz_pop())) {
-            ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
-
-            return api.Value.Error;
-        }
+        api.ObjList.bz_listAppend(ctx.vm, file_list, ctx.vm.bz_pop());
     }
 
     return ctx.vm.bz_pop();

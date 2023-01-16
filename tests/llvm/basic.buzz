@@ -8,6 +8,8 @@ fun jitSayHello(str who, int age) > int {
     }
     print("Hello {who} you're {age}!");
 
+    [int] list = [1, 2, 3];
+
     return 12;
 }
 

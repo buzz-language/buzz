@@ -185,7 +185,7 @@ pub const ObjClosure = opaque {};
 
 pub const ObjTypeDef = opaque {
     pub extern fn bz_boolType() ?*ObjTypeDef;
-    pub extern fn bz_stringType() ?*ObjTypeDef;
+    pub extern fn bz_stringType() Value;
     pub extern fn bz_voidType() ?*ObjTypeDef;
 };
 
@@ -198,8 +198,8 @@ pub const ObjString = opaque {
 };
 
 pub const ObjList = opaque {
-    pub extern fn bz_newList(vm: *VM, of_type: *ObjTypeDef) ?*ObjList;
-    pub extern fn bz_listAppend(self: *ObjList, gc: *GarbageCollector, value: Value) bool;
+    pub extern fn bz_newList(vm: *VM, of_type: Value) Value;
+    pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) void;
     pub extern fn bz_valueToList(value: Value) *ObjList;
     pub extern fn bz_listGet(self: *ObjList, index: usize) Value;
     pub extern fn bz_listLen(self: *ObjList) usize;
