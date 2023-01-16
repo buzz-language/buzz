@@ -26,6 +26,8 @@ const BinaryNode = _node.BinaryNode;
 const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
 const ForNode = _node.ForNode;
+const BreakNode = _node.BreakNode;
+const ContinueNode = _node.ContinueNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -66,8 +68,10 @@ pub const Frame = struct {
     function: ?*l.Value = null,
     // Current block in which we write IR
     block: ?*l.BasicBlock = null,
-    // Block to jump to when inside a loop
-    out_block: ?*l.BasicBlock = null,
+    // Block to jump to when breaking a loop
+    break_block: ?*l.BasicBlock = null,
+    // Block to jump to when continuing a loop
+    continue_block: ?*l.BasicBlock = null,
 
     locals: std.ArrayList(*l.Value),
 };
@@ -538,6 +542,8 @@ pub const JIT = struct {
             .While => try self.generateWhile(WhileNode.cast(node).?),
             .DoUntil => try self.generateDoUntil(DoUntilNode.cast(node).?),
             .For => try self.generateFor(ForNode.cast(node).?),
+            .Break => try self.generateBreak(BreakNode.cast(node).?),
+            .Continue => try self.generateContinue(ContinueNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -808,7 +814,7 @@ pub const JIT = struct {
         _ = try self.generateNode(if_node.body);
 
         // Jump after else
-        _ = self.state.builder.buildBr(out_block);
+        self.buildBr(out_block);
 
         if (if_node.else_branch) |else_branch| {
             self.current.?.function.?.appendExistingBasicBlock(else_block.?);
@@ -818,7 +824,7 @@ pub const JIT = struct {
             _ = try self.generateNode(else_branch);
 
             // Jump after else
-            _ = self.state.builder.buildBr(out_block);
+            self.buildBr(out_block);
         }
 
         self.current.?.function.?.appendExistingBasicBlock(out_block);
@@ -923,7 +929,7 @@ pub const JIT = struct {
                 );
 
                 // Continue
-                _ = self.state.builder.buildBr(out_block);
+                self.buildBr(out_block);
 
                 // Continue writing after the if else
                 self.current.?.function.?.appendExistingBasicBlock(out_block);
@@ -1126,10 +1132,12 @@ pub const JIT = struct {
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
-        const previous_out_block = self.current.?.out_block;
-        self.current.?.out_block = out_block;
+        const previous_out_block = self.current.?.break_block;
+        self.current.?.break_block = out_block;
+        const previous_continue_block = self.current.?.continue_block;
+        self.current.?.continue_block = cond_block;
 
-        _ = self.state.builder.buildBr(cond_block);
+        self.buildBr(cond_block);
 
         self.current.?.function.?.appendExistingBasicBlock(cond_block);
         self.state.builder.positionBuilderAtEnd(cond_block);
@@ -1157,13 +1165,14 @@ pub const JIT = struct {
 
         _ = try self.generateNode(while_node.block);
 
-        _ = self.state.builder.buildBr(cond_block);
+        self.buildBr(cond_block);
 
         self.current.?.function.?.appendExistingBasicBlock(out_block);
         self.state.builder.positionBuilderAtEnd(out_block);
         self.current.?.block = out_block;
 
-        self.current.?.out_block = previous_out_block;
+        self.current.?.break_block = previous_out_block;
+        self.current.?.continue_block = previous_continue_block;
 
         return null;
     }
@@ -1171,16 +1180,25 @@ pub const JIT = struct {
     fn generateDoUntil(self: *Self, do_until_node: *DoUntilNode) VM.Error!?*l.Value {
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
-        const previous_out_block = self.current.?.out_block;
-        self.current.?.out_block = out_block;
+        const cond_block = self.context.getContext().createBasicBlock("cond");
+        const previous_out_block = self.current.?.break_block;
+        self.current.?.break_block = out_block;
+        const previous_continue_block = self.current.?.continue_block;
+        self.current.?.continue_block = cond_block;
 
-        _ = self.state.builder.buildBr(loop_block);
+        self.buildBr(loop_block);
 
         self.current.?.function.?.appendExistingBasicBlock(loop_block);
         self.state.builder.positionBuilderAtEnd(loop_block);
         self.current.?.block = loop_block;
 
         _ = try self.generateNode(do_until_node.block);
+
+        self.buildBr(cond_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.builder.positionBuilderAtEnd(cond_block);
+        self.current.?.block = cond_block;
 
         const condition = self.state.builder.buildICmp(
             .EQ,
@@ -1202,7 +1220,8 @@ pub const JIT = struct {
         self.state.builder.positionBuilderAtEnd(out_block);
         self.current.?.block = out_block;
 
-        self.current.?.out_block = previous_out_block;
+        self.current.?.break_block = previous_out_block;
+        self.current.?.continue_block = previous_continue_block;
 
         return null;
     }
@@ -1211,8 +1230,10 @@ pub const JIT = struct {
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
-        const previous_out_block = self.current.?.out_block;
-        self.current.?.out_block = out_block;
+        const previous_out_block = self.current.?.break_block;
+        self.current.?.break_block = out_block;
+        const previous_continue_block = self.current.?.continue_block;
+        self.current.?.continue_block = cond_block;
 
         // Init expressions
         for (for_node.init_declarations.items) |expr| {
@@ -1220,7 +1241,7 @@ pub const JIT = struct {
         }
 
         // Jump to condition
-        _ = self.state.builder.buildBr(cond_block);
+        self.buildBr(cond_block);
 
         // Condition
         self.current.?.function.?.appendExistingBasicBlock(cond_block);
@@ -1255,13 +1276,26 @@ pub const JIT = struct {
             _ = try self.generateNode(expr);
         }
 
-        _ = self.state.builder.buildBr(cond_block);
+        self.buildBr(cond_block);
 
         self.current.?.function.?.appendExistingBasicBlock(out_block);
         self.state.builder.positionBuilderAtEnd(out_block);
         self.current.?.block = out_block;
 
-        self.current.?.out_block = previous_out_block;
+        self.current.?.break_block = previous_out_block;
+        self.current.?.continue_block = previous_continue_block;
+
+        return null;
+    }
+
+    fn generateBreak(self: *Self, _: *BreakNode) VM.Error!?*l.Value {
+        self.buildBr(self.current.?.break_block.?);
+
+        return null;
+    }
+
+    fn generateContinue(self: *Self, _: *ContinueNode) VM.Error!?*l.Value {
+        self.buildBr(self.current.?.continue_block.?);
 
         return null;
     }
@@ -1416,6 +1450,13 @@ pub const JIT = struct {
         }
 
         return function;
+    }
+
+    // Checks the current block hasn't already have a terminator
+    fn buildBr(self: *Self, block: *l.BasicBlock) void {
+        if (self.current.?.block.?.getTerminator() == null) {
+            _ = self.state.builder.buildBr(block);
+        }
     }
 
     /// Build instructions to get local at given index

@@ -1033,6 +1033,9 @@ pub const BasicBlock = opaque {
 
     pub const getFirstInstruction = LLVMGetFirstInstruction;
     extern fn LLVMGetFirstInstruction(BB: *BasicBlock) ?*Value;
+
+    pub const getTerminator = LLVMGetBasicBlockTerminator;
+    extern fn LLVMGetBasicBlockTerminator(BB: *BasicBlock) ?*Value;
 };
 
 pub const TargetMachine = opaque {
