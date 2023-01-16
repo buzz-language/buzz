@@ -24,6 +24,7 @@ const ReturnNode = _node.ReturnNode;
 const IfNode = _node.IfNode;
 const BinaryNode = _node.BinaryNode;
 const WhileNode = _node.WhileNode;
+const DoUntilNode = _node.DoUntilNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -531,6 +532,7 @@ pub const JIT = struct {
             .If => try self.generateIf(IfNode.cast(node).?),
             .Binary => try self.generateBinary(BinaryNode.cast(node).?),
             .While => try self.generateWhile(WhileNode.cast(node).?),
+            .DoUntil => try self.generateDoUntil(DoUntilNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1149,6 +1151,41 @@ pub const JIT = struct {
         _ = try self.generateNode(while_node.block);
 
         _ = self.state.builder.buildBr(cond_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.builder.positionBuilderAtEnd(out_block);
+        self.current.?.block = out_block;
+
+        return null;
+    }
+
+    fn generateDoUntil(self: *Self, do_until_node: *DoUntilNode) VM.Error!?*l.Value {
+        const loop_block = self.context.getContext().createBasicBlock("loop");
+        const out_block = self.context.getContext().createBasicBlock("out");
+
+        _ = self.state.builder.buildBr(loop_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.builder.positionBuilderAtEnd(loop_block);
+        self.current.?.block = loop_block;
+
+        _ = try self.generateNode(do_until_node.block);
+
+        const condition = self.state.builder.buildICmp(
+            .EQ,
+            (try self.generateNode(do_until_node.condition)).?,
+            (try self.lowerBuzzApiType(.value)).constInt(
+                Value.True.val,
+                .False,
+            ),
+            "cond",
+        );
+
+        _ = self.state.builder.buildCondBr(
+            condition,
+            out_block,
+            loop_block,
+        );
 
         self.current.?.function.?.appendExistingBasicBlock(out_block);
         self.state.builder.positionBuilderAtEnd(out_block);
