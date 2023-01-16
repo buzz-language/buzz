@@ -25,6 +25,7 @@ const IfNode = _node.IfNode;
 const BinaryNode = _node.BinaryNode;
 const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
+const ForNode = _node.ForNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -63,7 +64,10 @@ pub const Frame = struct {
     try_should_handle: ?std.AutoHashMap(*ObjTypeDef, void) = null,
 
     function: ?*l.Value = null,
+    // Current block in which we write IR
     block: ?*l.BasicBlock = null,
+    // Block to jump to when inside a loop
+    out_block: ?*l.BasicBlock = null,
 
     locals: std.ArrayList(*l.Value),
 };
@@ -533,6 +537,7 @@ pub const JIT = struct {
             .Binary => try self.generateBinary(BinaryNode.cast(node).?),
             .While => try self.generateWhile(WhileNode.cast(node).?),
             .DoUntil => try self.generateDoUntil(DoUntilNode.cast(node).?),
+            .For => try self.generateFor(ForNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1121,6 +1126,8 @@ pub const JIT = struct {
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
+        const previous_out_block = self.current.?.out_block;
+        self.current.?.out_block = out_block;
 
         _ = self.state.builder.buildBr(cond_block);
 
@@ -1156,12 +1163,16 @@ pub const JIT = struct {
         self.state.builder.positionBuilderAtEnd(out_block);
         self.current.?.block = out_block;
 
+        self.current.?.out_block = previous_out_block;
+
         return null;
     }
 
     fn generateDoUntil(self: *Self, do_until_node: *DoUntilNode) VM.Error!?*l.Value {
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
+        const previous_out_block = self.current.?.out_block;
+        self.current.?.out_block = out_block;
 
         _ = self.state.builder.buildBr(loop_block);
 
@@ -1190,6 +1201,67 @@ pub const JIT = struct {
         self.current.?.function.?.appendExistingBasicBlock(out_block);
         self.state.builder.positionBuilderAtEnd(out_block);
         self.current.?.block = out_block;
+
+        self.current.?.out_block = previous_out_block;
+
+        return null;
+    }
+
+    fn generateFor(self: *Self, for_node: *ForNode) VM.Error!?*l.Value {
+        const cond_block = self.context.getContext().createBasicBlock("cond");
+        const loop_block = self.context.getContext().createBasicBlock("loop");
+        const out_block = self.context.getContext().createBasicBlock("out");
+        const previous_out_block = self.current.?.out_block;
+        self.current.?.out_block = out_block;
+
+        // Init expressions
+        for (for_node.init_declarations.items) |expr| {
+            _ = try self.generateNode(&expr.node);
+        }
+
+        // Jump to condition
+        _ = self.state.builder.buildBr(cond_block);
+
+        // Condition
+        self.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.builder.positionBuilderAtEnd(cond_block);
+        self.current.?.block = cond_block;
+
+        const condition = self.state.builder.buildICmp(
+            .EQ,
+            (try self.generateNode(for_node.condition)).?,
+            (try self.lowerBuzzApiType(.value)).constInt(
+                Value.True.val,
+                .False,
+            ),
+            "cond",
+        );
+
+        _ = self.state.builder.buildCondBr(
+            condition,
+            loop_block,
+            out_block,
+        );
+
+        // Body
+        self.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.builder.positionBuilderAtEnd(loop_block);
+        self.current.?.block = loop_block;
+
+        _ = try self.generateNode(for_node.body);
+
+        // Post loop
+        for (for_node.post_loop.items) |expr| {
+            _ = try self.generateNode(expr);
+        }
+
+        _ = self.state.builder.buildBr(cond_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.builder.positionBuilderAtEnd(out_block);
+        self.current.?.block = out_block;
+
+        self.current.?.out_block = previous_out_block;
 
         return null;
     }
