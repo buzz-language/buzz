@@ -43,7 +43,6 @@ const VM = @import("./vm.zig").VM;
 
 const GenState = struct {
     module: *l.OrcThreadSafeModule,
-    context: *l.OrcThreadSafeContext,
     builder: *l.Builder,
 
     pub fn deinit(self: GenState) void {
@@ -126,6 +125,7 @@ pub const JIT = struct {
     lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
 
     orc_jit: *l.OrcLLJIT,
+    context: *l.OrcThreadSafeContext,
 
     // Thresholds data
 
@@ -169,6 +169,7 @@ pub const JIT = struct {
             .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *l.Type).init(vm.gc.allocator),
             .lowered_types = std.AutoHashMap(*ObjTypeDef, *l.Type).init(vm.gc.allocator),
             .orc_jit = orc_jit,
+            .context = l.OrcThreadSafeContext.create(),
             .state = undefined,
         };
 
@@ -203,7 +204,7 @@ pub const JIT = struct {
             .Map,
             .Type,
             .UserData,
-            => self.state.context.getContext().intType(64),
+            => self.context.getContext().intType(64),
 
             .Function => function: {
                 const function_type = obj_typedef.resolved_type.?.Function;
@@ -248,24 +249,24 @@ pub const JIT = struct {
             return lowered;
         }
 
-        const ptr_type = self.state.context.getContext().pointerType(0);
+        const ptr_type = self.context.getContext().pointerType(0);
 
         const lowered = switch (method) {
             .bz_peek => l.functionType(
                 try self.lowerBuzzApiType(.value),
-                &[_]*l.Type{ ptr_type, self.state.context.getContext().intType(32) },
+                &[_]*l.Type{ ptr_type, self.context.getContext().intType(32) },
                 2,
                 .False,
             ),
             .bz_push => l.functionType(
-                self.state.context.getContext().voidType(),
+                self.context.getContext().voidType(),
                 &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
                 2,
                 .False,
             ),
             .bz_valueToRawNativeFn => l.functionType(
                 ptr_type,
-                &[_]*l.Type{self.state.context.getContext().intType(64)},
+                &[_]*l.Type{self.context.getContext().intType(64)},
                 1,
                 .False,
             ),
@@ -286,15 +287,15 @@ pub const JIT = struct {
                 .False,
             ),
             .nativefn => l.functionType(
-                self.state.context.getContext().intType(8),
+                self.context.getContext().intType(8),
                 &[_]*l.Type{
                     (try self.lowerBuzzApiType(.nativectx)).pointerType(0),
                 },
                 1,
                 .False,
             ),
-            .value => self.state.context.getContext().intType(64),
-            .nativectx => self.state.context.getContext().structCreateNamed(
+            .value => self.context.getContext().intType(64),
+            .nativectx => self.context.getContext().structCreateNamed(
                 "NativeCtx",
                 &[_]*l.Type{
                     // vm
@@ -345,11 +346,11 @@ pub const JIT = struct {
 
     inline fn vmConstant(self: *Self) *l.Value {
         self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
-            self.state.context.getContext().intType(64).constInt(
+            self.context.getContext().intType(64).constInt(
                 @ptrToInt(self.vm),
                 .False,
             ),
-            self.state.context.getContext().pointerType(0),
+            self.context.getContext().pointerType(0),
             "",
         );
 
@@ -399,17 +400,15 @@ pub const JIT = struct {
     }
 
     pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error![2]*anyopaque {
-        var thread_safe_context = l.OrcThreadSafeContext.create();
-        var module = l.Module.createWithName("buzz-jit", thread_safe_context.getContext());
+        var module = l.Module.createWithName("buzz-jit", self.context.getContext());
         var thread_safe_module = l.OrcThreadSafeModule.createNewThreadSafeModule(
             module,
-            thread_safe_context,
+            self.context,
         );
 
         self.state = .{
             .module = thread_safe_module,
-            .context = thread_safe_context,
-            .builder = thread_safe_context.getContext().createBuilder(),
+            .builder = self.context.getContext().createBuilder(),
         };
 
         // TODO: do it once in its own module?
@@ -514,7 +513,7 @@ pub const JIT = struct {
                 @intCast(c_ulonglong, Value.fromInteger(IntegerNode.cast(node).?.integer_constant).val),
                 .False,
             ),
-            .StringLiteral => self.state.context.getContext().intType(64).constInt(
+            .StringLiteral => self.context.getContext().intType(64).constInt(
                 StringLiteralNode.cast(node).?.constant.toValue().val,
                 .False,
             ),
@@ -776,14 +775,14 @@ pub const JIT = struct {
         }
 
         // Continuation block
-        var out_block = self.state.context.getContext().createBasicBlock("out");
+        var out_block = self.context.getContext().createBasicBlock("out");
 
         // If block
-        var then_block = self.state.context.getContext().createBasicBlock("if");
+        var then_block = self.context.getContext().createBasicBlock("then");
 
         // Else block
         var else_block = if (if_node.else_branch != null)
-            self.state.context.getContext().createBasicBlock("else")
+            self.context.getContext().createBasicBlock("else")
         else
             null;
 
@@ -874,8 +873,8 @@ pub const JIT = struct {
                 const left = (try self.generateNode(binary_node.left)).?;
 
                 _ = self.state.builder.buildStore(
-                    value,
                     left,
+                    value,
                 );
 
                 const condition = self.state.builder.buildICmp(
@@ -894,10 +893,10 @@ pub const JIT = struct {
                 );
 
                 // Continuation block
-                const out_block = self.state.context.getContext().createBasicBlock("out");
+                const out_block = self.context.getContext().createBasicBlock("out");
 
                 // If block
-                const then_block = self.state.context.getContext().createBasicBlock("if");
+                const then_block = self.context.getContext().createBasicBlock("then");
 
                 _ = self.state.builder.buildCondBr(
                     condition,
@@ -910,11 +909,15 @@ pub const JIT = struct {
                 self.current.?.block = then_block;
 
                 _ = self.state.builder.buildStore(
-                    value,
                     (try self.generateNode(binary_node.right)).?,
+                    value,
                 );
 
+                // Continue
+                _ = self.state.builder.buildBr(out_block);
+
                 // Continue writing after the if else
+                self.current.?.function.?.appendExistingBasicBlock(out_block);
                 self.current.?.block = out_block;
                 self.state.builder.positionBuilderAtEnd(out_block);
 
@@ -962,8 +965,8 @@ pub const JIT = struct {
                                         .EqualEqual => .OEQ,
                                         else => unreachable,
                                     },
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -994,8 +997,8 @@ pub const JIT = struct {
                                     break :bin self.wrap(
                                         .Float,
                                         self.state.builder.buildFAdd(
-                                            if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                            if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                            if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                            if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                             "",
                                         ),
                                     );
@@ -1010,7 +1013,14 @@ pub const JIT = struct {
                                     ),
                                 );
                             },
-                            .String => unreachable,
+                            .String => break :bin try self.buildBuzzApiCall(
+                                .bz_objStringConcat,
+                                &[_]*l.Value{
+                                    self.vmConstant(),
+                                    self.wrap(.String, left_s.?),
+                                    self.wrap(.String, right_s.?),
+                                },
+                            ),
                             .List => unreachable,
                             .Map => unreachable,
                             else => unreachable,
@@ -1021,8 +1031,8 @@ pub const JIT = struct {
                             break :bin self.wrap(
                                 .Float,
                                 self.state.builder.buildFSub(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1041,8 +1051,8 @@ pub const JIT = struct {
                             break :bin self.wrap(
                                 .Float,
                                 self.state.builder.buildFMul(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1062,8 +1072,8 @@ pub const JIT = struct {
                             break :bin self.wrap(
                                 .Float,
                                 self.state.builder.buildFDiv(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1081,8 +1091,8 @@ pub const JIT = struct {
                             break :bin self.wrap(
                                 .Float,
                                 self.state.builder.buildFRem(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.state.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1191,7 +1201,7 @@ pub const JIT = struct {
 
         self.current.?.function = function;
 
-        var block = self.state.context.getContext().appendBasicBlock(
+        var block = self.context.getContext().appendBasicBlock(
             function,
             @ptrCast(
                 [*:0]const u8,
@@ -1306,7 +1316,7 @@ pub const JIT = struct {
             try self.lowerBuzzApiType(.value),
             globals,
             &[_]*l.Value{
-                self.state.context.getContext().intType(64).constInt(slot, .False),
+                self.context.getContext().intType(64).constInt(slot, .False),
             },
             1,
             "value_ptr",
@@ -1342,7 +1352,7 @@ pub const JIT = struct {
             try self.lowerBuzzApiType(.value),
             globals,
             &[_]*l.Value{
-                self.state.context.getContext().intType(64).constInt(slot, .False),
+                self.context.getContext().intType(64).constInt(slot, .False),
             },
             1,
             "value_ptr",
@@ -1359,7 +1369,7 @@ pub const JIT = struct {
         return self.state.builder.buildICmp(
             .EQ,
             value,
-            self.state.context.getContext().intType(64).constInt(_value.TrueMask, .False),
+            self.context.getContext().intType(64).constInt(_value.TrueMask, .False),
             "",
         );
     }
@@ -1369,11 +1379,11 @@ pub const JIT = struct {
             self.state.builder.buildICmp(
                 .EQ,
                 value,
-                self.state.context.getContext().intType(1).constInt(1, .False),
+                self.context.getContext().intType(1).constInt(1, .False),
                 "",
             ),
-            self.state.context.getContext().intType(64).constInt(Value.True.val, .False),
-            self.state.context.getContext().intType(64).constInt(Value.False.val, .False),
+            self.context.getContext().intType(64).constInt(Value.True.val, .False),
+            self.context.getContext().intType(64).constInt(Value.False.val, .False),
             "",
         );
     }
@@ -1381,7 +1391,7 @@ pub const JIT = struct {
     fn buildValueToInteger(self: *Self, value: *l.Value) *l.Value {
         return self.state.builder.buildAnd(
             value,
-            self.state.context.getContext().intType(64).constInt(
+            self.context.getContext().intType(64).constInt(
                 0xffffffff,
                 .False,
             ),
@@ -1391,7 +1401,7 @@ pub const JIT = struct {
 
     fn buildValueFromInteger(self: *Self, integer: *l.Value) *l.Value {
         return self.state.builder.buildOr(
-            self.state.context.getContext().intType(64).constInt(
+            self.context.getContext().intType(64).constInt(
                 _value.IntegerMask,
                 .False,
             ),
@@ -1403,8 +1413,8 @@ pub const JIT = struct {
     fn buildValueToObj(self: *Self, value: *l.Value) *l.Value {
         return self.state.builder.buildAnd(
             value,
-            self.state.builder.buildNeg(
-                self.state.context.getContext().intType(64).constInt(_value.PointerMask, .False),
+            self.state.builder.buildNot(
+                self.context.getContext().intType(64).constInt(_value.PointerMask, .False),
                 "",
             ),
             "",
@@ -1413,7 +1423,7 @@ pub const JIT = struct {
 
     fn buildValueFromObj(self: *Self, value: *l.Value) *l.Value {
         return self.state.builder.buildOr(
-            self.state.context.getContext().intType(64).constInt(
+            self.context.getContext().intType(64).constInt(
                 _value.PointerMask,
                 .False,
             ),
@@ -1429,7 +1439,7 @@ pub const JIT = struct {
             .Integer => self.buildValueToInteger(value),
             .Float => self.state.builder.buildBitCast(
                 value,
-                self.state.context.getContext().doubleType(),
+                self.context.getContext().doubleType(),
                 "",
             ),
             .Void => value,
@@ -1461,7 +1471,7 @@ pub const JIT = struct {
             .Integer => self.buildValueFromInteger(value),
             .Float => self.state.builder.buildBitCast(
                 value,
-                self.state.context.getContext().intType(64),
+                self.context.getContext().intType(64),
                 "",
             ),
             .Void => value,
@@ -1501,7 +1511,7 @@ pub const JIT = struct {
         );
 
         // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
-        var block = self.state.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
+        var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
         self.state.builder.positionBuilderAtEnd(block);
 
         var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
@@ -1520,7 +1530,7 @@ pub const JIT = struct {
                         .bz_peek,
                         &[_]*l.Value{
                             self.vmConstant(),
-                            self.state.context.getContext().intType(32).constInt(
+                            self.context.getContext().intType(32).constInt(
                                 @intCast(c_ulonglong, i),
                                 .False,
                             ),
@@ -1555,7 +1565,7 @@ pub const JIT = struct {
         // 1 = there's a return, 0 = no return, -1 = error
         // TODO: error ?
         _ = self.state.builder.buildRet(
-            self.state.context.getContext().intType(8).constInt(
+            self.context.getContext().intType(8).constInt(
                 if (should_return) 1 else 0,
                 .True,
             ),
