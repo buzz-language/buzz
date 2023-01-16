@@ -23,6 +23,7 @@ const NamedVariableNode = _node.NamedVariableNode;
 const ReturnNode = _node.ReturnNode;
 const IfNode = _node.IfNode;
 const BinaryNode = _node.BinaryNode;
+const WhileNode = _node.WhileNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -529,6 +530,7 @@ pub const JIT = struct {
             .Return => try self.generateReturn(ReturnNode.cast(node).?),
             .If => try self.generateIf(IfNode.cast(node).?),
             .Binary => try self.generateBinary(BinaryNode.cast(node).?),
+            .While => try self.generateWhile(WhileNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1111,6 +1113,48 @@ pub const JIT = struct {
                 }
             },
         };
+    }
+
+    fn generateWhile(self: *Self, while_node: *WhileNode) VM.Error!?*l.Value {
+        const cond_block = self.context.getContext().createBasicBlock("cond");
+        const loop_block = self.context.getContext().createBasicBlock("loop");
+        const out_block = self.context.getContext().createBasicBlock("out");
+
+        _ = self.state.builder.buildBr(cond_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.builder.positionBuilderAtEnd(cond_block);
+        self.current.?.block = cond_block;
+
+        const condition = self.state.builder.buildICmp(
+            .EQ,
+            (try self.generateNode(while_node.condition)).?,
+            (try self.lowerBuzzApiType(.value)).constInt(
+                Value.True.val,
+                .False,
+            ),
+            "cond",
+        );
+
+        _ = self.state.builder.buildCondBr(
+            condition,
+            loop_block,
+            out_block,
+        );
+
+        self.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.builder.positionBuilderAtEnd(loop_block);
+        self.current.?.block = loop_block;
+
+        _ = try self.generateNode(while_node.block);
+
+        _ = self.state.builder.buildBr(cond_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.builder.positionBuilderAtEnd(out_block);
+        self.current.?.block = out_block;
+
+        return null;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
