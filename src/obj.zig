@@ -242,8 +242,8 @@ pub const ObjFiber = struct {
     const raw_members = std.ComptimeStringMap(
         *const anyopaque,
         .{
-            .{ "over", @ptrCast(*const anyopaque, &over) },
-            .{ "cancel", @ptrCast(*const anyopaque, &cancel) },
+            .{ "over", @ptrCast(*const anyopaque, &over_raw) },
+            .{ "cancel", @ptrCast(*const anyopaque, &cancel_raw) },
         },
     );
 
@@ -276,13 +276,13 @@ pub const ObjFiber = struct {
         }
 
         if (mem.eql(u8, method, "over")) {
-            const native_type = try parser.parseTypeDefFrom("Function over() > bool");
+            const native_type = try parser.parseTypeDefFrom("extern Function over() > bool");
 
             try parser.gc.objfiber_memberDefs.put("over", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "cancel")) {
-            const native_type = try parser.parseTypeDefFrom("Function cancel() > void");
+            const native_type = try parser.parseTypeDefFrom("extern Function cancel() > void");
 
             try parser.gc.objfiber_memberDefs.put("cancel", native_type);
 
@@ -551,13 +551,13 @@ pub const ObjPattern = struct {
         }
 
         if (mem.eql(u8, method, "match")) {
-            const native_type = try parser.parseTypeDefFrom("Function match(str subject) > [str]?");
+            const native_type = try parser.parseTypeDefFrom("extern Function match(str subject) > [str]?");
 
             try parser.gc.objpattern_memberDefs.put("match", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "matchAll")) {
-            const native_type = try parser.parseTypeDefFrom("Function matchAll(str subject) > [[str]]?");
+            const native_type = try parser.parseTypeDefFrom("extern Function matchAll(str subject) > [[str]]?");
 
             try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
 
@@ -1251,86 +1251,86 @@ pub const ObjString = struct {
         }
 
         if (mem.eql(u8, method, "len")) {
-            const native_type = try parser.parseTypeDefFrom("Function len() > int");
+            const native_type = try parser.parseTypeDefFrom("extern Function len() > int");
 
             try parser.gc.objstring_memberDefs.put("len", native_type);
 
             return native_type;
         }
         if (mem.eql(u8, method, "trim")) {
-            const native_type = try parser.parseTypeDefFrom("Function trim() > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function trim() > str");
 
             try parser.gc.objstring_memberDefs.put("trim", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "byte")) {
-            const native_type = try parser.parseTypeDefFrom("Function byte(int at) > int");
+            const native_type = try parser.parseTypeDefFrom("extern Function byte(int at) > int");
 
             try parser.gc.objstring_memberDefs.put("byte", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "indexOf")) {
-            const native_type = try parser.parseTypeDefFrom("Function indexOf(str needle) > int?");
+            const native_type = try parser.parseTypeDefFrom("extern Function indexOf(str needle) > int?");
 
             try parser.gc.objstring_memberDefs.put("indexOf", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "startsWith")) {
-            const native_type = try parser.parseTypeDefFrom("Function startsWith(str needle) > bool");
+            const native_type = try parser.parseTypeDefFrom("extern Function startsWith(str needle) > bool");
 
             try parser.gc.objstring_memberDefs.put("startsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "endsWith")) {
-            const native_type = try parser.parseTypeDefFrom("Function endsWith(str needle) > bool");
+            const native_type = try parser.parseTypeDefFrom("extern Function endsWith(str needle) > bool");
 
             try parser.gc.objstring_memberDefs.put("endsWith", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "replace")) {
-            const native_type = try parser.parseTypeDefFrom("Function replace(str needle, str with) > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function replace(str needle, str with) > str");
 
             try parser.gc.objstring_memberDefs.put("replace", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "split")) {
-            const native_type = try parser.parseTypeDefFrom("Function split(str separator) > [str]");
+            const native_type = try parser.parseTypeDefFrom("extern Function split(str separator) > [str]");
 
             try parser.gc.objstring_memberDefs.put("split", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "sub")) {
-            const native_type = try parser.parseTypeDefFrom("Function sub(int start, int? len) > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function sub(int start, int? len) > str");
 
             try parser.gc.objstring_memberDefs.put("sub", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "repeat")) {
-            const native_type = try parser.parseTypeDefFrom("Function repeat(int n) > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function repeat(int n) > str");
 
             try parser.gc.objstring_memberDefs.put("repeat", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "encodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("Function encodeBase64() > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function encodeBase64() > str");
 
             try parser.gc.objstring_memberDefs.put("encodeBase64", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "decodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("Function decodeBase64() > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function decodeBase64() > str");
 
             try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "upper")) {
-            const native_type = try parser.parseTypeDefFrom("Function upper() > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function upper() > str");
 
             try parser.gc.objstring_memberDefs.put("upper", native_type);
 
             return native_type;
         } else if (mem.eql(u8, method, "lower")) {
-            const native_type = try parser.parseTypeDefFrom("Function lower() > str");
+            const native_type = try parser.parseTypeDefFrom("extern Function lower() > str");
 
             try parser.gc.objstring_memberDefs.put("lower", native_type);
 
@@ -1966,20 +1966,20 @@ pub const ObjList = struct {
     const raw_members = std.ComptimeStringMap(
         *const anyopaque,
         .{
-            .{ "append", @ptrCast(*const anyopaque, &append) },
-            .{ "remove", @ptrCast(*const anyopaque, &remove) },
-            .{ "len", @ptrCast(*const anyopaque, &len) },
-            .{ "next", @ptrCast(*const anyopaque, &next) },
-            .{ "sub", @ptrCast(*const anyopaque, &sub) },
-            .{ "indexOf", @ptrCast(*const anyopaque, &indexOf) },
-            .{ "join", @ptrCast(*const anyopaque, &join) },
-            .{ "insert", @ptrCast(*const anyopaque, &insert) },
-            .{ "pop", @ptrCast(*const anyopaque, &pop) },
-            .{ "forEach", @ptrCast(*const anyopaque, &forEach) },
-            .{ "map", @ptrCast(*const anyopaque, &map) },
-            .{ "filter", @ptrCast(*const anyopaque, &filter) },
-            .{ "reduce", @ptrCast(*const anyopaque, &reduce) },
-            .{ "sort", @ptrCast(*const anyopaque, &sort) },
+            .{ "append", @ptrCast(*const anyopaque, &append_raw) },
+            .{ "remove", @ptrCast(*const anyopaque, &remove_raw) },
+            .{ "len", @ptrCast(*const anyopaque, &len_raw) },
+            .{ "next", @ptrCast(*const anyopaque, &next_raw) },
+            .{ "sub", @ptrCast(*const anyopaque, &sub_raw) },
+            .{ "indexOf", @ptrCast(*const anyopaque, &indexOf_raw) },
+            .{ "join", @ptrCast(*const anyopaque, &join_raw) },
+            .{ "insert", @ptrCast(*const anyopaque, &insert_raw) },
+            .{ "pop", @ptrCast(*const anyopaque, &pop_raw) },
+            .{ "forEach", @ptrCast(*const anyopaque, &forEach_raw) },
+            .{ "map", @ptrCast(*const anyopaque, &map_raw) },
+            .{ "filter", @ptrCast(*const anyopaque, &filter_raw) },
+            .{ "reduce", @ptrCast(*const anyopaque, &reduce_raw) },
+            .{ "sort", @ptrCast(*const anyopaque, &sort_raw) },
         },
     );
 
@@ -2622,6 +2622,7 @@ pub const ObjList = struct {
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2659,6 +2660,7 @@ pub const ObjList = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2689,6 +2691,7 @@ pub const ObjList = struct {
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2735,6 +2738,7 @@ pub const ObjList = struct {
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2787,6 +2791,7 @@ pub const ObjList = struct {
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2823,6 +2828,7 @@ pub const ObjList = struct {
                     ),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2856,6 +2862,7 @@ pub const ObjList = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2895,6 +2902,7 @@ pub const ObjList = struct {
                     .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2914,6 +2922,7 @@ pub const ObjList = struct {
                     .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2942,6 +2951,7 @@ pub const ObjList = struct {
                     .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
@@ -2997,6 +3007,7 @@ pub const ObjList = struct {
                     .return_type = undefined,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    // FIXME: user could provide an .Extern function and JIT will be lost here
                 };
 
                 const map_origin = ObjFunction.FunctionDef.nextId();
@@ -3048,6 +3059,7 @@ pub const ObjList = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 try method_def.generic_types.put(
@@ -3114,6 +3126,7 @@ pub const ObjList = struct {
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3198,6 +3211,7 @@ pub const ObjList = struct {
                     .return_type = generic_type,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = generic_types,
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3258,6 +3272,7 @@ pub const ObjList = struct {
                     .return_type = obj_list,
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3318,10 +3333,10 @@ pub const ObjMap = struct {
     const raw_members = std.ComptimeStringMap(
         *const anyopaque,
         .{
-            .{ "remove", @ptrCast(*const anyopaque, &remove) },
-            .{ "size", @ptrCast(*const anyopaque, &size) },
-            .{ "keys", @ptrCast(*const anyopaque, &keys) },
-            .{ "values", @ptrCast(*const anyopaque, &values) },
+            .{ "remove", @ptrCast(*const anyopaque, &remove_raw) },
+            .{ "size", @ptrCast(*const anyopaque, &size_raw) },
+            .{ "keys", @ptrCast(*const anyopaque, &keys_raw) },
+            .{ "values", @ptrCast(*const anyopaque, &values_raw) },
         },
     );
 
@@ -3398,7 +3413,7 @@ pub const ObjMap = struct {
         return 1;
     }
 
-    fn keys_value(ctx: *NativeCtx, map_value: Value) Value {
+    fn keys_raw(ctx: *NativeCtx, map_value: Value) Value {
         const self: *ObjMap = ObjMap.cast(map_value.obj()).?;
 
         const map_keys: []Value = self.map.keys();
@@ -3454,7 +3469,7 @@ pub const ObjMap = struct {
     }
 
     fn keys(ctx: *NativeCtx) c_int {
-        const result = keys_value(ctx, ctx.vm.peek(0));
+        const result = keys_raw(ctx, ctx.vm.peek(0));
 
         if (result.isError()) {
             return -1;
@@ -3610,6 +3625,7 @@ pub const ObjMap = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3645,6 +3661,7 @@ pub const ObjMap = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3682,6 +3699,7 @@ pub const ObjMap = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -3719,6 +3737,7 @@ pub const ObjMap = struct {
                     }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };

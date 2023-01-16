@@ -88,6 +88,7 @@ pub const BuzzApiMethods = enum {
     bz_toString,
     bz_newList,
     bz_listAppend,
+    bz_listMethod,
     globals,
 
     pub fn name(self: BuzzApiMethods) []const u8 {
@@ -104,6 +105,7 @@ pub const BuzzApiMethods = enum {
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
+            .bz_listMethod => "bz_listMethod",
         };
     }
 
@@ -121,6 +123,7 @@ pub const BuzzApiMethods = enum {
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
+            .bz_listMethod => "bz_listMethod",
         };
     }
 };
@@ -199,6 +202,34 @@ pub const JIT = struct {
         self.state.deinit();
     }
 
+    fn lowerFunctionType(self: *Self, obj_typedef: *ObjTypeDef, invoked: bool) VM.Error!*l.Type {
+        const function_type = obj_typedef.resolved_type.?.Function;
+
+        // TODO yield_type
+        var param_types = std.ArrayList(*l.Type).init(self.vm.gc.allocator);
+        defer param_types.deinit();
+
+        try param_types.append(
+            (try self.lowerBuzzApiType(.nativectx)).pointerType(0),
+        );
+
+        if (invoked) {
+            try param_types.append(try self.lowerBuzzApiType(.value));
+        }
+
+        var it = function_type.parameters.iterator();
+        while (it.next()) |kv| {
+            try param_types.append(try self.lowerType(kv.value_ptr.*));
+        }
+
+        return l.functionType(
+            try self.lowerBuzzApiType(.value),
+            param_types.items.ptr,
+            @intCast(c_uint, param_types.items.len),
+            .False,
+        );
+    }
+
     fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
         var lowered = self.lowered_types.get(obj_typedef);
 
@@ -223,27 +254,7 @@ pub const JIT = struct {
             .UserData,
             => self.context.getContext().intType(64),
 
-            .Function => function: {
-                const function_type = obj_typedef.resolved_type.?.Function;
-
-                // TODO yield_type
-                var param_types = std.ArrayList(*l.Type).init(self.vm.gc.allocator);
-                defer param_types.deinit();
-
-                try param_types.append((try self.lowerBuzzApiType(.nativectx)).pointerType(0));
-
-                var it = function_type.parameters.iterator();
-                while (it.next()) |kv| {
-                    try param_types.append(try self.lowerType(kv.value_ptr.*));
-                }
-
-                break :function l.functionType(
-                    try self.lowerBuzzApiType(.value),
-                    param_types.items.ptr,
-                    @intCast(c_uint, param_types.items.len),
-                    .False,
-                );
-            },
+            .Function => try self.lowerFunctionType(obj_typedef, false),
 
             // No runtime representation
             .Protocol,
@@ -319,6 +330,17 @@ pub const JIT = struct {
                 3,
                 .False,
             ),
+            .bz_listMethod => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    self.context.getContext().intType(8).pointerType(0),
+                    self.context.getContext().intType(64),
+                },
+                4,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -361,6 +383,7 @@ pub const JIT = struct {
             .bz_toString,
             .bz_newList,
             .bz_listAppend,
+            .bz_listMethod,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -570,6 +593,7 @@ pub const JIT = struct {
             .Break => try self.generateBreak(BreakNode.cast(node).?),
             .Continue => try self.generateContinue(ContinueNode.cast(node).?),
             .List => try self.generateList(ListNode.cast(node).?),
+            .Dot => try self.generateDot(DotNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -705,27 +729,55 @@ pub const JIT = struct {
         }
 
         // Find out if call is invoke or regular call
-        var invoked = false;
-        var invoked_on: ?ObjTypeDef.Type = null;
+        const dot = DotNode.cast(call_node.callee);
+        const invoked_on = if (call_node.callee.node_type == .Dot)
+            dot.?.callee.type_def.?.def_type
+        else
+            null;
 
-        if (call_node.callee.node_type == .Dot) {
-            const dot = DotNode.cast(call_node.callee).?;
-            const field_accessed = dot.callee.type_def;
-
-            invoked = field_accessed.?.def_type != .Object;
-            invoked_on = field_accessed.?.def_type;
-        }
-
-        // TODO
-        // if (!invoked and invoked_on == null) {
-        var callee = (try self.generateNode(call_node.callee)).?;
+        const subject = if (invoked_on != null) try self.generateNode(dot.?.callee) else null;
+        var callee: *l.Value = if (invoked_on != null)
+            (switch (invoked_on.?) {
+                .Object => unreachable,
+                .ObjectInstance, .ProtocolInstance => unreachable,
+                .String => unreachable,
+                .Pattern => unreachable,
+                .Fiber => unreachable,
+                .List => try self.buildBuzzApiCall(
+                    .bz_listMethod,
+                    &[_]*l.Value{
+                        // vm
+                        self.vmConstant(),
+                        // list
+                        subject.?,
+                        // member name
+                        self.state.builder.buildIntToPtr(
+                            self.context.getContext().intType(64).constInt(
+                                @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
+                                .False,
+                            ),
+                            self.context.getContext().pointerType(0),
+                            "",
+                        ),
+                        // member name len
+                        self.context.getContext().intType(64).constInt(
+                            DotNode.cast(call_node.callee).?.identifier.lexeme.len,
+                            .False,
+                        ),
+                    },
+                ),
+                .Map => unreachable,
+                else => unreachable,
+            })
+        else
+            (try self.generateNode(call_node.callee)).?;
 
         const callee_type = switch (call_node.callee.node_type) {
             .Dot => DotNode.cast(call_node.callee).?.member_type_def,
             else => call_node.callee.type_def,
         };
 
-        const function_type_def = try callee_type.?.populateGenerics(
+        const function_type_def: *ObjTypeDef = try callee_type.?.populateGenerics(
             callee_type.?.resolved_type.?.Function.id,
             call_node.resolved_generics,
             &self.vm.gc.type_registry,
@@ -748,16 +800,16 @@ pub const JIT = struct {
             unreachable;
         }
 
-        if (invoked) {
-            // TODO
-            unreachable;
-        }
-
         var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
 
         // first arg is ctx
         try arguments.append(self.current.?.function.?.getParam(0));
+
+        // if invoked, first actual arg is this
+        if (invoked_on != null) {
+            try arguments.append(subject.?);
+        }
 
         var it = call_node.arguments.iterator();
         while (it.next()) |kv| {
@@ -771,9 +823,6 @@ pub const JIT = struct {
 
         // If extern, extract pointer to its raw function
         if (function_type == .Extern) {
-            var error_message: [*:0]const u8 = undefined;
-            _ = self.state.module.printModuleToFile("./out.bc", &error_message);
-
             callee = try self.buildBuzzApiCall(
                 .bz_valueToRawNativeFn,
                 &[_]*l.Value{callee},
@@ -781,7 +830,7 @@ pub const JIT = struct {
         }
 
         return self.state.builder.buildCall(
-            try self.lowerType(function_type_def),
+            try self.lowerFunctionType(function_type_def, invoked_on != null),
             callee,
             @ptrCast([*]*l.Value, arguments.items.ptr),
             @intCast(c_uint, arguments.items.len),
@@ -1352,6 +1401,27 @@ pub const JIT = struct {
         }
 
         return list;
+    }
+
+    fn generateDot(self: *Self, dot_node: *DotNode) VM.Error!?*l.Value {
+        const callee_type = dot_node.callee.type_def.?;
+
+        return switch (callee_type.def_type) {
+            .Fiber, .Pattern, .String => unreachable,
+            .ObjectInstance, .Object => unreachable,
+            .ProtocolInstance => unreachable,
+            .Enum => unreachable,
+            .EnumInstance => unreachable,
+            .List, .Map => collection: {
+                if (dot_node.call) |call| {
+                    break :collection try self.generateCall(call);
+                } else {
+                    // TODO: return bound method
+                    unreachable;
+                }
+            },
+            else => unreachable,
+        };
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {

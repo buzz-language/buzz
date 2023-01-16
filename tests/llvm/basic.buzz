@@ -10,6 +10,8 @@ fun jitSayHello(str who, int age) > int {
 
     [int] list = [1, 2, 3];
 
+    print("list has {list.len()} elements");
+
     return 12;
 }
 

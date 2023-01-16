@@ -4119,7 +4119,10 @@ pub const CallNode = struct {
         } else {
             try codegen.emitTwo(
                 self.node.location,
-                if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, arguments_order_ref.items.len) + 1 else @intCast(u8, self.arguments.count()),
+                if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)
+                    @intCast(u8, arguments_order_ref.items.len) + 1
+                else
+                    @intCast(u8, self.arguments.count()),
                 if (self.catch_default != null) 1 else 0,
             );
         }
