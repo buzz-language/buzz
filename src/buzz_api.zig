@@ -444,6 +444,23 @@ export fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value {
     ) catch @panic("Could not concatenate lists")).toValue();
 }
 
+export fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value {
+    const left: *ObjMap = ObjMap.cast(map.obj()).?;
+    const right: *ObjMap = ObjMap.cast(other_map.obj()).?;
+
+    var new_map = left.map.clone() catch @panic("Could not concatenate maps");
+    var it = right.map.iterator();
+    while (it.next()) |entry| {
+        new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("Could not concatenate maps");
+    }
+
+    return (vm.gc.allocateObject(ObjMap, ObjMap{
+        .type_def = left.type_def,
+        .methods = left.methods,
+        .map = new_map,
+    }) catch @panic("Could not concatenate maps")).toValue();
+}
+
 export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     return vm.gc.allocateObject(
         ObjUserData,
@@ -675,4 +692,29 @@ export fn bz_valueToRawNativeFn(value: u64) *anyopaque {
 
 export fn bz_valueEqual(self: Value, other: Value) Value {
     return Value.fromBoolean(_value.valueEql(self, other));
+}
+
+export fn bz_newMap(vm: *VM, map_type: Value) Value {
+    var map: *ObjMap = vm.gc.allocateObject(ObjMap, ObjMap.init(
+        vm.gc.allocator,
+        ObjTypeDef.cast(map_type.obj()).?,
+    )) catch @panic("Could not create map");
+
+    return Value.fromObj(map.toObj());
+}
+
+export fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void {
+    ObjMap.cast(map.obj()).?.set(
+        vm.gc,
+        key,
+        value,
+    ) catch @panic("Could not set map element");
+}
+
+export fn bz_mapGet(map: Value, key: Value) Value {
+    return ObjMap.cast(map.obj()).?.map.get(_value.floatToInteger(key)) orelse Value.Null;
+}
+
+export fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usize) Value {
+    return (ObjMap.cast(map.obj()).?.member(vm, bz_string(vm, member, member_len).?) catch @panic("Could not get map method")).?.toValue();
 }

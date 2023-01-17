@@ -6,29 +6,30 @@ const assert = std.debug.assert;
 
 const BuildOptions = @import("build_options");
 const _node = @import("./node.zig");
-const ParseNode = _node.ParseNode;
-const FunctionNode = _node.FunctionNode;
+const BinaryNode = _node.BinaryNode;
+const BlockNode = _node.BlockNode;
 const BooleanNode = _node.BooleanNode;
-const FloatNode = _node.FloatNode;
-const IntegerNode = _node.IntegerNode;
-const StringNode = _node.StringNode;
-const VarDeclarationNode = _node.VarDeclarationNode;
-const StringLiteralNode = _node.StringLiteralNode;
-const FunDeclarationNode = _node.FunDeclarationNode;
-const ExpressionNode = _node.ExpressionNode;
-const GroupingNode = _node.GroupingNode;
 const CallNode = _node.CallNode;
 const DotNode = _node.DotNode;
-const BlockNode = _node.BlockNode;
-const NamedVariableNode = _node.NamedVariableNode;
-const ReturnNode = _node.ReturnNode;
-const IfNode = _node.IfNode;
-const BinaryNode = _node.BinaryNode;
-const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
+const ExpressionNode = _node.ExpressionNode;
+const FloatNode = _node.FloatNode;
 const ForNode = _node.ForNode;
+const FunctionNode = _node.FunctionNode;
+const FunDeclarationNode = _node.FunDeclarationNode;
+const GroupingNode = _node.GroupingNode;
+const IfNode = _node.IfNode;
+const IntegerNode = _node.IntegerNode;
 const ListNode = _node.ListNode;
+const MapNode = _node.MapNode;
+const NamedVariableNode = _node.NamedVariableNode;
+const ParseNode = _node.ParseNode;
+const ReturnNode = _node.ReturnNode;
+const StringLiteralNode = _node.StringLiteralNode;
+const StringNode = _node.StringNode;
 const SubscriptNode = _node.SubscriptNode;
+const VarDeclarationNode = _node.VarDeclarationNode;
+const WhileNode = _node.WhileNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -93,6 +94,11 @@ pub const BuzzApiMethods = enum {
     bz_listSet,
     bz_valueEqual,
     bz_listConcat,
+    bz_newMap,
+    bz_mapSet,
+    bz_mapGet,
+    bz_mapMethod,
+    bz_mapConcat,
     globals,
 
     // TODO: use comptime maps
@@ -115,6 +121,11 @@ pub const BuzzApiMethods = enum {
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
             .bz_listConcat => "bz_listConcat",
+            .bz_newMap => "bz_newMap",
+            .bz_mapSet => "bz_mapSet",
+            .bz_mapGet => "bz_mapGet",
+            .bz_mapMethod => "bz_mapMethod",
+            .bz_mapConcat => "bz_mapConcat",
         };
     }
 
@@ -137,6 +148,11 @@ pub const BuzzApiMethods = enum {
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
             .bz_listConcat => "bz_listConcat",
+            .bz_newMap => "bz_newMap",
+            .bz_mapSet => "bz_mapSet",
+            .bz_mapGet => "bz_mapGet",
+            .bz_mapMethod => "bz_mapMethod",
+            .bz_mapConcat => "bz_mapConcat",
         };
     }
 };
@@ -393,6 +409,56 @@ pub const JIT = struct {
                 3,
                 .False,
             ),
+            .bz_newMap => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                },
+                2,
+                .False,
+            ),
+            .bz_mapSet => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                4,
+                .False,
+            ),
+            .bz_mapGet => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                2,
+                .False,
+            ),
+            .bz_mapMethod => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    self.context.getContext().intType(8).pointerType(0),
+                    self.context.getContext().intType(64),
+                },
+                4,
+                .False,
+            ),
+            .bz_mapConcat => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                3,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -440,6 +506,11 @@ pub const JIT = struct {
             .bz_listSet,
             .bz_valueEqual,
             .bz_listConcat,
+            .bz_newMap,
+            .bz_mapSet,
+            .bz_mapGet,
+            .bz_mapMethod,
+            .bz_mapConcat,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -660,6 +731,7 @@ pub const JIT = struct {
             .List => try self.generateList(ListNode.cast(node).?),
             .Dot => try self.generateDot(DotNode.cast(node).?),
             .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
+            .Map => try self.generateMap(MapNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -832,7 +904,29 @@ pub const JIT = struct {
                         ),
                     },
                 ),
-                .Map => unreachable,
+                .Map => try self.buildBuzzApiCall(
+                    .bz_mapMethod,
+                    &[_]*l.Value{
+                        // vm
+                        self.vmConstant(),
+                        // map
+                        subject.?,
+                        // member name
+                        self.state.builder.buildIntToPtr(
+                            self.context.getContext().intType(64).constInt(
+                                @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
+                                .False,
+                            ),
+                            self.context.getContext().pointerType(0),
+                            "",
+                        ),
+                        // member name len
+                        self.context.getContext().intType(64).constInt(
+                            DotNode.cast(call_node.callee).?.identifier.lexeme.len,
+                            .False,
+                        ),
+                    },
+                ),
                 else => unreachable,
             })
         else
@@ -1182,7 +1276,14 @@ pub const JIT = struct {
                                     right.?,
                                 },
                             ),
-                            .Map => unreachable,
+                            .Map => break :bin try self.buildBuzzApiCall(
+                                .bz_mapConcat,
+                                &[_]*l.Value{
+                                    self.vmConstant(),
+                                    left.?,
+                                    right.?,
+                                },
+                            ),
                             else => unreachable,
                         }
                     },
@@ -1451,6 +1552,7 @@ pub const JIT = struct {
             .False,
         );
 
+        // FIXME: should need the whole list type def not just item type
         const list = try self.buildBuzzApiCall(
             .bz_newList,
             &[_]*l.Value{
@@ -1471,6 +1573,33 @@ pub const JIT = struct {
         }
 
         return list;
+    }
+
+    fn generateMap(self: *Self, map_node: *MapNode) VM.Error!?*l.Value {
+        const map = try self.buildBuzzApiCall(
+            .bz_newMap,
+            &[_]*l.Value{
+                self.vmConstant(),
+                (try self.lowerBuzzApiType(.value)).constInt(
+                    map_node.node.type_def.?.toValue().val,
+                    .False,
+                ),
+            },
+        );
+
+        for (map_node.keys) |key, index| {
+            _ = try self.buildBuzzApiCall(
+                .bz_mapSet,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    map,
+                    (try self.generateNode(key)).?,
+                    (try self.generateNode(map_node.values[index])).?,
+                },
+            );
+        }
+
+        return map;
     }
 
     fn generateDot(self: *Self, dot_node: *DotNode) VM.Error!?*l.Value {
@@ -1524,7 +1653,29 @@ pub const JIT = struct {
                 }
             },
             .String => unreachable,
-            .Map => unreachable,
+            .Map => map: {
+                if (value) |val| {
+                    _ = try self.buildBuzzApiCall(
+                        .bz_mapSet,
+                        &[_]*l.Value{
+                            self.vmConstant(),
+                            subscripted,
+                            index,
+                            val,
+                        },
+                    );
+
+                    break :map subscripted;
+                } else {
+                    break :map try self.buildBuzzApiCall(
+                        .bz_mapGet,
+                        &[_]*l.Value{
+                            subscripted,
+                            index,
+                        },
+                    );
+                }
+            },
             else => unreachable,
         };
     }

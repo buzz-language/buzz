@@ -209,6 +209,14 @@ pub const ObjList = opaque {
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
 };
 
+pub const ObjMap = opaque {
+    pub extern fn bz_newMap(vm: *VM, map_type: Value) Value;
+    pub extern fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void;
+    pub extern fn bz_mapGet(map: Value, key: Value) Value;
+    pub extern fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usize) Value;
+    pub extern fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value;
+};
+
 pub const UserData = anyopaque;
 
 pub const ObjUserData = opaque {

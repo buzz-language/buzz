@@ -110,6 +110,7 @@ pub const OpCode = enum(u8) {
     OP_LIST_APPEND,
 
     OP_MAP,
+    // FIXMEL delete and only use OP_SET_MAP_SUBSCRIPT
     OP_SET_MAP,
 
     OP_EXPORT,
