@@ -92,6 +92,7 @@ pub const BuzzApiMethods = enum {
     bz_listGet,
     bz_listSet,
     bz_valueEqual,
+    bz_listConcat,
     globals,
 
     // TODO: use comptime maps
@@ -113,6 +114,7 @@ pub const BuzzApiMethods = enum {
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
+            .bz_listConcat => "bz_listConcat",
         };
     }
 
@@ -134,6 +136,7 @@ pub const BuzzApiMethods = enum {
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
+            .bz_listConcat => "bz_listConcat",
         };
     }
 };
@@ -380,6 +383,16 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
+            .bz_listConcat => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                3,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -426,6 +439,7 @@ pub const JIT = struct {
             .bz_listGet,
             .bz_listSet,
             .bz_valueEqual,
+            .bz_listConcat,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -1160,7 +1174,14 @@ pub const JIT = struct {
                                     self.wrap(.String, right_s.?),
                                 },
                             ),
-                            .List => unreachable,
+                            .List => break :bin try self.buildBuzzApiCall(
+                                .bz_listConcat,
+                                &[_]*l.Value{
+                                    self.vmConstant(),
+                                    left.?,
+                                    right.?,
+                                },
+                            ),
                             .Map => unreachable,
                             else => unreachable,
                         }

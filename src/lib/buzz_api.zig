@@ -206,6 +206,7 @@ pub const ObjList = opaque {
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: usize) Value;
+    pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
 };
 
 pub const UserData = anyopaque;

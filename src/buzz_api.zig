@@ -426,6 +426,24 @@ export fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: u
     return (ObjList.cast(list.obj()).?.member(vm, bz_string(vm, member, member_len).?) catch @panic("Could not get list method")).?.toValue();
 }
 
+export fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value {
+    const left: *ObjList = ObjList.cast(list.obj()).?;
+    const right: *ObjList = ObjList.cast(other_list.obj()).?;
+
+    var new_list = std.ArrayList(Value).init(vm.gc.allocator);
+    new_list.appendSlice(left.items.items) catch @panic("Could not concatenate lists");
+    new_list.appendSlice(right.items.items) catch @panic("Could not concatenate lists");
+
+    return (vm.gc.allocateObject(
+        ObjList,
+        ObjList{
+            .type_def = left.type_def,
+            .methods = left.methods,
+            .items = new_list,
+        },
+    ) catch @panic("Could not concatenate lists")).toValue();
+}
+
 export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     return vm.gc.allocateObject(
         ObjUserData,
