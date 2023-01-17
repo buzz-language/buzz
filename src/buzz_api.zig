@@ -654,3 +654,7 @@ export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
 export fn bz_valueToRawNativeFn(value: u64) *anyopaque {
     return ObjNative.cast((Value{ .val = value }).obj()).?.native_raw;
 }
+
+export fn bz_valueEqual(self: Value, other: Value) Value {
+    return Value.fromBoolean(_value.valueEql(self, other));
+}

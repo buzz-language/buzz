@@ -16,6 +16,7 @@ const VarDeclarationNode = _node.VarDeclarationNode;
 const StringLiteralNode = _node.StringLiteralNode;
 const FunDeclarationNode = _node.FunDeclarationNode;
 const ExpressionNode = _node.ExpressionNode;
+const GroupingNode = _node.GroupingNode;
 const CallNode = _node.CallNode;
 const DotNode = _node.DotNode;
 const BlockNode = _node.BlockNode;
@@ -26,8 +27,6 @@ const BinaryNode = _node.BinaryNode;
 const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
 const ForNode = _node.ForNode;
-const BreakNode = _node.BreakNode;
-const ContinueNode = _node.ContinueNode;
 const ListNode = _node.ListNode;
 const SubscriptNode = _node.SubscriptNode;
 const _obj = @import("./obj.zig");
@@ -92,8 +91,10 @@ pub const BuzzApiMethods = enum {
     bz_listMethod,
     bz_listGet,
     bz_listSet,
+    bz_valueEqual,
     globals,
 
+    // TODO: use comptime maps
     pub fn name(self: BuzzApiMethods) []const u8 {
         return switch (self) {
             .bz_push => "bz_push",
@@ -111,6 +112,7 @@ pub const BuzzApiMethods = enum {
             .bz_listMethod => "bz_listMethod",
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
+            .bz_valueEqual => "bz_valueEqual",
         };
     }
 
@@ -131,6 +133,7 @@ pub const BuzzApiMethods = enum {
             .bz_listMethod => "bz_listMethod",
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
+            .bz_valueEqual => "bz_valueEqual",
         };
     }
 };
@@ -368,6 +371,15 @@ pub const JIT = struct {
                 4,
                 .False,
             ),
+            .bz_valueEqual => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                2,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -413,6 +425,7 @@ pub const JIT = struct {
             .bz_listMethod,
             .bz_listGet,
             .bz_listSet,
+            .bz_valueEqual,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -604,9 +617,18 @@ pub const JIT = struct {
                 StringLiteralNode.cast(node).?.constant.toValue().val,
                 .False,
             ),
+            .Null => (try self.lowerBuzzApiType(.value)).constInt(
+                Value.Null.val,
+                .False,
+            ),
+            .Void => (try self.lowerBuzzApiType(.value)).constInt(
+                Value.Void.val,
+                .False,
+            ),
 
             .String => try self.generateString(StringNode.cast(node).?),
-            .Expression, .Grouping => try self.generateNode(ExpressionNode.cast(node).?.expression),
+            .Expression => try self.generateNode(ExpressionNode.cast(node).?.expression),
+            .Grouping => try self.generateNode(GroupingNode.cast(node).?.expression),
             .Function => try self.generateFunction(FunctionNode.cast(node).?),
             .FunDeclaration => try self.generateFunDeclaration(FunDeclarationNode.cast(node).?),
             .VarDeclaration => try self.generateVarDeclaration(VarDeclarationNode.cast(node).?),
@@ -619,8 +641,8 @@ pub const JIT = struct {
             .While => try self.generateWhile(WhileNode.cast(node).?),
             .DoUntil => try self.generateDoUntil(DoUntilNode.cast(node).?),
             .For => try self.generateFor(ForNode.cast(node).?),
-            .Break => try self.generateBreak(BreakNode.cast(node).?),
-            .Continue => try self.generateContinue(ContinueNode.cast(node).?),
+            .Break => try self.generateBreak(),
+            .Continue => try self.generateContinue(),
             .List => try self.generateList(ListNode.cast(node).?),
             .Dot => try self.generateDot(DotNode.cast(node).?),
             .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
@@ -1059,19 +1081,16 @@ pub const JIT = struct {
                 const right_s = if (right_type_def == .String) self.unwrap(.String, right.?) else null;
 
                 switch (binary_node.operator) {
-                    .EqualEqual, .Greater, .Less, .GreaterEqual, .LessEqual, .BangEqual => {
-                        if (left_s != null) {
-                            return self.wrap(
-                                .Bool,
-                                self.state.builder.buildICmp(
-                                    .EQ,
-                                    left_s.?,
-                                    right_s.?,
-                                    "",
-                                ),
-                            );
-                        }
-
+                    .EqualEqual => {
+                        return try self.buildBuzzApiCall(
+                            .bz_valueEqual,
+                            &[_]*l.Value{
+                                left.?,
+                                right.?,
+                            },
+                        );
+                    },
+                    .Greater, .Less, .GreaterEqual, .LessEqual, .BangEqual => {
                         if (left_f != null or right_f != null) {
                             return self.wrap(
                                 .Bool,
@@ -1393,13 +1412,13 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateBreak(self: *Self, _: *BreakNode) VM.Error!?*l.Value {
+    fn generateBreak(self: *Self) VM.Error!?*l.Value {
         self.buildBr(self.current.?.break_block.?);
 
         return null;
     }
 
-    fn generateContinue(self: *Self, _: *ContinueNode) VM.Error!?*l.Value {
+    fn generateContinue(self: *Self) VM.Error!?*l.Value {
         self.buildBr(self.current.?.continue_block.?);
 
         return null;
