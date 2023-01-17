@@ -718,3 +718,7 @@ export fn bz_mapGet(map: Value, key: Value) Value {
 export fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usize) Value {
     return (ObjMap.cast(map.obj()).?.member(vm, bz_string(vm, member, member_len).?) catch @panic("Could not get map method")).?.toValue();
 }
+
+export fn bz_valueIs(self: Value, type_def: Value) Value {
+    return Value.fromBoolean(_value.valueIs(type_def, self));
+}

@@ -180,6 +180,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
     pub extern fn bz_valueToRawNativeFn(value: Value) *anyopaque;
     pub extern fn bz_valueEqual(self: Value, other: Value) Value;
+    pub extern fn bz_valueIs(self: Value, type_def: Value) Value;
 };
 
 pub const ObjClosure = opaque {};

@@ -30,6 +30,7 @@ const StringNode = _node.StringNode;
 const SubscriptNode = _node.SubscriptNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const WhileNode = _node.WhileNode;
+const IsNode = _node.IsNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -99,6 +100,7 @@ pub const BuzzApiMethods = enum {
     bz_mapGet,
     bz_mapMethod,
     bz_mapConcat,
+    bz_valueIs,
     globals,
 
     // TODO: use comptime maps
@@ -126,6 +128,7 @@ pub const BuzzApiMethods = enum {
             .bz_mapGet => "bz_mapGet",
             .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
+            .bz_valueIs => "bz_valueIs",
         };
     }
 
@@ -153,6 +156,7 @@ pub const BuzzApiMethods = enum {
             .bz_mapGet => "bz_mapGet",
             .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
+            .bz_valueIs => "bz_valueIs",
         };
     }
 };
@@ -459,6 +463,15 @@ pub const JIT = struct {
                 3,
                 .False,
             ),
+            .bz_valueIs => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    try self.lowerBuzzApiType(.value),
+                    try self.lowerBuzzApiType(.value),
+                },
+                2,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -511,6 +524,7 @@ pub const JIT = struct {
             .bz_mapGet,
             .bz_mapMethod,
             .bz_mapConcat,
+            .bz_valueIs,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -732,6 +746,7 @@ pub const JIT = struct {
             .Dot => try self.generateDot(DotNode.cast(node).?),
             .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
             .Map => try self.generateMap(MapNode.cast(node).?),
+            .Is => try self.generateIs(IsNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1678,6 +1693,19 @@ pub const JIT = struct {
             },
             else => unreachable,
         };
+    }
+
+    fn generateIs(self: *Self, is_node: *IsNode) VM.Error!?*l.Value {
+        return try self.buildBuzzApiCall(
+            .bz_valueIs,
+            &[_]*l.Value{
+                (try self.generateNode(is_node.left)).?,
+                (try self.lowerBuzzApiType(.value)).constInt(
+                    is_node.constant.val,
+                    .False,
+                ),
+            },
+        );
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
