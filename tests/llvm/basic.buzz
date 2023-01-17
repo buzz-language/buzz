@@ -10,7 +10,11 @@ fun jitSayHello(str who, int age) > int {
 
     [int] list = [1, 2, 3];
 
-    print("list has {list.len()} elements");
+    print("list has {list.len()} elements, second element is {list[1]}");
+
+    list[1] = 4;
+
+    print("now it's {list[1]}");
 
     return 12;
 }

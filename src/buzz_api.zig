@@ -406,8 +406,16 @@ export fn bz_valueToList(value: Value) *ObjList {
     return ObjList.cast(value.obj()).?;
 }
 
-export fn bz_listGet(self: *ObjList, index: usize) Value {
-    return self.items.items[index];
+export fn bz_listGet(self: Value, index: usize) Value {
+    return ObjList.cast(self.obj()).?.items.items[index];
+}
+
+export fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void {
+    ObjList.cast(self.obj()).?.set(
+        vm.gc,
+        index,
+        value,
+    ) catch @panic("Could not set element in list");
 }
 
 export fn bz_listLen(self: *ObjList) usize {

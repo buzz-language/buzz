@@ -200,7 +200,7 @@ export fn execute_raw(ctx: *api.NativeCtx, argv_value: api.Value) api.Value {
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        const arg = argv.bz_listGet(i);
+        const arg = api.ObjList.bz_listGet(argv_value, i);
         var arg_len: usize = 0;
         var arg_str = arg.bz_valueToString(&arg_len);
 

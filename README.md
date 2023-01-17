@@ -10,13 +10,14 @@ A small/lightweight typed scripting language written in Zig
     <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
-## Goals
+## Features
 
 - Small in size and complexity (just a bit more than Lua though)
 - Strict typing
 - Unambiguous
 - No nonsense coercion
 - [Fibers](#fibers)
+- JIT
 - Tooling
     - [Generate doc from docblocks (in progress)](https://github.com/buzz-language/buzz/blob/main/doc/index.md)
     - LSP (in progress)

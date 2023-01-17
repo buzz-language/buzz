@@ -29,6 +29,7 @@ const ForNode = _node.ForNode;
 const BreakNode = _node.BreakNode;
 const ContinueNode = _node.ContinueNode;
 const ListNode = _node.ListNode;
+const SubscriptNode = _node.SubscriptNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -89,6 +90,8 @@ pub const BuzzApiMethods = enum {
     bz_newList,
     bz_listAppend,
     bz_listMethod,
+    bz_listGet,
+    bz_listSet,
     globals,
 
     pub fn name(self: BuzzApiMethods) []const u8 {
@@ -106,6 +109,8 @@ pub const BuzzApiMethods = enum {
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
             .bz_listMethod => "bz_listMethod",
+            .bz_listGet => "bz_listGet",
+            .bz_listSet => "bz_listSet",
         };
     }
 
@@ -124,6 +129,8 @@ pub const BuzzApiMethods = enum {
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
             .bz_listMethod => "bz_listMethod",
+            .bz_listGet => "bz_listGet",
+            .bz_listSet => "bz_listSet",
         };
     }
 };
@@ -341,6 +348,26 @@ pub const JIT = struct {
                 4,
                 .False,
             ),
+            .bz_listGet => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    try self.lowerBuzzApiType(.value),
+                    self.context.getContext().intType(64),
+                },
+                2,
+                .False,
+            ),
+            .bz_listSet => l.functionType(
+                try self.lowerBuzzApiType(.value),
+                &[_]*l.Type{
+                    self.context.getContext().pointerType(0),
+                    try self.lowerBuzzApiType(.value),
+                    self.context.getContext().intType(64),
+                    try self.lowerBuzzApiType(.value),
+                },
+                4,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -384,6 +411,8 @@ pub const JIT = struct {
             .bz_newList,
             .bz_listAppend,
             .bz_listMethod,
+            .bz_listGet,
+            .bz_listSet,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -594,6 +623,7 @@ pub const JIT = struct {
             .Continue => try self.generateContinue(ContinueNode.cast(node).?),
             .List => try self.generateList(ListNode.cast(node).?),
             .Dot => try self.generateDot(DotNode.cast(node).?),
+            .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1420,6 +1450,41 @@ pub const JIT = struct {
                     unreachable;
                 }
             },
+            else => unreachable,
+        };
+    }
+
+    fn generateSubscript(self: *Self, subscript_node: *SubscriptNode) VM.Error!?*l.Value {
+        const subscripted = (try self.generateNode(subscript_node.subscripted)).?;
+        const index = (try self.generateNode(subscript_node.index)).?;
+        const value = if (subscript_node.value) |val| (try self.generateNode(val)).? else null;
+
+        return switch (subscript_node.subscripted.type_def.?.def_type) {
+            .List => list: {
+                if (value) |val| {
+                    _ = try self.buildBuzzApiCall(
+                        .bz_listSet,
+                        &[_]*l.Value{
+                            self.vmConstant(),
+                            subscripted,
+                            self.unwrap(.Integer, index),
+                            val,
+                        },
+                    );
+
+                    break :list subscripted;
+                } else {
+                    break :list try self.buildBuzzApiCall(
+                        .bz_listGet,
+                        &[_]*l.Value{
+                            subscripted,
+                            self.unwrap(.Integer, index),
+                        },
+                    );
+                }
+            },
+            .String => unreachable,
+            .Map => unreachable,
             else => unreachable,
         };
     }

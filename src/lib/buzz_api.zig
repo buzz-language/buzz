@@ -201,7 +201,8 @@ pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: Value) Value;
     pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) void;
     pub extern fn bz_valueToList(value: Value) *ObjList;
-    pub extern fn bz_listGet(self: *ObjList, index: usize) Value;
+    pub extern fn bz_listGet(self: Value, index: usize) Value;
+    pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: usize) Value;
 };
