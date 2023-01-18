@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
+const jmp = @import("../jmp.zig").jmp;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
@@ -21,6 +22,11 @@ pub const NativeCtx = extern struct {
     vm: *VM,
     globals: [*]Value,
     upvalues: [*]*ObjUpValue,
+};
+
+pub const TryCtx = extern struct {
+    previous: ?*TryCtx,
+    env: jmp.jmp_buf = undefined,
 };
 
 pub const VM = opaque {
@@ -45,15 +51,17 @@ pub const VM = opaque {
     pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void;
     pub extern fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void;
     pub extern fn bz_throw(vm: *VM, value: Value) void;
+    pub extern fn bz_rethrow(vm: *VM) void;
     pub extern fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void;
     pub extern fn bz_getGC(vm: *VM) *GarbageCollector;
     pub extern fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value;
 
     pub extern fn bz_allocated(self: *VM) usize;
-
     pub extern fn bz_collect(self: *VM) bool;
 
     pub extern fn bz_jitFunction(self: *VM, function: *ObjClosure) void;
+    pub extern fn bz_setTryCtx(self: *VM) *TryCtx;
+    pub extern fn bz_popTryCtx(self: *VM) void;
 
     pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()

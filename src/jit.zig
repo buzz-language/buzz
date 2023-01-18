@@ -20,6 +20,7 @@ const FunDeclarationNode = _node.FunDeclarationNode;
 const GroupingNode = _node.GroupingNode;
 const IfNode = _node.IfNode;
 const IntegerNode = _node.IntegerNode;
+const IsNode = _node.IsNode;
 const ListNode = _node.ListNode;
 const MapNode = _node.MapNode;
 const NamedVariableNode = _node.NamedVariableNode;
@@ -28,9 +29,10 @@ const ReturnNode = _node.ReturnNode;
 const StringLiteralNode = _node.StringLiteralNode;
 const StringNode = _node.StringNode;
 const SubscriptNode = _node.SubscriptNode;
+const ThrowNode = _node.ThrowNode;
+const TryNode = _node.TryNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const WhileNode = _node.WhileNode;
-const IsNode = _node.IsNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -79,10 +81,12 @@ pub const Frame = struct {
     locals: std.ArrayList(*l.Value),
 };
 
-pub const BuzzApiMethods = enum {
+pub const ExternApi = enum {
     nativefn,
     nativectx,
     value,
+    tryctx,
+
     bz_push,
     bz_peek,
     bz_valueToRawNativeFn,
@@ -101,18 +105,27 @@ pub const BuzzApiMethods = enum {
     bz_mapMethod,
     bz_mapConcat,
     bz_valueIs,
+    bz_setTryCtx,
+    bz_popTryCtx,
+    bz_rethrow,
+    bz_throw,
     globals,
 
-    // TODO: use comptime maps
-    pub fn name(self: BuzzApiMethods) []const u8 {
-        return switch (self) {
-            .bz_push => "bz_push",
-            .bz_peek => "bz_peek",
+    // https://opensource.apple.com/source/libplatform/libplatform-161/include/setjmp.h.auto.html
+    jmp_buf,
+    setjmp,
 
+    // TODO: use comptime maps
+    pub fn name(self: ExternApi) []const u8 {
+        return switch (self) {
             .nativefn => "NativeFn",
             .nativectx => "NativeCtx",
+            .tryctx => "TryCtx",
             .value => "Value",
             .globals => "globals",
+
+            .bz_push => "bz_push",
+            .bz_peek => "bz_peek",
             .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
@@ -129,18 +142,26 @@ pub const BuzzApiMethods = enum {
             .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
             .bz_valueIs => "bz_valueIs",
+            .bz_setTryCtx => "bz_setTryCtx",
+            .bz_popTryCtx => "bz_popTryCtx",
+            .bz_rethrow => "bz_rethrow",
+            .bz_throw => "bz_throw",
+            .setjmp => "setjmp",
+
+            .jmp_buf => "jmp_buf",
         };
     }
 
-    pub fn namez(self: BuzzApiMethods) [*:0]const u8 {
+    pub fn namez(self: ExternApi) [*:0]const u8 {
         return switch (self) {
-            .bz_push => "bz_push",
-            .bz_peek => "bz_peek",
-
             .nativefn => "NativeFn",
             .nativectx => "NativeCtx",
+            .tryctx => "TryCtx",
             .value => "Value",
             .globals => "globals",
+
+            .bz_push => "bz_push",
+            .bz_peek => "bz_peek",
             .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
@@ -157,6 +178,13 @@ pub const BuzzApiMethods = enum {
             .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
             .bz_valueIs => "bz_valueIs",
+            .bz_setTryCtx => "bz_setTryCtx",
+            .bz_popTryCtx => "bz_popTryCtx",
+            .bz_rethrow => "bz_rethrow",
+            .bz_throw => "bz_throw",
+            .setjmp => "setjmp",
+
+            .jmp_buf => "jmp_buf",
         };
     }
 };
@@ -174,7 +202,7 @@ pub const JIT = struct {
 
     vm_constant: ?*l.Value = null,
 
-    api_lowered_types: std.AutoHashMap(BuzzApiMethods, *l.Type),
+    api_lowered_types: std.AutoHashMap(ExternApi, *l.Type),
     lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
 
     orc_jit: *l.OrcLLJIT,
@@ -219,7 +247,7 @@ pub const JIT = struct {
 
         var self = Self{
             .vm = vm,
-            .api_lowered_types = std.AutoHashMap(BuzzApiMethods, *l.Type).init(vm.gc.allocator),
+            .api_lowered_types = std.AutoHashMap(ExternApi, *l.Type).init(vm.gc.allocator),
             .lowered_types = std.AutoHashMap(*ObjTypeDef, *l.Type).init(vm.gc.allocator),
             .orc_jit = orc_jit,
             .context = l.OrcThreadSafeContext.create(),
@@ -243,11 +271,11 @@ pub const JIT = struct {
         defer param_types.deinit();
 
         try param_types.append(
-            (try self.lowerBuzzApiType(.nativectx)).pointerType(0),
+            (try self.lowerExternApi(.nativectx)).pointerType(0),
         );
 
         if (invoked) {
-            try param_types.append(try self.lowerBuzzApiType(.value));
+            try param_types.append(try self.lowerExternApi(.value));
         }
 
         var it = function_type.parameters.iterator();
@@ -256,7 +284,7 @@ pub const JIT = struct {
         }
 
         return l.functionType(
-            try self.lowerBuzzApiType(.value),
+            try self.lowerExternApi(.value),
             param_types.items.ptr,
             @intCast(c_uint, param_types.items.len),
             .False,
@@ -305,7 +333,7 @@ pub const JIT = struct {
         return lowered.?;
     }
 
-    inline fn lowerBuzzApiType(self: *Self, method: BuzzApiMethods) !*l.Type {
+    inline fn lowerExternApi(self: *Self, method: ExternApi) !*l.Type {
         if (self.api_lowered_types.get(method)) |lowered| {
             return lowered;
         }
@@ -314,14 +342,14 @@ pub const JIT = struct {
 
         const lowered = switch (method) {
             .bz_peek => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{ ptr_type, self.context.getContext().intType(32) },
                 2,
                 .False,
             ),
             .bz_push => l.functionType(
                 self.context.getContext().voidType(),
-                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
                 2,
                 .False,
             ),
@@ -332,42 +360,42 @@ pub const JIT = struct {
                 .False,
             ),
             .bz_objStringConcat => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     ptr_type,
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 3,
                 .False,
             ),
             .bz_toString => l.functionType(
-                try self.lowerBuzzApiType(.value),
-                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
                 2,
                 .False,
             ),
             .bz_newList => l.functionType(
-                try self.lowerBuzzApiType(.value),
-                &[_]*l.Type{ ptr_type, try self.lowerBuzzApiType(.value) },
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
                 2,
                 .False,
             ),
             .bz_listAppend => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     ptr_type,
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 3,
                 .False,
             ),
             .bz_listMethod => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     self.context.getContext().intType(8).pointerType(0),
                     self.context.getContext().intType(64),
                 },
@@ -375,78 +403,78 @@ pub const JIT = struct {
                 .False,
             ),
             .bz_listGet => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     self.context.getContext().intType(64),
                 },
                 2,
                 .False,
             ),
             .bz_listSet => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     self.context.getContext().intType(64),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                 },
                 4,
                 .False,
             ),
             .bz_valueEqual => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 2,
                 .False,
             ),
             .bz_listConcat => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 3,
                 .False,
             ),
             .bz_newMap => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                 },
                 2,
                 .False,
             ),
             .bz_mapSet => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 4,
                 .False,
             ),
             .bz_mapGet => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 2,
                 .False,
             ),
             .bz_mapMethod => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     self.context.getContext().intType(8).pointerType(0),
                     self.context.getContext().intType(64),
                 },
@@ -454,28 +482,76 @@ pub const JIT = struct {
                 .False,
             ),
             .bz_mapConcat => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     self.context.getContext().pointerType(0),
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 3,
                 .False,
             ),
             .bz_valueIs => l.functionType(
-                try self.lowerBuzzApiType(.value),
+                try self.lowerExternApi(.value),
                 &[_]*l.Type{
-                    try self.lowerBuzzApiType(.value),
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
                 },
                 2,
+                .False,
+            ),
+            .bz_setTryCtx => l.functionType(
+                // *TryContext
+                (try self.lowerExternApi(.tryctx)).pointerType(0),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_popTryCtx => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_rethrow => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_throw => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                    // payload
+                    try self.lowerExternApi(.value),
+                },
+                2,
+                .False,
+            ),
+            .setjmp => l.functionType(
+                self.context.getContext().intType(@sizeOf(c_int)),
+                &[_]*l.Type{
+                    // vm
+                    try self.lowerExternApi(.jmp_buf),
+                },
+                1,
                 .False,
             ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
-                    (try self.lowerBuzzApiType(.nativectx)).pointerType(0),
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
                 },
                 1,
                 .False,
@@ -487,14 +563,27 @@ pub const JIT = struct {
                     // vm
                     ptr_type,
                     // globals
-                    try self.lowerBuzzApiType(.globals),
+                    try self.lowerExternApi(.globals),
                     // upvalues
                     ptr_type.pointerType(0),
                 },
                 3,
                 .False,
             ),
-            .globals => (try self.lowerBuzzApiType(.value)).pointerType(0),
+            .tryctx => self.context.getContext().structCreateNamed(
+                "TryCtx",
+                &[_]*l.Type{
+                    // *TryCtx, opaque to avoid infinite recursion
+                    self.context.getContext().pointerType(0),
+                    try self.lowerExternApi(.jmp_buf),
+                },
+                2,
+                .False,
+            ),
+            .globals => (try self.lowerExternApi(.value)).pointerType(0),
+
+            // TODO: Is it a c_int on all platforms?
+            .jmp_buf => self.context.getContext().intType(@sizeOf(c_int)).pointerType(0),
         };
 
         try self.api_lowered_types.put(
@@ -506,7 +595,7 @@ pub const JIT = struct {
     }
 
     fn declareBuzzApi(self: *Self) !void {
-        for ([_]BuzzApiMethods{
+        for ([_]ExternApi{
             .bz_peek,
             .bz_push,
             .bz_valueToRawNativeFn,
@@ -525,17 +614,22 @@ pub const JIT = struct {
             .bz_mapMethod,
             .bz_mapConcat,
             .bz_valueIs,
+            .bz_setTryCtx,
+            .bz_popTryCtx,
+            .bz_rethrow,
+            .bz_throw,
+            .setjmp,
         }) |method| {
             _ = self.state.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
-                try self.lowerBuzzApiType(method),
+                try self.lowerExternApi(method),
             );
         }
     }
 
-    fn buildBuzzApiCall(self: *Self, method: BuzzApiMethods, args: []*l.Value) !*l.Value {
+    fn buildExternApiCall(self: *Self, method: ExternApi, args: []*l.Value) !*l.Value {
         return self.state.builder.buildCall(
-            try self.lowerBuzzApiType(method),
+            try self.lowerExternApi(method),
             self.state.module.getNamedFunction(method.namez()).?,
             args.ptr,
             @intCast(c_uint, args.len),
@@ -562,7 +656,7 @@ pub const JIT = struct {
 
         self.state.module.addFunction(
             name.ptr,
-            try self.lowerBuzzApiType(.nativefn),
+            try self.lowerExternApi(.nativefn),
         );
 
         var error_message: [*:0]const u8 = undefined;
@@ -716,11 +810,11 @@ pub const JIT = struct {
                 StringLiteralNode.cast(node).?.constant.toValue().val,
                 .False,
             ),
-            .Null => (try self.lowerBuzzApiType(.value)).constInt(
+            .Null => (try self.lowerExternApi(.value)).constInt(
                 Value.Null.val,
                 .False,
             ),
-            .Void => (try self.lowerBuzzApiType(.value)).constInt(
+            .Void => (try self.lowerExternApi(.value)).constInt(
                 Value.Void.val,
                 .False,
             ),
@@ -747,6 +841,8 @@ pub const JIT = struct {
             .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
             .Map => try self.generateMap(MapNode.cast(node).?),
             .Is => try self.generateIs(IsNode.cast(node).?),
+            .Try => try self.generateTry(TryNode.cast(node).?),
+            .Throw => try self.generateThrow(ThrowNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -761,7 +857,7 @@ pub const JIT = struct {
 
     fn generateString(self: *Self, string_node: *StringNode) VM.Error!?*l.Value {
         if (string_node.elements.len == 0) {
-            return (try self.lowerBuzzApiType(.value)).constInt(
+            return (try self.lowerExternApi(.value)).constInt(
                 self.readConstant(0).val,
                 .False,
             ); // Constant 0 is the empty string
@@ -772,7 +868,7 @@ pub const JIT = struct {
             var value = (try self.generateNode(element)).?;
 
             if (element.type_def.?.def_type != .String or element.type_def.?.optional) {
-                value = try self.buildBuzzApiCall(
+                value = try self.buildExternApiCall(
                     .bz_toString,
                     &[_]*l.Value{
                         self.vmConstant(),
@@ -782,7 +878,7 @@ pub const JIT = struct {
             }
 
             if (index >= 1) {
-                value = try self.buildBuzzApiCall(
+                value = try self.buildExternApiCall(
                     .bz_objStringConcat,
                     &[_]*l.Value{
                         self.vmConstant(),
@@ -896,7 +992,7 @@ pub const JIT = struct {
                 .String => unreachable,
                 .Pattern => unreachable,
                 .Fiber => unreachable,
-                .List => try self.buildBuzzApiCall(
+                .List => try self.buildExternApiCall(
                     .bz_listMethod,
                     &[_]*l.Value{
                         // vm
@@ -919,7 +1015,7 @@ pub const JIT = struct {
                         ),
                     },
                 ),
-                .Map => try self.buildBuzzApiCall(
+                .Map => try self.buildExternApiCall(
                     .bz_mapMethod,
                     &[_]*l.Value{
                         // vm
@@ -998,7 +1094,7 @@ pub const JIT = struct {
 
         // If extern, extract pointer to its raw function
         if (function_type == .Extern) {
-            callee = try self.buildBuzzApiCall(
+            callee = try self.buildExternApiCall(
                 .bz_valueToRawNativeFn,
                 &[_]*l.Value{callee},
             );
@@ -1022,7 +1118,7 @@ pub const JIT = struct {
             if (return_node.value) |value|
                 (try self.generateNode(value)).?
             else
-                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+                (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
         );
     }
 
@@ -1134,7 +1230,7 @@ pub const JIT = struct {
                 ),
             ),
             .QuestionQuestion, .And, .Or => cond: {
-                const value = self.state.builder.buildAlloca(try self.lowerBuzzApiType(.value), "");
+                const value = self.state.builder.buildAlloca(try self.lowerExternApi(.value), "");
                 const left = (try self.generateNode(binary_node.left)).?;
 
                 _ = self.state.builder.buildStore(
@@ -1145,7 +1241,7 @@ pub const JIT = struct {
                 const condition = self.state.builder.buildICmp(
                     .EQ,
                     left,
-                    (try self.lowerBuzzApiType(.value)).constInt(
+                    (try self.lowerExternApi(.value)).constInt(
                         switch (binary_node.operator) {
                             .QuestionQuestion => Value.Null.val,
                             .And => Value.True.val,
@@ -1187,7 +1283,7 @@ pub const JIT = struct {
                 self.state.builder.positionBuilderAtEnd(out_block);
 
                 break :cond self.state.builder.buildLoad(
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     value,
                     "",
                 );
@@ -1205,7 +1301,7 @@ pub const JIT = struct {
 
                 switch (binary_node.operator) {
                     .EqualEqual => {
-                        return try self.buildBuzzApiCall(
+                        return try self.buildExternApiCall(
                             .bz_valueEqual,
                             &[_]*l.Value{
                                 left.?,
@@ -1275,7 +1371,7 @@ pub const JIT = struct {
                                     ),
                                 );
                             },
-                            .String => break :bin try self.buildBuzzApiCall(
+                            .String => break :bin try self.buildExternApiCall(
                                 .bz_objStringConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
@@ -1283,7 +1379,7 @@ pub const JIT = struct {
                                     self.wrap(.String, right_s.?),
                                 },
                             ),
-                            .List => break :bin try self.buildBuzzApiCall(
+                            .List => break :bin try self.buildExternApiCall(
                                 .bz_listConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
@@ -1291,7 +1387,7 @@ pub const JIT = struct {
                                     right.?,
                                 },
                             ),
-                            .Map => break :bin try self.buildBuzzApiCall(
+                            .Map => break :bin try self.buildExternApiCall(
                                 .bz_mapConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
@@ -1407,7 +1503,7 @@ pub const JIT = struct {
         const condition = self.state.builder.buildICmp(
             .EQ,
             (try self.generateNode(while_node.condition)).?,
-            (try self.lowerBuzzApiType(.value)).constInt(
+            (try self.lowerExternApi(.value)).constInt(
                 Value.True.val,
                 .False,
             ),
@@ -1464,7 +1560,7 @@ pub const JIT = struct {
         const condition = self.state.builder.buildICmp(
             .EQ,
             (try self.generateNode(do_until_node.condition)).?,
-            (try self.lowerBuzzApiType(.value)).constInt(
+            (try self.lowerExternApi(.value)).constInt(
                 Value.True.val,
                 .False,
             ),
@@ -1512,7 +1608,7 @@ pub const JIT = struct {
         const condition = self.state.builder.buildICmp(
             .EQ,
             (try self.generateNode(for_node.condition)).?,
-            (try self.lowerBuzzApiType(.value)).constInt(
+            (try self.lowerExternApi(.value)).constInt(
                 Value.True.val,
                 .False,
             ),
@@ -1562,13 +1658,13 @@ pub const JIT = struct {
     }
 
     fn generateList(self: *Self, list_node: *ListNode) VM.Error!?*l.Value {
-        const item_type = (try self.lowerBuzzApiType(.value)).constInt(
+        const item_type = (try self.lowerExternApi(.value)).constInt(
             list_node.node.type_def.?.resolved_type.?.List.item_type.toValue().val,
             .False,
         );
 
         // FIXME: should need the whole list type def not just item type
-        const list = try self.buildBuzzApiCall(
+        const list = try self.buildExternApiCall(
             .bz_newList,
             &[_]*l.Value{
                 self.vmConstant(),
@@ -1577,7 +1673,7 @@ pub const JIT = struct {
         );
 
         for (list_node.items) |item| {
-            _ = try self.buildBuzzApiCall(
+            _ = try self.buildExternApiCall(
                 .bz_listAppend,
                 &[_]*l.Value{
                     self.vmConstant(),
@@ -1591,11 +1687,11 @@ pub const JIT = struct {
     }
 
     fn generateMap(self: *Self, map_node: *MapNode) VM.Error!?*l.Value {
-        const map = try self.buildBuzzApiCall(
+        const map = try self.buildExternApiCall(
             .bz_newMap,
             &[_]*l.Value{
                 self.vmConstant(),
-                (try self.lowerBuzzApiType(.value)).constInt(
+                (try self.lowerExternApi(.value)).constInt(
                     map_node.node.type_def.?.toValue().val,
                     .False,
                 ),
@@ -1603,7 +1699,7 @@ pub const JIT = struct {
         );
 
         for (map_node.keys) |key, index| {
-            _ = try self.buildBuzzApiCall(
+            _ = try self.buildExternApiCall(
                 .bz_mapSet,
                 &[_]*l.Value{
                     self.vmConstant(),
@@ -1646,7 +1742,7 @@ pub const JIT = struct {
         return switch (subscript_node.subscripted.type_def.?.def_type) {
             .List => list: {
                 if (value) |val| {
-                    _ = try self.buildBuzzApiCall(
+                    _ = try self.buildExternApiCall(
                         .bz_listSet,
                         &[_]*l.Value{
                             self.vmConstant(),
@@ -1658,7 +1754,7 @@ pub const JIT = struct {
 
                     break :list subscripted;
                 } else {
-                    break :list try self.buildBuzzApiCall(
+                    break :list try self.buildExternApiCall(
                         .bz_listGet,
                         &[_]*l.Value{
                             subscripted,
@@ -1670,7 +1766,7 @@ pub const JIT = struct {
             .String => unreachable,
             .Map => map: {
                 if (value) |val| {
-                    _ = try self.buildBuzzApiCall(
+                    _ = try self.buildExternApiCall(
                         .bz_mapSet,
                         &[_]*l.Value{
                             self.vmConstant(),
@@ -1682,7 +1778,7 @@ pub const JIT = struct {
 
                     break :map subscripted;
                 } else {
-                    break :map try self.buildBuzzApiCall(
+                    break :map try self.buildExternApiCall(
                         .bz_mapGet,
                         &[_]*l.Value{
                             subscripted,
@@ -1696,16 +1792,200 @@ pub const JIT = struct {
     }
 
     fn generateIs(self: *Self, is_node: *IsNode) VM.Error!?*l.Value {
-        return try self.buildBuzzApiCall(
+        return try self.buildExternApiCall(
             .bz_valueIs,
             &[_]*l.Value{
                 (try self.generateNode(is_node.left)).?,
-                (try self.lowerBuzzApiType(.value)).constInt(
+                (try self.lowerExternApi(.value)).constInt(
                     is_node.constant.val,
                     .False,
                 ),
             },
         );
+    }
+
+    fn generateTry(self: *Self, try_node: *TryNode) VM.Error!?*l.Value {
+        const body_block = self.context.getContext().createBasicBlock("body");
+        const raise_block = self.context.getContext().createBasicBlock("raise");
+        const out_block = self.context.getContext().createBasicBlock("out");
+        var clause_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator);
+        defer clause_blocks.deinit();
+
+        for (try_node.clauses.keys()) |_| {
+            try clause_blocks.append(
+                self.context.getContext().createBasicBlock("clause"),
+            );
+        }
+        const unconditional_block = if (try_node.unconditional_clause != null)
+            self.context.getContext().createBasicBlock("unconditional")
+        else
+            null;
+
+        // Set it as current jump env
+        const try_ctx = try self.buildExternApiCall(
+            .bz_setTryCtx,
+            &[_]*l.Value{
+                self.vmConstant(),
+            },
+        );
+
+        const env = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.tryctx),
+            try_ctx,
+            1,
+            "env",
+        );
+
+        // setjmp
+        const status = try self.buildExternApiCall(
+            .setjmp,
+            &[_]*l.Value{env},
+        );
+
+        // If status is 0, go to body, else go to catch clauses
+        const has_error = self.state.builder.buildICmp(
+            .EQ,
+            status,
+            self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
+            "has_error",
+        );
+
+        _ = self.state.builder.buildCondBr(
+            has_error,
+            if (clause_blocks.items.len > 0) clause_blocks.items[0] else unconditional_block.?,
+            body_block,
+        );
+
+        self.current.?.function.?.appendExistingBasicBlock(body_block);
+        self.state.builder.positionBuilderAtEnd(body_block);
+        self.current.?.block = body_block;
+
+        _ = try self.generateNode(try_node.body);
+
+        _ = self.state.builder.buildBr(out_block);
+
+        for (try_node.clauses.keys()) |type_def, index| {
+            const block = clause_blocks.items[index];
+            const clause = try_node.clauses.get(type_def).?;
+
+            const clause_body_block = self.context.getContext().createBasicBlock("clause_body");
+
+            self.current.?.function.?.appendExistingBasicBlock(block);
+            self.state.builder.positionBuilderAtEnd(block);
+            self.current.?.block = block;
+
+            // Get error payload from stack
+            const payload = try self.buildExternApiCall(
+                .bz_peek,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    self.context.getContext().intType(32).constInt(0, .False),
+                },
+            );
+
+            // Create payload local
+            _ = try self.buildAddLocal(payload);
+
+            const matches = self.unwrap(
+                .Bool,
+                try self.buildExternApiCall(
+                    .bz_valueIs,
+                    &[_]*l.Value{
+                        payload,
+                        (try self.lowerExternApi(.value)).constInt(
+                            type_def.toValue().val,
+                            .False,
+                        ),
+                    },
+                ),
+            );
+
+            const cond = self.state.builder.buildICmp(
+                .EQ,
+                matches,
+                self.context.getContext().intType(1).constInt(1, .False),
+                "",
+            );
+
+            // If payload is of expected type jump to clause body otherwise jump to next catch clause if none jump to error propagation
+            _ = self.state.builder.buildCondBr(
+                cond,
+                clause_body_block,
+                if (index < try_node.clauses.keys().len - 1)
+                    clause_blocks.items[index + 1]
+                else if (unconditional_block) |unconditional|
+                    unconditional
+                else
+                    raise_block,
+            );
+
+            self.current.?.function.?.appendExistingBasicBlock(clause_body_block);
+            self.state.builder.positionBuilderAtEnd(clause_body_block);
+            self.current.?.block = clause_body_block;
+
+            _ = try self.generateNode(clause);
+
+            _ = self.state.builder.buildBr(out_block);
+        }
+
+        if (unconditional_block) |block| {
+            self.current.?.function.?.appendExistingBasicBlock(block);
+            self.state.builder.positionBuilderAtEnd(block);
+            self.current.?.block = block;
+
+            _ = try self.generateNode(try_node.unconditional_clause.?);
+
+            _ = self.state.builder.buildBr(out_block);
+        }
+
+        self.current.?.function.?.appendExistingBasicBlock(raise_block);
+        self.state.builder.positionBuilderAtEnd(raise_block);
+        self.current.?.block = raise_block;
+
+        // Unwind TryCtx
+        _ = try self.buildExternApiCall(
+            .bz_popTryCtx,
+            &[_]*l.Value{
+                self.vmConstant(),
+            },
+        );
+
+        // Raise error again
+        _ = try self.buildExternApiCall(
+            .bz_rethrow,
+            &[_]*l.Value{
+                self.vmConstant(),
+            },
+        );
+
+        // Should not get here but need a terminator
+        _ = self.state.builder.buildUnreachable();
+
+        self.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.builder.positionBuilderAtEnd(out_block);
+        self.current.?.block = out_block;
+
+        // Unwind TryCtx
+        _ = try self.buildExternApiCall(
+            .bz_popTryCtx,
+            &[_]*l.Value{
+                self.vmConstant(),
+            },
+        );
+
+        return null;
+    }
+
+    fn generateThrow(self: *Self, throw_node: *ThrowNode) VM.Error!?*l.Value {
+        _ = try self.buildExternApiCall(
+            .bz_throw,
+            &[_]*l.Value{
+                self.vmConstant(),
+                (try self.generateNode(throw_node.error_value)).?,
+            },
+        );
+
+        return null;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
@@ -1731,7 +2011,7 @@ pub const JIT = struct {
             if (var_declaration_node.value) |value|
                 (try self.generateNode(value)).?
             else
-                (try self.lowerBuzzApiType(.value)).constInt(
+                (try self.lowerExternApi(.value)).constInt(
                     Value.Null.val,
                     .False,
                 ),
@@ -1812,7 +2092,7 @@ pub const JIT = struct {
             .Extern, .Anonymous, .EntryPoint, .ScriptEntryPoint => unreachable, // those are not allowed here
             else => try self.buildSetLocal(
                 0,
-                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+                (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
             ),
         };
 
@@ -1832,13 +2112,13 @@ pub const JIT = struct {
             _ = self.state.builder.buildRet(arrow_value.?);
             self.current.?.return_emitted = true;
         } else {
-            _ = try self.generateBlock(function_node.body.?);
+            _ = try self.generateNode(function_node.body.?.toNode());
         }
 
         if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
             _ = self.state.builder.buildRet(
-                (try self.lowerBuzzApiType(.value)).constInt(Value.Void.val, .False),
+                (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
             );
         }
 
@@ -1871,20 +2151,20 @@ pub const JIT = struct {
     inline fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
         assert(slot < self.current.?.locals.items.len);
         return self.state.builder.buildLoad(
-            try self.lowerBuzzApiType(.value),
+            try self.lowerExternApi(.value),
             self.current.?.locals.items[slot],
             "",
         );
     }
 
-    /// Build instructinos to set local at given index
+    /// Build instructions to set local at given index
     fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
         assert(self.current.?.locals.items.len >= slot);
 
         if (slot >= self.current.?.locals.items.len) {
             try self.current.?.locals.append(
                 self.state.builder.buildAlloca(
-                    try self.lowerBuzzApiType(.value),
+                    try self.lowerExternApi(.value),
                     "",
                 ),
             );
@@ -1896,11 +2176,25 @@ pub const JIT = struct {
         );
     }
 
+    fn buildAddLocal(self: *Self, value: *l.Value) !*l.Value {
+        try self.current.?.locals.append(
+            self.state.builder.buildAlloca(
+                try self.lowerExternApi(.value),
+                "",
+            ),
+        );
+
+        return self.state.builder.buildStore(
+            value,
+            self.current.?.locals.items[self.current.?.locals.items.len - 1],
+        );
+    }
+
     /// Build instructions to get global at given index
     fn buildGetGlobal(self: *Self, slot: usize) !*l.Value {
         // Get ptr on NativeCtx `globals` field
         const globals_ptr = self.state.builder.buildStructGEP(
-            try self.lowerBuzzApiType(.nativectx),
+            try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
             1,
             "globals_ptr",
@@ -1908,14 +2202,14 @@ pub const JIT = struct {
 
         // Load globals ptr
         const globals = self.state.builder.buildLoad(
-            (try self.lowerBuzzApiType(.globals)).pointerType(0),
+            (try self.lowerExternApi(.globals)).pointerType(0),
             globals_ptr,
             "globals",
         );
 
         // Get element ptr at `slot`
         const value_ptr = self.state.builder.buildInBoundsGEP(
-            try self.lowerBuzzApiType(.value),
+            try self.lowerExternApi(.value),
             globals,
             &[_]*l.Value{
                 self.context.getContext().intType(64).constInt(slot, .False),
@@ -1926,7 +2220,7 @@ pub const JIT = struct {
 
         // Load value
         return self.state.builder.buildLoad(
-            try self.lowerBuzzApiType(.value),
+            try self.lowerExternApi(.value),
             value_ptr,
             "value",
         );
@@ -1936,7 +2230,7 @@ pub const JIT = struct {
     fn buildSetGlobal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
         // Get ptr on NativeCtx `globals` field
         const globals_ptr = self.state.builder.buildStructGEP(
-            try self.lowerBuzzApiType(.nativectx),
+            try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
             1,
             "globals_ptr",
@@ -1944,14 +2238,14 @@ pub const JIT = struct {
 
         // Load globals ptr
         const globals = self.state.builder.buildLoad(
-            (try self.lowerBuzzApiType(.globals)).pointerType(0),
+            (try self.lowerExternApi(.globals)).pointerType(0),
             globals_ptr,
             "globals",
         );
 
         // Get element ptr at `slot`
         const value_ptr = self.state.builder.buildInBoundsGEP(
-            try self.lowerBuzzApiType(.value),
+            try self.lowerExternApi(.value),
             globals,
             &[_]*l.Value{
                 self.context.getContext().intType(64).constInt(slot, .False),
@@ -2109,8 +2403,12 @@ pub const JIT = struct {
 
         var native_fn = self.state.module.addFunction(
             @ptrCast([*:0]const u8, nativefn_qualified_name.items),
-            try self.lowerBuzzApiType(.nativefn),
+            try self.lowerExternApi(.nativefn),
         );
+
+        // Error handling blocks
+        const fun_block = self.context.getContext().createBasicBlock("fun");
+        const err_propagate_block = self.context.getContext().createBasicBlock("err_propagate");
 
         // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
         var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
@@ -2128,7 +2426,7 @@ pub const JIT = struct {
             // Each argument is a bz_peek(i) call
             while (i >= 0) : (i -= 1) {
                 try arguments.append(
-                    try self.buildBuzzApiCall(
+                    try self.buildExternApiCall(
                         .bz_peek,
                         &[_]*l.Value{
                             self.vmConstant(),
@@ -2141,6 +2439,58 @@ pub const JIT = struct {
                 );
             }
         }
+
+        // Catch any error to forward them as a buzz error (push paylod + return -1)
+        // Set it as current jump env
+        const try_ctx = try self.buildExternApiCall(
+            .bz_setTryCtx,
+            &[_]*l.Value{
+                self.vmConstant(),
+            },
+        );
+
+        const env = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.tryctx),
+            try_ctx,
+            1,
+            "env",
+        );
+
+        // setjmp
+        const status = try self.buildExternApiCall(
+            .setjmp,
+            &[_]*l.Value{env},
+        );
+
+        // If status is 0, go to body, else go to catch clauses
+        const has_error = self.state.builder.buildICmp(
+            .EQ,
+            status,
+            self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
+            "has_error",
+        );
+
+        _ = self.state.builder.buildCondBr(
+            has_error,
+            err_propagate_block,
+            fun_block,
+        );
+
+        native_fn.appendExistingBasicBlock(err_propagate_block);
+        self.state.builder.positionBuilderAtEnd(err_propagate_block);
+        self.current.?.block = err_propagate_block;
+
+        // Payload already on stack so juste return -1;
+        _ = self.state.builder.buildRet(
+            self.context.getContext().intType(8).constInt(
+                @bitCast(c_ulonglong, @as(i64, -1)),
+                .True,
+            ),
+        );
+
+        native_fn.appendExistingBasicBlock(fun_block);
+        self.state.builder.positionBuilderAtEnd(fun_block);
+        self.current.?.block = fun_block;
 
         // Call the raw function
         const result = self.state.builder.buildCall(
@@ -2155,7 +2505,7 @@ pub const JIT = struct {
 
         // Push its result back into the VM
         if (should_return) {
-            _ = try self.buildBuzzApiCall(
+            _ = try self.buildExternApiCall(
                 .bz_push,
                 &[_]*l.Value{
                     self.vmConstant(),
@@ -2165,7 +2515,6 @@ pub const JIT = struct {
         }
 
         // 1 = there's a return, 0 = no return, -1 = error
-        // TODO: error ?
         _ = self.state.builder.buildRet(
             self.context.getContext().intType(8).constInt(
                 if (should_return) 1 else 0,

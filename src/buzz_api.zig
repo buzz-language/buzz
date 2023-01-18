@@ -1,12 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const VM = @import("./vm.zig").VM;
+const _vm = @import("./vm.zig");
+const VM = _vm.VM;
+const TryCtx = _vm.TryCtx;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const memory = @import("./memory.zig");
 const _parser = @import("./parser.zig");
 const _codegen = @import("./codegen.zig");
 const BuildOptions = @import("build_options");
+const jmp = @import("jmp.zig").jmp;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -478,10 +481,6 @@ export fn bz_userDataToValue(userdata: *ObjUserData) Value {
     return userdata.toValue();
 }
 
-export fn bz_throw(vm: *VM, value: Value) void {
-    vm.push(value);
-}
-
 export fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void {
     bz_pushString(vm, bz_string(vm, message.?, len) orelse {
         _ = std.io.getStdErr().write((message.?)[0..len]) catch unreachable;
@@ -721,4 +720,42 @@ export fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usi
 
 export fn bz_valueIs(self: Value, type_def: Value) Value {
     return Value.fromBoolean(_value.valueIs(type_def, self));
+}
+
+export fn bz_setTryCtx(self: *VM) *TryCtx {
+    var try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
+    try_ctx.* = .{
+        .previous = self.current_fiber.try_context,
+        .env = undefined,
+    };
+
+    self.current_fiber.try_context = try_ctx;
+
+    // Doesn't setjmp itself so it is done in the correct function context
+
+    return try_ctx;
+}
+
+export fn bz_popTryCtx(self: *VM) void {
+    if (self.current_fiber.try_context) |try_ctx| {
+        self.current_fiber.try_context = try_ctx.previous;
+
+        self.gc.allocator.destroy(try_ctx);
+    }
+}
+
+// Like bz_throw but assumes the error payload is already on the stack
+export fn bz_rethrow(vm: *VM) void {
+    // Are we in a JIT compiled function and within a try-catch?
+    if (vm.currentFrame().?.in_native_call and vm.current_fiber.try_context != null) {
+        jmp.longjmp(&vm.current_fiber.try_context.?.env, 1);
+
+        unreachable;
+    }
+}
+
+export fn bz_throw(vm: *VM, value: Value) void {
+    vm.push(value);
+
+    bz_rethrow(vm);
 }

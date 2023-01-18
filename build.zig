@@ -228,9 +228,7 @@ pub fn build(b: *Builder) !void {
     exe.linkSystemLibrary("pcre");
     if (build_options.use_mimalloc)
         exe.linkSystemLibrary("mimalloc");
-    if (builtin.os.tag == .linux) {
-        exe.linkLibC();
-    }
+    exe.linkLibC();
     if (builtin.os.tag == .macos) {
         exe.addIncludePath("/opt/homebrew/include");
         exe.addLibraryPath("/opt/homebrew/lib");
@@ -255,9 +253,7 @@ pub fn build(b: *Builder) !void {
     lib.linkSystemLibrary("pcre");
     if (build_options.use_mimalloc)
         lib.linkSystemLibrary("mimalloc");
-    if (builtin.os.tag == .linux) {
-        lib.linkLibC();
-    }
+    lib.linkLibC();
     if (builtin.os.tag == .macos) {
         lib.addIncludePath("/opt/homebrew/include");
         lib.addLibraryPath("/opt/homebrew/lib");
@@ -322,9 +318,7 @@ pub fn build(b: *Builder) !void {
         std_lib.linkSystemLibrary("pcre");
         if (build_options.use_mimalloc)
             std_lib.linkSystemLibrary("mimalloc");
-        if (builtin.os.tag == .linux) {
-            std_lib.linkLibC();
-        }
+        std_lib.linkLibC();
         if (builtin.os.tag == .macos) {
             std_lib.addIncludePath("/opt/homebrew/include");
             std_lib.addLibraryPath("/opt/homebrew/lib");
@@ -371,9 +365,7 @@ pub fn build(b: *Builder) !void {
     unit_tests.addIncludePath("/usr/local/include");
     unit_tests.addIncludePath("/usr/include");
     unit_tests.linkSystemLibrary("pcre");
-    if (builtin.os.tag == .linux) {
-        unit_tests.linkLibC();
-    }
+    unit_tests.linkLibC();
     if (builtin.os.tag == .macos) {
         unit_tests.addIncludePath("/opt/homebrew/include");
         unit_tests.addLibraryPath("/opt/homebrew/lib");

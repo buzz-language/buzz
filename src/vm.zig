@@ -10,7 +10,8 @@ const BuildOptions = @import("build_options");
 const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const JIT = @import("jit.zig").JIT;
+const _jit = @import("jit.zig");
+const JIT = _jit.JIT;
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -44,6 +45,7 @@ const OpCode = _chunk.OpCode;
 const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
+const jmp = @import("jmp.zig").jmp;
 
 pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
 
@@ -70,6 +72,11 @@ pub const CallFrame = struct {
     // True if a native function is being called, we need this because a native function can also
     // call buzz code and we need to know how to stop interpreting once we get back to native code
     in_native_call: bool = false,
+};
+
+pub const TryCtx = extern struct {
+    previous: ?*TryCtx,
+    env: jmp.jmp_buf = undefined,
 };
 
 pub const Fiber = struct {
@@ -105,6 +112,9 @@ pub const Fiber = struct {
     status: Status = .Instanciated,
     // true: we did `resolve fiber`, false: we did `resume fiber`
     resolved: bool = false,
+
+    // When within a try catch in a JIT compiled function
+    try_context: ?*TryCtx = null,
 
     pub fn init(
         allocator: Allocator,
@@ -3349,7 +3359,7 @@ pub const VM = struct {
             var frame: *CallFrame = self.currentFrame().?;
             try stack.append(frame.*);
 
-            // Are we in a try-catch ?
+            // Are we in a try-catch?
             if (frame.try_ip) |try_ip| {
                 // Push error and jump to start of the catch clauses
                 self.push(payload);

@@ -1,0 +1,28 @@
+import "lib/std";
+
+fun fails() > void !> str {
+    throw "I failed";
+}
+
+fun handle() > void {
+    try {
+        print("Going about my day...");
+
+        fails();
+
+        assert(false, message: "Error not raised");
+    } catch (str msg) {
+        print("Caught: `{msg}`");
+
+        assert(true, message: "Caught the right error");
+    } catch {
+        assert(false, message: "Should not have reached unconditional clause");
+    }
+
+    print("Everything went fine in the end");
+    assert(true, message: "Recovered from errors");
+}
+
+fun main([str] args) > void {
+    handle();
+}
