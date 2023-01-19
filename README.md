@@ -12,7 +12,7 @@ A small/lightweight typed scripting language written in Zig
 
 ## Goals
 
-- Small in size and complexity (just a bit more than Lua though)
+- Small in size and complexity (just a bit more than Lua, though)
 - Strict typing
 - Unambiguous
 - No nonsense coercion
@@ -30,11 +30,11 @@ We're not far from completing [milestone 0.1.0](https://github.com/buzz-language
 ## How to build
 
 ### Requirements
-- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86.
+- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures, even though this has only been tested on x86.
 - Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
 - libpcre (not libpcre2)
 - libc on Linux
-- [mimalloc](https://github.com/microsoft/mimalloc) (can be turned of by building buzz with `-Duse_mimalloc=false`)
+- [mimalloc](https://github.com/microsoft/mimalloc) (can be turned off by building buzz with `-Duse_mimalloc=false`)
 - zig master
 
 ### Steps
@@ -48,7 +48,7 @@ export PATH="$BUZZ_PATH:$PATH"
 4. Build it: `zig build -Drelease-safe`
 5. Have fun: `buzz <myscript.buzz>`
 
-Additionnally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
+Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code, but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
 ## Quick tour
 
@@ -302,7 +302,7 @@ foreach (int value in fibonnaciFib) {
 
 ### Objects
 
-An `object` is like a class except it can't be inherited from and can't inherit from anything:
+An `object` is like a class, except it can't be inherited from and can't inherit from anything:
 
 ```buzz
 object Person {
@@ -503,7 +503,7 @@ fun main([str] args) > void {
 
 ### Call C/Zig code
 
-First define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib` (only dylib right now):
+First, define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib` (only dylib right now):
 
 ```buzz
 | mylib.buzz
