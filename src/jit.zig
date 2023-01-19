@@ -33,6 +33,7 @@ const ThrowNode = _node.ThrowNode;
 const TryNode = _node.TryNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const WhileNode = _node.WhileNode;
+const UnwrapNode = _node.UnwrapNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -60,6 +61,12 @@ const GenState = struct {
         self.context.dispose();
         // self.module ownership is taken by LLJIT
     }
+};
+
+const OptJump = struct {
+    current_blocks: std.ArrayList(*l.BasicBlock),
+    next_expr_blocks: std.ArrayList(*l.BasicBlock),
+    alloca: *l.Value,
 };
 
 pub const Frame = struct {
@@ -207,6 +214,8 @@ pub const JIT = struct {
 
     orc_jit: *l.OrcLLJIT,
     context: *l.OrcThreadSafeContext,
+
+    opt_jump: ?OptJump = null,
 
     // Thresholds data
 
@@ -793,7 +802,7 @@ pub const JIT = struct {
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
-        const value = switch (node.node_type) {
+        var value = switch (node.node_type) {
             .Boolean => lowered_type.?.constInt(
                 Value.fromBoolean(BooleanNode.cast(node).?.constant).val,
                 .False,
@@ -843,6 +852,7 @@ pub const JIT = struct {
             .Is => try self.generateIs(IsNode.cast(node).?),
             .Try => try self.generateTry(TryNode.cast(node).?),
             .Throw => try self.generateThrow(ThrowNode.cast(node).?),
+            .Unwrap => try self.generateUnwrap(UnwrapNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -850,6 +860,63 @@ pub const JIT = struct {
             },
         };
 
+        // Patch opt jumps if needed
+        if (node.patch_opt_jumps) {
+            assert(self.opt_jump != null);
+
+            const out_block = self.context.getContext().createBasicBlock("out");
+
+            // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
+            _ = self.state.builder.buildStore(
+                value.?,
+                self.opt_jump.?.alloca,
+            );
+
+            // Continue
+            _ = self.state.builder.buildBr(out_block);
+
+            // Patch opt blocks with the branching
+            for (self.opt_jump.?.current_blocks.items) |current_block, index| {
+                const next_expr_block = self.opt_jump.?.next_expr_blocks.items[index];
+
+                self.state.builder.positionBuilderAtEnd(current_block);
+                self.current.?.block = current_block;
+
+                const is_null = self.state.builder.buildICmp(
+                    .EQ,
+                    self.state.builder.buildLoad(
+                        try self.lowerExternApi(.value),
+                        self.opt_jump.?.alloca,
+                        "unwrapped",
+                    ),
+                    (try self.lowerExternApi(.value)).constInt(
+                        Value.Null.val,
+                        .False,
+                    ),
+                    "is_null",
+                );
+
+                _ = self.state.builder.buildCondBr(
+                    is_null,
+                    out_block,
+                    next_expr_block,
+                );
+            }
+
+            self.current.?.function.?.appendExistingBasicBlock(out_block);
+            self.state.builder.positionBuilderAtEnd(out_block);
+            self.current.?.block = out_block;
+
+            value = self.state.builder.buildLoad(
+                try self.lowerExternApi(.value),
+                self.opt_jump.?.alloca,
+                "opt_resolved",
+            );
+
+            self.opt_jump = null;
+        }
+
+        // Close scope if needed
         if (node.ends_scope) |closing| {
             for (closing.items) |op| {
                 if (op == .OP_CLOSE_UPVALUE) {
@@ -2000,6 +2067,41 @@ pub const JIT = struct {
         );
 
         return null;
+    }
+
+    fn generateUnwrap(self: *Self, unwrap_node: *UnwrapNode) VM.Error!?*l.Value {
+        const next_expr_block = self.context.getContext().createBasicBlock("next_expr");
+
+        const value = (try self.generateNode(unwrap_node.unwrapped)).?;
+
+        // Remember that we need to had a terminator to this block that will jump at the end of the optionals chain
+        if (self.opt_jump == null) {
+            // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
+            const value_ptr = self.state.builder.buildAlloca(
+                try self.lowerExternApi(.value),
+                "opt",
+            );
+
+            self.opt_jump = .{
+                .alloca = value_ptr,
+                .current_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator),
+                .next_expr_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator),
+            };
+        }
+
+        _ = self.state.builder.buildStore(
+            value,
+            self.opt_jump.?.alloca,
+        );
+
+        try self.opt_jump.?.current_blocks.append(self.current.?.block.?);
+        try self.opt_jump.?.next_expr_blocks.append(next_expr_block);
+
+        self.current.?.function.?.appendExistingBasicBlock(next_expr_block);
+        self.state.builder.positionBuilderAtEnd(next_expr_block);
+        self.current.?.block = next_expr_block;
+
+        return value;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {

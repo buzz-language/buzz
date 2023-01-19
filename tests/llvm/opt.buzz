@@ -1,0 +1,21 @@
+import "lib/std";
+
+test "opt jumps" {
+    [int]? optList = [1, 2, 3];
+
+    print("len of sublist: {optList?.sub(1, len: 2).len()}");
+    assert(optList?.sub(1, len: 2).len() == 2, message: "could unwrap optList");
+}
+
+test "multiple unwrap" {
+    {str, [int]}? map = {
+        "one": [1],
+        "two": [1, 2],
+    };
+
+    print("Len: {map?["one"]?.len()}");
+    assert(map?["one"]?.len() == 1, message: "could handle opt chain");
+
+    print("Len of non existent key: {map?["three"]?.len()}");
+    assert(map?["three"]?.len() == null, message: "stopped on null");
+}
