@@ -21,6 +21,21 @@ fun handle() > void {
 
     print("Everything went fine in the end");
     assert(true, message: "Recovered from errors");
+
+    try {
+        subTry();
+    } catch (str msg) {
+        print("Caught bubbled up error: `{msg}`");
+        assert(true, message: "Error bubbled up from several try layers");
+    }
+}
+
+fun subTry() > void !> str {
+    try {
+        fails();
+    } catch (int e) {
+        assert(false, message: "Caugh wrong error");
+    }
 }
 
 fun main([str] args) > void {

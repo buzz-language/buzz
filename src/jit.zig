@@ -793,7 +793,7 @@ pub const JIT = struct {
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
-        return switch (node.node_type) {
+        const value = switch (node.node_type) {
             .Boolean => lowered_type.?.constInt(
                 Value.fromBoolean(BooleanNode.cast(node).?.constant).val,
                 .False,
@@ -849,6 +849,20 @@ pub const JIT = struct {
                 unreachable;
             },
         };
+
+        if (node.ends_scope) |closing| {
+            for (closing.items) |op| {
+                if (op == .OP_CLOSE_UPVALUE) {
+                    unreachable;
+                } else if (op == .OP_POP) {
+                    _ = self.current.?.locals.pop();
+                } else {
+                    unreachable;
+                }
+            }
+        }
+
+        return value;
     }
 
     inline fn readConstant(self: *Self, arg: u24) Value {
@@ -935,7 +949,7 @@ pub const JIT = struct {
                         self.closure = closure;
 
                         // Compile function
-                        _ = try self.generateFunction(function_node);
+                        _ = try self.generateNode(function_node.toNode());
 
                         // restore state
                         self.current = previous_current;
