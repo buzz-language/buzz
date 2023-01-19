@@ -748,7 +748,11 @@ export fn bz_popTryCtx(self: *VM) void {
 export fn bz_rethrow(vm: *VM) void {
     // Are we in a JIT compiled function and within a try-catch?
     if (vm.currentFrame().?.in_native_call and vm.current_fiber.try_context != null) {
-        jmp.longjmp(&vm.current_fiber.try_context.?.env, 1);
+        if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
+            jmp._longjmp(&vm.current_fiber.try_context.?.env, 1);
+        } else {
+            jmp.longjmp(&vm.current_fiber.try_context.?.env, 1);
+        }
 
         unreachable;
     }

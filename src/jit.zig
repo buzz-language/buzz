@@ -146,7 +146,7 @@ pub const ExternApi = enum {
             .bz_popTryCtx => "bz_popTryCtx",
             .bz_rethrow => "bz_rethrow",
             .bz_throw => "bz_throw",
-            .setjmp => "setjmp",
+            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
         };
@@ -182,7 +182,7 @@ pub const ExternApi = enum {
             .bz_popTryCtx => "bz_popTryCtx",
             .bz_rethrow => "bz_rethrow",
             .bz_throw => "bz_throw",
-            .setjmp => "setjmp",
+            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
         };
