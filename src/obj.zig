@@ -1437,6 +1437,8 @@ pub const NativeCtx = extern struct {
     vm: *VM,
     globals: [*]Value,
     upvalues: [*]*ObjUpValue,
+    // Where to reset the stack when we exit the function
+    base: [*]Value,
     // Pointer to the stack_top field of the current fiber
     // !! Needs to change when current fiber changes !!
     stack_top: *[*]Value,

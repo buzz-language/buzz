@@ -64,6 +64,7 @@ const GenState = struct {
 };
 
 const OptJump = struct {
+    // FIXME: free those!
     current_blocks: std.ArrayList(*l.BasicBlock),
     next_expr_blocks: std.ArrayList(*l.BasicBlock),
     alloca: *l.Value,
@@ -571,14 +572,16 @@ pub const JIT = struct {
                 &[_]*l.Type{
                     // vm
                     ptr_type,
-                    // stack_top,
-                    (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
                     // globals
                     try self.lowerExternApi(.globals),
                     // upvalues
                     ptr_type.pointerType(0),
+                    // base,
+                    (try self.lowerExternApi(.value)).pointerType(0),
+                    // stack_top,
+                    (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
                 },
-                4,
+                5,
                 .False,
             ),
             .tryctx => self.context.getContext().structCreateNamed(
@@ -1198,7 +1201,7 @@ pub const JIT = struct {
             self.current.?.return_emitted = true;
         }
 
-        return self.state.builder.buildRet(
+        return try self.buildReturn(
             if (return_node.value) |value|
                 (try self.generateNode(value)).?
             else
@@ -2228,7 +2231,7 @@ pub const JIT = struct {
         if (function_node.arrow_expr) |arrow_expr| {
             const arrow_value = try self.generateNode(arrow_expr);
 
-            _ = self.state.builder.buildRet(arrow_value.?);
+            _ = try self.buildReturn(arrow_value.?);
             self.current.?.return_emitted = true;
         } else {
             _ = try self.generateNode(function_node.body.?.toNode());
@@ -2236,7 +2239,7 @@ pub const JIT = struct {
 
         if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
-            _ = self.state.builder.buildRet(
+            _ = try self.buildReturn(
                 (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
             );
         }
@@ -2270,7 +2273,7 @@ pub const JIT = struct {
         const stack_top_field_ptr = self.state.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
-            3,
+            4,
             "stack_top_field_ptr",
         );
 
@@ -2314,7 +2317,7 @@ pub const JIT = struct {
         const stack_top_field_ptr = self.state.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
-            3,
+            4,
             "stack_top_field_ptr",
         );
 
@@ -2360,7 +2363,7 @@ pub const JIT = struct {
         const stack_top_field_ptr = self.state.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
-            3,
+            4,
             "stack_top_field_ptr",
         );
 
@@ -2387,6 +2390,47 @@ pub const JIT = struct {
         );
     }
 
+    fn buildReturn(self: *Self, value: *l.Value) !*l.Value {
+        // TODO: close upvalues
+
+        // Get base
+        const base_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            3,
+            "base_top_field_ptr",
+        );
+
+        const base_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            base_top_field_ptr,
+            "base_top_ptr",
+        );
+
+        // Get stack_top
+        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            4,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        // Reset stack_top to base
+        _ = self.state.builder.buildStore(
+            base_top_ptr,
+            stack_top_ptr,
+        );
+
+        // Do return
+        return self.state.builder.buildRet(value);
+    }
+
     /// Build instructions to get local at given index
     fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
         assert(slot < self.current.?.locals.items.len);
@@ -2404,7 +2448,7 @@ pub const JIT = struct {
         const stack_top_field_ptr = self.state.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.current.?.function.?.getParam(0),
-            3,
+            4,
             "stack_top_field_ptr",
         );
 

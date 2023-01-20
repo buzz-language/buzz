@@ -3453,7 +3453,7 @@ pub const VM = struct {
                 std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
             }
 
-            try self.callNative(
+            try self.callCompiled(
                 closure,
                 @ptrCast(
                     NativeFn,
@@ -3501,6 +3501,7 @@ pub const VM = struct {
                 .vm = self,
                 .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
                 .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+                .base = self.current_fiber.stack_top - arg_count - 1,
                 .stack_top = &self.current_fiber.stack_top,
             },
         );
@@ -3522,6 +3523,44 @@ pub const VM = struct {
 
                 // Default value in case of error
                 self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
+                self.push(catch_value.?);
+                return;
+            }
+
+            // Error was not handled are we in a try-catch ?
+            var frame = self.currentFrame().?;
+            if (frame.try_ip) |try_ip| {
+                frame.ip = try_ip;
+            } else {
+                // No error handler or default value was triggered so forward the error
+                try self.throw(Error.Custom, self.peek(0));
+            }
+        }
+    }
+
+    // A JIT compiled function pops its stack on its own
+    fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+        self.currentFrame().?.in_native_call = true;
+
+        const native_return = native(
+            &NativeCtx{
+                .vm = self,
+                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
+                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+                .base = self.current_fiber.stack_top - arg_count - 1,
+                .stack_top = &self.current_fiber.stack_top,
+            },
+        );
+
+        self.currentFrame().?.in_native_call = false;
+
+        if (native_return == -1) {
+            // An error occured within the native function -> call error handlers
+            if (catch_value != null) {
+                // We discard the error
+                _ = self.pop();
+
+                // Default value in case of error
                 self.push(catch_value.?);
                 return;
             }
