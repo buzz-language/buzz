@@ -571,12 +571,14 @@ pub const JIT = struct {
                 &[_]*l.Type{
                     // vm
                     ptr_type,
+                    // stack_top,
+                    (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
                     // globals
                     try self.lowerExternApi(.globals),
                     // upvalues
                     ptr_type.pointerType(0),
                 },
-                3,
+                4,
                 .False,
             ),
             .tryctx => self.context.getContext().structCreateNamed(
@@ -923,6 +925,7 @@ pub const JIT = struct {
                     unreachable;
                 } else if (op == .OP_POP) {
                     _ = self.current.?.locals.pop();
+                    _ = try self.buildPop();
                 } else {
                     unreachable;
                 }
@@ -2263,8 +2266,129 @@ pub const JIT = struct {
         }
     }
 
+    fn buildPush(self: *Self, value: *l.Value) !*l.Value {
+        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            3,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        // Store value on top of stack
+        _ = self.state.builder.buildStore(
+            value,
+            stack_top,
+        );
+
+        // FIXME: check overflow, can't we do it at compile time?
+
+        // Increment top
+        return self.state.builder.buildStore(
+            // Get element one alignment after stack_top
+            self.state.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(1, .False),
+                },
+                1,
+                "new_top",
+            ),
+            stack_top_ptr,
+        );
+    }
+
+    fn buildPop(self: *Self) !*l.Value {
+        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            3,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        // Decrement top
+        _ = self.state.builder.buildStore(
+            // Get element one alignment after stack_top
+            self.state.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(
+                        @bitCast(c_ulonglong, @as(i64, -1)),
+                        .True,
+                    ),
+                },
+                1,
+                "new_top",
+            ),
+            stack_top_ptr,
+        );
+
+        // Return new top
+        return self.state.builder.buildLoad(
+            try self.lowerExternApi(.value),
+            stack_top,
+            "popped",
+        );
+    }
+
+    fn buildPeek(self: *Self, distance: usize) !*l.Value {
+        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            3,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        return self.state.builder.buildInBoundsGEP(
+            try self.lowerExternApi(.value),
+            stack_top,
+            &[_]*l.Value{
+                self.context.getContext().intType(64).constInt(-1 - distance, .True),
+            },
+            1,
+            "peeked",
+        );
+    }
+
     /// Build instructions to get local at given index
-    inline fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
+    fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
         assert(slot < self.current.?.locals.items.len);
         return self.state.builder.buildLoad(
             try self.lowerExternApi(.value),
@@ -2277,33 +2401,56 @@ pub const JIT = struct {
     fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
         assert(self.current.?.locals.items.len >= slot);
 
-        if (slot >= self.current.?.locals.items.len) {
-            try self.current.?.locals.append(
-                self.state.builder.buildAlloca(
-                    try self.lowerExternApi(.value),
-                    "",
+        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.current.?.function.?.getParam(0),
+            3,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        const slot_ptr = self.state.builder.buildInBoundsGEP(
+            try self.lowerExternApi(.value),
+            stack_top,
+            &[_]*l.Value{
+                self.context.getContext().intType(64).constInt(
+                    @bitCast(c_ulonglong, @intCast(i64, slot) - 1),
+                    .True,
                 ),
+            },
+            1,
+            "slot",
+        );
+
+        if (slot >= self.current.?.locals.items.len) {
+            try self.current.?.locals.append(slot_ptr);
+
+            // Increment stack top
+            _ = self.state.builder.buildStore(
+                slot_ptr,
+                stack_top_ptr,
             );
         }
 
         return self.state.builder.buildStore(
             value,
-            self.current.?.locals.items[slot],
+            slot_ptr,
         );
     }
 
-    fn buildAddLocal(self: *Self, value: *l.Value) !*l.Value {
-        try self.current.?.locals.append(
-            self.state.builder.buildAlloca(
-                try self.lowerExternApi(.value),
-                "",
-            ),
-        );
-
-        return self.state.builder.buildStore(
-            value,
-            self.current.?.locals.items[self.current.?.locals.items.len - 1],
-        );
+    inline fn buildAddLocal(self: *Self, value: *l.Value) !void {
+        _ = try self.buildSetLocal(self.current.?.locals.items.len, value);
     }
 
     /// Build instructions to get global at given index

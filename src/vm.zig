@@ -391,6 +391,8 @@ pub const VM = struct {
     }
 
     pub fn push(self: *Self, value: Value) void {
+        // FIXME: check overflow, can't we do it at compile time?
+
         self.current_fiber.stack_top[0] = value;
         self.current_fiber.stack_top += 1;
     }
@@ -3499,6 +3501,7 @@ pub const VM = struct {
                 .vm = self,
                 .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
                 .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+                .stack_top = &self.current_fiber.stack_top,
             },
         );
 
