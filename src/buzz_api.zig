@@ -650,17 +650,6 @@ export fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void {
     vm.push(payload.toValue());
 }
 
-export fn bz_jitFunction(self: *VM, closure: *ObjClosure) void {
-    if (closure.function.native == null) {
-        const compiled = self.jit.jitFunction(closure) catch {
-            @panic("Error while compiling function to machine code");
-        };
-
-        closure.function.native = compiled[0];
-        closure.function.native_raw = compiled[1];
-    }
-}
-
 export fn bz_valueIsBuzzFn(value: Value) bool {
     if (!value.isObj()) {
         return false;

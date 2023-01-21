@@ -3438,10 +3438,7 @@ pub const VM = struct {
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
             if (self.jit.shouldlJitFunction(closure)) {
-                const compiled = try self.jit.jitFunction(closure);
-
-                closure.function.native = compiled[0];
-                closure.function.native_raw = compiled[1];
+                try self.jit.jitFunction(closure);
 
                 native = closure.function.native;
             }

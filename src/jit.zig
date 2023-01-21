@@ -55,10 +55,13 @@ const VM = @import("./vm.zig").VM;
 const GenState = struct {
     module: *l.OrcThreadSafeModule,
     builder: *l.Builder,
+    // Closure being jitted right now
+    closure: ?*ObjClosure = null,
+    current: ?*Frame = null,
+    opt_jump: ?OptJump = null,
 
     pub fn deinit(self: GenState) void {
         self.builder.dispose();
-        self.context.dispose();
         // self.module ownership is taken by LLJIT
     }
 };
@@ -68,6 +71,11 @@ const OptJump = struct {
     current_blocks: std.ArrayList(*l.BasicBlock),
     next_expr_blocks: std.ArrayList(*l.BasicBlock),
     alloca: *l.Value,
+
+    pub fn deinit(self: OptJump) void {
+        self.next_expr_blocks.deinit();
+        self.current_blocks.deinit();
+    }
 };
 
 pub const Frame = struct {
@@ -202,11 +210,7 @@ pub const JIT = struct {
 
     vm: *VM,
 
-    // Closure being jitted right now
-    closure: ?*ObjClosure = null,
-
-    current: ?*Frame = null,
-    state: GenState = undefined,
+    state: ?GenState = null,
 
     vm_constant: ?*l.Value = null,
 
@@ -215,8 +219,6 @@ pub const JIT = struct {
 
     orc_jit: *l.OrcLLJIT,
     context: *l.OrcThreadSafeContext,
-
-    opt_jump: ?OptJump = null,
 
     // Thresholds data
 
@@ -270,7 +272,9 @@ pub const JIT = struct {
     pub fn deinit(self: *Self) void {
         self.api_lowered_types.deinit();
         self.lowered_types.deinit();
-        self.state.deinit();
+        if (self.state) |state| {
+            state.deinit();
+        }
     }
 
     fn lowerFunctionType(self: *Self, obj_typedef: *ObjTypeDef, invoked: bool) VM.Error!*l.Type {
@@ -634,7 +638,7 @@ pub const JIT = struct {
             .bz_throw,
             .setjmp,
         }) |method| {
-            _ = self.state.module.addFunction(
+            _ = self.state.?.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
                 try self.lowerExternApi(method),
             );
@@ -642,9 +646,9 @@ pub const JIT = struct {
     }
 
     fn buildExternApiCall(self: *Self, method: ExternApi, args: []*l.Value) !*l.Value {
-        return self.state.builder.buildCall(
+        return self.state.?.builder.buildCall(
             try self.lowerExternApi(method),
-            self.state.module.getNamedFunction(method.namez()).?,
+            self.state.?.module.getNamedFunction(method.namez()).?,
             args.ptr,
             @intCast(c_uint, args.len),
             "",
@@ -652,7 +656,7 @@ pub const JIT = struct {
     }
 
     inline fn vmConstant(self: *Self) *l.Value {
-        self.vm_constant = self.vm_constant orelse self.state.builder.buildIntToPtr(
+        self.vm_constant = self.vm_constant orelse self.state.?.builder.buildIntToPtr(
             self.context.getContext().intType(64).constInt(
                 @ptrToInt(self.vm),
                 .False,
@@ -668,7 +672,7 @@ pub const JIT = struct {
         const name = self.vm.gc.allocator.dupeZ(u8, native.name);
         defer self.vm.gc.allocator.free(name);
 
-        self.state.module.addFunction(
+        self.state.?.module.addFunction(
             name.ptr,
             try self.lowerExternApi(.nativefn),
         );
@@ -677,7 +681,7 @@ pub const JIT = struct {
         // verifyModule always allocs the error_message even if there is no error
         defer l.disposeMessage(error_message);
 
-        if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
+        if (self.state.?.module.verify(.ReturnStatus, &error_message).toBool()) {
             std.debug.print("\n{s}\n", .{error_message});
 
             @panic("LLVM module verification failed");
@@ -706,7 +710,9 @@ pub const JIT = struct {
             (closure.function.call_count / self.call_count) == BuildOptions.jit_prof_threshold;
     }
 
-    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error![2]*anyopaque {
+    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
+        const previous_state = self.state;
+
         var module = l.Module.createWithName("buzz-jit", self.context.getContext());
         var thread_safe_module = l.OrcThreadSafeModule.createNewThreadSafeModule(
             module,
@@ -721,7 +727,7 @@ pub const JIT = struct {
         // TODO: do it once in its own module?
         self.declareBuzzApi() catch @panic("Could not declare buzz api into LLVM module");
 
-        self.closure = closure;
+        self.state.?.closure = closure;
         const function = closure.function;
 
         const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), function.node));
@@ -757,18 +763,18 @@ pub const JIT = struct {
         // verifyModule always allocs the error_message even if there is no error
         defer l.disposeMessage(error_message);
 
-        if (self.state.module.verify(.ReturnStatus, &error_message).toBool()) {
+        if (self.state.?.module.verify(.ReturnStatus, &error_message).toBool()) {
             std.debug.print("\n{s}\n", .{error_message});
 
             if (BuildOptions.jit_debug) {
-                _ = self.state.module.printModuleToFile("./out.bc", &error_message);
+                _ = self.state.?.module.printModuleToFile("./out.bc", &error_message);
             }
 
             @panic("LLVM module verification failed");
         }
 
         if (BuildOptions.jit_debug) {
-            _ = self.state.module.printModuleToFile("./out.bc", &error_message);
+            _ = self.state.?.module.printModuleToFile("./out.bc", &error_message);
         }
 
         // Add module to LLJIT
@@ -796,12 +802,11 @@ pub const JIT = struct {
             @panic("Could find script symbol in module loaded in LLJIT");
         }
 
-        self.closure = null;
+        // self.state.?.deinit();
+        self.state = previous_state;
 
-        return [_]*anyopaque{
-            @intToPtr(*anyopaque, fun_addr),
-            @intToPtr(*anyopaque, fun_addr_raw),
-        };
+        closure.function.native = @intToPtr(*anyopaque, fun_addr);
+        closure.function.native_raw = @intToPtr(*anyopaque, fun_addr_raw);
     }
 
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
@@ -867,31 +872,31 @@ pub const JIT = struct {
 
         // Patch opt jumps if needed
         if (node.patch_opt_jumps) {
-            assert(self.opt_jump != null);
+            assert(self.state.?.opt_jump != null);
 
             const out_block = self.context.getContext().createBasicBlock("out");
 
             // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
-            _ = self.state.builder.buildStore(
+            _ = self.state.?.builder.buildStore(
                 value.?,
-                self.opt_jump.?.alloca,
+                self.state.?.opt_jump.?.alloca,
             );
 
             // Continue
-            _ = self.state.builder.buildBr(out_block);
+            _ = self.state.?.builder.buildBr(out_block);
 
             // Patch opt blocks with the branching
-            for (self.opt_jump.?.current_blocks.items) |current_block, index| {
-                const next_expr_block = self.opt_jump.?.next_expr_blocks.items[index];
+            for (self.state.?.opt_jump.?.current_blocks.items) |current_block, index| {
+                const next_expr_block = self.state.?.opt_jump.?.next_expr_blocks.items[index];
 
-                self.state.builder.positionBuilderAtEnd(current_block);
-                self.current.?.block = current_block;
+                self.state.?.builder.positionBuilderAtEnd(current_block);
+                self.state.?.current.?.block = current_block;
 
-                const is_null = self.state.builder.buildICmp(
+                const is_null = self.state.?.builder.buildICmp(
                     .EQ,
-                    self.state.builder.buildLoad(
+                    self.state.?.builder.buildLoad(
                         try self.lowerExternApi(.value),
-                        self.opt_jump.?.alloca,
+                        self.state.?.opt_jump.?.alloca,
                         "unwrapped",
                     ),
                     (try self.lowerExternApi(.value)).constInt(
@@ -901,24 +906,25 @@ pub const JIT = struct {
                     "is_null",
                 );
 
-                _ = self.state.builder.buildCondBr(
+                _ = self.state.?.builder.buildCondBr(
                     is_null,
                     out_block,
                     next_expr_block,
                 );
             }
 
-            self.current.?.function.?.appendExistingBasicBlock(out_block);
-            self.state.builder.positionBuilderAtEnd(out_block);
-            self.current.?.block = out_block;
+            self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+            self.state.?.builder.positionBuilderAtEnd(out_block);
+            self.state.?.current.?.block = out_block;
 
-            value = self.state.builder.buildLoad(
+            value = self.state.?.builder.buildLoad(
                 try self.lowerExternApi(.value),
-                self.opt_jump.?.alloca,
+                self.state.?.opt_jump.?.alloca,
                 "opt_resolved",
             );
 
-            self.opt_jump = null;
+            self.state.?.opt_jump.?.deinit();
+            self.state.?.opt_jump = null;
         }
 
         // Close scope if needed
@@ -927,7 +933,7 @@ pub const JIT = struct {
                 if (op == .OP_CLOSE_UPVALUE) {
                     unreachable;
                 } else if (op == .OP_POP) {
-                    _ = self.current.?.locals.pop();
+                    _ = self.state.?.current.?.locals.pop();
                     _ = try self.buildPop();
                 } else {
                     unreachable;
@@ -939,7 +945,7 @@ pub const JIT = struct {
     }
 
     inline fn readConstant(self: *Self, arg: u24) Value {
-        return self.closure.?.function.chunk.constants.items[arg];
+        return self.state.?.closure.?.function.chunk.constants.items[arg];
     }
 
     fn generateString(self: *Self, string_node: *StringNode) VM.Error!?*l.Value {
@@ -1002,37 +1008,29 @@ pub const JIT = struct {
                     );
                 } else if (is_constant_fn) {
                     // Get the actual Value as it is right now (which is correct since a function doesn't change)
-                    const closure = ObjClosure.cast(self.closure.?.globals.items[named_variable_node.slot].obj()).?;
+                    const closure = ObjClosure.cast(self.state.?.closure.?.globals.items[named_variable_node.slot].obj()).?;
 
                     const qualified_name = try self.getFunctionQualifiedName(
-                        @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node)),
+                        @ptrCast(
+                            *FunctionNode,
+                            @alignCast(@alignOf(FunctionNode), closure.function.node),
+                        ),
                         true,
                     );
                     defer qualified_name.deinit();
 
                     // Does it need to be compiled?
                     if (closure.function.native == null) {
-                        const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
+                        try self.jitFunction(closure);
 
-                        // save current state
-                        const previous_current = self.current;
-                        const previous_closure = self.closure;
-
-                        self.current = null;
-                        self.closure = closure;
-
-                        // Compile function
-                        _ = try self.generateNode(function_node.toNode());
-
-                        // restore state
-                        self.current = previous_current;
-                        self.closure = previous_closure;
-                        if (self.current != null and self.current.?.block != null) {
-                            self.state.builder.positionBuilderAtEnd(self.current.?.block.?);
-                        }
+                        // Declare it in this module
+                        return self.state.?.module.addFunction(
+                            @ptrCast([*:0]const u8, qualified_name.items),
+                            try self.lowerType(closure.function.type_def),
+                        );
                     }
 
-                    break :global self.state.module.getNamedFunction(
+                    break :global self.state.?.module.getNamedFunction(
                         @ptrCast(
                             [*:0]const u8,
                             qualified_name.items.ptr,
@@ -1087,7 +1085,7 @@ pub const JIT = struct {
                         // list
                         subject.?,
                         // member name
-                        self.state.builder.buildIntToPtr(
+                        self.state.?.builder.buildIntToPtr(
                             self.context.getContext().intType(64).constInt(
                                 @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
                                 .False,
@@ -1110,7 +1108,7 @@ pub const JIT = struct {
                         // map
                         subject.?,
                         // member name
-                        self.state.builder.buildIntToPtr(
+                        self.state.?.builder.buildIntToPtr(
                             self.context.getContext().intType(64).constInt(
                                 @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
                                 .False,
@@ -1162,7 +1160,7 @@ pub const JIT = struct {
         defer arguments.deinit();
 
         // first arg is ctx
-        try arguments.append(self.current.?.function.?.getParam(0));
+        try arguments.append(self.state.?.current.?.function.?.getParam(0));
 
         // if invoked, first actual arg is this
         if (invoked_on != null) {
@@ -1187,7 +1185,7 @@ pub const JIT = struct {
             );
         }
 
-        return self.state.builder.buildCall(
+        return self.state.?.builder.buildCall(
             try self.lowerFunctionType(function_type_def, invoked_on != null),
             callee,
             @ptrCast([*]*l.Value, arguments.items.ptr),
@@ -1198,7 +1196,7 @@ pub const JIT = struct {
 
     fn generateReturn(self: *Self, return_node: *ReturnNode) VM.Error!?*l.Value {
         if (return_node.unconditional) {
-            self.current.?.return_emitted = true;
+            self.state.?.current.?.return_emitted = true;
         }
 
         return try self.buildReturn(
@@ -1234,15 +1232,15 @@ pub const JIT = struct {
         else
             null;
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             condition,
             then_block,
             if (if_node.else_branch != null) else_block.? else out_block,
         );
 
-        self.current.?.function.?.appendExistingBasicBlock(then_block);
-        self.state.builder.positionBuilderAtEnd(then_block);
-        self.current.?.block = then_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
+        self.state.?.builder.positionBuilderAtEnd(then_block);
+        self.state.?.current.?.block = then_block;
 
         _ = try self.generateNode(if_node.body);
 
@@ -1250,9 +1248,9 @@ pub const JIT = struct {
         self.buildBr(out_block);
 
         if (if_node.else_branch) |else_branch| {
-            self.current.?.function.?.appendExistingBasicBlock(else_block.?);
-            self.state.builder.positionBuilderAtEnd(else_block.?);
-            self.current.?.block = else_block.?;
+            self.state.?.current.?.function.?.appendExistingBasicBlock(else_block.?);
+            self.state.?.builder.positionBuilderAtEnd(else_block.?);
+            self.state.?.current.?.block = else_block.?;
 
             _ = try self.generateNode(else_branch);
 
@@ -1260,11 +1258,11 @@ pub const JIT = struct {
             self.buildBr(out_block);
         }
 
-        self.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
 
         // Continue writing after the if else
-        self.current.?.block = out_block;
-        self.state.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
+        self.state.?.builder.positionBuilderAtEnd(out_block);
 
         // Statement don't return values
         return null;
@@ -1277,7 +1275,7 @@ pub const JIT = struct {
         return switch (binary_node.operator) {
             .Ampersand => self.wrap(
                 .Integer,
-                self.state.builder.buildAnd(
+                self.state.?.builder.buildAnd(
                     (try self.generateNode(binary_node.left)).?,
                     (try self.generateNode(binary_node.right)).?,
                     "",
@@ -1285,7 +1283,7 @@ pub const JIT = struct {
             ),
             .Bor => self.wrap(
                 .Integer,
-                self.state.builder.buildOr(
+                self.state.?.builder.buildOr(
                     (try self.generateNode(binary_node.left)).?,
                     (try self.generateNode(binary_node.right)).?,
                     "",
@@ -1293,7 +1291,7 @@ pub const JIT = struct {
             ),
             .Xor => self.wrap(
                 .Integer,
-                self.state.builder.buildXor(
+                self.state.?.builder.buildXor(
                     (try self.generateNode(binary_node.left)).?,
                     (try self.generateNode(binary_node.right)).?,
                     "",
@@ -1301,7 +1299,7 @@ pub const JIT = struct {
             ),
             .ShiftLeft => self.wrap(
                 .Integer,
-                self.state.builder.buildShl(
+                self.state.?.builder.buildShl(
                     (try self.generateNode(binary_node.left)).?,
                     (try self.generateNode(binary_node.right)).?,
                     "",
@@ -1310,22 +1308,22 @@ pub const JIT = struct {
             // ashr (https://llvm.org/docs/LangRef.html#ashr-instruction) ?
             .ShiftRight => self.wrap(
                 .Integer,
-                self.state.builder.buildLShr(
+                self.state.?.builder.buildLShr(
                     (try self.generateNode(binary_node.left)).?,
                     (try self.generateNode(binary_node.right)).?,
                     "",
                 ),
             ),
             .QuestionQuestion, .And, .Or => cond: {
-                const value = self.state.builder.buildAlloca(try self.lowerExternApi(.value), "");
+                const value = self.state.?.builder.buildAlloca(try self.lowerExternApi(.value), "");
                 const left = (try self.generateNode(binary_node.left)).?;
 
-                _ = self.state.builder.buildStore(
+                _ = self.state.?.builder.buildStore(
                     left,
                     value,
                 );
 
-                const condition = self.state.builder.buildICmp(
+                const condition = self.state.?.builder.buildICmp(
                     .EQ,
                     left,
                     (try self.lowerExternApi(.value)).constInt(
@@ -1346,17 +1344,17 @@ pub const JIT = struct {
                 // If block
                 const then_block = self.context.getContext().createBasicBlock("then");
 
-                _ = self.state.builder.buildCondBr(
+                _ = self.state.?.builder.buildCondBr(
                     condition,
                     then_block,
                     out_block,
                 );
 
-                self.current.?.function.?.appendExistingBasicBlock(then_block);
-                self.state.builder.positionBuilderAtEnd(then_block);
-                self.current.?.block = then_block;
+                self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
+                self.state.?.builder.positionBuilderAtEnd(then_block);
+                self.state.?.current.?.block = then_block;
 
-                _ = self.state.builder.buildStore(
+                _ = self.state.?.builder.buildStore(
                     (try self.generateNode(binary_node.right)).?,
                     value,
                 );
@@ -1365,11 +1363,11 @@ pub const JIT = struct {
                 self.buildBr(out_block);
 
                 // Continue writing after the if else
-                self.current.?.function.?.appendExistingBasicBlock(out_block);
-                self.current.?.block = out_block;
-                self.state.builder.positionBuilderAtEnd(out_block);
+                self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+                self.state.?.current.?.block = out_block;
+                self.state.?.builder.positionBuilderAtEnd(out_block);
 
-                break :cond self.state.builder.buildLoad(
+                break :cond self.state.?.builder.buildLoad(
                     try self.lowerExternApi(.value),
                     value,
                     "",
@@ -1400,7 +1398,7 @@ pub const JIT = struct {
                         if (left_f != null or right_f != null) {
                             return self.wrap(
                                 .Bool,
-                                self.state.builder.buildFCmp(
+                                self.state.?.builder.buildFCmp(
                                     switch (binary_node.operator) {
                                         .Greater => .OGT,
                                         .Less => .OLT,
@@ -1410,8 +1408,8 @@ pub const JIT = struct {
                                         .EqualEqual => .OEQ,
                                         else => unreachable,
                                     },
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                    if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1419,7 +1417,7 @@ pub const JIT = struct {
 
                         break :bin self.wrap(
                             .Bool,
-                            self.state.builder.buildICmp(
+                            self.state.?.builder.buildICmp(
                                 switch (binary_node.operator) {
                                     .Greater => .SGT,
                                     .Less => .SLT,
@@ -1441,9 +1439,9 @@ pub const JIT = struct {
                                 if (left_f != null or right_f != null) {
                                     break :bin self.wrap(
                                         .Float,
-                                        self.state.builder.buildFAdd(
-                                            if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                            if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                        self.state.?.builder.buildFAdd(
+                                            if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                            if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                             "",
                                         ),
                                     );
@@ -1451,7 +1449,7 @@ pub const JIT = struct {
 
                                 break :bin self.wrap(
                                     .Integer,
-                                    self.state.builder.buildAdd(
+                                    self.state.?.builder.buildAdd(
                                         left_i.?,
                                         right_i.?,
                                         "",
@@ -1489,16 +1487,16 @@ pub const JIT = struct {
                         if (left_f != null or right_f != null) {
                             break :bin self.wrap(
                                 .Float,
-                                self.state.builder.buildFSub(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                self.state.?.builder.buildFSub(
+                                    if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
                         }
 
                         break :bin self.buildValueFromInteger(
-                            self.state.builder.buildSub(
+                            self.state.?.builder.buildSub(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
                                 "",
@@ -1509,9 +1507,9 @@ pub const JIT = struct {
                         if (left_f != null or right_f != null) {
                             break :bin self.wrap(
                                 .Float,
-                                self.state.builder.buildFMul(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                self.state.?.builder.buildFMul(
+                                    if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1519,7 +1517,7 @@ pub const JIT = struct {
 
                         break :bin self.wrap(
                             .Integer,
-                            self.state.builder.buildMul(
+                            self.state.?.builder.buildMul(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
                                 "",
@@ -1530,16 +1528,16 @@ pub const JIT = struct {
                         if (left_f != null or right_f != null) {
                             break :bin self.wrap(
                                 .Float,
-                                self.state.builder.buildFDiv(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                self.state.?.builder.buildFDiv(
+                                    if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
                         }
 
                         // Div result is always float
-                        break :bin self.state.builder.buildSDiv(
+                        break :bin self.state.?.builder.buildSDiv(
                             left_i orelse left_f.?,
                             right_i orelse right_f.?,
                             "",
@@ -1549,9 +1547,9 @@ pub const JIT = struct {
                         if (left_f != null or right_f != null) {
                             break :bin self.wrap(
                                 .Float,
-                                self.state.builder.buildFRem(
-                                    if (left_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
-                                    if (right_i) |i| self.state.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
+                                self.state.?.builder.buildFRem(
+                                    if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
+                                    if (right_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else right_f.?,
                                     "",
                                 ),
                             );
@@ -1559,7 +1557,7 @@ pub const JIT = struct {
 
                         break :bin self.wrap(
                             .Integer,
-                            self.state.builder.buildSRem(
+                            self.state.?.builder.buildSRem(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
                                 "",
@@ -1576,18 +1574,18 @@ pub const JIT = struct {
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
-        const previous_out_block = self.current.?.break_block;
-        self.current.?.break_block = out_block;
-        const previous_continue_block = self.current.?.continue_block;
-        self.current.?.continue_block = cond_block;
+        const previous_out_block = self.state.?.current.?.break_block;
+        self.state.?.current.?.break_block = out_block;
+        const previous_continue_block = self.state.?.current.?.continue_block;
+        self.state.?.current.?.continue_block = cond_block;
 
         self.buildBr(cond_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(cond_block);
-        self.state.builder.positionBuilderAtEnd(cond_block);
-        self.current.?.block = cond_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.?.builder.positionBuilderAtEnd(cond_block);
+        self.state.?.current.?.block = cond_block;
 
-        const condition = self.state.builder.buildICmp(
+        const condition = self.state.?.builder.buildICmp(
             .EQ,
             (try self.generateNode(while_node.condition)).?,
             (try self.lowerExternApi(.value)).constInt(
@@ -1597,26 +1595,26 @@ pub const JIT = struct {
             "cond",
         );
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             condition,
             loop_block,
             out_block,
         );
 
-        self.current.?.function.?.appendExistingBasicBlock(loop_block);
-        self.state.builder.positionBuilderAtEnd(loop_block);
-        self.current.?.block = loop_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.?.builder.positionBuilderAtEnd(loop_block);
+        self.state.?.current.?.block = loop_block;
 
         _ = try self.generateNode(while_node.block);
 
         self.buildBr(cond_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(out_block);
-        self.state.builder.positionBuilderAtEnd(out_block);
-        self.current.?.block = out_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
 
-        self.current.?.break_block = previous_out_block;
-        self.current.?.continue_block = previous_continue_block;
+        self.state.?.current.?.break_block = previous_out_block;
+        self.state.?.current.?.continue_block = previous_continue_block;
 
         return null;
     }
@@ -1625,26 +1623,26 @@ pub const JIT = struct {
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
         const cond_block = self.context.getContext().createBasicBlock("cond");
-        const previous_out_block = self.current.?.break_block;
-        self.current.?.break_block = out_block;
-        const previous_continue_block = self.current.?.continue_block;
-        self.current.?.continue_block = cond_block;
+        const previous_out_block = self.state.?.current.?.break_block;
+        self.state.?.current.?.break_block = out_block;
+        const previous_continue_block = self.state.?.current.?.continue_block;
+        self.state.?.current.?.continue_block = cond_block;
 
         self.buildBr(loop_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(loop_block);
-        self.state.builder.positionBuilderAtEnd(loop_block);
-        self.current.?.block = loop_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.?.builder.positionBuilderAtEnd(loop_block);
+        self.state.?.current.?.block = loop_block;
 
         _ = try self.generateNode(do_until_node.block);
 
         self.buildBr(cond_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(cond_block);
-        self.state.builder.positionBuilderAtEnd(cond_block);
-        self.current.?.block = cond_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.?.builder.positionBuilderAtEnd(cond_block);
+        self.state.?.current.?.block = cond_block;
 
-        const condition = self.state.builder.buildICmp(
+        const condition = self.state.?.builder.buildICmp(
             .EQ,
             (try self.generateNode(do_until_node.condition)).?,
             (try self.lowerExternApi(.value)).constInt(
@@ -1654,18 +1652,18 @@ pub const JIT = struct {
             "cond",
         );
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             condition,
             out_block,
             loop_block,
         );
 
-        self.current.?.function.?.appendExistingBasicBlock(out_block);
-        self.state.builder.positionBuilderAtEnd(out_block);
-        self.current.?.block = out_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
 
-        self.current.?.break_block = previous_out_block;
-        self.current.?.continue_block = previous_continue_block;
+        self.state.?.current.?.break_block = previous_out_block;
+        self.state.?.current.?.continue_block = previous_continue_block;
 
         return null;
     }
@@ -1674,10 +1672,10 @@ pub const JIT = struct {
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
-        const previous_out_block = self.current.?.break_block;
-        self.current.?.break_block = out_block;
-        const previous_continue_block = self.current.?.continue_block;
-        self.current.?.continue_block = cond_block;
+        const previous_out_block = self.state.?.current.?.break_block;
+        self.state.?.current.?.break_block = out_block;
+        const previous_continue_block = self.state.?.current.?.continue_block;
+        self.state.?.current.?.continue_block = cond_block;
 
         // Init expressions
         for (for_node.init_declarations.items) |expr| {
@@ -1688,11 +1686,11 @@ pub const JIT = struct {
         self.buildBr(cond_block);
 
         // Condition
-        self.current.?.function.?.appendExistingBasicBlock(cond_block);
-        self.state.builder.positionBuilderAtEnd(cond_block);
-        self.current.?.block = cond_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.?.builder.positionBuilderAtEnd(cond_block);
+        self.state.?.current.?.block = cond_block;
 
-        const condition = self.state.builder.buildICmp(
+        const condition = self.state.?.builder.buildICmp(
             .EQ,
             (try self.generateNode(for_node.condition)).?,
             (try self.lowerExternApi(.value)).constInt(
@@ -1702,16 +1700,16 @@ pub const JIT = struct {
             "cond",
         );
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             condition,
             loop_block,
             out_block,
         );
 
         // Body
-        self.current.?.function.?.appendExistingBasicBlock(loop_block);
-        self.state.builder.positionBuilderAtEnd(loop_block);
-        self.current.?.block = loop_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.?.builder.positionBuilderAtEnd(loop_block);
+        self.state.?.current.?.block = loop_block;
 
         _ = try self.generateNode(for_node.body);
 
@@ -1722,24 +1720,24 @@ pub const JIT = struct {
 
         self.buildBr(cond_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(out_block);
-        self.state.builder.positionBuilderAtEnd(out_block);
-        self.current.?.block = out_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
 
-        self.current.?.break_block = previous_out_block;
-        self.current.?.continue_block = previous_continue_block;
+        self.state.?.current.?.break_block = previous_out_block;
+        self.state.?.current.?.continue_block = previous_continue_block;
 
         return null;
     }
 
     fn generateBreak(self: *Self) VM.Error!?*l.Value {
-        self.buildBr(self.current.?.break_block.?);
+        self.buildBr(self.state.?.current.?.break_block.?);
 
         return null;
     }
 
     fn generateContinue(self: *Self) VM.Error!?*l.Value {
-        self.buildBr(self.current.?.continue_block.?);
+        self.buildBr(self.state.?.current.?.continue_block.?);
 
         return null;
     }
@@ -1916,7 +1914,7 @@ pub const JIT = struct {
             },
         );
 
-        const env = self.state.builder.buildStructGEP(
+        const env = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.tryctx),
             try_ctx,
             1,
@@ -1930,26 +1928,26 @@ pub const JIT = struct {
         );
 
         // If status is 0, go to body, else go to catch clauses
-        const has_error = self.state.builder.buildICmp(
+        const has_error = self.state.?.builder.buildICmp(
             .EQ,
             status,
             self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
             "has_error",
         );
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             has_error,
             if (clause_blocks.items.len > 0) clause_blocks.items[0] else unconditional_block.?,
             body_block,
         );
 
-        self.current.?.function.?.appendExistingBasicBlock(body_block);
-        self.state.builder.positionBuilderAtEnd(body_block);
-        self.current.?.block = body_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(body_block);
+        self.state.?.builder.positionBuilderAtEnd(body_block);
+        self.state.?.current.?.block = body_block;
 
         _ = try self.generateNode(try_node.body);
 
-        _ = self.state.builder.buildBr(out_block);
+        _ = self.state.?.builder.buildBr(out_block);
 
         for (try_node.clauses.keys()) |type_def, index| {
             const block = clause_blocks.items[index];
@@ -1957,9 +1955,9 @@ pub const JIT = struct {
 
             const clause_body_block = self.context.getContext().createBasicBlock("clause_body");
 
-            self.current.?.function.?.appendExistingBasicBlock(block);
-            self.state.builder.positionBuilderAtEnd(block);
-            self.current.?.block = block;
+            self.state.?.current.?.function.?.appendExistingBasicBlock(block);
+            self.state.?.builder.positionBuilderAtEnd(block);
+            self.state.?.current.?.block = block;
 
             // Get error payload from stack
             const payload = try self.buildExternApiCall(
@@ -1987,7 +1985,7 @@ pub const JIT = struct {
                 ),
             );
 
-            const cond = self.state.builder.buildICmp(
+            const cond = self.state.?.builder.buildICmp(
                 .EQ,
                 matches,
                 self.context.getContext().intType(1).constInt(1, .False),
@@ -1995,7 +1993,7 @@ pub const JIT = struct {
             );
 
             // If payload is of expected type jump to clause body otherwise jump to next catch clause if none jump to error propagation
-            _ = self.state.builder.buildCondBr(
+            _ = self.state.?.builder.buildCondBr(
                 cond,
                 clause_body_block,
                 if (index < try_node.clauses.keys().len - 1)
@@ -2006,28 +2004,28 @@ pub const JIT = struct {
                     raise_block,
             );
 
-            self.current.?.function.?.appendExistingBasicBlock(clause_body_block);
-            self.state.builder.positionBuilderAtEnd(clause_body_block);
-            self.current.?.block = clause_body_block;
+            self.state.?.current.?.function.?.appendExistingBasicBlock(clause_body_block);
+            self.state.?.builder.positionBuilderAtEnd(clause_body_block);
+            self.state.?.current.?.block = clause_body_block;
 
             _ = try self.generateNode(clause);
 
-            _ = self.state.builder.buildBr(out_block);
+            _ = self.state.?.builder.buildBr(out_block);
         }
 
         if (unconditional_block) |block| {
-            self.current.?.function.?.appendExistingBasicBlock(block);
-            self.state.builder.positionBuilderAtEnd(block);
-            self.current.?.block = block;
+            self.state.?.current.?.function.?.appendExistingBasicBlock(block);
+            self.state.?.builder.positionBuilderAtEnd(block);
+            self.state.?.current.?.block = block;
 
             _ = try self.generateNode(try_node.unconditional_clause.?);
 
-            _ = self.state.builder.buildBr(out_block);
+            _ = self.state.?.builder.buildBr(out_block);
         }
 
-        self.current.?.function.?.appendExistingBasicBlock(raise_block);
-        self.state.builder.positionBuilderAtEnd(raise_block);
-        self.current.?.block = raise_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(raise_block);
+        self.state.?.builder.positionBuilderAtEnd(raise_block);
+        self.state.?.current.?.block = raise_block;
 
         // Unwind TryCtx
         _ = try self.buildExternApiCall(
@@ -2046,11 +2044,11 @@ pub const JIT = struct {
         );
 
         // Should not get here but need a terminator
-        _ = self.state.builder.buildUnreachable();
+        _ = self.state.?.builder.buildUnreachable();
 
-        self.current.?.function.?.appendExistingBasicBlock(out_block);
-        self.state.builder.positionBuilderAtEnd(out_block);
-        self.current.?.block = out_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
 
         // Unwind TryCtx
         _ = try self.buildExternApiCall(
@@ -2081,31 +2079,31 @@ pub const JIT = struct {
         const value = (try self.generateNode(unwrap_node.unwrapped)).?;
 
         // Remember that we need to had a terminator to this block that will jump at the end of the optionals chain
-        if (self.opt_jump == null) {
+        if (self.state.?.opt_jump == null) {
             // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
-            const value_ptr = self.state.builder.buildAlloca(
+            const value_ptr = self.state.?.builder.buildAlloca(
                 try self.lowerExternApi(.value),
                 "opt",
             );
 
-            self.opt_jump = .{
+            self.state.?.opt_jump = .{
                 .alloca = value_ptr,
                 .current_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator),
                 .next_expr_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator),
             };
         }
 
-        _ = self.state.builder.buildStore(
+        _ = self.state.?.builder.buildStore(
             value,
-            self.opt_jump.?.alloca,
+            self.state.?.opt_jump.?.alloca,
         );
 
-        try self.opt_jump.?.current_blocks.append(self.current.?.block.?);
-        try self.opt_jump.?.next_expr_blocks.append(next_expr_block);
+        try self.state.?.opt_jump.?.current_blocks.append(self.state.?.current.?.block.?);
+        try self.state.?.opt_jump.?.next_expr_blocks.append(next_expr_block);
 
-        self.current.?.function.?.appendExistingBasicBlock(next_expr_block);
-        self.state.builder.positionBuilderAtEnd(next_expr_block);
-        self.current.?.block = next_expr_block;
+        self.state.?.current.?.function.?.appendExistingBasicBlock(next_expr_block);
+        self.state.?.builder.positionBuilderAtEnd(next_expr_block);
+        self.state.?.current.?.block = next_expr_block;
 
         return value;
     }
@@ -2171,9 +2169,9 @@ pub const JIT = struct {
     fn generateFunction(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
         const node = &function_node.node;
 
-        var enclosing = self.current;
-        self.current = try self.vm.gc.allocator.create(Frame);
-        self.current.?.* = Frame{
+        var enclosing = self.state.?.current;
+        self.state.?.current = try self.vm.gc.allocator.create(Frame);
+        self.state.?.current.?.* = Frame{
             .enclosing = enclosing,
             .function_node = function_node,
             .locals = std.ArrayList(*l.Value).init(self.vm.gc.allocator),
@@ -2188,15 +2186,18 @@ pub const JIT = struct {
         const ret_type = try self.lowerType(node.type_def.?);
 
         // Get fully qualified name of function
-        var qualified_name = try self.getFunctionQualifiedName(function_node, true);
+        var qualified_name = try self.getFunctionQualifiedName(
+            function_node,
+            true,
+        );
         defer qualified_name.deinit();
 
-        var function = self.state.module.addFunction(
+        var function = self.state.?.module.addFunction(
             @ptrCast([*:0]const u8, qualified_name.items),
             ret_type,
         );
 
-        self.current.?.function = function;
+        self.state.?.current.?.function = function;
 
         var block = self.context.getContext().appendBasicBlock(
             function,
@@ -2205,8 +2206,8 @@ pub const JIT = struct {
                 qualified_name.items,
             ),
         );
-        self.state.builder.positionBuilderAtEnd(block);
-        self.current.?.block = block;
+        self.state.?.builder.positionBuilderAtEnd(block);
+        self.state.?.current.?.block = block;
 
         // First arg is reserved for an eventual `this` or cli arguments
         _ = switch (function_type) {
@@ -2224,7 +2225,7 @@ pub const JIT = struct {
             _ = try self.buildSetLocal(
                 i,
                 // Since actual function first arg is NativeCtx, no need to correct back with -1
-                self.current.?.function.?.getParam(@intCast(c_uint, i)),
+                self.state.?.current.?.function.?.getParam(@intCast(c_uint, i)),
             );
         }
 
@@ -2232,12 +2233,12 @@ pub const JIT = struct {
             const arrow_value = try self.generateNode(arrow_expr);
 
             _ = try self.buildReturn(arrow_value.?);
-            self.current.?.return_emitted = true;
+            self.state.?.current.?.return_emitted = true;
         } else {
             _ = try self.generateNode(function_node.body.?.toNode());
         }
 
-        if (self.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
+        if (self.state.?.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.state.?.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
             _ = try self.buildReturn(
                 (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
@@ -2253,10 +2254,10 @@ pub const JIT = struct {
             ret_type,
         );
 
-        self.current.?.locals.deinit();
-        self.current = self.current.?.enclosing;
-        if (self.current != null and self.current.?.block != null) {
-            self.state.builder.positionBuilderAtEnd(self.current.?.block.?);
+        self.state.?.current.?.locals.deinit();
+        self.state.?.current = self.state.?.current.?.enclosing;
+        if (self.state.?.current != null and self.state.?.current.?.block != null) {
+            self.state.?.builder.positionBuilderAtEnd(self.state.?.current.?.block.?);
         }
 
         return function;
@@ -2264,33 +2265,33 @@ pub const JIT = struct {
 
     // Checks the current block hasn't already have a terminator
     fn buildBr(self: *Self, block: *l.BasicBlock) void {
-        if (self.current.?.block.?.getTerminator() == null) {
-            _ = self.state.builder.buildBr(block);
+        if (self.state.?.current.?.block.?.getTerminator() == null) {
+            _ = self.state.?.builder.buildBr(block);
         }
     }
 
     fn buildPush(self: *Self, value: *l.Value) !*l.Value {
-        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             4,
             "stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.builder.buildLoad(
+        const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
-        const stack_top = self.state.builder.buildLoad(
+        const stack_top = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             stack_top_ptr,
             "stack_top",
         );
 
         // Store value on top of stack
-        _ = self.state.builder.buildStore(
+        _ = self.state.?.builder.buildStore(
             value,
             stack_top,
         );
@@ -2298,9 +2299,9 @@ pub const JIT = struct {
         // FIXME: check overflow, can't we do it at compile time?
 
         // Increment top
-        return self.state.builder.buildStore(
+        return self.state.?.builder.buildStore(
             // Get element one alignment after stack_top
-            self.state.builder.buildInBoundsGEP(
+            self.state.?.builder.buildInBoundsGEP(
                 try self.lowerExternApi(.value),
                 stack_top,
                 &[_]*l.Value{
@@ -2314,29 +2315,29 @@ pub const JIT = struct {
     }
 
     fn buildPop(self: *Self) !*l.Value {
-        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             4,
             "stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.builder.buildLoad(
+        const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
-        const stack_top = self.state.builder.buildLoad(
+        const stack_top = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             stack_top_ptr,
             "stack_top",
         );
 
         // Decrement top
-        _ = self.state.builder.buildStore(
+        _ = self.state.?.builder.buildStore(
             // Get element one alignment after stack_top
-            self.state.builder.buildInBoundsGEP(
+            self.state.?.builder.buildInBoundsGEP(
                 try self.lowerExternApi(.value),
                 stack_top,
                 &[_]*l.Value{
@@ -2352,7 +2353,7 @@ pub const JIT = struct {
         );
 
         // Return new top
-        return self.state.builder.buildLoad(
+        return self.state.?.builder.buildLoad(
             try self.lowerExternApi(.value),
             stack_top,
             "popped",
@@ -2360,26 +2361,26 @@ pub const JIT = struct {
     }
 
     fn buildPeek(self: *Self, distance: usize) !*l.Value {
-        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             4,
             "stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.builder.buildLoad(
+        const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
-        const stack_top = self.state.builder.buildLoad(
+        const stack_top = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             stack_top_ptr,
             "stack_top",
         );
 
-        return self.state.builder.buildInBoundsGEP(
+        return self.state.?.builder.buildInBoundsGEP(
             try self.lowerExternApi(.value),
             stack_top,
             &[_]*l.Value{
@@ -2394,77 +2395,77 @@ pub const JIT = struct {
         // TODO: close upvalues
 
         // Get base
-        const base_top_field_ptr = self.state.builder.buildStructGEP(
+        const base_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             3,
             "base_top_field_ptr",
         );
 
-        const base_top_ptr = self.state.builder.buildLoad(
+        const base_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             base_top_field_ptr,
             "base_top_ptr",
         );
 
         // Get stack_top
-        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             4,
             "stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.builder.buildLoad(
+        const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
         // Reset stack_top to base
-        _ = self.state.builder.buildStore(
+        _ = self.state.?.builder.buildStore(
             base_top_ptr,
             stack_top_ptr,
         );
 
         // Do return
-        return self.state.builder.buildRet(value);
+        return self.state.?.builder.buildRet(value);
     }
 
     /// Build instructions to get local at given index
     fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
-        assert(slot < self.current.?.locals.items.len);
-        return self.state.builder.buildLoad(
+        assert(slot < self.state.?.current.?.locals.items.len);
+        return self.state.?.builder.buildLoad(
             try self.lowerExternApi(.value),
-            self.current.?.locals.items[slot],
+            self.state.?.current.?.locals.items[slot],
             "",
         );
     }
 
     /// Build instructions to set local at given index
     fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
-        assert(self.current.?.locals.items.len >= slot);
+        assert(self.state.?.current.?.locals.items.len >= slot);
 
-        const stack_top_field_ptr = self.state.builder.buildStructGEP(
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             4,
             "stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.builder.buildLoad(
+        const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
-        const stack_top = self.state.builder.buildLoad(
+        const stack_top = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             stack_top_ptr,
             "stack_top",
         );
 
-        const slot_ptr = self.state.builder.buildInBoundsGEP(
+        const slot_ptr = self.state.?.builder.buildInBoundsGEP(
             try self.lowerExternApi(.value),
             stack_top,
             &[_]*l.Value{
@@ -2477,45 +2478,45 @@ pub const JIT = struct {
             "slot",
         );
 
-        if (slot >= self.current.?.locals.items.len) {
-            try self.current.?.locals.append(slot_ptr);
+        if (slot >= self.state.?.current.?.locals.items.len) {
+            try self.state.?.current.?.locals.append(slot_ptr);
 
             // Increment stack top
-            _ = self.state.builder.buildStore(
+            _ = self.state.?.builder.buildStore(
                 slot_ptr,
                 stack_top_ptr,
             );
         }
 
-        return self.state.builder.buildStore(
+        return self.state.?.builder.buildStore(
             value,
             slot_ptr,
         );
     }
 
     inline fn buildAddLocal(self: *Self, value: *l.Value) !void {
-        _ = try self.buildSetLocal(self.current.?.locals.items.len, value);
+        _ = try self.buildSetLocal(self.state.?.current.?.locals.items.len, value);
     }
 
     /// Build instructions to get global at given index
     fn buildGetGlobal(self: *Self, slot: usize) !*l.Value {
         // Get ptr on NativeCtx `globals` field
-        const globals_ptr = self.state.builder.buildStructGEP(
+        const globals_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             1,
             "globals_ptr",
         );
 
         // Load globals ptr
-        const globals = self.state.builder.buildLoad(
+        const globals = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.globals)).pointerType(0),
             globals_ptr,
             "globals",
         );
 
         // Get element ptr at `slot`
-        const value_ptr = self.state.builder.buildInBoundsGEP(
+        const value_ptr = self.state.?.builder.buildInBoundsGEP(
             try self.lowerExternApi(.value),
             globals,
             &[_]*l.Value{
@@ -2526,7 +2527,7 @@ pub const JIT = struct {
         );
 
         // Load value
-        return self.state.builder.buildLoad(
+        return self.state.?.builder.buildLoad(
             try self.lowerExternApi(.value),
             value_ptr,
             "value",
@@ -2536,22 +2537,22 @@ pub const JIT = struct {
     /// Build instructions to set global at given index
     fn buildSetGlobal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
         // Get ptr on NativeCtx `globals` field
-        const globals_ptr = self.state.builder.buildStructGEP(
+        const globals_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
-            self.current.?.function.?.getParam(0),
+            self.state.?.current.?.function.?.getParam(0),
             1,
             "globals_ptr",
         );
 
         // Load globals ptr
-        const globals = self.state.builder.buildLoad(
+        const globals = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.globals)).pointerType(0),
             globals_ptr,
             "globals",
         );
 
         // Get element ptr at `slot`
-        const value_ptr = self.state.builder.buildInBoundsGEP(
+        const value_ptr = self.state.?.builder.buildInBoundsGEP(
             try self.lowerExternApi(.value),
             globals,
             &[_]*l.Value{
@@ -2562,14 +2563,14 @@ pub const JIT = struct {
         );
 
         // Store value
-        return self.state.builder.buildStore(
+        return self.state.?.builder.buildStore(
             value,
             value_ptr,
         );
     }
 
     fn buildValueToBoolean(self: *Self, value: *l.Value) *l.Value {
-        return self.state.builder.buildICmp(
+        return self.state.?.builder.buildICmp(
             .EQ,
             value,
             self.context.getContext().intType(64).constInt(_value.TrueMask, .False),
@@ -2578,8 +2579,8 @@ pub const JIT = struct {
     }
 
     fn buildValueFromBoolean(self: *Self, value: *l.Value) *l.Value {
-        return self.state.builder.buildSelect(
-            self.state.builder.buildICmp(
+        return self.state.?.builder.buildSelect(
+            self.state.?.builder.buildICmp(
                 .EQ,
                 value,
                 self.context.getContext().intType(1).constInt(1, .False),
@@ -2592,7 +2593,7 @@ pub const JIT = struct {
     }
 
     fn buildValueToInteger(self: *Self, value: *l.Value) *l.Value {
-        return self.state.builder.buildAnd(
+        return self.state.?.builder.buildAnd(
             value,
             self.context.getContext().intType(64).constInt(
                 0xffffffff,
@@ -2603,7 +2604,7 @@ pub const JIT = struct {
     }
 
     fn buildValueFromInteger(self: *Self, integer: *l.Value) *l.Value {
-        return self.state.builder.buildOr(
+        return self.state.?.builder.buildOr(
             self.context.getContext().intType(64).constInt(
                 _value.IntegerMask,
                 .False,
@@ -2614,9 +2615,9 @@ pub const JIT = struct {
     }
 
     fn buildValueToObj(self: *Self, value: *l.Value) *l.Value {
-        return self.state.builder.buildAnd(
+        return self.state.?.builder.buildAnd(
             value,
-            self.state.builder.buildNot(
+            self.state.?.builder.buildNot(
                 self.context.getContext().intType(64).constInt(_value.PointerMask, .False),
                 "",
             ),
@@ -2625,7 +2626,7 @@ pub const JIT = struct {
     }
 
     fn buildValueFromObj(self: *Self, value: *l.Value) *l.Value {
-        return self.state.builder.buildOr(
+        return self.state.?.builder.buildOr(
             self.context.getContext().intType(64).constInt(
                 _value.PointerMask,
                 .False,
@@ -2640,7 +2641,7 @@ pub const JIT = struct {
         return switch (def_type) {
             .Bool => self.buildValueToBoolean(value),
             .Integer => self.buildValueToInteger(value),
-            .Float => self.state.builder.buildBitCast(
+            .Float => self.state.?.builder.buildBitCast(
                 value,
                 self.context.getContext().doubleType(),
                 "",
@@ -2672,7 +2673,7 @@ pub const JIT = struct {
         return switch (def_type) {
             .Bool => self.buildValueFromBoolean(value),
             .Integer => self.buildValueFromInteger(value),
-            .Float => self.state.builder.buildBitCast(
+            .Float => self.state.?.builder.buildBitCast(
                 value,
                 self.context.getContext().intType(64),
                 "",
@@ -2708,7 +2709,7 @@ pub const JIT = struct {
         var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node, false);
         defer nativefn_qualified_name.deinit();
 
-        var native_fn = self.state.module.addFunction(
+        var native_fn = self.state.?.module.addFunction(
             @ptrCast([*:0]const u8, nativefn_qualified_name.items),
             try self.lowerExternApi(.nativefn),
         );
@@ -2719,7 +2720,7 @@ pub const JIT = struct {
 
         // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
         var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
-        self.state.builder.positionBuilderAtEnd(block);
+        self.state.?.builder.positionBuilderAtEnd(block);
 
         var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
         defer arguments.deinit();
@@ -2756,7 +2757,7 @@ pub const JIT = struct {
             },
         );
 
-        const env = self.state.builder.buildStructGEP(
+        const env = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.tryctx),
             try_ctx,
             1,
@@ -2770,25 +2771,25 @@ pub const JIT = struct {
         );
 
         // If status is 0, go to body, else go to catch clauses
-        const has_error = self.state.builder.buildICmp(
+        const has_error = self.state.?.builder.buildICmp(
             .EQ,
             status,
             self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
             "has_error",
         );
 
-        _ = self.state.builder.buildCondBr(
+        _ = self.state.?.builder.buildCondBr(
             has_error,
             err_propagate_block,
             fun_block,
         );
 
         native_fn.appendExistingBasicBlock(err_propagate_block);
-        self.state.builder.positionBuilderAtEnd(err_propagate_block);
-        self.current.?.block = err_propagate_block;
+        self.state.?.builder.positionBuilderAtEnd(err_propagate_block);
+        self.state.?.current.?.block = err_propagate_block;
 
         // Payload already on stack so juste return -1;
-        _ = self.state.builder.buildRet(
+        _ = self.state.?.builder.buildRet(
             self.context.getContext().intType(8).constInt(
                 @bitCast(c_ulonglong, @as(i64, -1)),
                 .True,
@@ -2796,11 +2797,11 @@ pub const JIT = struct {
         );
 
         native_fn.appendExistingBasicBlock(fun_block);
-        self.state.builder.positionBuilderAtEnd(fun_block);
-        self.current.?.block = fun_block;
+        self.state.?.builder.positionBuilderAtEnd(fun_block);
+        self.state.?.current.?.block = fun_block;
 
         // Call the raw function
-        const result = self.state.builder.buildCall(
+        const result = self.state.?.builder.buildCall(
             ret_type,
             raw_fn,
             @ptrCast([*]*l.Value, arguments.items.ptr),
@@ -2822,7 +2823,7 @@ pub const JIT = struct {
         }
 
         // 1 = there's a return, 0 = no return, -1 = error
-        _ = self.state.builder.buildRet(
+        _ = self.state.?.builder.buildRet(
             self.context.getContext().intType(8).constInt(
                 if (should_return) 1 else 0,
                 .True,

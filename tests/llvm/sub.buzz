@@ -1,0 +1,13 @@
+import "lib/std";
+
+fun helloToo(str m) > void {
+    print("hello {m}");
+}
+
+fun hello(str m) > void {
+    helloToo(m);
+}
+
+fun main([str] args) > void {
+    hello("world");
+}
