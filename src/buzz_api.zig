@@ -10,6 +10,7 @@ const _parser = @import("./parser.zig");
 const _codegen = @import("./codegen.zig");
 const BuildOptions = @import("build_options");
 const jmp = @import("jmp.zig").jmp;
+const FunctionNode = @import("./node.zig").FunctionNode;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -674,8 +675,12 @@ export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
     return ObjNative.cast(value.obj());
 }
 
-export fn bz_valueToRawNativeFn(value: u64) *anyopaque {
-    return ObjNative.cast((Value{ .val = value }).obj()).?.native_raw;
+export fn bz_valueToExternRawNativeFn(value: Value) *anyopaque {
+    return ObjNative.cast(value.obj()).?.native_raw;
+}
+
+export fn bz_valueToRawNative(value: Value) *anyopaque {
+    return ObjClosure.cast(value.obj()).?.function.native_raw.?;
 }
 
 export fn bz_valueEqual(self: Value, other: Value) Value {
@@ -751,4 +756,76 @@ export fn bz_throw(vm: *VM, value: Value) void {
     vm.push(value);
 
     bz_rethrow(vm);
+}
+
+export fn bz_closeUpValues(vm: *VM, last: *Value) void {
+    vm.closeUpValues(last);
+    _ = vm.pop();
+}
+
+export fn bz_getUpValue(ctx: *NativeCtx, slot: usize) Value {
+    return ctx.upvalues[slot].location.*;
+}
+
+export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
+    ctx.upvalues[slot].location.* = value;
+}
+
+export fn bz_getUpValues(closure: Value) [*]*ObjUpValue {
+    return ObjClosure.cast(closure.obj()).?.upvalues.items.ptr;
+}
+
+export fn bz_getGlobals(closure: Value) [*]Value {
+    return ObjClosure.cast(closure.obj()).?.globals.items.ptr;
+}
+
+export fn bz_closure(
+    ctx: *NativeCtx,
+    function_node: *FunctionNode,
+    native: *anyopaque,
+    native_raw: *anyopaque,
+) Value {
+    const function_def = function_node.node.type_def.?.resolved_type.?.Function;
+
+    // Create an ObjFunction
+    var obj_function = ctx.vm.gc.allocateObject(
+        ObjFunction,
+        ObjFunction.init(
+            ctx.vm.gc.allocator,
+            function_node,
+            function_def.name,
+        ) catch @panic("Could not instanciate closure"),
+    ) catch @panic("Could not instanciate closure");
+    obj_function.type_def = function_node.node.type_def.?;
+    obj_function.upvalue_count = @intCast(u8, function_node.upvalue_binding.count());
+    obj_function.native = native;
+    obj_function.native_raw = native_raw;
+
+    const closure: *ObjClosure = ctx.vm.gc.allocateObject(
+        ObjClosure,
+        ObjClosure.init(
+            ctx.vm.gc.allocator,
+            ctx.vm,
+            obj_function,
+        ) catch @panic("Could not instanciate closure"),
+    ) catch @panic("Could not instanciate closure");
+
+    // On stack to prevent collection
+    ctx.vm.push(closure.toValue());
+
+    var it = function_node.upvalue_binding.iterator();
+    while (it.next()) |kv| {
+        const is_local = kv.value_ptr.*;
+        const index = kv.key_ptr.*;
+
+        if (is_local) {
+            closure.upvalues.append(
+                ctx.vm.captureUpvalue(&(ctx.base[index])) catch @panic("Could not instanciate closure"),
+            ) catch @panic("Could not instanciate closure");
+        } else {
+            closure.upvalues.append(ctx.upvalues[index]) catch @panic("Could not instanciate closure");
+        }
+    }
+
+    return ctx.vm.pop();
 }

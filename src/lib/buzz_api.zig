@@ -65,6 +65,13 @@ pub const VM = opaque {
     pub extern fn bz_setTryCtx(self: *VM) *TryCtx;
     pub extern fn bz_popTryCtx(self: *VM) void;
 
+    pub extern fn bz_getGlobals(closure: Value) [*]Value;
+    pub extern fn bz_getUpValues(closure: Value) [*]*ObjUpValue;
+    pub extern fn bz_closeUpValues(vm: *VM, last: *Value) void;
+    pub extern fn bz_getUpValue(ctx: *NativeCtx, slot: usize) Value;
+    pub extern fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void;
+    pub extern fn bz_closure(ctx: *NativeCtx, function_node: *FunctionNode, native: *anyopaque, native_raw: *anyopaque) Value;
+
     pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
     else if (BuildOptions.use_mimalloc)
@@ -72,6 +79,8 @@ pub const VM = opaque {
     else
         std.heap.c_allocator;
 };
+
+pub const FunctionNode = opaque {};
 
 // FIXME: can we avoid duplicating this code from value.zig?
 const Tag = u3;
@@ -188,7 +197,7 @@ pub const Value = packed struct {
 
     pub extern fn bz_valueIsBuzzFn(value: Value) bool;
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
-    pub extern fn bz_valueToRawNativeFn(value: Value) *anyopaque;
+    pub extern fn bz_valueToExternRawNativeFn(value: Value) *anyopaque;
     pub extern fn bz_valueEqual(self: Value, other: Value) Value;
     pub extern fn bz_valueIs(self: Value, type_def: Value) Value;
 };

@@ -3437,8 +3437,8 @@ pub const VM = struct {
         if (!BuildOptions.jit_off) {
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (self.jit.shouldlJitFunction(closure)) {
-                try self.jit.jitFunction(closure);
+            if (self.jit.shouldCompileFunction(closure)) {
+                try self.jit.compileFunction(closure);
 
                 native = closure.function.native;
             }
@@ -3713,7 +3713,7 @@ pub const VM = struct {
         }
     }
 
-    fn closeUpValues(self: *Self, last: *Value) void {
+    pub fn closeUpValues(self: *Self, last: *Value) void {
         while (self.current_fiber.open_upvalues != null and @ptrToInt(self.current_fiber.open_upvalues.?.location) >= @ptrToInt(last)) {
             var upvalue: *ObjUpValue = self.current_fiber.open_upvalues.?;
             upvalue.closed = upvalue.location.*;
@@ -3722,7 +3722,7 @@ pub const VM = struct {
         }
     }
 
-    fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
+    pub fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
         var prev_upvalue: ?*ObjUpValue = null;
         var upvalue: ?*ObjUpValue = self.current_fiber.open_upvalues;
         while (upvalue != null and @ptrToInt(upvalue.?.location) > @ptrToInt(local)) {

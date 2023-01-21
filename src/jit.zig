@@ -105,7 +105,8 @@ pub const ExternApi = enum {
 
     bz_push,
     bz_peek,
-    bz_valueToRawNativeFn,
+    bz_valueToExternRawNativeFn,
+    bz_valueToRawNative,
     bz_objStringConcat,
     bz_toString,
     bz_newList,
@@ -125,6 +126,12 @@ pub const ExternApi = enum {
     bz_popTryCtx,
     bz_rethrow,
     bz_throw,
+    bz_closeUpValues,
+    bz_getUpValue,
+    bz_setUpValue,
+    bz_getUpValues,
+    bz_getGlobals,
+    bz_closure,
     globals,
 
     // https://opensource.apple.com/source/libplatform/libplatform-161/include/setjmp.h.auto.html
@@ -142,7 +149,8 @@ pub const ExternApi = enum {
 
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
-            .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
+            .bz_valueToExternRawNativeFn => "bz_valueToExternRawNativeFn",
+            .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
@@ -162,6 +170,12 @@ pub const ExternApi = enum {
             .bz_popTryCtx => "bz_popTryCtx",
             .bz_rethrow => "bz_rethrow",
             .bz_throw => "bz_throw",
+            .bz_closeUpValues => "bz_closeUpValues",
+            .bz_getUpValue => "bz_getUpValue",
+            .bz_setUpValue => "bz_setUpValue",
+            .bz_getUpValues => "bz_getUpValues",
+            .bz_getGlobals => "bz_getGlobals",
+            .bz_closure => "bz_closure",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -178,7 +192,8 @@ pub const ExternApi = enum {
 
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
-            .bz_valueToRawNativeFn => "bz_valueToRawNativeFn",
+            .bz_valueToExternRawNativeFn => "bz_valueToExternRawNativeFn",
+            .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
@@ -198,6 +213,12 @@ pub const ExternApi = enum {
             .bz_popTryCtx => "bz_popTryCtx",
             .bz_rethrow => "bz_rethrow",
             .bz_throw => "bz_throw",
+            .bz_getUpValue => "bz_getUpValue",
+            .bz_setUpValue => "bz_setUpValue",
+            .bz_closeUpValues => "bz_closeUpValues",
+            .bz_getUpValues => "bz_getUpValues",
+            .bz_getGlobals => "bz_getGlobals",
+            .bz_closure => "bz_closure",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -367,7 +388,7 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
-            .bz_valueToRawNativeFn => l.functionType(
+            .bz_valueToExternRawNativeFn, .bz_valueToRawNative => l.functionType(
                 ptr_type,
                 &[_]*l.Type{self.context.getContext().intType(64)},
                 1,
@@ -553,6 +574,67 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
+            .bz_getUpValue => l.functionType(
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                    self.context.getContext().intType(64),
+                },
+                2,
+                .False,
+            ),
+            .bz_setUpValue => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                    self.context.getContext().intType(64),
+                    try self.lowerExternApi(.value),
+                },
+                3,
+                .False,
+            ),
+            .bz_closeUpValues => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                    // payload
+                    (try self.lowerExternApi(.value)).pointerType(0),
+                },
+                2,
+                .False,
+            ),
+            .bz_getUpValues => l.functionType(
+                self.context.getContext().pointerType(0),
+                &[_]*l.Type{
+                    try self.lowerExternApi(.value),
+                },
+                1,
+                .False,
+            ),
+            .bz_getGlobals => l.functionType(
+                (try self.lowerExternApi(.value)).pointerType(0),
+                &[_]*l.Type{
+                    try self.lowerExternApi(.value),
+                },
+                1,
+                .False,
+            ),
+            .bz_closure => l.functionType(
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    // NativeCtx
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                    // function
+                    self.context.getContext().pointerType(0),
+                    // native
+                    self.context.getContext().pointerType(0),
+                    // native_raw
+                    self.context.getContext().pointerType(0),
+                },
+                4,
+                .False,
+            ),
             .setjmp => l.functionType(
                 self.context.getContext().intType(@sizeOf(c_int)),
                 &[_]*l.Type{
@@ -612,11 +694,12 @@ pub const JIT = struct {
         return lowered;
     }
 
-    fn declareBuzzApi(self: *Self) !void {
+    fn declareExternApi(self: *Self) !void {
         for ([_]ExternApi{
             .bz_peek,
             .bz_push,
-            .bz_valueToRawNativeFn,
+            .bz_valueToExternRawNativeFn,
+            .bz_valueToRawNative,
             .bz_objStringConcat,
             .bz_toString,
             .bz_newList,
@@ -636,6 +719,12 @@ pub const JIT = struct {
             .bz_popTryCtx,
             .bz_rethrow,
             .bz_throw,
+            .bz_closeUpValues,
+            .bz_getUpValue,
+            .bz_setUpValue,
+            .bz_getUpValues,
+            .bz_getGlobals,
+            .bz_closure,
             .setjmp,
         }) |method| {
             _ = self.state.?.module.addFunction(
@@ -668,7 +757,7 @@ pub const JIT = struct {
         return self.vm_constant.?;
     }
 
-    pub fn jitNative(self: *Self, native: *ObjNative) VM.Error!*anyopaque {
+    pub fn compileNativeFn(self: *Self, native: *ObjNative) VM.Error!*anyopaque {
         const name = self.vm.gc.allocator.dupeZ(u8, native.name);
         defer self.vm.gc.allocator.free(name);
 
@@ -697,10 +786,10 @@ pub const JIT = struct {
         return @intToPtr(*anyopaque, fun_addr);
     }
 
-    pub fn shouldlJitFunction(self: *Self, closure: *ObjClosure) bool {
+    pub fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
-        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .Anonymous or function_type == .EntryPoint) {
+        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint) {
             return false;
         }
 
@@ -710,7 +799,7 @@ pub const JIT = struct {
             (closure.function.call_count / self.call_count) == BuildOptions.jit_prof_threshold;
     }
 
-    pub fn jitFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
+    pub fn compileFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
         const previous_state = self.state;
 
         var module = l.Module.createWithName("buzz-jit", self.context.getContext());
@@ -724,8 +813,7 @@ pub const JIT = struct {
             .builder = self.context.getContext().createBuilder(),
         };
 
-        // TODO: do it once in its own module?
-        self.declareBuzzApi() catch @panic("Could not declare buzz api into LLVM module");
+        self.declareExternApi() catch @panic("Could not declare buzz api into LLVM module");
 
         self.state.?.closure = closure;
         const function = closure.function;
@@ -744,17 +832,8 @@ pub const JIT = struct {
         );
         defer qualified_name_raw.deinit();
 
-        if (BuildOptions.debug) {
-            var out = std.ArrayList(u8).init(self.vm.gc.allocator);
-            defer out.deinit();
-
-            try function_node.node.toJson(&function_node.node, &out.writer());
-
-            std.io.getStdOut().writer().print("\n{s}", .{out.items}) catch unreachable;
-        }
-
         if (BuildOptions.jit_debug) {
-            std.debug.print("JITting function `{s}`\n", .{qualified_name.items});
+            std.debug.print("Compiling function `{s}`\n", .{qualified_name.items});
         }
 
         _ = try self.generateNode(function_node.toNode());
@@ -767,14 +846,30 @@ pub const JIT = struct {
             std.debug.print("\n{s}\n", .{error_message});
 
             if (BuildOptions.jit_debug) {
-                _ = self.state.?.module.printModuleToFile("./out.bc", &error_message);
+                const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
+                var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
+                defer filename.deinit();
+                filename.writer().print("./out-{s}.bc", .{simple_name}) catch unreachable;
+
+                _ = self.state.?.module.printModuleToFile(
+                    self.vm.gc.allocator.dupeZ(u8, filename.items) catch unreachable,
+                    &error_message,
+                );
             }
 
             @panic("LLVM module verification failed");
         }
 
         if (BuildOptions.jit_debug) {
-            _ = self.state.?.module.printModuleToFile("./out.bc", &error_message);
+            const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
+            var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
+            defer filename.deinit();
+            filename.writer().print("./out-{s}.bc", .{simple_name}) catch unreachable;
+
+            _ = self.state.?.module.printModuleToFile(
+                self.vm.gc.allocator.dupeZ(u8, filename.items) catch unreachable,
+                &error_message,
+            );
         }
 
         // Add module to LLJIT
@@ -802,11 +897,11 @@ pub const JIT = struct {
             @panic("Could find script symbol in module loaded in LLJIT");
         }
 
-        // self.state.?.deinit();
-        self.state = previous_state;
-
         closure.function.native = @intToPtr(*anyopaque, fun_addr);
         closure.function.native_raw = @intToPtr(*anyopaque, fun_addr_raw);
+
+        // self.state.?.deinit();
+        self.state = previous_state;
     }
 
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
@@ -931,7 +1026,7 @@ pub const JIT = struct {
         if (node.ends_scope) |closing| {
             for (closing.items) |op| {
                 if (op == .OP_CLOSE_UPVALUE) {
-                    unreachable;
+                    try self.buildCloseUpValues();
                 } else if (op == .OP_POP) {
                     _ = self.state.?.current.?.locals.pop();
                     _ = try self.buildPop();
@@ -1021,7 +1116,7 @@ pub const JIT = struct {
 
                     // Does it need to be compiled?
                     if (closure.function.native == null) {
-                        try self.jitFunction(closure);
+                        try self.compileFunction(closure);
 
                         // Declare it in this module
                         return self.state.?.module.addFunction(
@@ -1050,7 +1145,32 @@ pub const JIT = struct {
 
                 break :local try self.buildGetLocal(named_variable_node.slot);
             },
-            .UpValue => unreachable,
+            .UpValue => upvalue: {
+                if (named_variable_node.value) |value| {
+                    break :upvalue try self.buildExternApiCall(
+                        .bz_setUpValue,
+                        &[_]*l.Value{
+                            self.state.?.current.?.function.?.getParam(0),
+                            self.context.getContext().intType(64).constInt(
+                                named_variable_node.slot,
+                                .False,
+                            ),
+                            (try self.generateNode(value)).?,
+                        },
+                    );
+                }
+
+                break :upvalue try self.buildExternApiCall(
+                    .bz_getUpValue,
+                    &[_]*l.Value{
+                        self.state.?.current.?.function.?.getParam(0),
+                        self.context.getContext().intType(64).constInt(
+                            named_variable_node.slot,
+                            .False,
+                        ),
+                    },
+                );
+            },
         };
     }
 
@@ -1160,9 +1280,21 @@ pub const JIT = struct {
         defer arguments.deinit();
 
         // first arg is ctx
-        try arguments.append(self.state.?.current.?.function.?.getParam(0));
+        try arguments.append(
+            if (function_type != .Extern)
+                try self.buildNativeCtx(
+                    self.state.?.current.?.function.?.getParam(0),
+                    function_type_def.resolved_type.?.Function.parameters.count(),
+                    if (function_type == .Anonymous)
+                        callee
+                    else
+                        null,
+                )
+            else
+                self.state.?.current.?.function.?.getParam(0),
+        );
 
-        // if invoked, first actual arg is this
+        // if invoked, first actual arg is `this`
         if (invoked_on != null) {
             try arguments.append(subject.?);
         }
@@ -1172,19 +1304,22 @@ pub const JIT = struct {
             try arguments.append((try self.generateNode(kv.value_ptr.*)).?);
         }
 
-        if (function_type == .Anonymous) {
-            // TODO: bz_call
-            unreachable;
-        }
-
         // If extern, extract pointer to its raw function
         if (function_type == .Extern) {
+            // TODO: declare it in LLVM and call that?
             callee = try self.buildExternApiCall(
-                .bz_valueToRawNativeFn,
+                .bz_valueToExternRawNativeFn,
+                &[_]*l.Value{callee},
+            );
+        } else if (function_type == .Anonymous) {
+            // Extract function from closure
+            callee = try self.buildExternApiCall(
+                .bz_valueToRawNative,
                 &[_]*l.Value{callee},
             );
         }
 
+        // Regular function, just call it
         return self.state.?.builder.buildCall(
             try self.lowerFunctionType(function_type_def, invoked_on != null),
             callee,
@@ -2169,6 +2304,9 @@ pub const JIT = struct {
     fn generateFunction(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
         const node = &function_node.node;
 
+        const function_def = function_node.node.type_def.?.resolved_type.?.Function;
+        const function_type = function_def.function_type;
+
         var enclosing = self.state.?.current;
         self.state.?.current = try self.vm.gc.allocator.create(Frame);
         self.state.?.current.?.* = Frame{
@@ -2177,11 +2315,8 @@ pub const JIT = struct {
             .locals = std.ArrayList(*l.Value).init(self.vm.gc.allocator),
         };
 
-        const function_def = function_node.node.type_def.?.resolved_type.?.Function;
-        const function_type = function_def.function_type;
-
-        // Those are not allowed to be jitted
-        assert(function_type != .Extern and function_type != .Anonymous and function_type != .Script and function_type != .ScriptEntryPoint);
+        // Those are not allowed to be compiled
+        assert(function_type != .Extern and function_type != .Script and function_type != .ScriptEntryPoint);
 
         const ret_type = try self.lowerType(node.type_def.?);
 
@@ -2212,7 +2347,7 @@ pub const JIT = struct {
         // First arg is reserved for an eventual `this` or cli arguments
         _ = switch (function_type) {
             .Method => unreachable, // this
-            .Extern, .Anonymous, .EntryPoint, .ScriptEntryPoint => unreachable, // those are not allowed here
+            .Extern, .EntryPoint, .ScriptEntryPoint => unreachable, // those are not allowed here
             else => try self.buildSetLocal(
                 0,
                 (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
@@ -2245,10 +2380,8 @@ pub const JIT = struct {
             );
         }
 
-        // TODO: upvalues? closures?
-
         // Add the NativeFn version of the function
-        try self.generateNativeFn(
+        const native_fn = try self.generateNativeFn(
             function_node,
             function,
             ret_type,
@@ -2258,6 +2391,28 @@ pub const JIT = struct {
         self.state.?.current = self.state.?.current.?.enclosing;
         if (self.state.?.current != null and self.state.?.current.?.block != null) {
             self.state.?.builder.positionBuilderAtEnd(self.state.?.current.?.block.?);
+        }
+
+        // Lambda function, need to create an ObjClosure
+        // Regular function actually don't need closures since their *upvalues* are globals
+        if (function_type == .Anonymous) {
+            // Call bz_closure
+            return try self.buildExternApiCall(
+                .bz_closure,
+                &[_]*l.Value{
+                    self.state.?.current.?.function.?.getParam(0),
+                    self.state.?.builder.buildIntToPtr(
+                        self.context.getContext().intType(64).constInt(
+                            @ptrToInt(function_node),
+                            .False,
+                        ),
+                        self.context.getContext().pointerType(0),
+                        "",
+                    ),
+                    native_fn,
+                    function,
+                },
+            );
         }
 
         return function;
@@ -2406,6 +2561,14 @@ pub const JIT = struct {
             (try self.lowerExternApi(.value)).pointerType(0),
             base_top_field_ptr,
             "base_top_ptr",
+        );
+
+        _ = try self.buildExternApiCall(
+            .bz_closeUpValues,
+            &[_]*l.Value{
+                self.vmConstant(),
+                base_top_ptr,
+            },
         );
 
         // Get stack_top
@@ -2700,7 +2863,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *l.Value, ret_type: *l.Type) !void {
+    fn generateNativeFn(self: *Self, function_node: *FunctionNode, raw_fn: *l.Value, ret_type: *l.Type) !*l.Value {
         const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
 
@@ -2829,5 +2992,193 @@ pub const JIT = struct {
                 .True,
             ),
         );
+
+        return native_fn;
+    }
+
+    fn buildCloseUpValues(self: *Self) !void {
+        // Get stack_top
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.state.?.current.?.function.?.getParam(0),
+            4,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        _ = try self.buildExternApiCall(
+            .bz_closeUpValues,
+            &[_]*l.Value{
+                self.vmConstant(),
+                self.state.?.builder.buildInBoundsGEP(
+                    try self.lowerExternApi(.value),
+                    stack_top,
+                    &[_]*l.Value{
+                        self.context.getContext().intType(64).constInt(
+                            @bitCast(c_ulonglong, @as(i64, -1)),
+                            .True,
+                        ),
+                    },
+                    1,
+                    "slot",
+                ),
+            },
+        );
+    }
+
+    fn buildNativeCtx(self: *Self, old_ctx: *l.Value, arg_count: usize, closure: ?*l.Value) !*l.Value {
+        const ctx_type = try self.lowerExternApi(.nativectx);
+
+        // Create new NativeCtx
+        const new_ctx = self.state.?.builder.buildAlloca(ctx_type, "new_ctx");
+
+        // Copy vm ptr
+        _ = self.state.?.builder.buildStore(
+            self.state.?.builder.buildLoad(
+                self.context.getContext().pointerType(0),
+                self.state.?.builder.buildStructGEP(
+                    ctx_type,
+                    old_ctx,
+                    0,
+                    "",
+                ),
+                "old_vm",
+            ),
+            self.state.?.builder.buildStructGEP(
+                ctx_type,
+                new_ctx,
+                0,
+                "new_vm",
+            ),
+        );
+
+        const stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            self.state.?.builder.buildStructGEP(
+                ctx_type,
+                old_ctx,
+                4,
+                "",
+            ),
+            "old_stack_top",
+        );
+
+        // Copy stack top
+        _ = self.state.?.builder.buildStore(
+            stack_top,
+            self.state.?.builder.buildStructGEP(
+                ctx_type,
+                new_ctx,
+                4,
+                "new_stack_top",
+            ),
+        );
+
+        // Set the new base
+        _ = self.state.?.builder.buildStore(
+            self.state.?.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(
+                        @bitCast(c_ulonglong, -@intCast(i64, arg_count) - 1),
+                        .True,
+                    ),
+                },
+                1,
+                "new_top",
+            ),
+            self.state.?.builder.buildStructGEP(
+                ctx_type,
+                new_ctx,
+                3,
+                "new_base",
+            ),
+        );
+
+        // If closure, extract upvalues from it and set it in the ctx
+        if (closure) |uclosure| {
+            // Extract upvalues
+            const upvalues = try self.buildExternApiCall(
+                .bz_getUpValues,
+                &[_]*l.Value{
+                    uclosure,
+                },
+            );
+
+            // Store them in nativectx
+            _ = self.state.?.builder.buildStore(
+                upvalues,
+                self.state.?.builder.buildStructGEP(
+                    ctx_type,
+                    new_ctx,
+                    2,
+                    "new_upvalues",
+                ),
+            );
+
+            // Extract globals
+            const globals = try self.buildExternApiCall(
+                .bz_getGlobals,
+                &[_]*l.Value{
+                    uclosure,
+                },
+            );
+
+            // Store them in nativectx
+            _ = self.state.?.builder.buildStore(
+                globals,
+                self.state.?.builder.buildStructGEP(
+                    ctx_type,
+                    new_ctx,
+                    1,
+                    "new_globals",
+                ),
+            );
+        } else {
+            // Copy globals
+            _ = self.state.?.builder.buildStore(
+                self.state.?.builder.buildLoad(
+                    self.context.getContext().pointerType(0),
+                    self.state.?.builder.buildStructGEP(
+                        ctx_type,
+                        old_ctx,
+                        1,
+                        "",
+                    ),
+                    "old_globals",
+                ),
+                self.state.?.builder.buildStructGEP(
+                    ctx_type,
+                    new_ctx,
+                    1,
+                    "new_globals",
+                ),
+            );
+
+            // Otherwise left it empty
+            _ = self.state.?.builder.buildStore(
+                self.context.getContext().pointerType(0).constNull(),
+                self.state.?.builder.buildStructGEP(
+                    ctx_type,
+                    new_ctx,
+                    2,
+                    "new_upvalues",
+                ),
+            );
+        }
+
+        return new_ctx;
     }
 };

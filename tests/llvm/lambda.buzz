@@ -1,0 +1,13 @@
+import "lib/std";
+
+fun lambda() > Function() > void {
+    str upvalue = "hello";
+
+    return fun () -> print("hey upvalue is: {upvalue}");
+}
+
+test "Lambda" {
+    Function() > void l = lambda();
+    print("calling it...");
+    l();
+}
