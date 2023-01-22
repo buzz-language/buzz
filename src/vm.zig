@@ -77,6 +77,7 @@ pub const CallFrame = struct {
 pub const TryCtx = extern struct {
     previous: ?*TryCtx,
     env: jmp.jmp_buf = undefined,
+    // FIXME: remember top here
 };
 
 pub const Fiber = struct {
@@ -3734,7 +3735,10 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *ObjUpValue = try self.gc.allocateObject(ObjUpValue, ObjUpValue.init(local));
+        var created_upvalue: *ObjUpValue = try self.gc.allocateObject(
+            ObjUpValue,
+            ObjUpValue.init(local),
+        );
         created_upvalue.next = upvalue;
 
         if (prev_upvalue) |uprev_upvalue| {

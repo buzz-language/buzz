@@ -132,6 +132,7 @@ pub const ExternApi = enum {
     bz_getUpValues,
     bz_getGlobals,
     bz_closure,
+    bz_context,
     globals,
 
     // https://opensource.apple.com/source/libplatform/libplatform-161/include/setjmp.h.auto.html
@@ -176,6 +177,7 @@ pub const ExternApi = enum {
             .bz_getUpValues => "bz_getUpValues",
             .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
+            .bz_context => "bz_context",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -219,6 +221,7 @@ pub const ExternApi = enum {
             .bz_getUpValues => "bz_getUpValues",
             .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
+            .bz_context => "bz_context",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -635,6 +638,20 @@ pub const JIT = struct {
                 4,
                 .False,
             ),
+            .bz_context => l.functionType(
+                // ptr to raw fn
+                self.context.getContext().pointerType(0),
+                &[_]*l.Type{
+                    // NativeCtx
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                    // function
+                    try self.lowerExternApi(.value),
+                    // new NativeCtx
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                },
+                3,
+                .False,
+            ),
             .setjmp => l.functionType(
                 self.context.getContext().intType(@sizeOf(c_int)),
                 &[_]*l.Type{
@@ -725,6 +742,7 @@ pub const JIT = struct {
             .bz_getUpValues,
             .bz_getGlobals,
             .bz_closure,
+            .bz_context,
             .setjmp,
         }) |method| {
             _ = self.state.?.module.addFunction(
@@ -1105,31 +1123,29 @@ pub const JIT = struct {
                     // Get the actual Value as it is right now (which is correct since a function doesn't change)
                     const closure = ObjClosure.cast(self.state.?.closure.?.globals.items[named_variable_node.slot].obj()).?;
 
-                    const qualified_name = try self.getFunctionQualifiedName(
-                        @ptrCast(
-                            *FunctionNode,
-                            @alignCast(@alignOf(FunctionNode), closure.function.node),
-                        ),
-                        true,
-                    );
-                    defer qualified_name.deinit();
-
                     // Does it need to be compiled?
                     if (closure.function.native == null) {
+                        const qualified_name = try self.getFunctionQualifiedName(
+                            @ptrCast(
+                                *FunctionNode,
+                                @alignCast(@alignOf(FunctionNode), closure.function.node),
+                            ),
+                            true,
+                        );
+                        defer qualified_name.deinit();
+
                         try self.compileFunction(closure);
 
                         // Declare it in this module
-                        return self.state.?.module.addFunction(
+                        _ = self.state.?.module.addFunction(
                             @ptrCast([*:0]const u8, qualified_name.items),
                             try self.lowerType(closure.function.type_def),
                         );
                     }
 
-                    break :global self.state.?.module.getNamedFunction(
-                        @ptrCast(
-                            [*:0]const u8,
-                            qualified_name.items.ptr,
-                        ),
+                    break :global self.context.getContext().intType(64).constInt(
+                        closure.toValue().val,
+                        .False,
                     );
                 } else {
                     break :global try self.buildGetGlobal(named_variable_node.slot);
@@ -1280,19 +1296,28 @@ pub const JIT = struct {
         defer arguments.deinit();
 
         // first arg is ctx
-        try arguments.append(
-            if (function_type != .Extern)
-                try self.buildNativeCtx(
+
+        if (function_type != .Extern) {
+            const new_ctx = self.state.?.builder.buildAlloca(
+                try self.lowerExternApi(.nativectx),
+                "new_ctx",
+            );
+
+            callee = try self.buildExternApiCall(
+                .bz_context,
+                &[_]*l.Value{
                     self.state.?.current.?.function.?.getParam(0),
-                    function_type_def.resolved_type.?.Function.parameters.count(),
-                    if (function_type == .Anonymous)
-                        callee
-                    else
-                        null,
-                )
-            else
+                    callee,
+                    new_ctx,
+                },
+            );
+
+            try arguments.append(new_ctx);
+        } else {
+            try arguments.append(
                 self.state.?.current.?.function.?.getParam(0),
-        );
+            );
+        }
 
         // if invoked, first actual arg is `this`
         if (invoked_on != null) {
@@ -1309,12 +1334,6 @@ pub const JIT = struct {
             // TODO: declare it in LLVM and call that?
             callee = try self.buildExternApiCall(
                 .bz_valueToExternRawNativeFn,
-                &[_]*l.Value{callee},
-            );
-        } else if (function_type == .Anonymous) {
-            // Extract function from closure
-            callee = try self.buildExternApiCall(
-                .bz_valueToRawNative,
                 &[_]*l.Value{callee},
             );
         }
@@ -2273,7 +2292,6 @@ pub const JIT = struct {
         );
     }
 
-    // FIXME: multiple function can be defined at the same depth, so increment an id
     fn getFunctionQualifiedName(self: *Self, function_node: *FunctionNode, raw: bool) !std.ArrayList(u8) {
         const function_def = function_node.node.type_def.?.resolved_type.?.Function;
         const function_type = function_def.function_type;
@@ -2547,8 +2565,6 @@ pub const JIT = struct {
     }
 
     fn buildReturn(self: *Self, value: *l.Value) !*l.Value {
-        // TODO: close upvalues
-
         // Get base
         const base_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
@@ -3035,150 +3051,5 @@ pub const JIT = struct {
                 ),
             },
         );
-    }
-
-    fn buildNativeCtx(self: *Self, old_ctx: *l.Value, arg_count: usize, closure: ?*l.Value) !*l.Value {
-        const ctx_type = try self.lowerExternApi(.nativectx);
-
-        // Create new NativeCtx
-        const new_ctx = self.state.?.builder.buildAlloca(ctx_type, "new_ctx");
-
-        // Copy vm ptr
-        _ = self.state.?.builder.buildStore(
-            self.state.?.builder.buildLoad(
-                self.context.getContext().pointerType(0),
-                self.state.?.builder.buildStructGEP(
-                    ctx_type,
-                    old_ctx,
-                    0,
-                    "",
-                ),
-                "old_vm",
-            ),
-            self.state.?.builder.buildStructGEP(
-                ctx_type,
-                new_ctx,
-                0,
-                "new_vm",
-            ),
-        );
-
-        const stack_top = self.state.?.builder.buildLoad(
-            (try self.lowerExternApi(.value)).pointerType(0),
-            self.state.?.builder.buildStructGEP(
-                ctx_type,
-                old_ctx,
-                4,
-                "",
-            ),
-            "old_stack_top",
-        );
-
-        // Copy stack top
-        _ = self.state.?.builder.buildStore(
-            stack_top,
-            self.state.?.builder.buildStructGEP(
-                ctx_type,
-                new_ctx,
-                4,
-                "new_stack_top",
-            ),
-        );
-
-        // Set the new base
-        _ = self.state.?.builder.buildStore(
-            self.state.?.builder.buildInBoundsGEP(
-                try self.lowerExternApi(.value),
-                stack_top,
-                &[_]*l.Value{
-                    self.context.getContext().intType(64).constInt(
-                        @bitCast(c_ulonglong, -@intCast(i64, arg_count) - 1),
-                        .True,
-                    ),
-                },
-                1,
-                "new_top",
-            ),
-            self.state.?.builder.buildStructGEP(
-                ctx_type,
-                new_ctx,
-                3,
-                "new_base",
-            ),
-        );
-
-        // If closure, extract upvalues from it and set it in the ctx
-        if (closure) |uclosure| {
-            // Extract upvalues
-            const upvalues = try self.buildExternApiCall(
-                .bz_getUpValues,
-                &[_]*l.Value{
-                    uclosure,
-                },
-            );
-
-            // Store them in nativectx
-            _ = self.state.?.builder.buildStore(
-                upvalues,
-                self.state.?.builder.buildStructGEP(
-                    ctx_type,
-                    new_ctx,
-                    2,
-                    "new_upvalues",
-                ),
-            );
-
-            // Extract globals
-            const globals = try self.buildExternApiCall(
-                .bz_getGlobals,
-                &[_]*l.Value{
-                    uclosure,
-                },
-            );
-
-            // Store them in nativectx
-            _ = self.state.?.builder.buildStore(
-                globals,
-                self.state.?.builder.buildStructGEP(
-                    ctx_type,
-                    new_ctx,
-                    1,
-                    "new_globals",
-                ),
-            );
-        } else {
-            // Copy globals
-            _ = self.state.?.builder.buildStore(
-                self.state.?.builder.buildLoad(
-                    self.context.getContext().pointerType(0),
-                    self.state.?.builder.buildStructGEP(
-                        ctx_type,
-                        old_ctx,
-                        1,
-                        "",
-                    ),
-                    "old_globals",
-                ),
-                self.state.?.builder.buildStructGEP(
-                    ctx_type,
-                    new_ctx,
-                    1,
-                    "new_globals",
-                ),
-            );
-
-            // Otherwise left it empty
-            _ = self.state.?.builder.buildStore(
-                self.context.getContext().pointerType(0).constNull(),
-                self.state.?.builder.buildStructGEP(
-                    ctx_type,
-                    new_ctx,
-                    2,
-                    "new_upvalues",
-                ),
-            );
-        }
-
-        return new_ctx;
     }
 };

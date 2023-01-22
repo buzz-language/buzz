@@ -742,6 +742,8 @@ export fn bz_popTryCtx(self: *VM) void {
 export fn bz_rethrow(vm: *VM) void {
     // Are we in a JIT compiled function and within a try-catch?
     if (vm.currentFrame().?.in_native_call and vm.current_fiber.try_context != null) {
+        // FIXME: close try scope
+
         if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
             jmp._longjmp(&vm.current_fiber.try_context.?.env, 1);
         } else {
@@ -777,6 +779,20 @@ export fn bz_getUpValues(closure: Value) [*]*ObjUpValue {
 
 export fn bz_getGlobals(closure: Value) [*]Value {
     return ObjClosure.cast(closure.obj()).?.globals.items.ptr;
+}
+
+export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx) *anyopaque {
+    const closure = ObjClosure.cast(closure_value.obj()).?;
+
+    new_ctx.* = NativeCtx{
+        .vm = ctx.vm,
+        .globals = closure.globals.items.ptr,
+        .upvalues = closure.upvalues.items.ptr,
+        .base = ctx.vm.current_fiber.stack_top - closure.function.type_def.resolved_type.?.Function.parameters.count() - 1,
+        .stack_top = &ctx.vm.current_fiber.stack_top,
+    };
+
+    return closure.function.native_raw.?;
 }
 
 export fn bz_closure(

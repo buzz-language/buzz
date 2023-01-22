@@ -7,7 +7,5 @@ fun lambda() > Function() > void {
 }
 
 test "Lambda" {
-    Function() > void l = lambda();
-    print("calling it...");
-    l();
+    lambda()();
 }

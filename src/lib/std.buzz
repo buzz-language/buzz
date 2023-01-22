@@ -1,5 +1,3 @@
-import "lib/os" as os;
-
 || If condition is false print message and exit program
 || @param condition assert condition
 || @param message message printed if `condition` is false
