@@ -72,6 +72,8 @@ pub const VM = opaque {
     pub extern fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void;
     pub extern fn bz_closure(ctx: *NativeCtx, function_node: *FunctionNode, native: *anyopaque, native_raw: *anyopaque) Value;
 
+    pub extern fn bz_dumpStack(vm: *VM) void;
+
     pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
     else if (BuildOptions.use_mimalloc)

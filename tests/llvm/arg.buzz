@@ -1,0 +1,16 @@
+import "lib/std";
+
+
+fun yo(str one, str two) > void {
+    print(one);
+    print(two);
+}
+
+fun sub(str zero) > void {
+    print(zero);
+    yo("lo", two: "mo");
+}
+
+fun main([str] args) > void {
+    sub("hey");
+}

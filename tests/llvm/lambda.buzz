@@ -1,11 +1,11 @@
 import "lib/std";
 
-fun lambda() > Function() > void {
-    str upvalue = "hello";
+fun lambda() > Function(str m) > void {
+    str upvalue = "hello from upvalue";
 
-    return fun () -> print("hey upvalue is: {upvalue}");
+    return fun (str m) -> print("hey upvalue is: {upvalue}, m is {m}");
 }
 
 test "Lambda" {
-    lambda()();
+    lambda()("hello from arg");
 }

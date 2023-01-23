@@ -1448,6 +1448,9 @@ pub const NativeCtx = extern struct {
 pub const Native = fn (ctx: *NativeCtx) c_int;
 pub const NativeFn = *const Native;
 
+pub const Compiled = fn (ctx: *NativeCtx) Value;
+pub const CompiledFn = *const Compiled;
+
 /// Native function
 pub const ObjNative = struct {
     const Self = @This();
@@ -1508,10 +1511,10 @@ pub const ObjFunction = struct {
     // How many time the function was called
     call_count: u128 = 0,
 
-    // Jitted function, since we don't know its signature -> *anyopaque
+    // JIT compiled function
     native_raw: ?*anyopaque = null,
 
-    // Jitted function callable by buzz VM
+    // JIT compiled function callable by buzz VM
     native: ?*anyopaque = null,
 
     pub fn init(allocator: Allocator, node: *FunctionNode, name: *ObjString) !Self {

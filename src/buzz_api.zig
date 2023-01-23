@@ -11,6 +11,7 @@ const _codegen = @import("./codegen.zig");
 const BuildOptions = @import("build_options");
 const jmp = @import("jmp.zig").jmp;
 const FunctionNode = @import("./node.zig").FunctionNode;
+const dumpStack = @import("./disassembler.zig").dumpStack;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -844,4 +845,10 @@ export fn bz_closure(
     }
 
     return ctx.vm.pop();
+}
+
+export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
+    std.debug.print("base is {}\n", .{@ptrToInt(ctx.base)});
+    std.debug.print("#{}:\n", .{off});
+    dumpStack(ctx.vm) catch unreachable;
 }

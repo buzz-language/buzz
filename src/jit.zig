@@ -93,8 +93,6 @@ pub const Frame = struct {
     break_block: ?*l.BasicBlock = null,
     // Block to jump to when continuing a loop
     continue_block: ?*l.BasicBlock = null,
-
-    locals: std.ArrayList(*l.Value),
 };
 
 pub const ExternApi = enum {
@@ -134,6 +132,8 @@ pub const ExternApi = enum {
     bz_closure,
     bz_context,
     globals,
+
+    bz_dumpStack,
 
     // https://opensource.apple.com/source/libplatform/libplatform-161/include/setjmp.h.auto.html
     jmp_buf,
@@ -181,6 +181,8 @@ pub const ExternApi = enum {
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
+
+            .bz_dumpStack => "bz_dumpStack",
         };
     }
 
@@ -225,6 +227,8 @@ pub const ExternApi = enum {
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
+
+            .bz_dumpStack => "bz_dumpStack",
         };
     }
 };
@@ -301,34 +305,6 @@ pub const JIT = struct {
         }
     }
 
-    fn lowerFunctionType(self: *Self, obj_typedef: *ObjTypeDef, invoked: bool) VM.Error!*l.Type {
-        const function_type = obj_typedef.resolved_type.?.Function;
-
-        // TODO yield_type
-        var param_types = std.ArrayList(*l.Type).init(self.vm.gc.allocator);
-        defer param_types.deinit();
-
-        try param_types.append(
-            (try self.lowerExternApi(.nativectx)).pointerType(0),
-        );
-
-        if (invoked) {
-            try param_types.append(try self.lowerExternApi(.value));
-        }
-
-        var it = function_type.parameters.iterator();
-        while (it.next()) |kv| {
-            try param_types.append(try self.lowerType(kv.value_ptr.*));
-        }
-
-        return l.functionType(
-            try self.lowerExternApi(.value),
-            param_types.items.ptr,
-            @intCast(c_uint, param_types.items.len),
-            .False,
-        );
-    }
-
     fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
         var lowered = self.lowered_types.get(obj_typedef);
 
@@ -353,7 +329,14 @@ pub const JIT = struct {
             .UserData,
             => self.context.getContext().intType(64),
 
-            .Function => try self.lowerFunctionType(obj_typedef, false),
+            .Function => l.functionType(
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                },
+                1,
+                .False,
+            ),
 
             // No runtime representation
             .Protocol,
@@ -661,6 +644,15 @@ pub const JIT = struct {
                 1,
                 .False,
             ),
+            .bz_dumpStack => l.functionType(
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    (try self.lowerExternApi(.nativectx)).pointerType(0),
+                    self.context.getContext().intType(64),
+                },
+                2,
+                .False,
+            ),
             .nativefn => l.functionType(
                 self.context.getContext().intType(8),
                 &[_]*l.Type{
@@ -744,6 +736,7 @@ pub const JIT = struct {
             .bz_closure,
             .bz_context,
             .setjmp,
+            .bz_dumpStack,
         }) |method| {
             _ = self.state.?.module.addFunction(
                 @ptrCast([*:0]const u8, method.name()),
@@ -759,6 +752,19 @@ pub const JIT = struct {
             args.ptr,
             @intCast(c_uint, args.len),
             "",
+        );
+    }
+
+    fn buildDumpStack(self: *Self, off: usize) !void {
+        _ = try self.buildExternApiCall(
+            .bz_dumpStack,
+            &[_]*l.Value{
+                self.state.?.current.?.function.?.getParam(0),
+                self.context.getContext().intType(64).constInt(
+                    off,
+                    .False,
+                ),
+            },
         );
     }
 
@@ -867,7 +873,7 @@ pub const JIT = struct {
                 const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
                 var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
                 defer filename.deinit();
-                filename.writer().print("./out-{s}.bc", .{simple_name}) catch unreachable;
+                filename.writer().print("./dist/out-{s}.bc", .{simple_name}) catch unreachable;
 
                 _ = self.state.?.module.printModuleToFile(
                     self.vm.gc.allocator.dupeZ(u8, filename.items) catch unreachable,
@@ -882,7 +888,7 @@ pub const JIT = struct {
             const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
             var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
             defer filename.deinit();
-            filename.writer().print("./out-{s}.bc", .{simple_name}) catch unreachable;
+            filename.writer().print("./dist/out-{s}.bc", .{simple_name}) catch unreachable;
 
             _ = self.state.?.module.printModuleToFile(
                 self.vm.gc.allocator.dupeZ(u8, filename.items) catch unreachable,
@@ -1046,7 +1052,6 @@ pub const JIT = struct {
                 if (op == .OP_CLOSE_UPVALUE) {
                     try self.buildCloseUpValues();
                 } else if (op == .OP_POP) {
-                    _ = self.state.?.current.?.locals.pop();
                     _ = try self.buildPop();
                 } else {
                     unreachable;
@@ -1292,13 +1297,28 @@ pub const JIT = struct {
             unreachable;
         }
 
-        var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
-        defer arguments.deinit();
+        // Push args on the stack
 
-        // first arg is ctx
+        // if invoked, first arg is `this`
+        if (invoked_on != null) {
+            _ = try self.buildPush(subject.?);
+        } else if (function_type != .Extern) {
+            _ = try self.buildPush(
+                self.context.getContext().intType(64).constInt(
+                    Value.Void.val,
+                    .False,
+                ),
+            );
+        }
 
+        var it = call_node.arguments.iterator();
+        while (it.next()) |kv| {
+            _ = try self.buildPush((try self.generateNode(kv.value_ptr.*)).?);
+        }
+
+        var new_ctx: *l.Value = self.state.?.current.?.function.?.getParam(0);
         if (function_type != .Extern) {
-            const new_ctx = self.state.?.builder.buildAlloca(
+            new_ctx = self.state.?.builder.buildAlloca(
                 try self.lowerExternApi(.nativectx),
                 "new_ctx",
             );
@@ -1311,22 +1331,6 @@ pub const JIT = struct {
                     new_ctx,
                 },
             );
-
-            try arguments.append(new_ctx);
-        } else {
-            try arguments.append(
-                self.state.?.current.?.function.?.getParam(0),
-            );
-        }
-
-        // if invoked, first actual arg is `this`
-        if (invoked_on != null) {
-            try arguments.append(subject.?);
-        }
-
-        var it = call_node.arguments.iterator();
-        while (it.next()) |kv| {
-            try arguments.append((try self.generateNode(kv.value_ptr.*)).?);
         }
 
         // If extern, extract pointer to its raw function
@@ -1339,12 +1343,91 @@ pub const JIT = struct {
         }
 
         // Regular function, just call it
-        return self.state.?.builder.buildCall(
-            try self.lowerFunctionType(function_type_def, invoked_on != null),
+        const result = self.state.?.builder.buildCall(
+            try self.lowerType(function_type_def),
             callee,
-            @ptrCast([*]*l.Value, arguments.items.ptr),
-            @intCast(c_uint, arguments.items.len),
+            &[_]*l.Value{new_ctx},
+            1,
             "",
+        );
+
+        if (function_type == .Extern) {
+            try self.generateExternReturn(result, call_node.arguments.count());
+        }
+
+        return result;
+    }
+
+    // Handle Extern call like VM.callNative does
+    fn generateExternReturn(self: *Self, result: *l.Value, arg_count: usize) !void {
+        const has_error = self.state.?.builder.buildICmp(
+            .EQ,
+            result,
+            self.context.getContext().intType(64).constInt(
+                @bitCast(c_ulonglong, @as(i64, -1)),
+                .True,
+            ),
+            "has_error",
+        );
+
+        const no_error_block = self.context.getContext().createBasicBlock("no_error");
+        const error_block = self.context.getContext().createBasicBlock("error_block");
+
+        _ = self.state.?.builder.buildCondBr(
+            has_error,
+            error_block,
+            no_error_block,
+        );
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(error_block);
+        self.state.?.builder.positionBuilderAtEnd(error_block);
+        self.state.?.current.?.block = error_block;
+
+        // if result == -1, handle error
+        // TODO
+        _ = self.state.?.builder.buildUnreachable();
+
+        // If result == 1 or 0, reset stack
+        self.state.?.current.?.function.?.appendExistingBasicBlock(no_error_block);
+        self.state.?.builder.positionBuilderAtEnd(no_error_block);
+        self.state.?.current.?.block = no_error_block;
+
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.state.?.current.?.function.?.getParam(0),
+            4,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        // Reset stack
+        _ = self.state.?.builder.buildStore(
+            // Get element one alignment after stack_top
+            self.state.?.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(
+                        // Not -1, because Extern function never have a `this` argument and we don't have the constraint that the VM has
+                        @bitCast(c_ulonglong, -@intCast(i64, arg_count)),
+                        .True,
+                    ),
+                },
+                1,
+                "new_top",
+            ),
+            stack_top_ptr,
         );
     }
 
@@ -2122,8 +2205,8 @@ pub const JIT = struct {
                 },
             );
 
-            // Create payload local
-            _ = try self.buildAddLocal(payload);
+            // Push payload
+            _ = try self.buildPush(payload);
 
             const matches = self.unwrap(
                 .Bool,
@@ -2275,13 +2358,10 @@ pub const JIT = struct {
     }
 
     fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*l.Value {
-        _ = try self.lowerType(var_declaration_node.type_def);
-
         // We should only declare locals
         assert(var_declaration_node.slot_type == .Local);
 
-        return try self.buildSetLocal(
-            var_declaration_node.slot,
+        return try self.buildPush(
             if (var_declaration_node.value) |value|
                 (try self.generateNode(value)).?
             else
@@ -2330,7 +2410,6 @@ pub const JIT = struct {
         self.state.?.current.?.* = Frame{
             .enclosing = enclosing,
             .function_node = function_node,
-            .locals = std.ArrayList(*l.Value).init(self.vm.gc.allocator),
         };
 
         // Those are not allowed to be compiled
@@ -2362,26 +2441,6 @@ pub const JIT = struct {
         self.state.?.builder.positionBuilderAtEnd(block);
         self.state.?.current.?.block = block;
 
-        // First arg is reserved for an eventual `this` or cli arguments
-        _ = switch (function_type) {
-            .Method => unreachable, // this
-            .Extern, .EntryPoint, .ScriptEntryPoint => unreachable, // those are not allowed here
-            else => try self.buildSetLocal(
-                0,
-                (try self.lowerExternApi(.value)).constInt(Value.Void.val, .False),
-            ),
-        };
-
-        // Put function arguments as locals
-        var i: usize = 1;
-        while (i <= function_def.parameters.count()) : (i += 1) {
-            _ = try self.buildSetLocal(
-                i,
-                // Since actual function first arg is NativeCtx, no need to correct back with -1
-                self.state.?.current.?.function.?.getParam(@intCast(c_uint, i)),
-            );
-        }
-
         if (function_node.arrow_expr) |arrow_expr| {
             const arrow_value = try self.generateNode(arrow_expr);
 
@@ -2405,7 +2464,6 @@ pub const JIT = struct {
             ret_type,
         );
 
-        self.state.?.current.?.locals.deinit();
         self.state.?.current = self.state.?.current.?.enclosing;
         if (self.state.?.current != null and self.state.?.current.?.block != null) {
             self.state.?.builder.positionBuilderAtEnd(self.state.?.current.?.block.?);
@@ -2566,24 +2624,24 @@ pub const JIT = struct {
 
     fn buildReturn(self: *Self, value: *l.Value) !*l.Value {
         // Get base
-        const base_top_field_ptr = self.state.?.builder.buildStructGEP(
+        const base_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.state.?.current.?.function.?.getParam(0),
             3,
-            "base_top_field_ptr",
+            "base_field_ptr",
         );
 
-        const base_top_ptr = self.state.?.builder.buildLoad(
+        const base_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
-            base_top_field_ptr,
-            "base_top_ptr",
+            base_field_ptr,
+            "base_ptr",
         );
 
         _ = try self.buildExternApiCall(
             .bz_closeUpValues,
             &[_]*l.Value{
                 self.vmConstant(),
-                base_top_ptr,
+                base_ptr,
             },
         );
 
@@ -2603,7 +2661,7 @@ pub const JIT = struct {
 
         // Reset stack_top to base
         _ = self.state.?.builder.buildStore(
-            base_top_ptr,
+            base_ptr,
             stack_top_ptr,
         );
 
@@ -2613,43 +2671,25 @@ pub const JIT = struct {
 
     /// Build instructions to get local at given index
     fn buildGetLocal(self: *Self, slot: usize) !*l.Value {
-        assert(slot < self.state.?.current.?.locals.items.len);
-        return self.state.?.builder.buildLoad(
-            try self.lowerExternApi(.value),
-            self.state.?.current.?.locals.items[slot],
-            "",
-        );
-    }
-
-    /// Build instructions to set local at given index
-    fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
-        assert(self.state.?.current.?.locals.items.len >= slot);
-
-        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+        const base_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.state.?.current.?.function.?.getParam(0),
-            4,
-            "stack_top_field_ptr",
+            3,
+            "base_field_ptr",
         );
 
-        const stack_top_ptr = self.state.?.builder.buildLoad(
-            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
-            stack_top_field_ptr,
-            "stack_top_ptr",
-        );
-
-        const stack_top = self.state.?.builder.buildLoad(
+        const base_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
-            stack_top_ptr,
-            "stack_top",
+            base_field_ptr,
+            "base_ptr",
         );
 
         const slot_ptr = self.state.?.builder.buildInBoundsGEP(
             try self.lowerExternApi(.value),
-            stack_top,
+            base_ptr,
             &[_]*l.Value{
                 self.context.getContext().intType(64).constInt(
-                    @bitCast(c_ulonglong, @intCast(i64, slot) - 1),
+                    slot,
                     .True,
                 ),
             },
@@ -2657,24 +2697,45 @@ pub const JIT = struct {
             "slot",
         );
 
-        if (slot >= self.state.?.current.?.locals.items.len) {
-            try self.state.?.current.?.locals.append(slot_ptr);
+        return self.state.?.builder.buildLoad(
+            try self.lowerExternApi(.value),
+            slot_ptr,
+            "local",
+        );
+    }
 
-            // Increment stack top
-            _ = self.state.?.builder.buildStore(
-                slot_ptr,
-                stack_top_ptr,
-            );
-        }
+    /// Build instructions to set local at given index
+    fn buildSetLocal(self: *Self, slot: usize, value: *l.Value) !*l.Value {
+        const base_field_ptr = self.state.?.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.state.?.current.?.function.?.getParam(0),
+            3,
+            "base_field_ptr",
+        );
+
+        const base_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            base_field_ptr,
+            "base_ptr",
+        );
+
+        const slot_ptr = self.state.?.builder.buildInBoundsGEP(
+            try self.lowerExternApi(.value),
+            base_ptr,
+            &[_]*l.Value{
+                self.context.getContext().intType(64).constInt(
+                    slot,
+                    .True,
+                ),
+            },
+            1,
+            "slot",
+        );
 
         return self.state.?.builder.buildStore(
             value,
             slot_ptr,
         );
-    }
-
-    inline fn buildAddLocal(self: *Self, value: *l.Value) !void {
-        _ = try self.buildSetLocal(self.state.?.current.?.locals.items.len, value);
     }
 
     /// Build instructions to get global at given index
@@ -2901,32 +2962,6 @@ pub const JIT = struct {
         var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
         self.state.?.builder.positionBuilderAtEnd(block);
 
-        var arguments = std.ArrayList(*l.Value).init(self.vm.gc.allocator);
-        defer arguments.deinit();
-        const arg_count = function_def.parameters.count();
-
-        // first arg is ctx
-        try arguments.append(native_fn.getParam(0));
-
-        if (arg_count > 0) {
-            var i: i32 = @intCast(i32, arg_count - 1);
-            // Each argument is a bz_peek(i) call
-            while (i >= 0) : (i -= 1) {
-                try arguments.append(
-                    try self.buildExternApiCall(
-                        .bz_peek,
-                        &[_]*l.Value{
-                            self.vmConstant(),
-                            self.context.getContext().intType(32).constInt(
-                                @intCast(c_ulonglong, i),
-                                .False,
-                            ),
-                        },
-                    ),
-                );
-            }
-        }
-
         // Catch any error to forward them as a buzz error (push paylod + return -1)
         // Set it as current jump env
         const try_ctx = try self.buildExternApiCall(
@@ -2983,8 +3018,8 @@ pub const JIT = struct {
         const result = self.state.?.builder.buildCall(
             ret_type,
             raw_fn,
-            @ptrCast([*]*l.Value, arguments.items.ptr),
-            @intCast(c_uint, arguments.items.len),
+            &[_]*l.Value{native_fn.getParam(0)},
+            1,
             "",
         );
 

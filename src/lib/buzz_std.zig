@@ -1,9 +1,9 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-export fn print_raw(_: *api.NativeCtx, string_value: api.Value) api.Value {
+export fn print_raw(ctx: *api.NativeCtx) api.Value {
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
         return api.Value.Void;
@@ -22,7 +22,7 @@ export fn print_raw(_: *api.NativeCtx, string_value: api.Value) api.Value {
 }
 
 export fn print(ctx: *api.NativeCtx) c_int {
-    if (print_raw(ctx, ctx.vm.bz_peek(0)).isError()) {
+    if (print_raw(ctx).isError()) {
         return -1;
     }
 
