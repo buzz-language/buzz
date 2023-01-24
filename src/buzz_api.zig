@@ -428,7 +428,11 @@ export fn bz_listLen(self: *ObjList) usize {
 }
 
 export fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: usize) Value {
-    return (ObjList.cast(list.obj()).?.member(vm, bz_string(vm, member, member_len).?) catch @panic("Could not get list method")).?.toValue();
+    return (ObjList.cast(list.obj()).?.member(vm, bz_string(
+        vm,
+        member,
+        member_len,
+    ).?) catch @panic("Could not get list method")).?.toValue();
 }
 
 export fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value {

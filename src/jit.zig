@@ -1302,7 +1302,7 @@ pub const JIT = struct {
         // if invoked, first arg is `this`
         if (invoked_on != null) {
             _ = try self.buildPush(subject.?);
-        } else if (function_type != .Extern) {
+        } else {
             _ = try self.buildPush(
                 self.context.getContext().intType(64).constInt(
                     Value.Void.val,
@@ -1349,17 +1349,21 @@ pub const JIT = struct {
         );
 
         if (function_type == .Extern) {
-            try self.generateHandleExternReturn(result, call_node.arguments.count());
+            return try self.generateHandleExternReturn(
+                function_type_def.resolved_type.?.Function.return_type.def_type != .Void,
+                result,
+                call_node.arguments.count(),
+            );
         }
 
         return result;
     }
 
     // Handle Extern call like VM.callNative does
-    fn generateHandleExternReturn(self: *Self, result: *l.Value, arg_count: usize) !void {
+    fn generateHandleExternReturn(self: *Self, should_return: bool, return_code: *l.Value, arg_count: usize) !*l.Value {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
-            result,
+            return_code,
             self.context.getContext().intType(64).constInt(
                 @bitCast(c_ulonglong, @as(i64, -1)),
                 .True,
@@ -1389,6 +1393,11 @@ pub const JIT = struct {
         self.state.?.builder.positionBuilderAtEnd(no_error_block);
         self.state.?.current.?.block = no_error_block;
 
+        const result = if (should_return)
+            try self.buildPop()
+        else
+            self.context.getContext().intType(64).constInt(Value.Void.val, .False);
+
         const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.state.?.current.?.function.?.getParam(0),
@@ -1416,8 +1425,7 @@ pub const JIT = struct {
                 stack_top,
                 &[_]*l.Value{
                     self.context.getContext().intType(64).constInt(
-                        // Not -1, because Extern function never have a `this` argument and we don't have the constraint that the VM has
-                        @bitCast(c_ulonglong, -@intCast(i64, arg_count)),
+                        @bitCast(c_ulonglong, -@intCast(i64, arg_count) - 1),
                         .True,
                     ),
                 },
@@ -1426,6 +1434,8 @@ pub const JIT = struct {
             ),
             stack_top_ptr,
         );
+
+        return result;
     }
 
     fn generateReturn(self: *Self, return_node: *ReturnNode) VM.Error!?*l.Value {
@@ -2585,9 +2595,23 @@ pub const JIT = struct {
         );
 
         // Return new top
+        const new_stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "new_stack_top",
+        );
+
         return self.state.?.builder.buildLoad(
             try self.lowerExternApi(.value),
-            stack_top,
+            self.state.?.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                new_stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(0, .True),
+                },
+                1,
+                "popped_ptr",
+            ),
             "popped",
         );
     }
@@ -2612,13 +2636,17 @@ pub const JIT = struct {
             "stack_top",
         );
 
-        return self.state.?.builder.buildInBoundsGEP(
+        return self.state.?.builder.buildLoad(
             try self.lowerExternApi(.value),
-            stack_top,
-            &[_]*l.Value{
-                self.context.getContext().intType(64).constInt(-1 - distance, .True),
-            },
-            1,
+            self.state.?.builder.buildInBoundsGEP(
+                try self.lowerExternApi(.value),
+                stack_top,
+                &[_]*l.Value{
+                    self.context.getContext().intType(64).constInt(-1 - distance, .True),
+                },
+                1,
+                "peeked_ptr",
+            ),
             "peeked",
         );
     }
