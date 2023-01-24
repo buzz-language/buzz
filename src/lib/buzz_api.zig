@@ -199,7 +199,7 @@ pub const Value = packed struct {
 
     pub extern fn bz_valueIsBuzzFn(value: Value) bool;
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
-    pub extern fn bz_valueToExternRawNativeFn(value: Value) *anyopaque;
+    pub extern fn bz_valueToExternNativeFn(value: Value) *anyopaque;
     pub extern fn bz_valueEqual(self: Value, other: Value) Value;
     pub extern fn bz_valueIs(self: Value, type_def: Value) Value;
 };

@@ -676,8 +676,8 @@ export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
     return ObjNative.cast(value.obj());
 }
 
-export fn bz_valueToExternRawNativeFn(value: Value) *anyopaque {
-    return ObjNative.cast(value.obj()).?.native_raw;
+export fn bz_valueToExternNativeFn(value: Value) *anyopaque {
+    return ObjNative.cast(value.obj()).?.native;
 }
 
 export fn bz_valueToRawNative(value: Value) *anyopaque {

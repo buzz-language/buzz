@@ -103,7 +103,7 @@ pub const ExternApi = enum {
 
     bz_push,
     bz_peek,
-    bz_valueToExternRawNativeFn,
+    bz_valueToExternNativeFn,
     bz_valueToRawNative,
     bz_objStringConcat,
     bz_toString,
@@ -150,7 +150,7 @@ pub const ExternApi = enum {
 
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
-            .bz_valueToExternRawNativeFn => "bz_valueToExternRawNativeFn",
+            .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
@@ -196,7 +196,7 @@ pub const ExternApi = enum {
 
             .bz_push => "bz_push",
             .bz_peek => "bz_peek",
-            .bz_valueToExternRawNativeFn => "bz_valueToExternRawNativeFn",
+            .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_toString => "bz_toString",
@@ -374,7 +374,7 @@ pub const JIT = struct {
                 2,
                 .False,
             ),
-            .bz_valueToExternRawNativeFn, .bz_valueToRawNative => l.functionType(
+            .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
                 ptr_type,
                 &[_]*l.Type{self.context.getContext().intType(64)},
                 1,
@@ -707,7 +707,7 @@ pub const JIT = struct {
         for ([_]ExternApi{
             .bz_peek,
             .bz_push,
-            .bz_valueToExternRawNativeFn,
+            .bz_valueToExternNativeFn,
             .bz_valueToRawNative,
             .bz_objStringConcat,
             .bz_toString,
@@ -1331,13 +1331,10 @@ pub const JIT = struct {
                     new_ctx,
                 },
             );
-        }
-
-        // If extern, extract pointer to its raw function
-        if (function_type == .Extern) {
+        } else { // If extern, extract pointer to its raw function
             // TODO: declare it in LLVM and call that?
             callee = try self.buildExternApiCall(
-                .bz_valueToExternRawNativeFn,
+                .bz_valueToExternNativeFn,
                 &[_]*l.Value{callee},
             );
         }
@@ -1352,14 +1349,14 @@ pub const JIT = struct {
         );
 
         if (function_type == .Extern) {
-            try self.generateExternReturn(result, call_node.arguments.count());
+            try self.generateHandleExternReturn(result, call_node.arguments.count());
         }
 
         return result;
     }
 
     // Handle Extern call like VM.callNative does
-    fn generateExternReturn(self: *Self, result: *l.Value, arg_count: usize) !void {
+    fn generateHandleExternReturn(self: *Self, result: *l.Value, arg_count: usize) !void {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
             result,
@@ -1732,7 +1729,8 @@ pub const JIT = struct {
                             );
                         }
 
-                        break :bin self.buildValueFromInteger(
+                        break :bin self.wrap(
+                            .Integer,
                             self.state.?.builder.buildSub(
                                 left_i orelse left_f.?,
                                 right_i orelse right_f.?,
@@ -1774,10 +1772,13 @@ pub const JIT = struct {
                         }
 
                         // Div result is always float
-                        break :bin self.state.?.builder.buildSDiv(
-                            left_i orelse left_f.?,
-                            right_i orelse right_f.?,
-                            "",
+                        break :bin self.wrap(
+                            .Integer,
+                            self.state.?.builder.buildSDiv(
+                                left_i orelse left_f.?,
+                                right_i orelse right_f.?,
+                                "",
+                            ),
                         );
                     },
                     .Percent => {

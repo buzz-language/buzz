@@ -4621,23 +4621,11 @@ pub const Parser = struct {
             const ssymbol = try self.gc.allocator.dupeZ(u8, symbol);
             defer self.gc.allocator.free(ssymbol);
 
-            var ssymbol_raw = std.ArrayList(u8).init(self.gc.allocator);
-            defer ssymbol_raw.deinit();
-            try ssymbol_raw.appendSlice(symbol);
-            try ssymbol_raw.appendSlice("_raw");
-            try ssymbol_raw.append(0);
-
             // Lookup symbol NativeFn
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
-            const opaque_symbol_method_raw = dlib.lookup(*anyopaque, @ptrCast([:0]const u8, ssymbol_raw.items));
 
             if (opaque_symbol_method == null) {
                 try self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
-                return null;
-            }
-
-            if (opaque_symbol_method_raw == null) {
-                try self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ ssymbol_raw.items, file_name });
                 return null;
             }
 
@@ -4645,7 +4633,6 @@ pub const Parser = struct {
             return try self.gc.allocateObject(
                 ObjNative,
                 .{
-                    .native_raw = opaque_symbol_method_raw.?,
                     .native = opaque_symbol_method.?,
                 },
             );
