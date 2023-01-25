@@ -257,6 +257,8 @@ pub const JIT = struct {
 
     api_lowered_types: std.AutoHashMap(ExternApi, *l.Type),
     lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
+    // List of closures being or already compiled
+    compiled_closures: std.AutoHashMap(*ObjClosure, void),
 
     orc_jit: *l.OrcLLJIT,
     context: *l.OrcThreadSafeContext,
@@ -305,6 +307,7 @@ pub const JIT = struct {
             .orc_jit = orc_jit,
             .context = l.OrcThreadSafeContext.create(),
             .state = undefined,
+            .compiled_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
         };
 
         return self;
@@ -316,6 +319,7 @@ pub const JIT = struct {
         if (self.state) |state| {
             state.deinit();
         }
+        self.compiled_closures.deinit();
     }
 
     fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
@@ -908,6 +912,7 @@ pub const JIT = struct {
 
         self.declareExternApi() catch @panic("Could not declare buzz api into LLVM module");
 
+        try self.compiled_closures.put(closure, {});
         self.state.?.closure = closure;
         const function = closure.function;
 
@@ -1199,7 +1204,7 @@ pub const JIT = struct {
                     const closure = ObjClosure.cast(self.state.?.closure.?.globals.items[named_variable_node.slot].obj()).?;
 
                     // Does it need to be compiled?
-                    if (closure.function.native == null and closure != self.state.?.closure.?) {
+                    if (self.compiled_closures.get(closure) == null) {
                         const qualified_name = try self.getFunctionQualifiedName(
                             @ptrCast(
                                 *FunctionNode,
