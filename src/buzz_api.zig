@@ -123,9 +123,7 @@ export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
 }
 
 /// Dump value
-export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
-    const value = value_ptr.*;
-
+export fn bz_valueDump(value: Value, vm: *VM) void {
     if (!value.isObj()) {
         const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
         defer vm.gc.allocator.free(string);
@@ -151,7 +149,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
             .UpValue => {
                 const upvalue = ObjUpValue.cast(value.obj()).?;
 
-                bz_valueDump(if (upvalue.closed != null) &upvalue.closed.? else upvalue.location, vm);
+                bz_valueDump(if (upvalue.closed != null) upvalue.closed.? else upvalue.location.*, vm);
             },
 
             .String => {
@@ -171,7 +169,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
 
                 std.debug.print("[ ", .{});
                 for (list.items.items) |item| {
-                    bz_valueDump(&item, vm);
+                    bz_valueDump(item, vm);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("]", .{});
@@ -185,9 +183,9 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
                 while (it.next()) |kv| {
                     const key = kv.key_ptr.*;
 
-                    bz_valueDump(&key, vm);
+                    bz_valueDump(key, vm);
                     std.debug.print(": ", .{});
-                    bz_valueDump(kv.value_ptr, vm);
+                    bz_valueDump(kv.value_ptr.*, vm);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -200,7 +198,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
                 std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
                 for (enum_type_def.cases.items) |case, i| {
                     std.debug.print("{s} -> ", .{case});
-                    bz_valueDump(&enumeration.cases.items[i], vm);
+                    bz_valueDump(enumeration.cases.items[i], vm);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -233,7 +231,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
                     while (static_it.next()) |static_kv| {
                         if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
                             std.debug.print(" = ", .{});
-                            bz_valueDump(&static_kv.value_ptr.*, vm);
+                            bz_valueDump(static_kv.value_ptr.*, vm);
                             break;
                         }
                     }
@@ -252,7 +250,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
                     while (field_it.next()) |field_kv| {
                         if (std.mem.eql(u8, field_kv.key_ptr.*.string, kv.key_ptr.*)) {
                             std.debug.print(" = ", .{});
-                            bz_valueDump(&field_kv.value_ptr.*, vm);
+                            bz_valueDump(field_kv.value_ptr.*, vm);
                             break;
                         }
                     }
@@ -278,7 +276,7 @@ export fn bz_valueDump(value_ptr: *const Value, vm: *VM) void {
                 var it = object_instance.fields.iterator();
                 while (it.next()) |kv| {
                     std.debug.print("{s} = ", .{kv.key_ptr.*.string});
-                    bz_valueDump(kv.value_ptr, vm);
+                    bz_valueDump(kv.value_ptr.*, vm);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -646,11 +644,44 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Va
     unreachable;
 }
 
-export fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance {
-    return vm.gc.allocateObject(
+export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value {
+    const object = if (object_value.isObj()) ObjObject.cast(object_value.obj()).? else null;
+    const typedef = if (typedef_value.isObj()) ObjTypeDef.cast(typedef_value.obj()).? else null;
+
+    const instance = vm.gc.allocateObject(
         ObjObjectInstance,
-        ObjObjectInstance.init(vm.gc.allocator, self, null),
-    ) catch null;
+        ObjObjectInstance.init(
+            vm.gc.allocator,
+            object,
+            typedef,
+        ),
+    ) catch @panic("Could not instanciate object");
+
+    // If not anonymous, set default fields
+    if (object) |uobject| {
+        var it = uobject.fields.iterator();
+        while (it.next()) |kv| {
+            instance.setField(
+                vm.gc,
+                kv.key_ptr.*,
+                vm.cloneValue(kv.value_ptr.*) catch @panic("Could not set object field"),
+            ) catch @panic("Could not set object field");
+        }
+    }
+
+    return instance.toValue();
+}
+
+export fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void {
+    ObjObjectInstance.cast(instance_value.obj()).?.setField(
+        vm.gc,
+        ObjString.cast(field_name_value.obj()).?,
+        value,
+    ) catch @panic("Could not set instance field");
+}
+
+export fn bz_getInstanceField(instance_value: Value, field_name_value: Value) Value {
+    return ObjObjectInstance.cast(instance_value.obj()).?.fields.get(ObjString.cast(field_name_value.obj()).?).?;
 }
 
 export fn bz_valueToObject(value: Value) *ObjObject {

@@ -3,6 +3,10 @@ const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
 const jmp = @import("../jmp.zig").jmp;
 
+// FIXME: all those should operate on Value
+// FIXME: some should only be available to the JIT compiler
+// FIXME: naming is not consistent
+
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
 }){};
@@ -252,7 +256,9 @@ pub const ObjObjectInstance = opaque {};
 
 pub const ObjObject = opaque {
     pub extern fn bz_valueToObject(value: Value) *ObjObject;
-    pub extern fn bz_instance(self: *ObjObject, vm: *VM) ?*ObjObjectInstance;
+    pub extern fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value;
+    pub extern fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void;
+    pub extern fn bz_getInstanceField(instance_value: Value, field_name_value: Value) Value;
 };
 
 pub const ObjEnumInstance = opaque {};

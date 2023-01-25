@@ -423,7 +423,7 @@ pub const VM = struct {
         }
     }
 
-    inline fn cloneValue(self: *Self, value: Value) !Value {
+    pub inline fn cloneValue(self: *Self, value: Value) !Value {
         return if (value.isObj()) try cloneObject(value.obj(), self) else value;
     }
 

@@ -1,0 +1,16 @@
+import "lib/std";
+import "lib/debug";
+
+object Person {
+    str name,
+    int age = 30,
+}
+
+test "object instance" {
+    Person p = Person{
+        name = "Joe"
+    };
+
+    dump(<Person>, p);
+    print("{p.name} is {p.age} years old");
+}

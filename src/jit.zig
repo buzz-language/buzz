@@ -34,6 +34,7 @@ const TryNode = _node.TryNode;
 const VarDeclarationNode = _node.VarDeclarationNode;
 const WhileNode = _node.WhileNode;
 const UnwrapNode = _node.UnwrapNode;
+const ObjectInitNode = _node.ObjectInitNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -132,6 +133,9 @@ pub const ExternApi = enum {
     bz_getGlobals,
     bz_closure,
     bz_context,
+    bz_instance,
+    bz_setInstanceField,
+    bz_getInstanceField,
     globals,
 
     bz_dumpStack,
@@ -180,6 +184,9 @@ pub const ExternApi = enum {
             .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
             .bz_context => "bz_context",
+            .bz_instance => "bz_instance",
+            .bz_setInstanceField => "bz_setInstanceField",
+            .bz_getInstanceField => "bz_getInstanceField",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -227,6 +234,9 @@ pub const ExternApi = enum {
             .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
             .bz_context => "bz_context",
+            .bz_instance => "bz_instance",
+            .bz_setInstanceField => "bz_setInstanceField",
+            .bz_getInstanceField => "bz_getInstanceField",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -648,6 +658,48 @@ pub const JIT = struct {
                 3,
                 .False,
             ),
+            .bz_instance => l.functionType(
+                // instance
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                    // object or Value.Null
+                    try self.lowerExternApi(.value),
+                    // typedef or Value.Null
+                    try self.lowerExternApi(.value),
+                },
+                3,
+                .False,
+            ),
+            .bz_setInstanceField => l.functionType(
+                // instance
+                self.context.getContext().voidType(),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                    // instance
+                    try self.lowerExternApi(.value),
+                    // field name
+                    try self.lowerExternApi(.value),
+                    // value
+                    try self.lowerExternApi(.value),
+                },
+                4,
+                .False,
+            ),
+            .bz_getInstanceField => l.functionType(
+                // instance
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    // field name
+                    try self.lowerExternApi(.value),
+                    // value
+                    try self.lowerExternApi(.value),
+                },
+                2,
+                .False,
+            ),
             .setjmp => l.functionType(
                 self.context.getContext().intType(@sizeOf(c_int)),
                 &[_]*l.Type{
@@ -749,6 +801,9 @@ pub const JIT = struct {
             .bz_getGlobals,
             .bz_closure,
             .bz_context,
+            .bz_instance,
+            .bz_setInstanceField,
+            .bz_getInstanceField,
             .setjmp,
             .bz_dumpStack,
         }) |method| {
@@ -996,6 +1051,7 @@ pub const JIT = struct {
             .Try => try self.generateTry(TryNode.cast(node).?),
             .Throw => try self.generateThrow(ThrowNode.cast(node).?),
             .Unwrap => try self.generateUnwrap(UnwrapNode.cast(node).?),
+            .ObjectInit => try self.generateObjectInit(ObjectInitNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1143,7 +1199,7 @@ pub const JIT = struct {
                     const closure = ObjClosure.cast(self.state.?.closure.?.globals.items[named_variable_node.slot].obj()).?;
 
                     // Does it need to be compiled?
-                    if (closure.function.native == null) {
+                    if (closure.function.native == null and closure != self.state.?.closure.?) {
                         const qualified_name = try self.getFunctionQualifiedName(
                             @ptrCast(
                                 *FunctionNode,
@@ -2065,7 +2121,23 @@ pub const JIT = struct {
 
         return switch (callee_type.def_type) {
             .Fiber, .Pattern, .String => unreachable,
-            .ObjectInstance, .Object => unreachable,
+            .Object => unreachable,
+            .ObjectInstance => obj: {
+                if (dot_node.call) |call| {
+                    break :obj try self.generateCall(call);
+                } else {
+                    break :obj try self.buildExternApiCall(
+                        .bz_getInstanceField,
+                        &[_]*l.Value{
+                            (try self.generateNode(dot_node.callee)).?,
+                            self.context.getContext().intType(64).constInt(
+                                (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                                .False,
+                            ),
+                        },
+                    );
+                }
+            },
             .ProtocolInstance => unreachable,
             .Enum => unreachable,
             .EnumInstance => unreachable,
@@ -2375,6 +2447,52 @@ pub const JIT = struct {
         self.state.?.current.?.block = next_expr_block;
 
         return value;
+    }
+
+    fn generateObjectInit(self: *Self, object_init_node: *ObjectInitNode) VM.Error!?*l.Value {
+        const object = if (object_init_node.object) |node|
+            (try self.generateNode(node)).?
+        else
+            self.context.getContext().intType(64).constInt(Value.Null.val, .False);
+
+        const typedef = if (object_init_node.object == null)
+            self.context.getContext().intType(64).constInt(
+                object_init_node.node.type_def.?.toValue().val,
+                .False,
+            )
+        else
+            self.context.getContext().intType(64).constInt(
+                Value.Null.val,
+                .False,
+            );
+
+        const instance = try self.buildExternApiCall(
+            .bz_instance,
+            &[_]*l.Value{
+                self.vmConstant(),
+                object,
+                typedef,
+            },
+        );
+
+        for (object_init_node.properties.keys()) |property_name| {
+            const value = object_init_node.properties.get(property_name).?;
+
+            _ = try self.buildExternApiCall(
+                .bz_setInstanceField,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    instance,
+                    self.context.getContext().intType(64).constInt(
+                        (try self.vm.gc.copyString(property_name)).toValue().val,
+                        .False,
+                    ),
+                    (try self.generateNode(value)).?,
+                },
+            );
+        }
+
+        return instance;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
