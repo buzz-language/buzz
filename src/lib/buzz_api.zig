@@ -75,6 +75,7 @@ pub const VM = opaque {
     pub extern fn bz_getUpValue(ctx: *NativeCtx, slot: usize) Value;
     pub extern fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void;
     pub extern fn bz_closure(ctx: *NativeCtx, function_node: *FunctionNode, native: *anyopaque, native_raw: *anyopaque) Value;
+    pub extern fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value;
 
     pub extern fn bz_dumpStack(vm: *VM) void;
 
@@ -258,7 +259,7 @@ pub const ObjObject = opaque {
     pub extern fn bz_valueToObject(value: Value) *ObjObject;
     pub extern fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value;
     pub extern fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void;
-    pub extern fn bz_getInstanceField(instance_value: Value, field_name_value: Value) Value;
+    pub extern fn bz_getInstanceField(vm: *VM, instance_value: Value, field_name_value: Value) Value;
 };
 
 pub const ObjEnumInstance = opaque {};

@@ -30,6 +30,7 @@ const ObjList = _obj.ObjList;
 const ObjUserData = _obj.ObjUserData;
 const ObjClosure = _obj.ObjClosure;
 const ObjNative = _obj.ObjNative;
+const ObjBoundMethod = _obj.ObjBoundMethod;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const UserData = _obj.UserData;
@@ -680,8 +681,34 @@ export fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: 
     ) catch @panic("Could not set instance field");
 }
 
-export fn bz_getInstanceField(instance_value: Value, field_name_value: Value) Value {
-    return ObjObjectInstance.cast(instance_value.obj()).?.fields.get(ObjString.cast(field_name_value.obj()).?).?;
+export fn bz_getInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, bind: bool) Value {
+    const instance = ObjObjectInstance.cast(instance_value.obj()).?;
+    if (instance.fields.get(ObjString.cast(field_name_value.obj()).?)) |field| {
+        return field;
+    }
+
+    const method = instance.object.?.methods.get(ObjString.cast(field_name_value.obj()).?).?.toValue();
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            instance.toValue(),
+            method,
+            Value.Null,
+        )
+    else
+        method;
+}
+
+export fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value {
+    return (vm.gc.allocateObject(
+        ObjBoundMethod,
+        .{
+            .receiver = receiver,
+            .closure = if (method_value.isObj()) ObjClosure.cast(method_value.obj()).? else null,
+            .native = if (native_value.isObj()) ObjNative.cast(native_value.obj()).? else null,
+        },
+    ) catch @panic("Could not bind method")).toValue();
 }
 
 export fn bz_valueToObject(value: Value) *ObjObject {
@@ -846,7 +873,13 @@ export fn bz_getGlobals(closure: Value) [*]Value {
 }
 
 export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx) *anyopaque {
-    const closure = ObjClosure.cast(closure_value.obj()).?;
+    const bound = if (closure_value.obj().obj_type == .Bound) ObjBoundMethod.cast(closure_value.obj()).? else null;
+    const closure = ObjClosure.cast(closure_value.obj()) orelse bound.?.closure.?;
+
+    // If bound method, replace closure on the stack by the receiver
+    if (bound != null) {
+        (ctx.vm.current_fiber.stack_top - closure.function.type_def.resolved_type.?.Function.parameters.count() - 1)[0] = bound.?.receiver;
+    }
 
     new_ctx.* = NativeCtx{
         .vm = ctx.vm,
@@ -855,6 +888,10 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx)
         .base = ctx.vm.current_fiber.stack_top - closure.function.type_def.resolved_type.?.Function.parameters.count() - 1,
         .stack_top = &ctx.vm.current_fiber.stack_top,
     };
+
+    if (ctx.vm.jit.shouldCompileFunction(closure)) {
+        ctx.vm.jit.compileFunction(closure) catch @panic("Failed compiling function");
+    }
 
     return closure.function.native_raw.?;
 }

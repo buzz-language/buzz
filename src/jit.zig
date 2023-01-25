@@ -136,6 +136,7 @@ pub const ExternApi = enum {
     bz_instance,
     bz_setInstanceField,
     bz_getInstanceField,
+    bz_bindMethod,
     globals,
 
     bz_dumpStack,
@@ -187,6 +188,7 @@ pub const ExternApi = enum {
             .bz_instance => "bz_instance",
             .bz_setInstanceField => "bz_setInstanceField",
             .bz_getInstanceField => "bz_getInstanceField",
+            .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -237,6 +239,7 @@ pub const ExternApi = enum {
             .bz_instance => "bz_instance",
             .bz_setInstanceField => "bz_setInstanceField",
             .bz_getInstanceField => "bz_getInstanceField",
+            .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -252,8 +255,6 @@ pub const JIT = struct {
     vm: *VM,
 
     state: ?GenState = null,
-
-    vm_constant: ?*l.Value = null,
 
     api_lowered_types: std.AutoHashMap(ExternApi, *l.Type),
     lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
@@ -696,12 +697,32 @@ pub const JIT = struct {
                 // instance
                 try self.lowerExternApi(.value),
                 &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
                     // field name
                     try self.lowerExternApi(.value),
                     // value
                     try self.lowerExternApi(.value),
+                    // bind
+                    self.context.getContext().intType(1),
                 },
-                2,
+                4,
+                .False,
+            ),
+            .bz_bindMethod => l.functionType(
+                // instance
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    // vm
+                    self.context.getContext().pointerType(0),
+                    // receiver
+                    try self.lowerExternApi(.value),
+                    // closure
+                    try self.lowerExternApi(.value),
+                    // native
+                    try self.lowerExternApi(.value),
+                },
+                4,
                 .False,
             ),
             .setjmp => l.functionType(
@@ -808,6 +829,7 @@ pub const JIT = struct {
             .bz_instance,
             .bz_setInstanceField,
             .bz_getInstanceField,
+            .bz_bindMethod,
             .setjmp,
             .bz_dumpStack,
         }) |method| {
@@ -842,7 +864,7 @@ pub const JIT = struct {
     }
 
     inline fn vmConstant(self: *Self) *l.Value {
-        self.vm_constant = self.vm_constant orelse self.state.?.builder.buildIntToPtr(
+        return self.state.?.builder.buildIntToPtr(
             self.context.getContext().intType(64).constInt(
                 @ptrToInt(self.vm),
                 .False,
@@ -850,8 +872,6 @@ pub const JIT = struct {
             self.context.getContext().pointerType(0),
             "",
         );
-
-        return self.vm_constant.?;
     }
 
     pub fn compileNativeFn(self: *Self, native: *ObjNative) VM.Error!*anyopaque {
@@ -887,6 +907,10 @@ pub const JIT = struct {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
         if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint) {
+            return false;
+        }
+
+        if (self.compiled_closures.get(closure) != null) {
             return false;
         }
 
@@ -1289,7 +1313,18 @@ pub const JIT = struct {
         var callee: *l.Value = if (invoked_on != null)
             (switch (invoked_on.?) {
                 .Object => unreachable,
-                .ObjectInstance, .ProtocolInstance => unreachable,
+                .ObjectInstance => try self.buildExternApiCall(
+                    .bz_getInstanceField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        subject.?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(0, .False),
+                    },
+                ),
                 .String => unreachable,
                 .Pattern => unreachable,
                 .Fiber => unreachable,
@@ -2134,11 +2169,13 @@ pub const JIT = struct {
                     break :obj try self.buildExternApiCall(
                         .bz_getInstanceField,
                         &[_]*l.Value{
+                            self.vmConstant(),
                             (try self.generateNode(dot_node.callee)).?,
                             self.context.getContext().intType(64).constInt(
                                 (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
                                 .False,
                             ),
+                            self.context.getContext().intType(1).constInt(1, .False),
                         },
                     );
                 }

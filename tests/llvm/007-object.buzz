@@ -4,6 +4,10 @@ import "lib/debug";
 object Person {
     str name,
     int age = 30,
+
+    fun sayHello() > void {
+        print("Hello I'm {this.name} and I'm {this.age}");
+    }
 }
 
 test "object instance" {
@@ -13,4 +17,10 @@ test "object instance" {
 
     dump(<Person>, p);
     print("{p.name} is {p.age} years old");
+
+    p.sayHello();
+
+    Function() > void f = p.sayHello;
+
+    f();
 }
