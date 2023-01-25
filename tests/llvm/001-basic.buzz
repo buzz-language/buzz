@@ -16,9 +16,11 @@ fun jitSayHello(str who, int age) > int {
 
     print("now it's {list[1]}");
 
+    print("Hello fifth char is: {"hello"[4]}");
+
     return 12;
 }
 
-fun main([str] args) > void {
+test "basic" {
     print("Got: {jitSayHello("Joe", age: 36)}");
 }

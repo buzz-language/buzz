@@ -5,7 +5,6 @@ test "Lists" {
 
     assert(list.len() == 4, message: "len");
 
-    | [str] strList = ["hello", "world", 1];
     [str] strList = ["hello", "world"];
     assert(strList[0] == "hello", message: "subscript");
 

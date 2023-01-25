@@ -106,6 +106,7 @@ pub const ExternApi = enum {
     bz_valueToExternNativeFn,
     bz_valueToRawNative,
     bz_objStringConcat,
+    bz_objStringSubscript,
     bz_toString,
     bz_newList,
     bz_listAppend,
@@ -153,6 +154,7 @@ pub const ExternApi = enum {
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
+            .bz_objStringSubscript => "bz_objStringSubscript",
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
@@ -199,6 +201,7 @@ pub const ExternApi = enum {
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
+            .bz_objStringSubscript => "bz_objStringSubscript",
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
@@ -381,6 +384,16 @@ pub const JIT = struct {
                 .False,
             ),
             .bz_objStringConcat => l.functionType(
+                try self.lowerExternApi(.value),
+                &[_]*l.Type{
+                    ptr_type,
+                    try self.lowerExternApi(.value),
+                    try self.lowerExternApi(.value),
+                },
+                3,
+                .False,
+            ),
+            .bz_objStringSubscript => l.functionType(
                 try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     ptr_type,
@@ -710,6 +723,7 @@ pub const JIT = struct {
             .bz_valueToExternNativeFn,
             .bz_valueToRawNative,
             .bz_objStringConcat,
+            .bz_objStringSubscript,
             .bz_toString,
             .bz_newList,
             .bz_listAppend,
@@ -2096,7 +2110,14 @@ pub const JIT = struct {
                     );
                 }
             },
-            .String => unreachable,
+            .String => try self.buildExternApiCall(
+                .bz_objStringSubscript,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    subscripted,
+                    index,
+                },
+            ),
             .Map => map: {
                 if (value) |val| {
                     _ = try self.buildExternApiCall(

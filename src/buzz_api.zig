@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const buzz_builtin = @import("./builtin.zig");
 const _vm = @import("./vm.zig");
 const VM = _vm.VM;
 const TryCtx = _vm.TryCtx;
@@ -314,6 +315,33 @@ export fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value {
         vm,
         ObjString.cast(other.obj()).?,
     ) catch @panic("Could not concat strings")).toValue();
+}
+
+export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value {
+    const str = ObjString.cast(obj_string.obj()).?;
+    const index = index_value.integer();
+
+    if (index < 0) {
+        bz_throw(
+            vm,
+            (vm.gc.copyString("Out of bound string access.") catch unreachable).toValue(),
+        );
+
+        return Value.Error;
+    }
+
+    const str_index: usize = @intCast(usize, index);
+
+    if (str_index < str.string.len) {
+        return (vm.gc.copyString(&([_]u8{str.string[str_index]})) catch unreachable).toValue();
+    } else {
+        bz_throw(
+            vm,
+            (vm.gc.copyString("Out of bound str access.") catch unreachable).toValue(),
+        );
+
+        return Value.Error;
+    }
 }
 
 export fn bz_toString(vm: *VM, value: Value) Value {

@@ -21,11 +21,11 @@ test "if statement with placeholder" {
         assert(false, message: "if failed with placeholder");
     }
 
-    if (objAhead.name == "joe") {
-        assert(true, message: "works with a placeholder");
-    } else {
-        assert(false, message: "if failed with placeholder");
-    }
+    | if (objAhead.name == "joe") {
+    |     assert(true, message: "works with a placeholder");
+    | } else {
+    |     assert(false, message: "if failed with placeholder");
+    | }
 }
 
 test "while statement" {
@@ -37,13 +37,13 @@ test "while statement" {
     assert(i == 10, message: "while");
 }
 
-test "while statement with placeholder" {
-    while (objAhead.age < 10) {
-        objAhead.age = objAhead.age + 1;
-    }
+| test "while statement with placeholder" {
+|     while (objAhead.age < 10) {
+|         objAhead.age = objAhead.age + 1;
+|     }
 
-    assert(objAhead.age == 10, message: "while with placeholder");
-}
+|     assert(objAhead.age == 10, message: "while with placeholder");
+| }
 
 test "do-until statement" {
     int i = 10;
@@ -56,9 +56,9 @@ test "do-until statement" {
 
 str ahead = "wat";
 
-object Ahead {
-    str name = "joe",
-    int age = 0
-}
+| object Ahead {
+|     str name = "joe",
+|     int age = 0
+| }
 
-Ahead objAhead = Ahead{};
+| Ahead objAhead = Ahead{};

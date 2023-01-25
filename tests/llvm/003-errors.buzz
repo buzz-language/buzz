@@ -38,6 +38,6 @@ fun subTry() > void !> str {
     }
 }
 
-fun main([str] args) > void {
+test "error handling" {
     handle();
 }
