@@ -3307,6 +3307,7 @@ pub const VM = struct {
 
     fn OP_UNWRAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         if (self.peek(0).isNull()) {
+            // TODO: Should we throw or @panic?
             self.throw(Error.UnwrappedNull, (self.gc.copyString("Force unwrapped optional is null") catch |e| {
                 panic(e);
                 unreachable;

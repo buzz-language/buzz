@@ -35,6 +35,7 @@ const VarDeclarationNode = _node.VarDeclarationNode;
 const WhileNode = _node.WhileNode;
 const UnwrapNode = _node.UnwrapNode;
 const ObjectInitNode = _node.ObjectInitNode;
+const ForceUnwrapNode = _node.ForceUnwrapNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -1081,6 +1082,7 @@ pub const JIT = struct {
             .Throw => try self.generateThrow(ThrowNode.cast(node).?),
             .Unwrap => try self.generateUnwrap(UnwrapNode.cast(node).?),
             .ObjectInit => try self.generateObjectInit(ObjectInitNode.cast(node).?),
+            .ForceUnwrap => try self.generateForceUnwrap(ForceUnwrapNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1748,7 +1750,22 @@ pub const JIT = struct {
                             },
                         );
                     },
-                    .Greater, .Less, .GreaterEqual, .LessEqual, .BangEqual => {
+                    .BangEqual => {
+                        return self.state.?.builder.buildNot(
+                            self.unwrap(
+                                .Bool,
+                                try self.buildExternApiCall(
+                                    .bz_valueEqual,
+                                    &[_]*l.Value{
+                                        left.?,
+                                        right.?,
+                                    },
+                                ),
+                            ),
+                            "",
+                        );
+                    },
+                    .Greater, .Less, .GreaterEqual, .LessEqual => {
                         if (left_f != null or right_f != null) {
                             return self.wrap(
                                 .Bool,
@@ -2517,6 +2534,9 @@ pub const JIT = struct {
             },
         );
 
+        // push to prevent collection
+        _ = try self.buildPush(instance);
+
         for (object_init_node.properties.keys()) |property_name| {
             const value = object_init_node.properties.get(property_name).?;
 
@@ -2534,7 +2554,53 @@ pub const JIT = struct {
             );
         }
 
-        return instance;
+        return try self.buildPop();
+    }
+
+    fn generateForceUnwrap(self: *Self, force_unwrap_node: *ForceUnwrapNode) VM.Error!?*l.Value {
+        const expr = (try self.generateNode(force_unwrap_node.unwrapped)).?;
+
+        const is_null = self.state.?.builder.buildICmp(
+            .EQ,
+            expr,
+            self.context.getContext().intType(64).constInt(
+                Value.Null.val,
+                .False,
+            ),
+            "is_null",
+        );
+
+        var out_block = self.context.getContext().createBasicBlock("out");
+        var then_block = self.context.getContext().createBasicBlock("then");
+
+        _ = self.state.?.builder.buildCondBr(
+            is_null,
+            then_block,
+            out_block,
+        );
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
+        self.state.?.builder.positionBuilderAtEnd(then_block);
+        self.state.?.current.?.block = then_block;
+
+        // TODO: throw or panic?
+        _ = try self.buildExternApiCall(
+            .bz_throw,
+            &[_]*l.Value{
+                self.vmConstant(), self.context.getContext().intType(64).constInt(
+                    (try self.vm.gc.copyString("Force unwrapped optional is null")).toValue().val,
+                    .False,
+                ),
+            },
+        );
+
+        _ = self.state.?.builder.buildUnreachable();
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
+
+        return expr;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
