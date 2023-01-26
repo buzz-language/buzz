@@ -369,14 +369,14 @@ pub const GarbageCollector = struct {
     pub fn markObj(self: *Self, obj: *Obj) !void {
         if (obj.is_marked) {
             if (BuildOptions.gc_debug) {
-                std.debug.print("{*} {s} already marked or old\n", .{ obj, try valueToStringAlloc(self.allocator, Value{ .Obj = obj }) });
+                std.debug.print("{*} {s} already marked or old\n", .{ obj, try valueToStringAlloc(self.allocator, Value.fromObj(obj)) });
             }
             return;
         }
 
         if (BuildOptions.gc_debug) {
             std.debug.print("marking {*}: ", .{obj});
-            std.debug.print("{s}\n", .{try valueToStringAlloc(self.allocator, Value{ .Obj = obj })});
+            std.debug.print("{s}\n", .{try valueToStringAlloc(self.allocator, Value.fromObj(obj))});
         }
 
         obj.is_marked = true;

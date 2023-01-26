@@ -116,8 +116,9 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             const codegen_ms: f64 = @intToFloat(f64, codegen_time) / 1000000;
             const running_ms: f64 = @intToFloat(f64, running_time) / 1000000;
             const gc_ms: f64 = @intToFloat(f64, gc.gc_time) / 1000000;
+            const jit_ms: f64 = @intToFloat(f64, vm.jit.jit_time) / 1000000;
             std.debug.print(
-                "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\u{001b}[0m\n",
+                "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\nJIT: {d} ms\n\u{001b}[0m",
                 .{
                     parsing_ms,
                     codegen_ms,
@@ -127,6 +128,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                     gc.full_collection_count,
                     gc.light_collection_count,
                     gc.max_allocated,
+                    jit_ms,
                 },
             );
         }
@@ -167,7 +169,7 @@ pub fn main() !void {
 
     if (res.args.version) {
         std.debug.print(
-            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\n",
+            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
             .{
                 if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
                 BuildOptions.sha,
@@ -181,6 +183,7 @@ pub fn main() !void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
+                if (BuildOptions.jit_off) "no" else "yes",
             },
         );
 

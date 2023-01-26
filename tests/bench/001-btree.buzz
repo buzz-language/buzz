@@ -30,12 +30,7 @@ fun itemCheck(Node tree) > int {
     return 0;
 }
 
-fun main([str] args) > void !> OverflowError, UnderflowError {
-    int N = 0;
-    if (args.len() > 0) {
-        N = parseInt(args[0]) ?? 0;
-    }
-
+fun btree(int N) > void !> OverflowError, UnderflowError {
     int mindepth = 4;
     int maxdepth = mindepth + 2;
     if (maxdepth < N) {
@@ -58,4 +53,13 @@ fun main([str] args) > void !> OverflowError, UnderflowError {
     }
 
     print("long lived tree of depth {maxdepth}\t check: {itemCheck(longlivedtree)}");
+}
+
+fun main([str] args) > void !> OverflowError, UnderflowError {
+    int N = 0;
+    if (args.len() > 0) {
+        N = parseInt(args[0]) ?? 0;
+    }
+
+    btree(N);
 }

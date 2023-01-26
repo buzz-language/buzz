@@ -270,6 +270,9 @@ pub const JIT = struct {
     // Call call of all functions
     call_count: u128 = 0,
 
+    // Keeps track of time spent in the JIT
+    jit_time: usize = 0,
+
     pub fn init(vm: *VM) JIT {
         l.initializeLLVMTarget(builtin.target.cpu.arch);
         var builder = l.OrcLLJITBuilder.createBuilder();
@@ -922,6 +925,7 @@ pub const JIT = struct {
     }
 
     pub fn compileFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
+        var timer = std.time.Timer.start() catch unreachable;
         const previous_state = self.state;
 
         var module = l.Module.createWithName("buzz-jit", self.context.getContext());
@@ -1025,6 +1029,8 @@ pub const JIT = struct {
 
         // self.state.?.deinit();
         self.state = previous_state;
+
+        self.jit_time += timer.read();
     }
 
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
@@ -1751,18 +1757,21 @@ pub const JIT = struct {
                         );
                     },
                     .BangEqual => {
-                        return self.state.?.builder.buildNot(
-                            self.unwrap(
-                                .Bool,
-                                try self.buildExternApiCall(
-                                    .bz_valueEqual,
-                                    &[_]*l.Value{
-                                        left.?,
-                                        right.?,
-                                    },
+                        return self.wrap(
+                            .Bool,
+                            self.state.?.builder.buildNot(
+                                self.unwrap(
+                                    .Bool,
+                                    try self.buildExternApiCall(
+                                        .bz_valueEqual,
+                                        &[_]*l.Value{
+                                            left.?,
+                                            right.?,
+                                        },
+                                    ),
                                 ),
+                                "",
                             ),
-                            "",
                         );
                     },
                     .Greater, .Less, .GreaterEqual, .LessEqual => {
