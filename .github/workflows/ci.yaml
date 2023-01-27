@@ -37,8 +37,12 @@ jobs:
         with:
           version: master
       - name: Build
+        env:
+          LLVM_PATH: ${{ env.LLVM_PATH }}
         run: zig build -Duse_mimalloc=false
       - name: Run tests
+        env:
+          LLVM_PATH: ${{ env.LLVM_PATH }}
         run: BUZZ_PATH=./dist zig build test -Duse_mimalloc=false
   lint:
     runs-on: macos-latest

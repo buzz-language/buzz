@@ -236,6 +236,7 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
+    std.debug.print("LLVM_PATH: {s}\n", .{std.os.getenv("LLVM_PATH") orelse "N/A"});
     if (std.os.getenv("LLVM_PATH")) |llvm_path| {
         var inc = std.ArrayList(u8).init(std.heap.page_allocator);
         defer inc.deinit();
