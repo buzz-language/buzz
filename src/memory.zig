@@ -472,6 +472,15 @@ pub const GarbageCollector = struct {
                         if (BuildOptions.gc_debug) {
                             std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str });
                         }
+                    } else {
+                        std.debug.print(
+                            "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
+                            .{
+                                obj_typedef,
+                                try obj_typedef.toStringAlloc(self.allocator),
+                            },
+                        );
+                        unreachable;
                     }
                 }
 

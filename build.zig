@@ -2,8 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Builder = std.build.Builder;
 
-// FIXME: instead of putting macos homebrew path etc., provide build options to pass them
-
 const BuzzDebugOptions = struct {
     debug: bool,
     stack: bool,
@@ -219,38 +217,49 @@ pub fn build(b: *Builder) !void {
     const build_mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
-    var exe = b.addExecutable("buzz", "src/main.zig");
-    exe.setTarget(target);
-    exe.setOutputDir("dist");
-    exe.install();
-    exe.addIncludePath("/usr/local/include");
-    exe.addIncludePath("/usr/include");
-    exe.linkSystemLibrary("pcre");
-    exe.linkLibC();
+    var sys_libs = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    defer sys_libs.deinit();
+    var includes = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    defer includes.deinit();
+    var llibs = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    defer llibs.deinit();
+
+    sys_libs.appendSlice(&[_][]const u8{ "llvm", "pcre" }) catch unreachable;
     if (build_options.use_mimalloc) {
-        exe.linkSystemLibrary("mimalloc");
-    }
-    if (builtin.os.tag == .macos) {
-        exe.addIncludePath("/opt/homebrew/include");
-        exe.addLibraryPath("/opt/homebrew/lib");
+        sys_libs.append("mimalloc") catch unreachable;
     }
 
-    // LLVM
-    std.debug.print("LLVM_PATH: {s}\n", .{std.os.getenv("LLVM_PATH") orelse "N/A"});
+    includes.appendSlice(&[_][]const u8{ "/usr/local/include", "/usr/include" }) catch unreachable;
+
+    if (builtin.os.tag == .macos) {
+        includes.append("/opt/homebrew/include") catch unreachable;
+        llibs.append("/opt/homebrew/lib") catch unreachable;
+    }
+
     if (std.os.getenv("LLVM_PATH")) |llvm_path| {
         var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer inc.deinit();
         var lib = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer lib.deinit();
 
         inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
         lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
 
-        exe.addIncludePath(inc.items);
-        exe.addLibraryPath(lib.items);
+        includes.append(inc.items) catch unreachable;
+        llibs.append(lib.items) catch unreachable;
     }
-    exe.linkSystemLibrary("llvm");
 
+    var exe = b.addExecutable("buzz", "src/main.zig");
+    exe.setTarget(target);
+    exe.setOutputDir("dist");
+    exe.install();
+    for (includes.items) |include| {
+        exe.addIncludePath(include);
+    }
+    for (llibs.items) |lib| {
+        exe.addLibraryPath(lib);
+    }
+    for (sys_libs.items) |slib| {
+        exe.linkSystemLibrary(slib);
+    }
     exe.setBuildMode(build_mode);
     exe.setMainPkgPath(".");
 
@@ -260,33 +269,15 @@ pub fn build(b: *Builder) !void {
     lib.setOutputDir("dist/lib");
     lib.setTarget(target);
     lib.install();
-    lib.addIncludePath("/usr/local/include");
-    lib.addIncludePath("/usr/include");
-    lib.linkSystemLibrary("pcre");
-    if (build_options.use_mimalloc)
-        lib.linkSystemLibrary("mimalloc");
-    lib.linkLibC();
-    if (builtin.os.tag == .macos) {
-        lib.addIncludePath("/opt/homebrew/include");
-        lib.addLibraryPath("/opt/homebrew/lib");
+    for (includes.items) |include| {
+        lib.addIncludePath(include);
     }
-
-    // LLVM
-
-    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer inc.deinit();
-        var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer llvm_lib.deinit();
-
-        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-        llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
-
-        lib.addIncludePath(inc.items);
-        lib.addLibraryPath(llvm_lib.items);
+    for (llibs.items) |llib| {
+        lib.addLibraryPath(llib);
     }
-    lib.linkSystemLibrary("llvm");
-
+    for (sys_libs.items) |slib| {
+        lib.linkSystemLibrary(slib);
+    }
     lib.setMainPkgPath("src");
     lib.setBuildMode(build_mode);
 
@@ -336,31 +327,15 @@ pub fn build(b: *Builder) !void {
         std_lib.setOutputDir("dist/lib");
         std_lib.setTarget(target);
         std_lib.install();
-        std_lib.addIncludePath("/usr/local/include");
-        std_lib.addIncludePath("/usr/include");
-        std_lib.linkSystemLibrary("pcre");
-        if (build_options.use_mimalloc)
-            std_lib.linkSystemLibrary("mimalloc");
-        std_lib.linkLibC();
-        if (builtin.os.tag == .macos) {
-            std_lib.addIncludePath("/opt/homebrew/include");
-            std_lib.addLibraryPath("/opt/homebrew/lib");
+        for (includes.items) |include| {
+            std_lib.addIncludePath(include);
         }
-        // LLVM
-        if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-            var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-            defer inc.deinit();
-            var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
-            defer llvm_lib.deinit();
-
-            inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-            llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
-
-            std_lib.addIncludePath(inc.items);
-            std_lib.addLibraryPath(llvm_lib.items);
+        for (llibs.items) |llib| {
+            std_lib.addLibraryPath(llib);
         }
-        std_lib.linkSystemLibrary("llvm");
-
+        for (sys_libs.items) |slib| {
+            std_lib.linkSystemLibrary(slib);
+        }
         std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);
@@ -396,29 +371,16 @@ pub fn build(b: *Builder) !void {
     test_step.dependOn(b.getInstallStep());
 
     var unit_tests = b.addTest("src/main.zig");
-    unit_tests.addIncludePath("/usr/local/include");
-    unit_tests.addIncludePath("/usr/include");
-    unit_tests.linkSystemLibrary("pcre");
     unit_tests.linkLibC();
-    if (builtin.os.tag == .macos) {
-        unit_tests.addIncludePath("/opt/homebrew/include");
-        unit_tests.addLibraryPath("/opt/homebrew/lib");
+    for (includes.items) |include| {
+        unit_tests.addIncludePath(include);
     }
-
-    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer inc.deinit();
-        var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer llvm_lib.deinit();
-
-        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-        llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
-
-        unit_tests.addIncludePath(inc.items);
-        unit_tests.addLibraryPath(llvm_lib.items);
+    for (llibs.items) |llib| {
+        unit_tests.addLibraryPath(llib);
     }
-    unit_tests.linkSystemLibrary("llvm");
-
+    for (sys_libs.items) |slib| {
+        unit_tests.linkSystemLibrary(slib);
+    }
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);
     unit_tests.addOptions("build_options", build_options.step(b));

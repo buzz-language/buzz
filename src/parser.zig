@@ -3851,26 +3851,31 @@ pub const Parser = struct {
             .LessEqual,
             .BangEqual,
             .EqualEqual,
-            => try self.gc.type_registry.getTypeDef(ObjTypeDef{
-                .def_type = .Bool,
-            }),
+            => try self.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
 
             .Plus => left.type_def orelse right.type_def,
 
-            .Minus,
-            .Star,
-            .Slash,
-            .Percent,
             .ShiftLeft,
             .ShiftRight,
             .Ampersand,
             .Bor,
             .Xor,
-            => try self.gc.type_registry.getTypeDef(ObjTypeDef{
-                .def_type = if ((left.type_def != null and left.type_def.?.def_type == .Float) or (right.type_def != null and right.type_def.?.def_type == .Float)) .Float else .Integer,
-            }),
+            => try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
 
-            else => null,
+            .Minus,
+            .Star,
+            .Slash,
+            .Percent,
+            => try self.gc.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = if ((left.type_def != null and left.type_def.?.def_type == .Float) or (right.type_def != null and right.type_def.?.def_type == .Float))
+                        .Float
+                    else
+                        .Integer,
+                },
+            ),
+
+            else => unreachable,
         };
 
         node.node.location = start_location;

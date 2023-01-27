@@ -248,6 +248,414 @@ pub const ExternApi = enum {
             .bz_dumpStack => "bz_dumpStack",
         };
     }
+
+    pub fn lower(self: ExternApi, context: *l.Context) !*l.Type {
+        return switch (self) {
+            .bz_peek => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{ context.pointerType(0), context.intType(32) },
+                2,
+                .False,
+            ),
+            .bz_push => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{ context.pointerType(0), try ExternApi.value.lower(context) },
+                2,
+                .False,
+            ),
+            .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
+                context.pointerType(0),
+                &[_]*l.Type{context.intType(64)},
+                1,
+                .False,
+            ),
+            .bz_objStringConcat => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_objStringSubscript => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_toString => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{ context.pointerType(0), try ExternApi.value.lower(context) },
+                2,
+                .False,
+            ),
+            .bz_newList => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{ context.pointerType(0), try ExternApi.value.lower(context) },
+                2,
+                .False,
+            ),
+            .bz_listAppend => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_listMethod => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    context.intType(8).pointerType(0),
+                    context.intType(64),
+                },
+                4,
+                .False,
+            ),
+            .bz_listGet => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                    context.intType(64),
+                },
+                2,
+                .False,
+            ),
+            .bz_listSet => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    context.intType(64),
+                    try ExternApi.value.lower(context),
+                },
+                4,
+                .False,
+            ),
+            .bz_valueEqual => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .bz_listConcat => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_newMap => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .bz_mapSet => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                4,
+                .False,
+            ),
+            .bz_mapGet => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .bz_mapMethod => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    context.intType(8).pointerType(0),
+                    context.intType(64),
+                },
+                4,
+                .False,
+            ),
+            .bz_mapConcat => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_valueIs => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .bz_setTryCtx => l.functionType(
+                // *TryContext
+                (try ExternApi.tryctx.lower(context)).pointerType(0),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_popTryCtx => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_rethrow => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .bz_throw => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // payload
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .bz_getUpValue => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    context.intType(64),
+                },
+                2,
+                .False,
+            ),
+            .bz_setUpValue => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    context.intType(64),
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_closeUpValues => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // payload
+                    (try ExternApi.value.lower(context)).pointerType(0),
+                },
+                2,
+                .False,
+            ),
+            .bz_getUpValues => l.functionType(
+                context.pointerType(0),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                },
+                1,
+                .False,
+            ),
+            .bz_getGlobals => l.functionType(
+                (try ExternApi.value.lower(context)).pointerType(0),
+                &[_]*l.Type{
+                    try ExternApi.value.lower(context),
+                },
+                1,
+                .False,
+            ),
+            .bz_closure => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // NativeCtx
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    // function
+                    context.pointerType(0),
+                    // native
+                    context.pointerType(0),
+                    // native_raw
+                    context.pointerType(0),
+                },
+                4,
+                .False,
+            ),
+            .bz_context => l.functionType(
+                // ptr to raw fn
+                context.pointerType(0),
+                &[_]*l.Type{
+                    // NativeCtx
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    // function
+                    try ExternApi.value.lower(context),
+                    // new NativeCtx
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                },
+                3,
+                .False,
+            ),
+            .bz_instance => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // object or Value.Null
+                    try ExternApi.value.lower(context),
+                    // typedef or Value.Null
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_setInstanceField => l.functionType(
+                // instance
+                context.voidType(),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // instance
+                    try ExternApi.value.lower(context),
+                    // field name
+                    try ExternApi.value.lower(context),
+                    // value
+                    try ExternApi.value.lower(context),
+                },
+                4,
+                .False,
+            ),
+            .bz_getInstanceField => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // field name
+                    try ExternApi.value.lower(context),
+                    // value
+                    try ExternApi.value.lower(context),
+                    // bind
+                    context.intType(1),
+                },
+                4,
+                .False,
+            ),
+            .bz_bindMethod => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // receiver
+                    try ExternApi.value.lower(context),
+                    // closure
+                    try ExternApi.value.lower(context),
+                    // native
+                    try ExternApi.value.lower(context),
+                },
+                4,
+                .False,
+            ),
+            .setjmp => l.functionType(
+                context.intType(@sizeOf(c_int)),
+                &[_]*l.Type{
+                    // vm
+                    try ExternApi.jmp_buf.lower(context),
+                },
+                1,
+                .False,
+            ),
+            .bz_dumpStack => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    context.intType(64),
+                },
+                2,
+                .False,
+            ),
+            .nativefn => l.functionType(
+                context.intType(8),
+                &[_]*l.Type{
+                    (try ExternApi.nativectx.lower(context)).pointerType(0),
+                },
+                1,
+                .False,
+            ),
+            .value => context.intType(64),
+            .nativectx => context.structCreateNamed(
+                "NativeCtx",
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // globals
+                    try ExternApi.globals.lower(context),
+                    // upvalues
+                    context.pointerType(0).pointerType(0),
+                    // base,
+                    (try ExternApi.value.lower(context)).pointerType(0),
+                    // stack_top,
+                    (try ExternApi.value.lower(context)).pointerType(0).pointerType(0),
+                },
+                5,
+                .False,
+            ),
+            .tryctx => context.structCreateNamed(
+                "TryCtx",
+                &[_]*l.Type{
+                    // *TryCtx, opaque to avoid infinite recursion
+                    context.pointerType(0),
+                    try ExternApi.jmp_buf.lower(context),
+                },
+                2,
+                .False,
+            ),
+            .globals => (try ExternApi.value.lower(context)).pointerType(0),
+
+            // TODO: Is it a c_int on all platforms?
+            .jmp_buf => context.intType(@sizeOf(c_int)).pointerType(0),
+        };
+    }
 };
 
 pub const JIT = struct {
@@ -311,7 +719,6 @@ pub const JIT = struct {
             .lowered_types = std.AutoHashMap(*ObjTypeDef, *l.Type).init(vm.gc.allocator),
             .orc_jit = orc_jit,
             .context = l.OrcThreadSafeContext.create(),
-            .state = undefined,
             .compiled_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
         };
 
@@ -376,418 +783,12 @@ pub const JIT = struct {
         return lowered.?;
     }
 
-    inline fn lowerExternApi(self: *Self, method: ExternApi) !*l.Type {
+    fn lowerExternApi(self: *Self, method: ExternApi) !*l.Type {
         if (self.api_lowered_types.get(method)) |lowered| {
             return lowered;
         }
 
-        const ptr_type = self.context.getContext().pointerType(0);
-
-        const lowered = switch (method) {
-            .bz_peek => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{ ptr_type, self.context.getContext().intType(32) },
-                2,
-                .False,
-            ),
-            .bz_push => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
-                2,
-                .False,
-            ),
-            .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
-                ptr_type,
-                &[_]*l.Type{self.context.getContext().intType(64)},
-                1,
-                .False,
-            ),
-            .bz_objStringConcat => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    ptr_type,
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_objStringSubscript => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    ptr_type,
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_toString => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
-                2,
-                .False,
-            ),
-            .bz_newList => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{ ptr_type, try self.lowerExternApi(.value) },
-                2,
-                .False,
-            ),
-            .bz_listAppend => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    ptr_type,
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_listMethod => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    self.context.getContext().intType(8).pointerType(0),
-                    self.context.getContext().intType(64),
-                },
-                4,
-                .False,
-            ),
-            .bz_listGet => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                    self.context.getContext().intType(64),
-                },
-                2,
-                .False,
-            ),
-            .bz_listSet => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    self.context.getContext().intType(64),
-                    try self.lowerExternApi(.value),
-                },
-                4,
-                .False,
-            ),
-            .bz_valueEqual => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                2,
-                .False,
-            ),
-            .bz_listConcat => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_newMap => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                },
-                2,
-                .False,
-            ),
-            .bz_mapSet => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                4,
-                .False,
-            ),
-            .bz_mapGet => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                2,
-                .False,
-            ),
-            .bz_mapMethod => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    self.context.getContext().intType(8).pointerType(0),
-                    self.context.getContext().intType(64),
-                },
-                4,
-                .False,
-            ),
-            .bz_mapConcat => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_valueIs => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                    try self.lowerExternApi(.value),
-                },
-                2,
-                .False,
-            ),
-            .bz_setTryCtx => l.functionType(
-                // *TryContext
-                (try self.lowerExternApi(.tryctx)).pointerType(0),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                },
-                1,
-                .False,
-            ),
-            .bz_popTryCtx => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                },
-                1,
-                .False,
-            ),
-            .bz_rethrow => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                },
-                1,
-                .False,
-            ),
-            .bz_throw => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // payload
-                    try self.lowerExternApi(.value),
-                },
-                2,
-                .False,
-            ),
-            .bz_getUpValue => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                    self.context.getContext().intType(64),
-                },
-                2,
-                .False,
-            ),
-            .bz_setUpValue => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                    self.context.getContext().intType(64),
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_closeUpValues => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // payload
-                    (try self.lowerExternApi(.value)).pointerType(0),
-                },
-                2,
-                .False,
-            ),
-            .bz_getUpValues => l.functionType(
-                self.context.getContext().pointerType(0),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                },
-                1,
-                .False,
-            ),
-            .bz_getGlobals => l.functionType(
-                (try self.lowerExternApi(.value)).pointerType(0),
-                &[_]*l.Type{
-                    try self.lowerExternApi(.value),
-                },
-                1,
-                .False,
-            ),
-            .bz_closure => l.functionType(
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    // NativeCtx
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                    // function
-                    self.context.getContext().pointerType(0),
-                    // native
-                    self.context.getContext().pointerType(0),
-                    // native_raw
-                    self.context.getContext().pointerType(0),
-                },
-                4,
-                .False,
-            ),
-            .bz_context => l.functionType(
-                // ptr to raw fn
-                self.context.getContext().pointerType(0),
-                &[_]*l.Type{
-                    // NativeCtx
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                    // function
-                    try self.lowerExternApi(.value),
-                    // new NativeCtx
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                },
-                3,
-                .False,
-            ),
-            .bz_instance => l.functionType(
-                // instance
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // object or Value.Null
-                    try self.lowerExternApi(.value),
-                    // typedef or Value.Null
-                    try self.lowerExternApi(.value),
-                },
-                3,
-                .False,
-            ),
-            .bz_setInstanceField => l.functionType(
-                // instance
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // instance
-                    try self.lowerExternApi(.value),
-                    // field name
-                    try self.lowerExternApi(.value),
-                    // value
-                    try self.lowerExternApi(.value),
-                },
-                4,
-                .False,
-            ),
-            .bz_getInstanceField => l.functionType(
-                // instance
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // field name
-                    try self.lowerExternApi(.value),
-                    // value
-                    try self.lowerExternApi(.value),
-                    // bind
-                    self.context.getContext().intType(1),
-                },
-                4,
-                .False,
-            ),
-            .bz_bindMethod => l.functionType(
-                // instance
-                try self.lowerExternApi(.value),
-                &[_]*l.Type{
-                    // vm
-                    self.context.getContext().pointerType(0),
-                    // receiver
-                    try self.lowerExternApi(.value),
-                    // closure
-                    try self.lowerExternApi(.value),
-                    // native
-                    try self.lowerExternApi(.value),
-                },
-                4,
-                .False,
-            ),
-            .setjmp => l.functionType(
-                self.context.getContext().intType(@sizeOf(c_int)),
-                &[_]*l.Type{
-                    // vm
-                    try self.lowerExternApi(.jmp_buf),
-                },
-                1,
-                .False,
-            ),
-            .bz_dumpStack => l.functionType(
-                self.context.getContext().voidType(),
-                &[_]*l.Type{
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                    self.context.getContext().intType(64),
-                },
-                2,
-                .False,
-            ),
-            .nativefn => l.functionType(
-                self.context.getContext().intType(8),
-                &[_]*l.Type{
-                    (try self.lowerExternApi(.nativectx)).pointerType(0),
-                },
-                1,
-                .False,
-            ),
-            .value => self.context.getContext().intType(64),
-            .nativectx => self.context.getContext().structCreateNamed(
-                "NativeCtx",
-                &[_]*l.Type{
-                    // vm
-                    ptr_type,
-                    // globals
-                    try self.lowerExternApi(.globals),
-                    // upvalues
-                    ptr_type.pointerType(0),
-                    // base,
-                    (try self.lowerExternApi(.value)).pointerType(0),
-                    // stack_top,
-                    (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
-                },
-                5,
-                .False,
-            ),
-            .tryctx => self.context.getContext().structCreateNamed(
-                "TryCtx",
-                &[_]*l.Type{
-                    // *TryCtx, opaque to avoid infinite recursion
-                    self.context.getContext().pointerType(0),
-                    try self.lowerExternApi(.jmp_buf),
-                },
-                2,
-                .False,
-            ),
-            .globals => (try self.lowerExternApi(.value)).pointerType(0),
-
-            // TODO: Is it a c_int on all platforms?
-            .jmp_buf => self.context.getContext().intType(@sizeOf(c_int)).pointerType(0),
-        };
+        const lowered = try method.lower(self.context.getContext());
 
         try self.api_lowered_types.put(
             method,
