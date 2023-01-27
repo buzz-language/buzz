@@ -23,13 +23,13 @@ const BuzzDebugOptions = struct {
 };
 
 const BuzzJITOptions = struct {
-    off: bool,
+    on: bool,
     debug: bool,
     prof_threshold: f64 = 0.005,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
-        options.addOption(@TypeOf(self.off), "jit_off", self.off);
+        options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
     }
 };
@@ -203,10 +203,10 @@ pub fn build(b: *Builder) !void {
                 "jit_debug",
                 "Show debug information for the JIT engine",
             ) orelse false,
-            .off = b.option(
+            .on = b.option(
                 bool,
-                "jit_off",
-                "Turn off JIT engine",
+                "jit",
+                "Turn on JIT engine",
             ) orelse false,
             .prof_threshold = b.option(
                 f64,
@@ -226,15 +226,17 @@ pub fn build(b: *Builder) !void {
     exe.addIncludePath("/usr/local/include");
     exe.addIncludePath("/usr/include");
     exe.linkSystemLibrary("pcre");
-    if (build_options.use_mimalloc)
-        exe.linkSystemLibrary("mimalloc");
     exe.linkLibC();
+    if (build_options.use_mimalloc) {
+        exe.linkSystemLibrary("mimalloc");
+    }
     if (builtin.os.tag == .macos) {
         exe.addIncludePath("/opt/homebrew/include");
         exe.addLibraryPath("/opt/homebrew/lib");
     }
 
     // LLVM
+
     exe.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
     exe.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
     exe.linkSystemLibrary("llvm");
@@ -260,6 +262,7 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
+
     lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
     lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
     lib.linkSystemLibrary("llvm");
@@ -324,9 +327,11 @@ pub fn build(b: *Builder) !void {
             std_lib.addLibraryPath("/opt/homebrew/lib");
         }
         // LLVM
+
         std_lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
         std_lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
         std_lib.linkSystemLibrary("llvm");
+
         std_lib.setMainPkgPath("src");
         std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);
@@ -370,6 +375,11 @@ pub fn build(b: *Builder) !void {
         unit_tests.addIncludePath("/opt/homebrew/include");
         unit_tests.addLibraryPath("/opt/homebrew/lib");
     }
+
+    unit_tests.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
+    unit_tests.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
+    unit_tests.linkSystemLibrary("llvm");
+
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);
     unit_tests.addOptions("build_options", build_options.step(b));

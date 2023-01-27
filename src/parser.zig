@@ -4648,7 +4648,13 @@ pub const Parser = struct {
     }
 
     fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
-        assert(self.parser.previous_token.?.token_type == .Function);
+        assert(self.parser.previous_token.?.token_type == .Function or self.parser.previous_token.?.token_type == .Extern);
+
+        const is_extern = self.parser.previous_token.?.token_type == .Extern;
+
+        if (is_extern) {
+            try self.consume(.Function, "Expected `Function` after `extern`.");
+        }
 
         var name: ?*ObjString = null;
         if (try self.match(.Identifier)) {
@@ -4752,9 +4758,15 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after function parameters.");
 
-        var return_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef(null) else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        var return_type: *ObjTypeDef = if (try self.match(.Greater))
+            try self.parseTypeDef(null)
+        else
+            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
-        var yield_type: *ObjTypeDef = if (try self.match(.Greater)) try self.parseTypeDef(null) else try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        var yield_type: *ObjTypeDef = if (try self.match(.Greater))
+            try self.parseTypeDef(null)
+        else
+            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
         var error_types: ?std.ArrayList(*ObjTypeDef) = null;
         if (try self.match(.BangGreater)) {
@@ -4786,7 +4798,7 @@ pub const Parser = struct {
             .yield_type = try yield_type.toInstance(self.gc.allocator, &self.gc.type_registry),
             .parameters = parameters,
             .defaults = defaults,
-            .function_type = .Anonymous,
+            .function_type = if (is_extern) .Extern else .Anonymous,
             .generic_types = generic_types,
             .error_types = if (error_types != null) error_types.?.items else null,
         };
@@ -4873,7 +4885,7 @@ pub const Parser = struct {
             return self.parseListType(generic_types);
         } else if (try self.match(.LeftBrace)) {
             return self.parseMapType(generic_types);
-        } else if (try self.match(.Function)) {
+        } else if (try self.match(.Function) or try self.match(.Extern)) {
             return try self.parseFunctionType(generic_types);
         } else if (try self.match(.Fib)) {
             return try self.parseFiberType(generic_types);

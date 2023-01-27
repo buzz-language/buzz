@@ -360,20 +360,6 @@ export fn bz_toString(vm: *VM, value: Value) Value {
 
 // Type helpers
 
-// TODO: should always return the same instance
-/// Returns the [bool] type
-export fn bz_boolType() ?*ObjTypeDef {
-    var bool_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
-
-    if (bool_type == null) {
-        return null;
-    }
-
-    bool_type.?.* = ObjTypeDef{ .def_type = .Bool, .optional = false };
-
-    return bool_type;
-}
-
 /// Returns the [str] type
 export fn bz_stringType() Value {
     const bool_type = allocator.create(ObjTypeDef) catch @panic("Could not create type");
@@ -381,19 +367,6 @@ export fn bz_stringType() Value {
     bool_type.* = ObjTypeDef{ .def_type = .String, .optional = false };
 
     return bool_type.toValue();
-}
-
-/// Returns the [void] type
-export fn bz_voidType() ?*ObjTypeDef {
-    var void_type: ?*ObjTypeDef = allocator.create(ObjTypeDef) catch null;
-
-    if (void_type == null) {
-        return null;
-    }
-
-    void_type.?.* = ObjTypeDef{ .def_type = .Void, .optional = false };
-
-    return void_type;
 }
 
 export fn bz_allocated(self: *VM) usize {

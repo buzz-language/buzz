@@ -134,11 +134,11 @@ test "NaN boxing" {
 
 // If nothing in its decimal part, will return a Value.Integer
 pub inline fn floatToInteger(value: Value) Value {
-    const float = value.float();
+    const float = if (value.isFloat()) value.float() else null;
 
     // FIXME also check that the f64 can fit in the i32
-    if (value.isFloat() and std.math.floor(float) == float) {
-        return Value.fromInteger(@floatToInt(i32, float));
+    if (float != null and @floatToInt(i64, float.?) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
+        return Value.fromInteger(@floatToInt(i32, float.?));
     }
 
     return value;

@@ -183,7 +183,7 @@ pub fn main() !void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit_off) "no" else "yes",
+                if (BuildOptions.jit) "yes" else "no",
             },
         );
 
@@ -258,8 +258,15 @@ test "Testing behavior" {
                 var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
 
+                std.debug.print("{s}\n", .{file.name});
+
                 var had_error: bool = false;
-                runFile(allocator, try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}), null, .Test) catch {
+                runFile(
+                    allocator,
+                    try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}),
+                    &[_][:0]u8{},
+                    .Test,
+                ) catch {
                     std.debug.print("\u{001b}[31m[{s} ✕]\u{001b}[0m\n", .{file.name});
                     had_error = true;
                     fail_count += 1;

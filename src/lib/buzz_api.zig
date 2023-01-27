@@ -212,9 +212,7 @@ pub const Value = packed struct {
 pub const ObjClosure = opaque {};
 
 pub const ObjTypeDef = opaque {
-    pub extern fn bz_boolType() ?*ObjTypeDef;
     pub extern fn bz_stringType() Value;
-    pub extern fn bz_voidType() ?*ObjTypeDef;
 };
 
 pub const ObjString = opaque {

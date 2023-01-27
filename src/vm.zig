@@ -3171,7 +3171,7 @@ pub const VM = struct {
             Value.Null;
 
         // Set new value
-        if (!key_slot.*.isInteger()) {
+        if (key_slot.*.isInteger()) {
             value_slot.* = (self.gc.copyString(&([_]u8{str.string[@intCast(usize, key_slot.integer())]})) catch |e| {
                 panic(e);
                 unreachable;
@@ -3198,7 +3198,10 @@ pub const VM = struct {
         var list: *ObjList = ObjList.cast(self.peek(0).obj()).?;
 
         // Get next index
-        key_slot.* = if (list.rawNext(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
+        key_slot.* = if (list.rawNext(
+            self,
+            if (key_slot.*.isNull()) null else key_slot.integer(),
+        ) catch |e| {
             panic(e);
             unreachable;
         }) |new_index|
@@ -3207,7 +3210,7 @@ pub const VM = struct {
             Value.Null;
 
         // Set new value
-        if (!key_slot.*.isInteger()) {
+        if (key_slot.*.isInteger()) {
             value_slot.* = list.items.items[@intCast(usize, key_slot.integer())];
         }
 
@@ -3436,7 +3439,7 @@ pub const VM = struct {
         self.jit.call_count += 1;
 
         var native = closure.function.native;
-        if (!BuildOptions.jit_off) {
+        if (BuildOptions.jit) {
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
             if (self.jit.shouldCompileFunction(closure)) {

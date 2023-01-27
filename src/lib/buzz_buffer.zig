@@ -129,7 +129,7 @@ const Buffer = struct {
 
         const number = try reader.readIntNative(i32);
 
-        self.cursor += 8;
+        self.cursor += @sizeOf(i32);
 
         return number;
     }
@@ -156,7 +156,7 @@ const Buffer = struct {
 
         const number = try reader.readIntNative(u64);
 
-        self.cursor += 8;
+        self.cursor += @sizeOf(f64);
 
         return @bitCast(f64, number);
     }
