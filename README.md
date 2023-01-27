@@ -17,11 +17,10 @@ A small/lightweight typed scripting language written in Zig
 - Unambiguous
 - No nonsense coercion
 - [Fibers](#fibers)
-- JIT
 - Tooling
     - [Generate doc from docblocks (in progress)](https://github.com/buzz-language/buzz/blob/main/doc/index.md)
     - LSP (in progress)
-    - Debugger and DAP
+    - Debugger and DAP (planned)
     - [TextMate syntax](https://github.com/buzz-language/code)
 
 ## Progress
@@ -31,11 +30,12 @@ We're not far from completing [milestone 0.1.0](https://github.com/buzz-language
 ## How to build
 
 ### Requirements
-- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86.
+- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86/M1.
 - Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
 - libpcre (not libpcre2)
-- libc on Linux
-- [mimalloc](https://github.com/microsoft/mimalloc) (can be turned of by building buzz with `-Duse_mimalloc=false`)
+- libc
+- [mimalloc](https://github.com/microsoft/mimalloc) (can be turned off by building buzz with `-Duse_mimalloc=false`)
+- LLVM 15.0.6 (for the coming soon JIT compiler)
 - zig master
 
 ### Steps
@@ -520,10 +520,10 @@ const api = @import("buzz_api.zig");
 
 // We have to respect C ABI
 export fn assert(ctx: *api.NativeCtx) c_int {
-    var condition: bool = vm.bz_peek(1).bz_valueToBool();
+    const condition: bool = ctx.vm.bz_peek(1).bz_valueToBool();
 
     if (!condition) {
-        vm.bz_throw(vm.bz_peek(0));
+        ctx.vm.bz_throw(ctx.vm.bz_peek(0));
     }
 
     return 0;
