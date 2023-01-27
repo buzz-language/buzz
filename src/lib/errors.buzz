@@ -92,6 +92,7 @@ enum ReadWriteError {
     StreamTooLong,
     NotOpenForWriting,
     LockViolation,
+    NetNameDeleted,
 }
 
 object OutOfMemoryError {}
