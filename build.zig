@@ -236,9 +236,18 @@ pub fn build(b: *Builder) !void {
     }
 
     // LLVM
+    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer inc.deinit();
+        var lib = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer lib.deinit();
 
-    exe.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
-    exe.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
+        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+        lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+
+        exe.addIncludePath(inc.items);
+        exe.addLibraryPath(lib.items);
+    }
     exe.linkSystemLibrary("llvm");
 
     exe.setBuildMode(build_mode);
@@ -263,8 +272,18 @@ pub fn build(b: *Builder) !void {
 
     // LLVM
 
-    lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
-    lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
+    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer inc.deinit();
+        var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer llvm_lib.deinit();
+
+        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+        llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+
+        lib.addIncludePath(inc.items);
+        lib.addLibraryPath(llvm_lib.items);
+    }
     lib.linkSystemLibrary("llvm");
 
     lib.setMainPkgPath("src");
@@ -327,9 +346,18 @@ pub fn build(b: *Builder) !void {
             std_lib.addLibraryPath("/opt/homebrew/lib");
         }
         // LLVM
+        if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+            var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+            defer inc.deinit();
+            var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
+            defer llvm_lib.deinit();
 
-        std_lib.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
-        std_lib.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
+            inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+            llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+
+            std_lib.addIncludePath(inc.items);
+            std_lib.addLibraryPath(llvm_lib.items);
+        }
         std_lib.linkSystemLibrary("llvm");
 
         std_lib.setMainPkgPath("src");
@@ -376,8 +404,18 @@ pub fn build(b: *Builder) !void {
         unit_tests.addLibraryPath("/opt/homebrew/lib");
     }
 
-    unit_tests.addIncludePath("/Users/giann/git/incoming/llvm-project/build/include");
-    unit_tests.addLibraryPath("/Users/giann/git/incoming/llvm-project/build/lib");
+    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer inc.deinit();
+        var llvm_lib = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer llvm_lib.deinit();
+
+        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+        llvm_lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+
+        unit_tests.addIncludePath(inc.items);
+        unit_tests.addLibraryPath(llvm_lib.items);
+    }
     unit_tests.linkSystemLibrary("llvm");
 
     unit_tests.setBuildMode(.Debug);
