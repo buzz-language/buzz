@@ -39,7 +39,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor == .Test);
-    try vm.initJIT();
+    if (BuildOptions.jit) try vm.initJIT();
     var parser = Parser.init(&gc, &imports, false);
     var codegen = CodeGen.init(&gc, &parser, flavor == .Test);
     defer {
@@ -116,7 +116,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             const codegen_ms: f64 = @intToFloat(f64, codegen_time) / 1000000;
             const running_ms: f64 = @intToFloat(f64, running_time) / 1000000;
             const gc_ms: f64 = @intToFloat(f64, gc.gc_time) / 1000000;
-            const jit_ms: f64 = @intToFloat(f64, vm.jit.jit_time) / 1000000;
+            const jit_ms: f64 = if (vm.jit) |jit| @intToFloat(f64, jit.jit_time) / 1000000 else 0;
             std.debug.print(
                 "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\nJIT: {d} ms\n\u{001b}[0m",
                 .{

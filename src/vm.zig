@@ -314,7 +314,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
-    jit: JIT = undefined,
+    jit: ?JIT = null,
     testing: bool,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, testing: bool) !Self {
@@ -3436,14 +3436,14 @@ pub const VM = struct {
     // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
         closure.function.call_count += 1;
-        self.jit.call_count += 1;
 
         var native = closure.function.native;
         if (BuildOptions.jit) {
+            self.jit.?.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (self.jit.shouldCompileFunction(closure)) {
-                try self.jit.compileFunction(closure);
+            if (self.jit.?.shouldCompileFunction(closure)) {
+                try self.jit.?.compileFunction(closure);
 
                 native = closure.function.native;
             }

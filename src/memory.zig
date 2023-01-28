@@ -473,14 +473,17 @@ pub const GarbageCollector = struct {
                             std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str });
                         }
                     } else {
-                        std.debug.print(
-                            "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
-                            .{
-                                obj_typedef,
-                                try obj_typedef.toStringAlloc(self.allocator),
-                            },
-                        );
-                        unreachable;
+                        // std.debug.print(
+                        //     "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
+                        //     .{
+                        //         obj_typedef,
+                        //         try obj_typedef.toStringAlloc(self.allocator),
+                        //     },
+                        // );
+                        // unreachable;
+                        // FIXME: this should not occur. Right now this because of the way we resolve placeholders by changing their content and replacing the type in the typ registry
+                        // Previously registered same type is now outside of the type registry and is collected.
+                        return;
                     }
                 }
 
