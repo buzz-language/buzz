@@ -656,6 +656,15 @@ pub const ExternApi = enum {
             .jmp_buf => context.intType(@sizeOf(c_int)).pointerType(0),
         };
     }
+
+    pub fn declare(self: ExternApi, context: *l.Context, module: *l.OrcThreadSafeModule) void {
+        if (module.getNamedFunction(self.namez()) == null) {
+            _ = module.addFunction(
+                @ptrCast([*:0]const u8, self.name()),
+                try self.lower(context),
+            );
+        }
+    }
 };
 
 pub const JIT = struct {
@@ -798,54 +807,9 @@ pub const JIT = struct {
         return lowered;
     }
 
-    fn declareExternApi(self: *Self) !void {
-        for ([_]ExternApi{
-            .bz_peek,
-            .bz_push,
-            .bz_valueToExternNativeFn,
-            .bz_valueToRawNative,
-            .bz_objStringConcat,
-            .bz_objStringSubscript,
-            .bz_toString,
-            .bz_newList,
-            .bz_listAppend,
-            .bz_listMethod,
-            .bz_listGet,
-            .bz_listSet,
-            .bz_valueEqual,
-            .bz_listConcat,
-            .bz_newMap,
-            .bz_mapSet,
-            .bz_mapGet,
-            .bz_mapMethod,
-            .bz_mapConcat,
-            .bz_valueIs,
-            .bz_setTryCtx,
-            .bz_popTryCtx,
-            .bz_rethrow,
-            .bz_throw,
-            .bz_closeUpValues,
-            .bz_getUpValue,
-            .bz_setUpValue,
-            .bz_getUpValues,
-            .bz_getGlobals,
-            .bz_closure,
-            .bz_context,
-            .bz_instance,
-            .bz_setInstanceField,
-            .bz_getInstanceField,
-            .bz_bindMethod,
-            .setjmp,
-            .bz_dumpStack,
-        }) |method| {
-            _ = self.state.?.module.addFunction(
-                @ptrCast([*:0]const u8, method.name()),
-                try self.lowerExternApi(method),
-            );
-        }
-    }
-
     fn buildExternApiCall(self: *Self, method: ExternApi, args: []*l.Value) !*l.Value {
+        method.declare(self.context.getContext(), self.state.?.module);
+
         return self.state.?.builder.buildCall(
             try self.lowerExternApi(method),
             self.state.?.module.getNamedFunction(method.namez()).?,
@@ -939,8 +903,6 @@ pub const JIT = struct {
             .module = thread_safe_module,
             .builder = self.context.getContext().createBuilder(),
         };
-
-        self.declareExternApi() catch @panic("Could not declare buzz api into LLVM module");
 
         try self.compiled_closures.put(closure, {});
         self.state.?.closure = closure;
