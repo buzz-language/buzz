@@ -890,7 +890,6 @@ pub const JIT = struct {
     }
 
     pub fn compileFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
-        var timer = std.time.Timer.start() catch unreachable;
         const previous_state = self.state;
 
         var module = l.Module.createWithName("buzz-jit", self.context.getContext());
@@ -992,8 +991,6 @@ pub const JIT = struct {
 
         // self.state.?.deinit();
         self.state = previous_state;
-
-        self.jit_time += timer.read();
     }
 
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {

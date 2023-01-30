@@ -3443,7 +3443,21 @@ pub const VM = struct {
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
             if (self.jit.?.shouldCompileFunction(closure)) {
+                var timer = std.time.Timer.start() catch unreachable;
+
                 try self.jit.?.compileFunction(closure);
+
+                if (BuildOptions.jit_debug) {
+                    std.debug.print(
+                        "Compiled function `{s}` in {d} ms\n",
+                        .{
+                            closure.function.type_def.resolved_type.?.Function.name.string,
+                            @intToFloat(f64, timer.read()) / 1000000,
+                        },
+                    );
+                }
+
+                self.jit.?.jit_time += timer.read();
 
                 native = closure.function.native;
             }
