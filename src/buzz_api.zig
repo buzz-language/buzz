@@ -646,6 +646,19 @@ export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value 
     return instance.toValue();
 }
 
+export fn bz_getObjectField(object_value: Value, field_name_value: Value) Value {
+    const object = ObjObject.cast(object_value.obj()).?;
+
+    return object.static_fields.get(ObjString.cast(field_name_value.obj()).?).?;
+}
+
+export fn bz_setObjectField(vm: *VM, object_value: Value, field_name_value: Value, value: Value) void {
+    const object = ObjObject.cast(object_value.obj()).?;
+    const field = ObjString.cast(field_name_value.obj()).?;
+
+    object.setStaticField(vm.gc, field, value) catch @panic("Could not set static field");
+}
+
 export fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void {
     ObjObjectInstance.cast(instance_value.obj()).?.setField(
         vm.gc,

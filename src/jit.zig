@@ -37,6 +37,7 @@ const UnwrapNode = _node.UnwrapNode;
 const ObjectInitNode = _node.ObjectInitNode;
 const ForceUnwrapNode = _node.ForceUnwrapNode;
 const UnaryNode = _node.UnaryNode;
+const PatternNode = _node.PatternNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -138,6 +139,8 @@ pub const ExternApi = enum {
     bz_instance,
     bz_setInstanceField,
     bz_getInstanceField,
+    bz_getObjectField,
+    bz_setObjectField,
     bz_bindMethod,
     globals,
 
@@ -190,6 +193,8 @@ pub const ExternApi = enum {
             .bz_instance => "bz_instance",
             .bz_setInstanceField => "bz_setInstanceField",
             .bz_getInstanceField => "bz_getInstanceField",
+            .bz_setObjectField => "bz_setObjectField",
+            .bz_getObjectField => "bz_getObjectField",
             .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
@@ -241,6 +246,8 @@ pub const ExternApi = enum {
             .bz_instance => "bz_instance",
             .bz_setInstanceField => "bz_setInstanceField",
             .bz_getInstanceField => "bz_getInstanceField",
+            .bz_setObjectField => "bz_setObjectField",
+            .bz_getObjectField => "bz_getObjectField",
             .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
@@ -549,7 +556,7 @@ pub const ExternApi = enum {
                 3,
                 .False,
             ),
-            .bz_setInstanceField => l.functionType(
+            .bz_setInstanceField, .bz_setObjectField => l.functionType(
                 // instance
                 context.voidType(),
                 &[_]*l.Type{
@@ -579,6 +586,18 @@ pub const ExternApi = enum {
                     context.intType(1),
                 },
                 4,
+                .False,
+            ),
+            .bz_getObjectField => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // field name
+                    try ExternApi.value.lower(context),
+                    // value
+                    try ExternApi.value.lower(context),
+                },
+                2,
                 .False,
             ),
             .bz_bindMethod => l.functionType(
@@ -1056,6 +1075,7 @@ pub const JIT = struct {
             .ObjectInit => try self.generateObjectInit(ObjectInitNode.cast(node).?),
             .ForceUnwrap => try self.generateForceUnwrap(ForceUnwrapNode.cast(node).?),
             .Unary => try self.generateUnary(UnaryNode.cast(node).?),
+            .Pattern => try self.generatePattern(PatternNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1287,7 +1307,16 @@ pub const JIT = struct {
         const subject = if (invoked_on != null) try self.generateNode(dot.?.callee) else null;
         var callee: *l.Value = if (invoked_on != null)
             (switch (invoked_on.?) {
-                .Object => unreachable,
+                .Object => try self.buildExternApiCall(
+                    .bz_getObjectField,
+                    &[_]*l.Value{
+                        subject.?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                    },
+                ),
                 .ObjectInstance => try self.buildExternApiCall(
                     .bz_getInstanceField,
                     &[_]*l.Value{
@@ -2154,12 +2183,53 @@ pub const JIT = struct {
 
         return switch (callee_type.def_type) {
             .Fiber, .Pattern, .String => unreachable,
-            .Object => unreachable,
-            .ObjectInstance => obj: {
+            .Object => obj: {
                 if (dot_node.call) |call| {
                     break :obj try self.generateCall(call);
+                } else if (dot_node.value) |value| {
+                    break :obj try self.buildExternApiCall(
+                        .bz_setObjectField,
+                        &[_]*l.Value{
+                            self.vmConstant(),
+                            (try self.generateNode(dot_node.callee)).?,
+                            self.context.getContext().intType(64).constInt(
+                                (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                                .False,
+                            ),
+                            (try self.generateNode(value)).?,
+                        },
+                    );
                 } else {
                     break :obj try self.buildExternApiCall(
+                        .bz_getObjectField,
+                        &[_]*l.Value{
+                            (try self.generateNode(dot_node.callee)).?,
+                            self.context.getContext().intType(64).constInt(
+                                (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                                .False,
+                            ),
+                        },
+                    );
+                }
+            },
+            .ObjectInstance => inst: {
+                if (dot_node.call) |call| {
+                    break :inst try self.generateCall(call);
+                } else if (dot_node.value) |value| {
+                    break :inst try self.buildExternApiCall(
+                        .bz_setInstanceField,
+                        &[_]*l.Value{
+                            self.vmConstant(),
+                            (try self.generateNode(dot_node.callee)).?,
+                            self.context.getContext().intType(64).constInt(
+                                (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                                .False,
+                            ),
+                            (try self.generateNode(value)).?,
+                        },
+                    );
+                } else {
+                    break :inst try self.buildExternApiCall(
                         .bz_getInstanceField,
                         &[_]*l.Value{
                             self.vmConstant(),
@@ -2612,6 +2682,13 @@ pub const JIT = struct {
             ),
             else => unreachable,
         };
+    }
+
+    fn generatePattern(self: *Self, pattern_node: *PatternNode) VM.Error!?*l.Value {
+        return self.context.getContext().intType(64).constInt(
+            pattern_node.constant.toValue().val,
+            .False,
+        );
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {

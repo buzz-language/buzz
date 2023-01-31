@@ -258,6 +258,8 @@ pub const ObjObject = opaque {
     pub extern fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value;
     pub extern fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void;
     pub extern fn bz_getInstanceField(vm: *VM, instance_value: Value, field_name_value: Value) Value;
+    pub extern fn bz_getObjectField(object_value: Value, field_name_value: Value) Value;
+    pub extern fn bz_setObjectField(vm: *VM, object_value: Value, field_name_value: Value, value: Value) void;
 };
 
 pub const ObjEnumInstance = opaque {};

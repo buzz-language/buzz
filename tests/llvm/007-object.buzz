@@ -5,6 +5,8 @@ object Person {
     str name,
     int age = 30,
 
+    static int population = 0;
+
     fun sayHello() > void {
         print("Hello I'm {this.name} and I'm {this.age}");
     }
@@ -23,4 +25,14 @@ test "object instance" {
     Function() > void f = p.sayHello;
 
     f();
+
+    p.name = "John";
+
+    print("His name is now {p.name}");
+
+    print("Population is {Person.population}");
+
+    Person.population = Person.population + 1;
+
+    print("Population is now {Person.population}");
 }
