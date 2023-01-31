@@ -1,31 +1,38 @@
 import "lib/std";
 
-| test "Binary operators" {
-|     assert(12 == 12, message: "equality (number)");
-|     assert(12 + 12 == 24, message: "addition");
-|     assert(12 - 12 == 0, message: "substraction");
-|     assert(12 * 12 == 144, message: "multiplication");
-|     assert(12 / 12 == 1, message: "division");
-|     assert(12 % 12 == 0, message: "modulo");
-|     assert(12 != 13, message: "inequality");
-|     assert(12 >= 12, message: "greater or equal");
-|     assert(12 <= 12, message: "less or equal");
-|     assert(12 > 11, message: "greater");
-|     assert(12 < 13, message: "less");
-|     assert(12 > 3 and 5 < 12, message: "and");
-|     assert(12 > 3 or 12 < 5, message: "or");
-| }
+test "Binary operators" {
+    assert(12 == 12, message: "equality (number)");
+    assert(12 + 12 == 24, message: "addition");
+    assert(12 - 12 == 0, message: "substraction");
+    assert(12 * 12 == 144, message: "multiplication");
+    assert(12 / 12 == 1, message: "division");
+    assert(12 % 12 == 0, message: "modulo");
+    assert(12 != 13, message: "inequality");
+    assert(12 >= 12, message: "greater or equal");
+    assert(12 <= 12, message: "less or equal");
+    assert(12 > 11, message: "greater");
+    assert(12 < 13, message: "less");
+    assert(12 > 3 and 5 < 12, message: "and");
+    assert(12 > 3 or 12 < 5, message: "or");
+}
 
-| test "Binary operators for strings" {
-|     assert("hello " + "world" == "hello world", message: "string concat");
-|     assert("hello" == "hello", message: "equality (string");
-| }
+test "Binary operators for strings" {
+    assert("hello " + "world" == "hello world", message: "string concat");
+    assert("hello" == "hello", message: "equality (string");
+}
+
+test "Unary operators (constant folded)" {
+    assert(-12 < 0, message: "negate operator");
+    assert(!false, message: "not operator");
+    assert(~15 == -16, message: "~");
+}
 
 test "Unary operators" {
-    print("{-12}");
-    | print("{!false}");
-    | print("{~15 == -16}");
-    | assert(-12 < 0, message: "negate operator");
-    | assert(!false, message: "not operator");
-    | assert(~15 == -16, message: "~");
+    int a = 12;
+    bool b = false;
+    int c = 15;
+
+    assert(-a < 0, message: "negate operator");
+    assert(!b, message: "not operator");
+    assert(~c == -16, message: "~");
 }

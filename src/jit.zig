@@ -997,7 +997,12 @@ pub const JIT = struct {
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
-        var value = switch (node.node_type) {
+        var value = if (node.isConstant(node))
+            self.context.getContext().intType(64).constInt(
+                (node.toValue(node, self.vm.gc) catch return VM.Error.Custom).val,
+                .False,
+            )
+        else switch (node.node_type) {
             .Boolean => lowered_type.?.constInt(
                 Value.fromBoolean(BooleanNode.cast(node).?.constant).val,
                 .False,
@@ -3115,10 +3120,10 @@ pub const JIT = struct {
     }
 
     fn buildValueToInteger(self: *Self, value: *l.Value) *l.Value {
-        return self.state.?.builder.buildBitCast(
+        return self.state.?.builder.buildTrunc(
             self.state.?.builder.buildAnd(
                 value,
-                self.context.getContext().intType(32).constInt(
+                self.context.getContext().intType(64).constInt(
                     0xffffffff,
                     .False,
                 ),
@@ -3135,7 +3140,12 @@ pub const JIT = struct {
                 _value.IntegerMask,
                 .False,
             ),
-            integer,
+            // signed i32 -> i64
+            self.state.?.builder.buildZExt(
+                integer,
+                self.context.getContext().intType(64),
+                "",
+            ),
             "",
         );
     }
