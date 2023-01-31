@@ -36,6 +36,7 @@ const WhileNode = _node.WhileNode;
 const UnwrapNode = _node.UnwrapNode;
 const ObjectInitNode = _node.ObjectInitNode;
 const ForceUnwrapNode = _node.ForceUnwrapNode;
+const UnaryNode = _node.UnaryNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -1006,7 +1007,7 @@ pub const JIT = struct {
                 .False,
             ),
             .Integer => lowered_type.?.constInt(
-                @intCast(c_ulonglong, Value.fromInteger(IntegerNode.cast(node).?.integer_constant).val),
+                Value.fromInteger(IntegerNode.cast(node).?.integer_constant).val,
                 .False,
             ),
             .StringLiteral => self.context.getContext().intType(64).constInt(
@@ -1049,6 +1050,7 @@ pub const JIT = struct {
             .Unwrap => try self.generateUnwrap(UnwrapNode.cast(node).?),
             .ObjectInit => try self.generateObjectInit(ObjectInitNode.cast(node).?),
             .ForceUnwrap => try self.generateForceUnwrap(ForceUnwrapNode.cast(node).?),
+            .Unary => try self.generateUnary(UnaryNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1598,32 +1600,32 @@ pub const JIT = struct {
             .Ampersand => self.wrap(
                 .Integer,
                 self.state.?.builder.buildAnd(
-                    (try self.generateNode(binary_node.left)).?,
-                    (try self.generateNode(binary_node.right)).?,
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.left)).?),
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.right)).?),
                     "",
                 ),
             ),
             .Bor => self.wrap(
                 .Integer,
                 self.state.?.builder.buildOr(
-                    (try self.generateNode(binary_node.left)).?,
-                    (try self.generateNode(binary_node.right)).?,
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.left)).?),
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.right)).?),
                     "",
                 ),
             ),
             .Xor => self.wrap(
                 .Integer,
                 self.state.?.builder.buildXor(
-                    (try self.generateNode(binary_node.left)).?,
-                    (try self.generateNode(binary_node.right)).?,
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.left)).?),
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.right)).?),
                     "",
                 ),
             ),
             .ShiftLeft => self.wrap(
                 .Integer,
                 self.state.?.builder.buildShl(
-                    (try self.generateNode(binary_node.left)).?,
-                    (try self.generateNode(binary_node.right)).?,
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.left)).?),
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.right)).?),
                     "",
                 ),
             ),
@@ -1631,8 +1633,8 @@ pub const JIT = struct {
             .ShiftRight => self.wrap(
                 .Integer,
                 self.state.?.builder.buildLShr(
-                    (try self.generateNode(binary_node.left)).?,
-                    (try self.generateNode(binary_node.right)).?,
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.left)).?),
+                    self.unwrap(.Integer, (try self.generateNode(binary_node.right)).?),
                     "",
                 ),
             ),
@@ -2572,6 +2574,41 @@ pub const JIT = struct {
         return expr;
     }
 
+    fn generateUnary(self: *Self, unary_node: *UnaryNode) VM.Error!?*l.Value {
+        const left = (try self.generateNode(unary_node.left)).?;
+
+        return switch (unary_node.operator) {
+            .Bnot => self.wrap(
+                .Integer,
+                self.state.?.builder.buildNot(
+                    self.unwrap(.Integer, left),
+                    "",
+                ),
+            ),
+            .Bang => self.wrap(
+                .Bool,
+                self.state.?.builder.buildNot(
+                    self.unwrap(.Bool, left),
+                    "",
+                ),
+            ),
+            .Minus => self.wrap(
+                unary_node.left.type_def.?.def_type,
+                if (unary_node.left.type_def.?.def_type == .Integer)
+                    self.state.?.builder.buildNeg(
+                        self.unwrap(unary_node.left.type_def.?.def_type, left),
+                        "",
+                    )
+                else
+                    self.state.?.builder.buildFNeg(
+                        self.unwrap(unary_node.left.type_def.?.def_type, left),
+                        "",
+                    ),
+            ),
+            else => unreachable,
+        };
+    }
+
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
         for (block_node.statements.items) |statement| {
             _ = try self.generateNode(statement);
@@ -3078,12 +3115,16 @@ pub const JIT = struct {
     }
 
     fn buildValueToInteger(self: *Self, value: *l.Value) *l.Value {
-        return self.state.?.builder.buildAnd(
-            value,
-            self.context.getContext().intType(64).constInt(
-                0xffffffff,
-                .False,
+        return self.state.?.builder.buildBitCast(
+            self.state.?.builder.buildAnd(
+                value,
+                self.context.getContext().intType(32).constInt(
+                    0xffffffff,
+                    .False,
+                ),
+                "",
             ),
+            self.context.getContext().intType(32),
             "",
         );
     }

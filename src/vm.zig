@@ -3438,14 +3438,14 @@ pub const VM = struct {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
-        if (BuildOptions.jit) {
-            self.jit.?.call_count += 1;
+        if (self.jit) |*jit| {
+            jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (self.jit.?.shouldCompileFunction(closure)) {
+            if (jit.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
-                try self.jit.?.compileFunction(closure);
+                try jit.compileFunction(closure);
 
                 if (BuildOptions.jit_debug) {
                     std.debug.print(
@@ -3457,7 +3457,7 @@ pub const VM = struct {
                     );
                 }
 
-                self.jit.?.jit_time += timer.read();
+                jit.jit_time += timer.read();
 
                 native = closure.function.native;
             }
