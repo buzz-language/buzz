@@ -2429,6 +2429,10 @@ pub const ObjEnum = struct {
         return &self.obj;
     }
 
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(&self.obj);
+    }
+
     pub inline fn cast(obj: *Obj) ?*Self {
         if (obj.obj_type != .Enum) {
             return null;

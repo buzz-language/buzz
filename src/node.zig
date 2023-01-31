@@ -6234,6 +6234,7 @@ pub const DotNode = struct {
                     try codegen.emitOpCode(self.node.location, .OP_COPY);
                     _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);
                 } else { // Expression
+                    assert(self.value == null);
                     try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
@@ -6265,6 +6266,7 @@ pub const DotNode = struct {
                 if (self.call) |call| {
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
+                    assert(self.value == null);
                     try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },
@@ -6282,6 +6284,7 @@ pub const DotNode = struct {
 
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
+                    assert(self.value == null);
                     try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
                 }
             },

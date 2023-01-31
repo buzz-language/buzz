@@ -8,6 +8,6 @@ fun hello(str m) > void {
     helloToo(m);
 }
 
-fun main([str] args) > void {
+test "sub" {
     hello("world");
 }

@@ -11,6 +11,6 @@ fun sub(str zero) > void {
     yo("lo", two: "mo");
 }
 
-fun main([str] args) > void {
+test "sub" {
     sub("hey");
 }

@@ -16,6 +16,7 @@ const dumpStack = @import("./disassembler.zig").dumpStack;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
+const valueEql = _value.valueEql;
 const ObjString = _obj.ObjString;
 const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
@@ -31,6 +32,7 @@ const ObjUserData = _obj.ObjUserData;
 const ObjClosure = _obj.ObjClosure;
 const ObjNative = _obj.ObjNative;
 const ObjBoundMethod = _obj.ObjBoundMethod;
+const ObjFiber = _obj.ObjFiber;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const UserData = _obj.UserData;
@@ -427,14 +429,6 @@ export fn bz_listLen(self: *ObjList) usize {
     return self.items.items.len;
 }
 
-export fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: usize) Value {
-    return (ObjList.cast(list.obj()).?.member(vm, bz_string(
-        vm,
-        member,
-        member_len,
-    ).?) catch @panic("Could not get list method")).?.toValue();
-}
-
 export fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value {
     const left: *ObjList = ObjList.cast(list.obj()).?;
     const right: *ObjList = ObjList.cast(other_list.obj()).?;
@@ -584,11 +578,16 @@ export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void 
     );
 }
 
-export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void {
+export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {
     const enum_set = ObjEnum.cast(bz_getQualified(self, qualified_name, name_len).obj()).?;
+    const case = self.gc.copyString(case_str[0..case_len]) catch @panic("Could not create error payload");
 
     self.push(
-        bz_getEnumCase(enum_set, self, case, case_len).?.toValue(),
+        bz_getEnumCase(
+            self,
+            enum_set.toValue(),
+            case.toValue(),
+        ),
     );
 }
 
@@ -705,23 +704,48 @@ export fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void {
     vm.push(payload.toValue());
 }
 
-export fn bz_getEnumCase(self: *ObjEnum, vm: *VM, case: [*]const u8, len: usize) ?*ObjEnumInstance {
+export fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Value {
+    const self = ObjEnum.cast(enum_value.obj()).?;
+    const case = ObjString.cast(case_name_value.obj()).?.string;
     var case_index: usize = 0;
 
     for (self.type_def.resolved_type.?.Enum.cases.items) |enum_case, index| {
-        if (std.mem.eql(u8, case[0..len], enum_case)) {
+        if (std.mem.eql(u8, case, enum_case)) {
             case_index = index;
             break;
         }
     }
 
-    return vm.gc.allocateObject(
+    return (vm.gc.allocateObject(
         ObjEnumInstance,
         ObjEnumInstance{
             .enum_ref = self,
             .case = @intCast(u8, case_index),
         },
-    ) catch null;
+    ) catch @panic("Could not create enum case")).toValue();
+}
+
+export fn bz_getEnumCaseValue(enum_instance_value: Value) Value {
+    const instance = ObjEnumInstance.cast(enum_instance_value.obj()).?;
+
+    return instance.enum_ref.cases.items[instance.case];
+}
+
+export fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) Value {
+    const enum_ = ObjEnum.cast(enum_value.obj()).?;
+
+    for (enum_.cases.items) |case, index| {
+        if (valueEql(case, case_value)) {
+            var enum_case: *ObjEnumInstance = vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
+                .enum_ref = enum_,
+                .case = @intCast(u8, index),
+            }) catch @panic("Could not create enum instance");
+
+            return Value.fromObj(enum_case.toObj());
+        }
+    }
+
+    return Value.Null;
 }
 
 export fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void {
@@ -783,10 +807,6 @@ export fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void {
 
 export fn bz_mapGet(map: Value, key: Value) Value {
     return ObjMap.cast(map.obj()).?.map.get(_value.floatToInteger(key)) orelse Value.Null;
-}
-
-export fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usize) Value {
-    return (ObjMap.cast(map.obj()).?.member(vm, bz_string(vm, member, member_len).?) catch @panic("Could not get map method")).?.toValue();
 }
 
 export fn bz_valueIs(self: Value, type_def: Value) Value {
@@ -937,4 +957,79 @@ export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
     std.debug.print("base is {}\n", .{@ptrToInt(ctx.base)});
     std.debug.print("#{}:\n", .{off});
     dumpStack(ctx.vm) catch unreachable;
+}
+
+export fn bz_getStringField(vm: *VM, string_value: Value, field_name_value: Value, bind: bool) Value {
+    const string = ObjString.cast(string_value.obj()).?;
+    const method = (ObjString.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get string method")).?;
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            string.toValue(),
+            Value.Null,
+            method.toValue(),
+        )
+    else
+        method.toValue();
+}
+
+export fn bz_getPatternField(vm: *VM, pattern_value: Value, field_name_value: Value, bind: bool) Value {
+    const pattern = ObjPattern.cast(pattern_value.obj()).?;
+    const method = (ObjPattern.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get pattern method")).?;
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            pattern.toValue(),
+            Value.Null,
+            method.toValue(),
+        )
+    else
+        method.toValue();
+}
+
+export fn bz_getFiberField(vm: *VM, fiber_value: Value, field_name_value: Value, bind: bool) Value {
+    const fiber = ObjFiber.cast(fiber_value.obj()).?;
+    const method = (ObjFiber.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get fiber method")).?;
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            fiber.toValue(),
+            Value.Null,
+            method.toValue(),
+        )
+    else
+        method.toValue();
+}
+
+export fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value {
+    const list = ObjList.cast(list_value.obj()).?;
+    const method = (list.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get list method")).?;
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            list.toValue(),
+            Value.Null,
+            method.toValue(),
+        )
+    else
+        method.toValue();
+}
+
+export fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value {
+    const map = ObjMap.cast(map_value.obj()).?;
+    const method = (map.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get map method")).?;
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            map.toValue(),
+            Value.Null,
+            method.toValue(),
+        )
+    else
+        method.toValue();
 }

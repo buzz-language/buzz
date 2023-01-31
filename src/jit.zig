@@ -114,7 +114,6 @@ pub const ExternApi = enum {
     bz_toString,
     bz_newList,
     bz_listAppend,
-    bz_listMethod,
     bz_listGet,
     bz_listSet,
     bz_valueEqual,
@@ -122,7 +121,6 @@ pub const ExternApi = enum {
     bz_newMap,
     bz_mapSet,
     bz_mapGet,
-    bz_mapMethod,
     bz_mapConcat,
     bz_valueIs,
     bz_setTryCtx,
@@ -141,6 +139,14 @@ pub const ExternApi = enum {
     bz_getInstanceField,
     bz_getObjectField,
     bz_setObjectField,
+    bz_getStringField,
+    bz_getPatternField,
+    bz_getFiberField,
+    bz_getEnumCase,
+    bz_getEnumCaseValue,
+    bz_getListField,
+    bz_getMapField,
+    bz_getEnumCaseFromValue,
     bz_bindMethod,
     globals,
 
@@ -168,7 +174,6 @@ pub const ExternApi = enum {
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
-            .bz_listMethod => "bz_listMethod",
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
@@ -176,7 +181,6 @@ pub const ExternApi = enum {
             .bz_newMap => "bz_newMap",
             .bz_mapSet => "bz_mapSet",
             .bz_mapGet => "bz_mapGet",
-            .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
             .bz_valueIs => "bz_valueIs",
             .bz_setTryCtx => "bz_setTryCtx",
@@ -195,6 +199,14 @@ pub const ExternApi = enum {
             .bz_getInstanceField => "bz_getInstanceField",
             .bz_setObjectField => "bz_setObjectField",
             .bz_getObjectField => "bz_getObjectField",
+            .bz_getStringField => "bz_getStringField",
+            .bz_getPatternField => "bz_getPatternField",
+            .bz_getFiberField => "bz_getFiberField",
+            .bz_getEnumCase => "bz_getEnumCase",
+            .bz_getEnumCaseValue => "bz_getEnumCaseValue",
+            .bz_getListField => "bz_getListField",
+            .bz_getMapField => "bz_getMapField",
+            .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
             .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
@@ -221,7 +233,6 @@ pub const ExternApi = enum {
             .bz_toString => "bz_toString",
             .bz_newList => "bz_newList",
             .bz_listAppend => "bz_listAppend",
-            .bz_listMethod => "bz_listMethod",
             .bz_listGet => "bz_listGet",
             .bz_listSet => "bz_listSet",
             .bz_valueEqual => "bz_valueEqual",
@@ -229,7 +240,6 @@ pub const ExternApi = enum {
             .bz_newMap => "bz_newMap",
             .bz_mapSet => "bz_mapSet",
             .bz_mapGet => "bz_mapGet",
-            .bz_mapMethod => "bz_mapMethod",
             .bz_mapConcat => "bz_mapConcat",
             .bz_valueIs => "bz_valueIs",
             .bz_setTryCtx => "bz_setTryCtx",
@@ -248,6 +258,14 @@ pub const ExternApi = enum {
             .bz_getInstanceField => "bz_getInstanceField",
             .bz_setObjectField => "bz_setObjectField",
             .bz_getObjectField => "bz_getObjectField",
+            .bz_getStringField => "bz_getStringField",
+            .bz_getPatternField => "bz_getPatternField",
+            .bz_getFiberField => "bz_getFiberField",
+            .bz_getEnumCase => "bz_getEnumCase",
+            .bz_getEnumCaseValue => "bz_getEnumCaseValue",
+            .bz_getListField => "bz_getListField",
+            .bz_getMapField => "bz_getMapField",
+            .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
             .bz_bindMethod => "bz_bindMethod",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
@@ -319,22 +337,11 @@ pub const ExternApi = enum {
                 3,
                 .False,
             ),
-            .bz_listMethod => l.functionType(
-                try ExternApi.value.lower(context),
-                &[_]*l.Type{
-                    context.pointerType(0),
-                    try ExternApi.value.lower(context),
-                    context.intType(8).pointerType(0),
-                    context.intType(64),
-                },
-                4,
-                .False,
-            ),
             .bz_listGet => l.functionType(
                 try ExternApi.value.lower(context),
                 &[_]*l.Type{
                     try ExternApi.value.lower(context),
-                    context.intType(64),
+                    context.intType(32),
                 },
                 2,
                 .False,
@@ -344,7 +351,7 @@ pub const ExternApi = enum {
                 &[_]*l.Type{
                     context.pointerType(0),
                     try ExternApi.value.lower(context),
-                    context.intType(64),
+                    context.intType(32),
                     try ExternApi.value.lower(context),
                 },
                 4,
@@ -396,17 +403,6 @@ pub const ExternApi = enum {
                     try ExternApi.value.lower(context),
                 },
                 2,
-                .False,
-            ),
-            .bz_mapMethod => l.functionType(
-                try ExternApi.value.lower(context),
-                &[_]*l.Type{
-                    context.pointerType(0),
-                    try ExternApi.value.lower(context),
-                    context.intType(8).pointerType(0),
-                    context.intType(64),
-                },
-                4,
                 .False,
             ),
             .bz_mapConcat => l.functionType(
@@ -600,6 +596,65 @@ pub const ExternApi = enum {
                 2,
                 .False,
             ),
+            .bz_getEnumCase => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // enum
+                    try ExternApi.value.lower(context),
+                    // case name
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
+            .bz_getEnumCaseValue => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // enum instance
+                    try ExternApi.value.lower(context),
+                },
+                1,
+                .False,
+            ),
+            .bz_getListField,
+            .bz_getMapField,
+            .bz_getStringField,
+            .bz_getPatternField,
+            .bz_getFiberField,
+            => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // list/map/... instance
+                    try ExternApi.value.lower(context),
+                    // field
+                    try ExternApi.value.lower(context),
+                    // bind
+                    context.intType(1),
+                },
+                4,
+                .False,
+            ),
+            .bz_getEnumCaseFromValue => l.functionType(
+                // instance
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // enum
+                    try ExternApi.value.lower(context),
+                    // value
+                    try ExternApi.value.lower(context),
+                },
+                3,
+                .False,
+            ),
             .bz_bindMethod => l.functionType(
                 // instance
                 try ExternApi.value.lower(context),
@@ -763,6 +818,7 @@ pub const JIT = struct {
         self.compiled_closures.deinit();
     }
 
+    // TODO: Kinda stupid, it's either Value or function type
     fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
         var lowered = self.lowered_types.get(obj_typedef);
 
@@ -785,6 +841,11 @@ pub const JIT = struct {
             .Map,
             .Type,
             .UserData,
+            .Fiber,
+            .Protocol,
+            .ProtocolInstance,
+            .Generic,
+            .Placeholder,
             => self.context.getContext().intType(64),
 
             .Function => l.functionType(
@@ -795,16 +856,6 @@ pub const JIT = struct {
                 1,
                 .False,
             ),
-
-            // No runtime representation
-            .Protocol,
-            .ProtocolInstance,
-            .Generic,
-            .Placeholder,
-            => unreachable,
-
-            // TODO
-            .Fiber => unreachable,
         };
 
         try self.lowered_types.put(obj_typedef, lowered.?);
@@ -1292,9 +1343,16 @@ pub const JIT = struct {
     fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*l.Value {
         // This is not a call but an Enum(value)
         if (call_node.callee.type_def.?.def_type == .Enum) {
-            // TODO
+            const value = call_node.arguments.get(call_node.arguments.keys()[0]).?;
 
-            unreachable;
+            return try self.buildExternApiCall(
+                .bz_getEnumCaseFromValue,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    (try self.generateNode(call_node.callee)).?,
+                    (try self.generateNode(value)).?,
+                },
+            );
         }
 
         // Find out if call is invoke or regular call
@@ -1329,53 +1387,84 @@ pub const JIT = struct {
                         self.context.getContext().intType(1).constInt(0, .False),
                     },
                 ),
-                .String => unreachable,
-                .Pattern => unreachable,
-                .Fiber => unreachable,
+                .String => try self.buildExternApiCall(
+                    .bz_getStringField,
+                    &[_]*l.Value{
+                        // vm
+                        self.vmConstant(),
+                        // string
+                        subject.?,
+                        // member name
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        // unbound
+                        self.context.getContext().intType(1).constInt(0, .False),
+                    },
+                ),
+                .Pattern => try self.buildExternApiCall(
+                    .bz_getPatternField,
+                    &[_]*l.Value{
+                        // vm
+                        self.vmConstant(),
+                        // pattern
+                        subject.?,
+                        // member name
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        // unbound
+                        self.context.getContext().intType(1).constInt(0, .False),
+                    },
+                ),
+                .Fiber => try self.buildExternApiCall(
+                    .bz_getFiberField,
+                    &[_]*l.Value{
+                        // vm
+                        self.vmConstant(),
+                        // fiber
+                        subject.?,
+                        // member name
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        // unbound
+                        self.context.getContext().intType(1).constInt(0, .False),
+                    },
+                ),
                 .List => try self.buildExternApiCall(
-                    .bz_listMethod,
+                    .bz_getListField,
                     &[_]*l.Value{
                         // vm
                         self.vmConstant(),
                         // list
                         subject.?,
                         // member name
-                        self.state.?.builder.buildIntToPtr(
-                            self.context.getContext().intType(64).constInt(
-                                @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
-                                .False,
-                            ),
-                            self.context.getContext().pointerType(0),
-                            "",
-                        ),
-                        // member name len
                         self.context.getContext().intType(64).constInt(
-                            DotNode.cast(call_node.callee).?.identifier.lexeme.len,
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
                             .False,
                         ),
+                        // unbound
+                        self.context.getContext().intType(1).constInt(0, .False),
                     },
                 ),
                 .Map => try self.buildExternApiCall(
-                    .bz_mapMethod,
+                    .bz_getMapField,
                     &[_]*l.Value{
                         // vm
                         self.vmConstant(),
                         // map
                         subject.?,
                         // member name
-                        self.state.?.builder.buildIntToPtr(
-                            self.context.getContext().intType(64).constInt(
-                                @ptrToInt(DotNode.cast(call_node.callee).?.identifier.lexeme.ptr),
-                                .False,
-                            ),
-                            self.context.getContext().pointerType(0),
-                            "",
-                        ),
-                        // member name len
                         self.context.getContext().intType(64).constInt(
-                            DotNode.cast(call_node.callee).?.identifier.lexeme.len,
+                            (try self.vm.gc.copyString(DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
                             .False,
                         ),
+                        // unbound
+                        self.context.getContext().intType(1).constInt(0, .False),
                     },
                 ),
                 else => unreachable,
@@ -2181,8 +2270,56 @@ pub const JIT = struct {
     fn generateDot(self: *Self, dot_node: *DotNode) VM.Error!?*l.Value {
         const callee_type = dot_node.callee.type_def.?;
 
+        // TODO: not super readable...
         return switch (callee_type.def_type) {
-            .Fiber, .Pattern, .String => unreachable,
+            .Fiber => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getFiberField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
+
+            .Pattern => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getPatternField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
+
+            .String => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getStringField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
+
             .Object => obj: {
                 if (dot_node.call) |call| {
                     break :obj try self.generateCall(call);
@@ -2243,17 +2380,68 @@ pub const JIT = struct {
                     );
                 }
             },
-            .ProtocolInstance => unreachable,
-            .Enum => unreachable,
-            .EnumInstance => unreachable,
-            .List, .Map => collection: {
-                if (dot_node.call) |call| {
-                    break :collection try self.generateCall(call);
-                } else {
-                    // TODO: return bound method
-                    unreachable;
-                }
-            },
+            .ProtocolInstance => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getInstanceField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
+            .Enum => try self.buildExternApiCall(
+                .bz_getEnumCase,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    (try self.generateNode(dot_node.callee)).?,
+                    self.context.getContext().intType(64).constInt(
+                        (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                        .False,
+                    ),
+                },
+            ),
+            .EnumInstance => try self.buildExternApiCall(
+                .bz_getEnumCaseValue,
+                &[_]*l.Value{
+                    (try self.generateNode(dot_node.callee)).?,
+                },
+            ),
+            .List => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getListField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
+            .Map => if (dot_node.call) |call|
+                try self.generateCall(call)
+            else
+                try self.buildExternApiCall(
+                    .bz_getMapField,
+                    &[_]*l.Value{
+                        self.vmConstant(),
+                        (try self.generateNode(dot_node.callee)).?,
+                        self.context.getContext().intType(64).constInt(
+                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
+                            .False,
+                        ),
+                        self.context.getContext().intType(1).constInt(1, .False),
+                    },
+                ),
             else => unreachable,
         };
     }

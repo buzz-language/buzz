@@ -1,0 +1,21 @@
+import "lib/std";
+
+enum Sex {
+    male,
+    female,
+    stupid,
+}
+
+object Person {
+    str name,
+    int age,
+    Sex sex,
+}
+
+test "Dot" {
+    assert(Sex.male == Sex.male, message: "get enum case");
+    assert(Sex(0) == Sex.male, message: "case from value");
+    assert(Sex.stupid.value == 2, message: "case value");
+    assert("Hello".len() == 5, message: "string method");
+    assert(_hello ([a-z]+)_.match("hello world")?.len() == 2, message: "pattern method");
+}

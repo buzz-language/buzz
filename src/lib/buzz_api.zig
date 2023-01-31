@@ -222,6 +222,7 @@ pub const ObjString = opaque {
     pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
     pub extern fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value;
     pub extern fn bz_toString(vm: *VM, value: Value) Value;
+    pub extern fn bz_getStringField(vm: *VM, field_name_value: Value) Value;
 };
 
 pub const ObjList = opaque {
@@ -231,16 +232,16 @@ pub const ObjList = opaque {
     pub extern fn bz_listGet(self: Value, index: usize) Value;
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
-    pub extern fn bz_listMethod(vm: *VM, list: Value, member: [*]const u8, member_len: usize) Value;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
+    pub extern fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value;
 };
 
 pub const ObjMap = opaque {
     pub extern fn bz_newMap(vm: *VM, map_type: Value) Value;
     pub extern fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void;
     pub extern fn bz_mapGet(map: Value, key: Value) Value;
-    pub extern fn bz_mapMethod(vm: *VM, map: Value, member: [*]const u8, member_len: usize) Value;
     pub extern fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value;
+    pub extern fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value;
 };
 
 pub const UserData = anyopaque;
@@ -262,8 +263,19 @@ pub const ObjObject = opaque {
     pub extern fn bz_setObjectField(vm: *VM, object_value: Value, field_name_value: Value, value: Value) void;
 };
 
-pub const ObjEnumInstance = opaque {};
+pub const ObjEnumInstance = opaque {
+    pub extern fn bz_getEnumCaseValue(enum_instance_value: Value) Value;
+};
 
 pub const ObjEnum = opaque {
-    pub extern fn bz_getEnumCase(self: *ObjEnum, vm: *VM, case: [*]const u8, len: usize) ?*ObjEnumInstance;
+    pub extern fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Value;
+    pub extern fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) Value;
+};
+
+pub const ObjPattern = opaque {
+    pub extern fn bz_getPatternField(vm: *VM, field_name_value: Value) Value;
+};
+
+pub const ObjFiber = opaque {
+    pub extern fn bz_getFiberField(vm: *VM, field_name_value: Value) Value;
 };
