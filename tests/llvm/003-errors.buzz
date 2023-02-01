@@ -5,6 +5,8 @@ fun fails() > void !> str {
 }
 
 fun handle() > void {
+    str someLocal = "hello";
+
     try {
         print("Going about my day...");
 
@@ -20,6 +22,7 @@ fun handle() > void {
     }
 
     print("Everything went fine in the end");
+    assert(someLocal == "hello", message: "Local still there");
     assert(true, message: "Recovered from errors");
 
     try {

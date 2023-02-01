@@ -2527,6 +2527,7 @@ pub const JIT = struct {
         const body_block = self.context.getContext().createBasicBlock("body");
         const raise_block = self.context.getContext().createBasicBlock("raise");
         const out_block = self.context.getContext().createBasicBlock("out");
+        const catch_block = self.context.getContext().createBasicBlock("catch");
         var clause_blocks = std.ArrayList(*l.BasicBlock).init(self.vm.gc.allocator);
         defer clause_blocks.deinit();
 
@@ -2539,6 +2540,30 @@ pub const JIT = struct {
             self.context.getContext().createBasicBlock("unconditional")
         else
             null;
+
+        // Remember stack top
+        const top_alloca = self.state.?.builder.buildAlloca(
+            (try ExternApi.value.lower(self.context.getContext())).pointerType(0),
+            "try_top",
+        );
+
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.state.?.current.?.function.?.getParam(0),
+            4,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        _ = self.state.?.builder.buildStore(
+            stack_top_ptr,
+            top_alloca,
+        );
 
         // Set it as current jump env
         const try_ctx = try self.buildExternApiCall(
@@ -2571,7 +2596,7 @@ pub const JIT = struct {
 
         _ = self.state.?.builder.buildCondBr(
             has_error,
-            if (clause_blocks.items.len > 0) clause_blocks.items[0] else unconditional_block.?,
+            catch_block,
             body_block,
         );
 
@@ -2582,6 +2607,41 @@ pub const JIT = struct {
         _ = try self.generateNode(try_node.body);
 
         _ = self.state.?.builder.buildBr(out_block);
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(catch_block);
+        self.state.?.builder.positionBuilderAtEnd(catch_block);
+        self.state.?.current.?.block = catch_block;
+
+        const payload = try self.buildPop();
+
+        // Get stack top as it was before try block
+        const try_stack_top_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            top_alloca,
+            "try_stack_top_ptr",
+        );
+
+        // Close upvalues up to it
+        _ = try self.buildExternApiCall(
+            .bz_closeUpValues,
+            &[_]*l.Value{
+                self.vmConstant(),
+                try_stack_top_ptr,
+            },
+        );
+
+        // Restore stack top as it was before the try block
+        _ = self.state.?.builder.buildStore(
+            try_stack_top_ptr,
+            stack_top_field_ptr,
+        );
+
+        // Put error back on stack
+        _ = try self.buildPush(payload);
+
+        _ = self.state.?.builder.buildBr(
+            if (clause_blocks.items.len > 0) clause_blocks.items[0] else unconditional_block.?,
+        );
 
         for (try_node.clauses.keys()) |type_def, index| {
             const block = clause_blocks.items[index];
@@ -2595,23 +2655,17 @@ pub const JIT = struct {
 
             // Get error payload from stack
             // FIXME: replace with buildPeek
-            const payload = try self.buildExternApiCall(
-                .bz_peek,
-                &[_]*l.Value{
-                    self.vmConstant(),
-                    self.context.getContext().intType(32).constInt(0, .False),
-                },
-            );
+            const err_payload = try self.buildPeek(0);
 
             // Push payload
-            _ = try self.buildPush(payload);
+            _ = try self.buildPush(err_payload);
 
             const matches = self.unwrap(
                 .Bool,
                 try self.buildExternApiCall(
                     .bz_valueIs,
                     &[_]*l.Value{
-                        payload,
+                        err_payload,
                         (try self.lowerExternApi(.value)).constInt(
                             type_def.toValue().val,
                             .False,
@@ -3166,7 +3220,10 @@ pub const JIT = struct {
                 try self.lowerExternApi(.value),
                 stack_top,
                 &[_]*l.Value{
-                    self.context.getContext().intType(64).constInt(-1 - distance, .True),
+                    self.context.getContext().intType(64).constInt(
+                        @bitCast(c_ulonglong, -1 - @intCast(i64, distance)),
+                        .True,
+                    ),
                 },
                 1,
                 "peeked_ptr",
