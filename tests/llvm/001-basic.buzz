@@ -8,6 +8,12 @@ fun jitSayHello(str who, int age) > int {
     }
     print("Hello {who} you're {age}!");
 
+    if (12 > 0) {
+        print("constant if yeah!");
+    } else {
+        assert(false, message: "the fuck");
+    }
+
     [int] list = [1, 2, 3];
 
     print("list has {list.len()} elements, second element is {list[1]}");

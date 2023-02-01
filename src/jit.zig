@@ -1655,6 +1655,11 @@ pub const JIT = struct {
     }
 
     fn generateIf(self: *Self, if_node: *IfNode) VM.Error!?*l.Value {
+        const constant_condition = if (if_node.condition.isConstant(if_node.condition) and if_node.unwrapped_identifier == null and if_node.casted_type == null)
+            if_node.condition.toValue(if_node.condition, self.vm.gc) catch unreachable
+        else
+            null;
+
         // Generate condition
         const condition_value = (try self.generateNode(if_node.condition)).?;
 
@@ -1679,30 +1684,45 @@ pub const JIT = struct {
         else
             null;
 
-        _ = self.state.?.builder.buildCondBr(
-            condition,
-            then_block,
-            if (if_node.else_branch != null) else_block.? else out_block,
-        );
+        if (constant_condition != null) {
+            _ = self.state.?.builder.buildBr(
+                if (constant_condition.?.boolean())
+                    then_block
+                else if (if_node.else_branch != null)
+                    else_block.?
+                else
+                    out_block,
+            );
+        } else {
+            _ = self.state.?.builder.buildCondBr(
+                condition,
+                then_block,
+                if (if_node.else_branch != null) else_block.? else out_block,
+            );
+        }
 
-        self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
-        self.state.?.builder.positionBuilderAtEnd(then_block);
-        self.state.?.current.?.block = then_block;
+        if (constant_condition == null or constant_condition.?.boolean()) {
+            self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
+            self.state.?.builder.positionBuilderAtEnd(then_block);
+            self.state.?.current.?.block = then_block;
 
-        _ = try self.generateNode(if_node.body);
-
-        // Jump after else
-        self.buildBr(out_block);
-
-        if (if_node.else_branch) |else_branch| {
-            self.state.?.current.?.function.?.appendExistingBasicBlock(else_block.?);
-            self.state.?.builder.positionBuilderAtEnd(else_block.?);
-            self.state.?.current.?.block = else_block.?;
-
-            _ = try self.generateNode(else_branch);
+            _ = try self.generateNode(if_node.body);
 
             // Jump after else
             self.buildBr(out_block);
+        }
+
+        if (constant_condition == null or !constant_condition.?.boolean()) {
+            if (if_node.else_branch) |else_branch| {
+                self.state.?.current.?.function.?.appendExistingBasicBlock(else_block.?);
+                self.state.?.builder.positionBuilderAtEnd(else_block.?);
+                self.state.?.current.?.block = else_block.?;
+
+                _ = try self.generateNode(else_branch);
+
+                // Jump after else
+                self.buildBr(out_block);
+            }
         }
 
         self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);

@@ -5113,7 +5113,7 @@ pub const IfNode = struct {
         }
 
         // If condition is a constant expression, no need to generate branches
-        if (self.condition.isConstant(self.condition) and self.unwrapped_identifier != null and self.casted_type == null) {
+        if (self.condition.isConstant(self.condition) and self.unwrapped_identifier == null and self.casted_type == null) {
             const condition = try self.condition.toValue(self.condition, codegen.gc);
 
             if (condition.boolean()) {
