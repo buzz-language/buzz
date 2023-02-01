@@ -936,6 +936,8 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
+    ctx.vm.jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
+
     var it = function_node.upvalue_binding.iterator();
     while (it.next()) |kv| {
         const is_local = kv.value_ptr.*;

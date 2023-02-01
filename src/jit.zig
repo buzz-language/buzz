@@ -2594,6 +2594,7 @@ pub const JIT = struct {
             self.state.?.current.?.block = block;
 
             // Get error payload from stack
+            // FIXME: replace with buildPeek
             const payload = try self.buildExternApiCall(
                 .bz_peek,
                 &[_]*l.Value{
