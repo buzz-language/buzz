@@ -38,6 +38,7 @@ const ObjectInitNode = _node.ObjectInitNode;
 const ForceUnwrapNode = _node.ForceUnwrapNode;
 const UnaryNode = _node.UnaryNode;
 const PatternNode = _node.PatternNode;
+const ForEachNode = _node.ForEachNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -45,6 +46,8 @@ const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjList = _obj.ObjList;
+const ObjMap = _obj.ObjMap;
+const ObjEnum = _obj.ObjEnum;
 const ObjFunction = _obj.ObjFunction;
 const ObjNative = _obj.ObjNative;
 const NativeFn = _obj.NativeFn;
@@ -105,8 +108,6 @@ pub const ExternApi = enum {
     value,
     tryctx,
 
-    bz_push,
-    bz_peek,
     bz_valueToExternNativeFn,
     bz_valueToRawNative,
     bz_objStringConcat,
@@ -148,6 +149,10 @@ pub const ExternApi = enum {
     bz_getMapField,
     bz_getEnumCaseFromValue,
     bz_bindMethod,
+    bz_stringNext,
+    bz_listNext,
+    bz_mapNext,
+    bz_enumNext,
     globals,
 
     bz_dumpStack,
@@ -165,8 +170,6 @@ pub const ExternApi = enum {
             .value => "Value",
             .globals => "globals",
 
-            .bz_push => "bz_push",
-            .bz_peek => "bz_peek",
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
@@ -208,6 +211,10 @@ pub const ExternApi = enum {
             .bz_getMapField => "bz_getMapField",
             .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
             .bz_bindMethod => "bz_bindMethod",
+            .bz_stringNext => "bz_stringNext",
+            .bz_listNext => "bz_listNext",
+            .bz_mapNext => "bz_mapNext",
+            .bz_enumNext => "bz_enumNext",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -224,8 +231,6 @@ pub const ExternApi = enum {
             .value => "Value",
             .globals => "globals",
 
-            .bz_push => "bz_push",
-            .bz_peek => "bz_peek",
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
@@ -267,6 +272,10 @@ pub const ExternApi = enum {
             .bz_getMapField => "bz_getMapField",
             .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
             .bz_bindMethod => "bz_bindMethod",
+            .bz_stringNext => "bz_stringNext",
+            .bz_listNext => "bz_listNext",
+            .bz_mapNext => "bz_mapNext",
+            .bz_enumNext => "bz_enumNext",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -277,18 +286,6 @@ pub const ExternApi = enum {
 
     pub fn lower(self: ExternApi, context: *l.Context) !*l.Type {
         return switch (self) {
-            .bz_peek => l.functionType(
-                try ExternApi.value.lower(context),
-                &[_]*l.Type{ context.pointerType(0), context.intType(32) },
-                2,
-                .False,
-            ),
-            .bz_push => l.functionType(
-                context.voidType(),
-                &[_]*l.Type{ context.pointerType(0), try ExternApi.value.lower(context) },
-                2,
-                .False,
-            ),
             .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
                 context.pointerType(0),
                 &[_]*l.Type{context.intType(64)},
@@ -687,6 +684,35 @@ pub const ExternApi = enum {
                     context.intType(64),
                 },
                 2,
+                .False,
+            ),
+            .bz_stringNext,
+            .bz_listNext,
+            .bz_mapNext,
+            => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // iterable
+                    try ExternApi.value.lower(context),
+                    // key/index
+                    (try ExternApi.value.lower(context)).pointerType(0),
+                },
+                3,
+                .False,
+            ),
+            .bz_enumNext => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // iterable
+                    try ExternApi.value.lower(context),
+                    // key/index
+                    try ExternApi.value.lower(context),
+                },
+                3,
                 .False,
             ),
             .nativefn => l.functionType(
@@ -1127,6 +1153,7 @@ pub const JIT = struct {
             .ForceUnwrap => try self.generateForceUnwrap(ForceUnwrapNode.cast(node).?),
             .Unary => try self.generateUnary(UnaryNode.cast(node).?),
             .Pattern => try self.generatePattern(PatternNode.cast(node).?),
+            .ForEach => try self.generateForEach(ForEachNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1669,6 +1696,7 @@ pub const JIT = struct {
             condition = self.state.?.builder.buildNot(
                 self.unwrap(
                     .Bool,
+                    // FIXME: no need to call bz_valueEqual to compare with Value.Null.val
                     try self.buildExternApiCall(
                         .bz_valueEqual,
                         &[_]*l.Value{
@@ -2707,7 +2735,6 @@ pub const JIT = struct {
             self.state.?.current.?.block = block;
 
             // Get error payload from stack
-            // FIXME: replace with buildPeek
             const err_payload = try self.buildPeek(0);
 
             // Push payload
@@ -2987,6 +3014,141 @@ pub const JIT = struct {
             pattern_node.constant.toValue().val,
             .False,
         );
+    }
+
+    fn generateForEach(self: *Self, foreach_node: *ForEachNode) VM.Error!?*l.Value {
+        // If iteratble is empty constant, skip the node
+        if (foreach_node.iterable.isConstant(foreach_node.iterable)) {
+            const iterable = (foreach_node.iterable.toValue(foreach_node.iterable, self.vm.gc) catch @panic("Could not compile foreach loop")).obj();
+
+            if (switch (iterable.obj_type) {
+                .List => ObjList.cast(iterable).?.items.items.len == 0,
+                .Map => ObjMap.cast(iterable).?.map.count() == 0,
+                .String => ObjString.cast(iterable).?.string.len == 0,
+                .Enum => ObjEnum.cast(iterable).?.cases.items.len == 0,
+                else => unreachable,
+            }) {
+                return null;
+            }
+        }
+
+        // key, value and iterable are locals of the foreach scope
+        if (foreach_node.key) |key| {
+            // var declaration so will push value on stack
+            _ = try self.generateNode(&key.node);
+        }
+        // var declaration so will push value on stack
+        _ = try self.generateNode(&foreach_node.value.node);
+        const iterable = (try self.generateNode(foreach_node.iterable)).?;
+        _ = try self.buildPush(iterable);
+
+        const key_ptr = try self.buildStackPtr(2);
+        const value_ptr = try self.buildStackPtr(1);
+
+        const cond_block = self.context.getContext().createBasicBlock("cond");
+        const loop_block = self.context.getContext().createBasicBlock("loop");
+        const out_block = self.context.getContext().createBasicBlock("out");
+        const previous_out_block = self.state.?.current.?.break_block;
+        self.state.?.current.?.break_block = out_block;
+        const previous_continue_block = self.state.?.current.?.continue_block;
+        self.state.?.current.?.continue_block = cond_block;
+
+        self.buildBr(cond_block);
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(cond_block);
+        self.state.?.builder.positionBuilderAtEnd(cond_block);
+        self.state.?.current.?.block = cond_block;
+
+        // Call appropriate `next` method
+        if (foreach_node.iterable.type_def.?.def_type == .Fiber) {
+            // TODO: fiber foreach (tricky, need to complete foreach op after it has yielded)
+            unreachable;
+        } else if (foreach_node.iterable.type_def.?.def_type == .Enum) {
+            const next_case = try self.buildExternApiCall(
+                .bz_enumNext,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    iterable,
+                    self.state.?.builder.buildLoad(try ExternApi.value.lower(self.context.getContext()), value_ptr, "enum_case"),
+                },
+            );
+
+            // Store new value in value local
+            _ = self.state.?.builder.buildStore(
+                next_case,
+                value_ptr,
+            );
+
+            // If next key is null stop, otherwise do loop
+            _ = self.state.?.builder.buildCondBr(
+                self.state.?.builder.buildICmp(
+                    .EQ,
+                    self.state.?.builder.buildLoad(try ExternApi.value.lower(self.context.getContext()), value_ptr, "current_case"),
+                    (try ExternApi.value.lower(self.context.getContext())).constInt(
+                        Value.Null.val,
+                        .False,
+                    ),
+                    "next_case_exists",
+                ),
+                out_block,
+                loop_block,
+            );
+        } else {
+            // The `next` method will store the new key in the key local
+            const next_value = try self.buildExternApiCall(
+                switch (foreach_node.iterable.type_def.?.def_type) {
+                    .String => .bz_stringNext,
+                    .List => .bz_listNext,
+                    .Map => .bz_mapNext,
+                    else => unreachable,
+                },
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    iterable,
+                    // Pass ptr so the metho can put the new key in it
+                    key_ptr,
+                },
+            );
+
+            // Store new value in value local
+            _ = self.state.?.builder.buildStore(
+                next_value,
+                value_ptr,
+            );
+
+            // If next key is null stop, otherwise do loop
+            _ = self.state.?.builder.buildCondBr(
+                self.state.?.builder.buildICmp(
+                    .EQ,
+                    self.state.?.builder.buildLoad(try ExternApi.value.lower(self.context.getContext()), key_ptr, "current_key"),
+                    (try ExternApi.value.lower(self.context.getContext())).constInt(
+                        Value.Null.val,
+                        .False,
+                    ),
+                    "next_key_exists",
+                ),
+                out_block,
+                loop_block,
+            );
+        }
+
+        // Foreach body
+        self.state.?.current.?.function.?.appendExistingBasicBlock(loop_block);
+        self.state.?.builder.positionBuilderAtEnd(loop_block);
+        self.state.?.current.?.block = loop_block;
+
+        _ = try self.generateNode(foreach_node.block);
+
+        self.buildBr(cond_block);
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+        self.state.?.current.?.block = out_block;
+
+        self.state.?.current.?.break_block = previous_out_block;
+        self.state.?.current.?.continue_block = previous_continue_block;
+
+        return null;
     }
 
     fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
@@ -3290,6 +3452,41 @@ pub const JIT = struct {
                 "peeked_ptr",
             ),
             "peeked",
+        );
+    }
+
+    // Get ptr to element on stack
+    fn buildStackPtr(self: *Self, distance: usize) !*l.Value {
+        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+            try self.lowerExternApi(.nativectx),
+            self.state.?.current.?.function.?.getParam(0),
+            4,
+            "stack_top_field_ptr",
+        );
+
+        const stack_top_ptr = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            stack_top_field_ptr,
+            "stack_top_ptr",
+        );
+
+        const stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0),
+            stack_top_ptr,
+            "stack_top",
+        );
+
+        return self.state.?.builder.buildInBoundsGEP(
+            try self.lowerExternApi(.value),
+            stack_top,
+            &[_]*l.Value{
+                self.context.getContext().intType(64).constInt(
+                    @bitCast(c_ulonglong, -1 - @intCast(i64, distance)),
+                    .True,
+                ),
+            },
+            1,
+            "local_from_top",
         );
     }
 
@@ -3717,13 +3914,7 @@ pub const JIT = struct {
 
         // Push its result back into the VM
         if (should_return) {
-            _ = try self.buildExternApiCall(
-                .bz_push,
-                &[_]*l.Value{
-                    self.vmConstant(),
-                    result,
-                },
-            );
+            _ = try self.buildPush(result);
         }
 
         // 1 = there's a return, 0 = no return, -1 = error

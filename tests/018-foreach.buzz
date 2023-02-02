@@ -5,7 +5,6 @@ test "foreach on list" {
 
     int sum = 0;
     foreach (int index, int item in list) {
-        print("{index} {item}");
         sum = sum + item;
     }
 

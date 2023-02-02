@@ -1035,3 +1035,61 @@ export fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bin
     else
         method.toValue();
 }
+
+export fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value {
+    const string = ObjString.cast(string_value.obj()).?;
+
+    if (string.next(
+        vm,
+        if (index.isNull()) null else index.integer(),
+    ) catch @panic("Could not get next string index")) |new_index| {
+        index.* = Value.fromInteger(new_index);
+
+        return (vm.gc.copyString(&[_]u8{string.string[@intCast(usize, new_index)]}) catch @panic("Could not iterate on string")).toValue();
+    }
+
+    index.* = Value.Null;
+    return Value.Null;
+}
+
+export fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value {
+    const list = ObjList.cast(list_value.obj()).?;
+
+    if (list.rawNext(
+        vm,
+        if (index.isNull()) null else index.integer(),
+    ) catch @panic("Could not get next list index")) |new_index| {
+        index.* = Value.fromInteger(new_index);
+
+        return list.items.items[@intCast(usize, new_index)];
+    }
+
+    index.* = Value.Null;
+    return Value.Null;
+}
+
+export fn bz_mapNext(_: *VM, map_value: Value, key: *Value) Value {
+    const map = ObjMap.cast(map_value.obj()).?;
+
+    if (map.rawNext(if (key.isNull()) null else key.*)) |new_key| {
+        key.* = new_key;
+
+        return map.map.get(new_key) orelse Value.Null;
+    }
+
+    key.* = Value.Null;
+    return Value.Null;
+}
+
+export fn bz_enumNext(vm: *VM, enum_value: Value, case: Value) Value {
+    const enum_ = ObjEnum.cast(enum_value.obj()).?;
+
+    if (enum_.rawNext(
+        vm,
+        if (case.isNull()) null else ObjEnumInstance.cast(case.obj()),
+    ) catch @panic("Could not iterate over enum")) |new_case| {
+        return new_case.toValue();
+    }
+
+    return Value.Null;
+}

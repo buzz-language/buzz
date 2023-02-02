@@ -5,7 +5,7 @@ const jmp = @import("../jmp.zig").jmp;
 
 // FIXME: all those should operate on Value
 // FIXME: some should only be available to the JIT compiler
-// FIXME: naming is not consistent
+// FIXME: naming is not consistant
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
@@ -223,6 +223,7 @@ pub const ObjString = opaque {
     pub extern fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value;
     pub extern fn bz_toString(vm: *VM, value: Value) Value;
     pub extern fn bz_getStringField(vm: *VM, field_name_value: Value) Value;
+    pub extern fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value;
 };
 
 pub const ObjList = opaque {
@@ -234,6 +235,7 @@ pub const ObjList = opaque {
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
     pub extern fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value;
+    pub extern fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value;
 };
 
 pub const ObjMap = opaque {
@@ -242,6 +244,7 @@ pub const ObjMap = opaque {
     pub extern fn bz_mapGet(map: Value, key: Value) Value;
     pub extern fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value;
     pub extern fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value;
+    pub extern fn bz_mapNext(vm: *VM, map_value: Value, index: *Value) Value;
 };
 
 pub const UserData = anyopaque;
@@ -270,6 +273,7 @@ pub const ObjEnumInstance = opaque {
 pub const ObjEnum = opaque {
     pub extern fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Value;
     pub extern fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) Value;
+    pub extern fn bz_enumNext(vm: *VM, enum_value: Value, case: Value) Value;
 };
 
 pub const ObjPattern = opaque {
