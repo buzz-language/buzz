@@ -2812,6 +2812,8 @@ pub const JIT = struct {
             },
         );
 
+        _ = self.state.?.builder.buildUnreachable();
+
         return null;
     }
 
@@ -3099,6 +3101,12 @@ pub const JIT = struct {
             );
         }
 
+        // After a `return` statement, we had a new block in case the return is not the end of the function
+        // So we check if that block has a terminator
+        if (self.state.?.current.?.block.?.getTerminator() == null) {
+            _ = self.state.?.builder.buildUnreachable();
+        }
+
         // Add the NativeFn version of the function
         const native_fn = try self.generateNativeFn(
             function_node,
@@ -3329,7 +3337,17 @@ pub const JIT = struct {
         );
 
         // Do return
-        return self.state.?.builder.buildRet(value);
+        const ret = self.state.?.builder.buildRet(value);
+
+        // Function might not be over after this so create new block
+        var block = self.context.getContext().appendBasicBlock(
+            self.state.?.current.?.function.?,
+            "continue",
+        );
+        self.state.?.builder.positionBuilderAtEnd(block);
+        self.state.?.current.?.block = block;
+
+        return ret;
     }
 
     /// Build instructions to get local at given index
