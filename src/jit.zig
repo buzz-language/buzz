@@ -1661,15 +1661,43 @@ pub const JIT = struct {
             null;
 
         // Generate condition
-        const condition_value = (try self.generateNode(if_node.condition)).?;
+        var condition_value = (try self.generateNode(if_node.condition)).?;
+        var condition: *l.Value = undefined;
 
-        // Get boolean from buzz value
-        const condition = self.unwrap(.Bool, condition_value);
-
+        // Is it `if (opt -> unwrapped)`?
         if (if_node.unwrapped_identifier != null) {
-            unreachable;
-        } else if (if_node.casted_type != null) {
-            unreachable;
+            condition = self.state.?.builder.buildNot(
+                self.unwrap(
+                    .Bool,
+                    try self.buildExternApiCall(
+                        .bz_valueEqual,
+                        &[_]*l.Value{
+                            condition_value,
+                            (try ExternApi.value.lower(self.context.getContext())).constInt(
+                                Value.Null.val,
+                                .False,
+                            ),
+                        },
+                    ),
+                ),
+                "",
+            );
+        } else if (if_node.casted_type) |casted_type| {
+            condition = self.unwrap(
+                .Bool,
+                try self.buildExternApiCall(
+                    .bz_valueIs,
+                    &[_]*l.Value{
+                        condition_value,
+                        (try ExternApi.value.lower(self.context.getContext())).constInt(
+                            casted_type.toValue().val,
+                            .False,
+                        ),
+                    },
+                ),
+            );
+        } else {
+            condition = self.unwrap(.Bool, condition_value);
         }
 
         // Continuation block
@@ -1705,6 +1733,11 @@ pub const JIT = struct {
             self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
             self.state.?.builder.positionBuilderAtEnd(then_block);
             self.state.?.current.?.block = then_block;
+
+            // Push unwrapped value as local of the then block
+            if (if_node.unwrapped_identifier != null or if_node.casted_type != null) {
+                _ = try self.buildPush(condition_value);
+            }
 
             _ = try self.generateNode(if_node.body);
 

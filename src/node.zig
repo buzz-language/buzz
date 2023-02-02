@@ -5148,7 +5148,7 @@ pub const IfNode = struct {
         const else_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
         try codegen.patchJump(then_jump);
-        if (self.unwrapped_identifier != null) {
+        if (self.unwrapped_identifier != null or self.casted_type != null) {
             // Since we did not enter the if block, we did not pop the unwrapped local
             try codegen.emitOpCode(self.node.location, .OP_POP);
         }
