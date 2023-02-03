@@ -39,6 +39,7 @@ const ForceUnwrapNode = _node.ForceUnwrapNode;
 const UnaryNode = _node.UnaryNode;
 const PatternNode = _node.PatternNode;
 const ForEachNode = _node.ForEachNode;
+const InlineIfNode = _node.InlineIfNode;
 const _obj = @import("./obj.zig");
 const _value = @import("./value.zig");
 const Value = _value.Value;
@@ -108,6 +109,7 @@ pub const ExternApi = enum {
     value,
     tryctx,
 
+    bz_push,
     bz_valueToExternNativeFn,
     bz_valueToRawNative,
     bz_objStringConcat,
@@ -170,6 +172,7 @@ pub const ExternApi = enum {
             .value => "Value",
             .globals => "globals",
 
+            .bz_push => "bz_push",
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
@@ -231,6 +234,7 @@ pub const ExternApi = enum {
             .value => "Value",
             .globals => "globals",
 
+            .bz_push => "bz_push",
             .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
             .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
@@ -286,6 +290,15 @@ pub const ExternApi = enum {
 
     pub fn lower(self: ExternApi, context: *l.Context) !*l.Type {
         return switch (self) {
+            .bz_push => l.functionType(
+                context.voidType(),
+                &[_]*l.Type{
+                    context.pointerType(0),
+                    context.intType(64),
+                },
+                2,
+                .False,
+            ),
             .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
                 context.pointerType(0),
                 &[_]*l.Type{context.intType(64)},
@@ -1154,6 +1167,7 @@ pub const JIT = struct {
             .Unary => try self.generateUnary(UnaryNode.cast(node).?),
             .Pattern => try self.generatePattern(PatternNode.cast(node).?),
             .ForEach => try self.generateForEach(ForEachNode.cast(node).?),
+            .InlineIf => try self.generateInlineIf(InlineIfNode.cast(node).?),
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1688,7 +1702,7 @@ pub const JIT = struct {
             null;
 
         // Generate condition
-        var condition_value = (try self.generateNode(if_node.condition)).?;
+        var condition_value = if (constant_condition == null) (try self.generateNode(if_node.condition)).? else null;
         var condition: *l.Value = undefined;
 
         // Is it `if (opt -> unwrapped)`?
@@ -1700,7 +1714,7 @@ pub const JIT = struct {
                     try self.buildExternApiCall(
                         .bz_valueEqual,
                         &[_]*l.Value{
-                            condition_value,
+                            condition_value.?,
                             (try ExternApi.value.lower(self.context.getContext())).constInt(
                                 Value.Null.val,
                                 .False,
@@ -1716,7 +1730,7 @@ pub const JIT = struct {
                 try self.buildExternApiCall(
                     .bz_valueIs,
                     &[_]*l.Value{
-                        condition_value,
+                        condition_value.?,
                         (try ExternApi.value.lower(self.context.getContext())).constInt(
                             casted_type.toValue().val,
                             .False,
@@ -1724,8 +1738,8 @@ pub const JIT = struct {
                     },
                 ),
             );
-        } else {
-            condition = self.unwrap(.Bool, condition_value);
+        } else if (constant_condition == null) {
+            condition = self.unwrap(.Bool, condition_value.?);
         }
 
         // Continuation block
@@ -1764,7 +1778,7 @@ pub const JIT = struct {
 
             // Push unwrapped value as local of the then block
             if (if_node.unwrapped_identifier != null or if_node.casted_type != null) {
-                _ = try self.buildPush(condition_value);
+                _ = try self.buildPush(condition_value.?);
             }
 
             _ = try self.generateNode(if_node.body);
@@ -1794,6 +1808,87 @@ pub const JIT = struct {
 
         // Statement don't return values
         return null;
+    }
+
+    fn generateInlineIf(self: *Self, inline_if_node: *InlineIfNode) VM.Error!?*l.Value {
+        const constant_condition = if (inline_if_node.condition.isConstant(inline_if_node.condition))
+            inline_if_node.condition.toValue(inline_if_node.condition, self.vm.gc) catch unreachable
+        else
+            null;
+
+        // Generate condition
+        const condition = (try self.generateNode(inline_if_node.condition)).?;
+
+        // Alloca to hold resolved expression
+        const resolved = self.state.?.builder.buildAlloca(
+            (try ExternApi.value.lower(self.context.getContext())).pointerType(0),
+            "inline_if_expression",
+        );
+
+        // Continuation block
+        var out_block = self.context.getContext().createBasicBlock("out");
+
+        // If block
+        var then_block = self.context.getContext().createBasicBlock("then");
+
+        // Else block
+        var else_block = self.context.getContext().createBasicBlock("else");
+
+        if (constant_condition != null) {
+            _ = self.state.?.builder.buildBr(
+                if (constant_condition.?.boolean())
+                    then_block
+                else
+                    else_block,
+            );
+        } else {
+            _ = self.state.?.builder.buildCondBr(
+                self.unwrap(.Bool, condition),
+                then_block,
+                else_block,
+            );
+        }
+
+        if (constant_condition == null or constant_condition.?.boolean()) {
+            self.state.?.current.?.function.?.appendExistingBasicBlock(then_block);
+            self.state.?.builder.positionBuilderAtEnd(then_block);
+            self.state.?.current.?.block = then_block;
+
+            _ = self.state.?.builder.buildStore(
+                (try self.generateNode(inline_if_node.body)).?,
+                resolved,
+            );
+
+            // Jump after else
+            self.buildBr(out_block);
+        }
+
+        if (constant_condition == null or !constant_condition.?.boolean()) {
+            self.state.?.current.?.function.?.appendExistingBasicBlock(else_block);
+            self.state.?.builder.positionBuilderAtEnd(else_block);
+            self.state.?.current.?.block = else_block;
+
+            _ = self.state.?.builder.buildStore(
+                (try self.generateNode(inline_if_node.else_branch)).?,
+                resolved,
+            );
+
+            // Jump after else
+            self.buildBr(out_block);
+        }
+
+        self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+
+        // Continue writing after the if else
+        self.state.?.current.?.block = out_block;
+        self.state.?.builder.positionBuilderAtEnd(out_block);
+
+        // Return resolved value
+        return self.state.?.builder.buildLoad(
+            try ExternApi.value.lower(self.context.getContext()),
+            resolved,
+            "resolved_inline_if",
+        );
     }
 
     fn generateBinary(self: *Self, binary_node: *BinaryNode) VM.Error!?*l.Value {
@@ -3914,7 +4009,14 @@ pub const JIT = struct {
 
         // Push its result back into the VM
         if (should_return) {
-            _ = try self.buildPush(result);
+            _ = try self.buildExternApiCall(
+                .bz_push,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                    result,
+                },
+            );
+            // _ = try self.buildPush(result);
         }
 
         // 1 = there's a return, 0 = no return, -1 = error
