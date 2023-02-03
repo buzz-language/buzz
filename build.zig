@@ -283,6 +283,9 @@ pub fn build(b: *Builder) !void {
 
     lib.addOptions("build_options", build_options.step(b));
 
+    // So that JIT compiled function can reference buzz_api
+    exe.linkLibrary(lib);
+
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
 
