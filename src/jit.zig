@@ -1523,8 +1523,6 @@ pub const JIT = struct {
         );
         const function_type = function_type_def.resolved_type.?.Function.function_type;
 
-        // TODO: arguments reordering
-
         const error_types = function_type_def.resolved_type.?.Function.error_types;
         const has_catch_clause = call_node.catch_default != null and error_types != null and error_types.?.len > 0 and function_type != .Extern;
 
@@ -1605,7 +1603,7 @@ pub const JIT = struct {
             unreachable;
         }
 
-        // Push args on the stack
+        // Arguments
 
         // if invoked, first arg is `this`
         if (invoked_on != null) {
@@ -1619,9 +1617,34 @@ pub const JIT = struct {
             );
         }
 
-        var it = call_node.arguments.iterator();
-        while (it.next()) |kv| {
-            _ = try self.buildPush((try self.generateNode(kv.value_ptr.*)).?);
+        const args: std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = function_type_def.resolved_type.?.Function.parameters;
+        const defaults = function_type_def.resolved_type.?.Function.defaults;
+        const arg_keys = args.keys();
+
+        var arguments = std.AutoArrayHashMap(*ObjString, *l.Value).init(self.vm.gc.allocator);
+        defer arguments.deinit();
+
+        // Evaluate arguments
+        for (call_node.arguments.keys()) |arg_key, index| {
+            const argument = call_node.arguments.get(arg_key).?;
+            const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key.string, "$")) arg_keys[0] else arg_key;
+
+            try arguments.put(actual_arg_key, (try self.generateNode(argument)).?);
+        }
+
+        // Push them in order on the stack with default value if missing argument
+        for (arg_keys) |key| {
+            if (arguments.get(key)) |arg| {
+                _ = try self.buildPush(arg);
+            } else {
+                // Push default
+                _ = try self.buildPush(
+                    (try ExternApi.value.lower(self.context.getContext())).constInt(
+                        defaults.get(key).?.val,
+                        .False,
+                    ),
+                );
+            }
         }
 
         var new_ctx: *l.Value = self.state.?.current.?.function.?.getParam(0);

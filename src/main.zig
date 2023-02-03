@@ -183,7 +183,7 @@ pub fn main() !void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit) "yes" else "no",
+                if (BuildOptions.jit) "LLVM 15.0.6" else "no",
             },
         );
 

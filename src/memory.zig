@@ -667,6 +667,11 @@ pub const GarbageCollector = struct {
 
         try self.markMethods();
 
+        // Mark special strings we always need
+        if (self.strings.get("$")) |dollar| {
+            try self.markObj(dollar.toObj());
+        }
+
         // Mark import registry
         var it = vm.import_registry.iterator();
         while (it.next()) |kv| {

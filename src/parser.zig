@@ -1928,7 +1928,7 @@ pub const Parser = struct {
 
         // Local not usable by user but needed so that locals are correct
         _ = try self.addLocal(
-            Token.identifier("$"),
+            Token.identifier("$iterable"),
             iterable.type_def.?,
             true,
         );
