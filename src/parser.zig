@@ -3806,7 +3806,7 @@ pub const Parser = struct {
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
         const start_location = left.location;
 
-        const constant = Value.fromObj((try self.parseTypeDef(null)).toObj());
+        const constant = (try self.parseTypeDef(null)).toValue();
 
         var node = try self.gc.allocator.create(IsNode);
         node.* = IsNode{

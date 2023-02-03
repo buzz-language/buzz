@@ -1815,7 +1815,7 @@ pub const IsNode = struct {
             const self = Self.cast(node).?;
             const left = try self.left.toValue(self.left, gc);
 
-            return Value.fromBoolean(_value.valueIs(left, self.constant));
+            return Value.fromBoolean(_value.valueIs(self.constant, left));
         }
         return GenError.NotConstant;
     }
