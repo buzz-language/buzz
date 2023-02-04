@@ -885,7 +885,10 @@ pub const JIT = struct {
             => self.context.getContext().intType(64),
 
             .Function => l.functionType(
-                try self.lowerExternApi(.value),
+                if (obj_typedef.resolved_type.?.Function.function_type == .Extern)
+                    self.context.getContext().intType(@sizeOf(c_int))
+                else
+                    try self.lowerExternApi(.value),
                 &[_]*l.Type{
                     (try self.lowerExternApi(.nativectx)).pointerType(0),
                 },
@@ -1710,16 +1713,11 @@ pub const JIT = struct {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
             return_code,
-            self.context.getContext().intType(64).constInt(
+            self.context.getContext().intType(@sizeOf(c_int)).constInt(
                 @bitCast(c_ulonglong, @as(i64, -1)),
                 .True,
             ),
             "has_error",
-        );
-
-        const return_alloca = self.state.?.builder.buildAlloca(
-            (try ExternApi.value.lower(self.context.getContext())).pointerType(0),
-            "return_value",
         );
 
         const no_error_block = self.context.getContext().createBasicBlock("no_error");
@@ -1737,10 +1735,13 @@ pub const JIT = struct {
 
         // if catch value set return alloca with it
         if (catch_value) |value| {
-            _ = self.state.?.builder.buildStore(
-                value,
-                return_alloca,
-            );
+            // Pop error
+            _ = try self.buildPop();
+
+            // Push catch value
+            _ = try self.buildPush(value);
+
+            _ = self.state.?.builder.buildBr(no_error_block);
         } else { // else propagate error
             _ = try self.buildExternApiCall(.bz_rethrow, &[_]*l.Value{self.vmConstant()});
             _ = self.state.?.builder.buildUnreachable();
@@ -1751,13 +1752,10 @@ pub const JIT = struct {
         self.state.?.builder.positionBuilderAtEnd(no_error_block);
         self.state.?.current.?.block = no_error_block;
 
-        _ = self.state.?.builder.buildStore(
-            if (should_return)
-                try self.buildPop()
-            else
-                self.context.getContext().intType(64).constInt(Value.Void.val, .False),
-            return_alloca,
-        );
+        const result = if (should_return)
+            try self.buildPop()
+        else
+            self.context.getContext().intType(64).constInt(Value.Void.val, .False);
 
         const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
@@ -1796,11 +1794,7 @@ pub const JIT = struct {
             stack_top_ptr,
         );
 
-        return self.state.?.builder.buildLoad(
-            try ExternApi.value.lower(self.context.getContext()),
-            return_alloca,
-            "return_value",
-        );
+        return result;
     }
 
     fn generateReturn(self: *Self, return_node: *ReturnNode) VM.Error!?*l.Value {
@@ -2499,11 +2493,25 @@ pub const JIT = struct {
     fn generateBreak(self: *Self) VM.Error!?*l.Value {
         self.buildBr(self.state.?.current.?.break_block.?);
 
+        const continue_block = self.context.getContext().appendBasicBlock(
+            self.state.?.current.?.function.?,
+            "continue",
+        );
+        self.state.?.builder.positionBuilderAtEnd(continue_block);
+        self.state.?.current.?.block = continue_block;
+
         return null;
     }
 
     fn generateContinue(self: *Self) VM.Error!?*l.Value {
         self.buildBr(self.state.?.current.?.continue_block.?);
+
+        const continue_block = self.context.getContext().appendBasicBlock(
+            self.state.?.current.?.function.?,
+            "continue",
+        );
+        self.state.?.builder.positionBuilderAtEnd(continue_block);
+        self.state.?.current.?.block = continue_block;
 
         return null;
     }

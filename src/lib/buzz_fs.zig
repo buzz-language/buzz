@@ -268,7 +268,6 @@ export fn list(ctx: *api.NativeCtx) c_int {
     else
         std.fs.cwd().openIterableDir(filename_slice, .{}) catch |err| {
             handleOpenDirError(ctx, err);
-
             return -1;
         };
 
@@ -283,7 +282,11 @@ export fn list(ctx: *api.NativeCtx) c_int {
 
         return -1;
     }) |element| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null, element.name.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(
+            ctx.vm,
+            if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null,
+            element.name.len,
+        ) orelse {
             _ = ctx.vm.bz_pop(); // Pop list
             ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
 
