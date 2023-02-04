@@ -2236,8 +2236,8 @@ pub const BinaryNode = struct {
                     }
 
                     // map
-                    var new_map = try right_m.?.map.clone();
-                    var it = left_m.?.map.iterator();
+                    var new_map = try left_m.?.map.clone();
+                    var it = right_m.?.map.iterator();
                     while (it.next()) |entry| {
                         try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
                     }
