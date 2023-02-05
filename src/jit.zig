@@ -1152,8 +1152,8 @@ pub const JIT = struct {
             .While => try self.generateWhile(WhileNode.cast(node).?),
             .DoUntil => try self.generateDoUntil(DoUntilNode.cast(node).?),
             .For => try self.generateFor(ForNode.cast(node).?),
-            .Break => try self.generateBreak(),
-            .Continue => try self.generateContinue(),
+            .Break => try self.generateBreak(node),
+            .Continue => try self.generateContinue(node),
             .List => try self.generateList(ListNode.cast(node).?),
             .Dot => try self.generateDot(DotNode.cast(node).?),
             .Subscript => try self.generateSubscript(SubscriptNode.cast(node).?),
@@ -1175,64 +1175,72 @@ pub const JIT = struct {
             },
         };
 
-        // Patch opt jumps if needed
-        if (node.patch_opt_jumps) {
-            assert(self.state.?.opt_jump != null);
+        if (node.node_type != .Break and node.node_type != .Continue) {
+            // Patch opt jumps if needed
+            if (node.patch_opt_jumps) {
+                assert(self.state.?.opt_jump != null);
 
-            const out_block = self.context.getContext().createBasicBlock("out");
+                const out_block = self.context.getContext().createBasicBlock("out");
 
-            // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
-            _ = self.state.?.builder.buildStore(
-                value.?,
-                self.state.?.opt_jump.?.alloca,
-            );
-
-            // Continue
-            _ = self.state.?.builder.buildBr(out_block);
-
-            // Patch opt blocks with the branching
-            for (self.state.?.opt_jump.?.current_blocks.items) |current_block, index| {
-                const next_expr_block = self.state.?.opt_jump.?.next_expr_blocks.items[index];
-
-                self.state.?.builder.positionBuilderAtEnd(current_block);
-                self.state.?.current.?.block = current_block;
-
-                const is_null = self.state.?.builder.buildICmp(
-                    .EQ,
-                    self.state.?.builder.buildLoad(
-                        try self.lowerExternApi(.value),
-                        self.state.?.opt_jump.?.alloca,
-                        "unwrapped",
-                    ),
-                    (try self.lowerExternApi(.value)).constInt(
-                        Value.Null.val,
-                        .False,
-                    ),
-                    "is_null",
+                // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
+                _ = self.state.?.builder.buildStore(
+                    value.?,
+                    self.state.?.opt_jump.?.alloca,
                 );
 
-                _ = self.state.?.builder.buildCondBr(
-                    is_null,
-                    out_block,
-                    next_expr_block,
+                // Continue
+                _ = self.state.?.builder.buildBr(out_block);
+
+                // Patch opt blocks with the branching
+                for (self.state.?.opt_jump.?.current_blocks.items) |current_block, index| {
+                    const next_expr_block = self.state.?.opt_jump.?.next_expr_blocks.items[index];
+
+                    self.state.?.builder.positionBuilderAtEnd(current_block);
+                    self.state.?.current.?.block = current_block;
+
+                    const is_null = self.state.?.builder.buildICmp(
+                        .EQ,
+                        self.state.?.builder.buildLoad(
+                            try self.lowerExternApi(.value),
+                            self.state.?.opt_jump.?.alloca,
+                            "unwrapped",
+                        ),
+                        (try self.lowerExternApi(.value)).constInt(
+                            Value.Null.val,
+                            .False,
+                        ),
+                        "is_null",
+                    );
+
+                    _ = self.state.?.builder.buildCondBr(
+                        is_null,
+                        out_block,
+                        next_expr_block,
+                    );
+                }
+
+                self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
+                self.state.?.builder.positionBuilderAtEnd(out_block);
+                self.state.?.current.?.block = out_block;
+
+                value = self.state.?.builder.buildLoad(
+                    try self.lowerExternApi(.value),
+                    self.state.?.opt_jump.?.alloca,
+                    "opt_resolved",
                 );
+
+                self.state.?.opt_jump.?.deinit();
+                self.state.?.opt_jump = null;
             }
 
-            self.state.?.current.?.function.?.appendExistingBasicBlock(out_block);
-            self.state.?.builder.positionBuilderAtEnd(out_block);
-            self.state.?.current.?.block = out_block;
-
-            value = self.state.?.builder.buildLoad(
-                try self.lowerExternApi(.value),
-                self.state.?.opt_jump.?.alloca,
-                "opt_resolved",
-            );
-
-            self.state.?.opt_jump.?.deinit();
-            self.state.?.opt_jump = null;
+            // Close scope if needed
+            try self.closeScope(node);
         }
 
-        // Close scope if needed
+        return value;
+    }
+
+    fn closeScope(self: *Self, node: *ParseNode) !void {
         if (node.ends_scope) |closing| {
             for (closing.items) |op| {
                 if (op == .OP_CLOSE_UPVALUE) {
@@ -1244,8 +1252,6 @@ pub const JIT = struct {
                 }
             }
         }
-
-        return value;
     }
 
     inline fn readConstant(self: *Self, arg: u24) Value {
@@ -2334,6 +2340,10 @@ pub const JIT = struct {
     }
 
     fn generateWhile(self: *Self, while_node: *WhileNode) VM.Error!?*l.Value {
+        if (while_node.condition.isConstant(while_node.condition) and !(while_node.condition.toValue(while_node.condition, self.vm.gc) catch @panic("Could not fold while loop")).boolean()) {
+            return null;
+        }
+
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
@@ -2432,6 +2442,10 @@ pub const JIT = struct {
     }
 
     fn generateFor(self: *Self, for_node: *ForNode) VM.Error!?*l.Value {
+        if (for_node.condition.isConstant(for_node.condition) and !(for_node.condition.toValue(for_node.condition, self.vm.gc) catch @panic("Could not fold for loop")).boolean()) {
+            return null;
+        }
+
         const cond_block = self.context.getContext().createBasicBlock("cond");
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
@@ -2493,7 +2507,9 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateBreak(self: *Self) VM.Error!?*l.Value {
+    fn generateBreak(self: *Self, break_node: *ParseNode) VM.Error!?*l.Value {
+        try self.closeScope(break_node);
+
         self.buildBr(self.state.?.current.?.break_block.?);
 
         const continue_block = self.context.getContext().appendBasicBlock(
@@ -2506,7 +2522,9 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateContinue(self: *Self) VM.Error!?*l.Value {
+    fn generateContinue(self: *Self, continue_node: *ParseNode) VM.Error!?*l.Value {
+        try self.closeScope(continue_node);
+
         self.buildBr(self.state.?.current.?.continue_block.?);
 
         const continue_block = self.context.getContext().appendBasicBlock(
