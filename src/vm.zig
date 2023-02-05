@@ -3571,8 +3571,6 @@ pub const VM = struct {
 
         self.currentFrame().?.in_native_call = false;
 
-        std.debug.print("native_return: {}\n", .{native_return});
-
         if (native_return == -1) {
             // An error occured within the native function -> call error handlers
             if (catch_value != null) {

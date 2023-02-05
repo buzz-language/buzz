@@ -1640,10 +1640,13 @@ pub const JIT = struct {
             if (arguments.get(key)) |arg| {
                 _ = try self.buildPush(arg);
             } else {
+                var value = defaults.get(key).?;
+                value = if (value.isObj()) try _obj.cloneObject(value.obj(), self.vm) else value;
+
                 // Push default
                 _ = try self.buildPush(
                     (try ExternApi.value.lower(self.context.getContext())).constInt(
-                        defaults.get(key).?.val,
+                        value.val,
                         .False,
                     ),
                 );
