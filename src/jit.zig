@@ -681,7 +681,7 @@ pub const ExternApi = enum {
                 .False,
             ),
             .setjmp => l.functionType(
-                context.intType(@sizeOf(c_int)),
+                context.intType(@bitSizeOf(c_int)),
                 &[_]*l.Type{
                     // vm
                     try ExternApi.jmp_buf.lower(context),
@@ -728,7 +728,7 @@ pub const ExternApi = enum {
                 .False,
             ),
             .nativefn => l.functionType(
-                context.intType(8),
+                context.intType(@bitSizeOf(c_int)),
                 &[_]*l.Type{
                     (try ExternApi.nativectx.lower(context)).pointerType(0),
                 },
@@ -766,7 +766,7 @@ pub const ExternApi = enum {
             .globals => (try ExternApi.value.lower(context)).pointerType(0),
 
             // TODO: Is it a c_int on all platforms?
-            .jmp_buf => context.intType(@sizeOf(c_int)).pointerType(0),
+            .jmp_buf => context.intType(@bitSizeOf(c_int)).pointerType(0),
         };
     }
 
@@ -886,7 +886,7 @@ pub const JIT = struct {
 
             .Function => l.functionType(
                 if (obj_typedef.resolved_type.?.Function.function_type == .Extern)
-                    self.context.getContext().intType(@sizeOf(c_int))
+                    self.context.getContext().intType(@bitSizeOf(c_int))
                 else
                     try self.lowerExternApi(.value),
                 &[_]*l.Type{
@@ -1575,7 +1575,7 @@ pub const JIT = struct {
             const has_error = self.state.?.builder.buildICmp(
                 .EQ,
                 status,
-                self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
+                self.context.getContext().intType(@bitSizeOf(c_int)).constInt(1, .False),
                 "has_error",
             );
 
@@ -1713,7 +1713,7 @@ pub const JIT = struct {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
             return_code,
-            self.context.getContext().intType(@sizeOf(c_int)).constInt(
+            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(
                 @bitCast(c_ulonglong, @as(i64, -1)),
                 .True,
             ),
@@ -2895,7 +2895,7 @@ pub const JIT = struct {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
             status,
-            self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
+            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(1, .False),
             "has_error",
         );
 
@@ -4097,7 +4097,7 @@ pub const JIT = struct {
         const has_error = self.state.?.builder.buildICmp(
             .EQ,
             status,
-            self.context.getContext().intType(@sizeOf(c_int)).constInt(1, .False),
+            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(1, .False),
             "has_error",
         );
 
@@ -4113,7 +4113,7 @@ pub const JIT = struct {
 
         // Payload already on stack so juste return -1;
         _ = self.state.?.builder.buildRet(
-            self.context.getContext().intType(8).constInt(
+            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(
                 @bitCast(c_ulonglong, @as(i64, -1)),
                 .True,
             ),
@@ -4148,7 +4148,7 @@ pub const JIT = struct {
 
         // 1 = there's a return, 0 = no return, -1 = error
         _ = self.state.?.builder.buildRet(
-            self.context.getContext().intType(8).constInt(
+            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(
                 if (should_return) 1 else 0,
                 .True,
             ),

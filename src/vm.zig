@@ -3360,6 +3360,7 @@ pub const VM = struct {
     }
 
     pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
+        std.debug.print("lo\n", .{});
         var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
 
         while (self.current_fiber.frame_count > 0) {
@@ -3570,6 +3571,8 @@ pub const VM = struct {
 
         self.currentFrame().?.in_native_call = false;
 
+        std.debug.print("native_return: {}\n", .{native_return});
+
         if (native_return == -1) {
             // An error occured within the native function -> call error handlers
             if (catch_value != null) {
@@ -3586,6 +3589,7 @@ pub const VM = struct {
             if (frame.try_ip) |try_ip| {
                 frame.ip = try_ip;
             } else {
+                std.debug.print("yo\n", .{});
                 // No error handler or default value was triggered so forward the error
                 try self.throw(Error.Custom, self.peek(0));
             }
