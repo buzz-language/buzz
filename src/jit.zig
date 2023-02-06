@@ -1424,7 +1424,7 @@ pub const JIT = struct {
                         ),
                     },
                 ),
-                .ObjectInstance => try self.buildExternApiCall(
+                .ObjectInstance, .ProtocolInstance => try self.buildExternApiCall(
                     .bz_getInstanceField,
                     &[_]*l.Value{
                         self.vmConstant(),
@@ -2681,7 +2681,7 @@ pub const JIT = struct {
                     );
                 }
             },
-            .ObjectInstance => inst: {
+            .ObjectInstance, .ProtocolInstance => inst: {
                 if (dot_node.call) |call| {
                     break :inst try self.generateCall(call);
                 } else if (dot_node.value) |value| {
@@ -2712,21 +2712,6 @@ pub const JIT = struct {
                     );
                 }
             },
-            .ProtocolInstance => if (dot_node.call) |call|
-                try self.generateCall(call)
-            else
-                try self.buildExternApiCall(
-                    .bz_getInstanceField,
-                    &[_]*l.Value{
-                        self.vmConstant(),
-                        (try self.generateNode(dot_node.callee)).?,
-                        self.context.getContext().intType(64).constInt(
-                            (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val,
-                            .False,
-                        ),
-                        self.context.getContext().intType(1).constInt(1, .False),
-                    },
-                ),
             .Enum => try self.buildExternApiCall(
                 .bz_getEnumCase,
                 &[_]*l.Value{
