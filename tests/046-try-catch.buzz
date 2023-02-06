@@ -49,7 +49,11 @@ test "Try catch" {
         assert(false, message: "unreachable");
     }
 
+    str afterLocal = "bye";
+
     assert(setme == "yes", message: "error was handled and code continues");
 
     assert(returnFromCatch() == 21, message: "return from catch clause works");
+
+    assert(afterLocal == "bye", message: "catch closed its scope");
 }

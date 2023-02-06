@@ -956,7 +956,7 @@ export fn bz_closure(
 }
 
 export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
-    std.debug.print("base is {}\n", .{@ptrToInt(ctx.base)});
+    std.debug.print("base is {}, top is {}\n", .{ @ptrToInt(ctx.base), @ptrToInt(ctx.vm.current_fiber.stack_top) });
     std.debug.print("#{}:\n", .{off});
     dumpStack(ctx.vm) catch unreachable;
 }

@@ -2867,28 +2867,26 @@ pub const JIT = struct {
         else
             null;
 
-        // Remember stack top
-        const top_alloca = self.state.?.builder.buildAlloca(
-            (try ExternApi.value.lower(self.context.getContext())).pointerType(0),
-            "try_top",
-        );
-
-        const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
+        // **[*]Value
+        const try_stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.state.?.current.?.function.?.getParam(0),
             4,
-            "stack_top_field_ptr",
+            "try_stack_top_field_ptr",
         );
 
-        const stack_top_ptr = self.state.?.builder.buildLoad(
+        // *[*]Value
+        const try_stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
-            stack_top_field_ptr,
-            "stack_top_ptr",
+            try_stack_top_field_ptr,
+            "try_stack_top_ptr",
         );
 
-        _ = self.state.?.builder.buildStore(
-            stack_top_ptr,
-            top_alloca,
+        // [*]Value
+        const try_stack_top = self.state.?.builder.buildLoad(
+            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
+            try_stack_top_ptr,
+            "try_stack_top",
         );
 
         // Set it as current jump env
@@ -2941,25 +2939,19 @@ pub const JIT = struct {
         const payload = try self.buildPop();
 
         // Get stack top as it was before try block
-        const try_stack_top_ptr = self.state.?.builder.buildLoad(
-            (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
-            top_alloca,
-            "try_stack_top_ptr",
-        );
-
         // Close upvalues up to it
         _ = try self.buildExternApiCall(
             .bz_closeUpValues,
             &[_]*l.Value{
                 self.vmConstant(),
-                try_stack_top_ptr,
+                try_stack_top,
             },
         );
 
         // Restore stack top as it was before the try block
         _ = self.state.?.builder.buildStore(
+            try_stack_top,
             try_stack_top_ptr,
-            stack_top_field_ptr,
         );
 
         // Put error back on stack
@@ -2981,9 +2973,6 @@ pub const JIT = struct {
 
             // Get error payload from stack
             const err_payload = try self.buildPeek(0);
-
-            // Push payload
-            _ = try self.buildPush(err_payload);
 
             const matches = self.unwrap(
                 .Bool,
@@ -3022,6 +3011,14 @@ pub const JIT = struct {
             self.state.?.builder.positionBuilderAtEnd(clause_body_block);
             self.state.?.current.?.block = clause_body_block;
 
+            // Unwind TryCtx
+            _ = try self.buildExternApiCall(
+                .bz_popTryCtx,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                },
+            );
+
             _ = try self.generateNode(clause);
 
             _ = self.state.?.builder.buildBr(out_block);
@@ -3031,6 +3028,14 @@ pub const JIT = struct {
             self.state.?.current.?.function.?.appendExistingBasicBlock(block);
             self.state.?.builder.positionBuilderAtEnd(block);
             self.state.?.current.?.block = block;
+
+            // Unwind TryCtx
+            _ = try self.buildExternApiCall(
+                .bz_popTryCtx,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                },
+            );
 
             _ = try self.generateNode(try_node.unconditional_clause.?);
 
