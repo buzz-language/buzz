@@ -76,6 +76,7 @@ pub const VM = opaque {
     pub extern fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void;
     pub extern fn bz_closure(ctx: *NativeCtx, function_node: *FunctionNode, native: *anyopaque, native_raw: *anyopaque) Value;
     pub extern fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value;
+    pub extern fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque;
 
     pub extern fn bz_dumpStack(vm: *VM) void;
 

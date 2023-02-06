@@ -1736,7 +1736,6 @@ pub const ObjList = struct {
                     .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
                 };
 
                 var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
@@ -1764,6 +1763,7 @@ pub const ObjList = struct {
                     .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
                 };
 
                 var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };

@@ -3557,7 +3557,9 @@ pub const VM = struct {
 
     // A JIT compiled function pops its stack on its own
     fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
-        self.currentFrame().?.in_native_call = true;
+        if (self.currentFrame()) |frame| {
+            frame.in_native_call = true;
+        }
 
         const native_return = native(
             &NativeCtx{
@@ -3569,7 +3571,9 @@ pub const VM = struct {
             },
         );
 
-        self.currentFrame().?.in_native_call = false;
+        if (self.currentFrame()) |frame| {
+            frame.in_native_call = false;
+        }
 
         if (native_return == -1) {
             // An error occured within the native function -> call error handlers
@@ -3583,11 +3587,9 @@ pub const VM = struct {
             }
 
             // Error was not handled are we in a try-catch ?
-            var frame = self.currentFrame().?;
-            if (frame.try_ip) |try_ip| {
-                frame.ip = try_ip;
+            if (self.currentFrame() != null and self.currentFrame().?.try_ip != null) {
+                self.currentFrame().?.ip = self.currentFrame().?.try_ip.?;
             } else {
-                std.debug.print("yo\n", .{});
                 // No error handler or default value was triggered so forward the error
                 try self.throw(Error.Custom, self.peek(0));
             }

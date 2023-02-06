@@ -560,9 +560,16 @@ pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *cons
     }
 
     // TODO: catch properly
-    self.callValue(closure.toValue(), len, if (catch_value) |v| v.* else null) catch unreachable;
+    self.callValue(
+        closure.toValue(),
+        len,
+        if (catch_value) |v| v.* else null,
+    ) catch unreachable;
 
-    self.run();
+    // If not compiled, run it with the VM loop
+    if (closure.function.native == null) {
+        self.run();
+    }
 }
 
 // Assumes the global exists
@@ -878,28 +885,32 @@ export fn bz_getGlobals(closure: Value) [*]Value {
     return ObjClosure.cast(closure.obj()).?.globals.items.ptr;
 }
 
-export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx) *anyopaque {
+export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
     const bound = if (closure_value.obj().obj_type == .Bound) ObjBoundMethod.cast(closure_value.obj()).? else null;
-    const closure = ObjClosure.cast(closure_value.obj()) orelse bound.?.closure.?;
+    const closure = if (bound) |bd|
+        bd.closure
+    else
+        ObjClosure.cast(closure_value.obj());
+    const native = if (bound == null and closure == null) ObjNative.cast(closure_value.obj()).? else null;
 
     // If bound method, replace closure on the stack by the receiver
     if (bound != null) {
-        (ctx.vm.current_fiber.stack_top - closure.function.type_def.resolved_type.?.Function.parameters.count() - 1)[0] = bound.?.receiver;
+        (ctx.vm.current_fiber.stack_top - arg_count - 1)[0] = bound.?.receiver;
     }
 
     new_ctx.* = NativeCtx{
         .vm = ctx.vm,
-        .globals = closure.globals.items.ptr,
-        .upvalues = closure.upvalues.items.ptr,
-        .base = ctx.vm.current_fiber.stack_top - closure.function.type_def.resolved_type.?.Function.parameters.count() - 1,
+        .globals = if (closure) |cls| cls.globals.items.ptr else ctx.globals,
+        .upvalues = if (closure) |cls| cls.upvalues.items.ptr else ctx.upvalues,
+        .base = ctx.vm.current_fiber.stack_top - arg_count - 1,
         .stack_top = &ctx.vm.current_fiber.stack_top,
     };
 
-    if (ctx.vm.jit != null and ctx.vm.jit.?.shouldCompileFunction(closure)) {
-        ctx.vm.jit.?.compileFunction(closure) catch @panic("Failed compiling function");
+    if (closure != null and ctx.vm.jit != null and ctx.vm.jit.?.shouldCompileFunction(closure.?)) {
+        ctx.vm.jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
     }
 
-    return closure.function.native_raw.?;
+    return if (closure) |cls| cls.function.native_raw.? else native.?.native;
 }
 
 export fn bz_closure(

@@ -543,8 +543,10 @@ pub const ExternApi = enum {
                     try ExternApi.value.lower(context),
                     // new NativeCtx
                     (try ExternApi.nativectx.lower(context)).pointerType(0),
+                    // arg_count,
+                    context.intType(@bitSizeOf(usize)),
                 },
-                3,
+                4,
                 .False,
             ),
             .bz_instance => l.functionType(
@@ -1672,6 +1674,10 @@ pub const JIT = struct {
                     self.state.?.current.?.function.?.getParam(0),
                     callee,
                     new_ctx,
+                    self.context.getContext().intType(@bitSizeOf(usize)).constInt(
+                        arg_keys.len,
+                        .False,
+                    ),
                 },
             );
         } else { // If extern, extract pointer to its raw function
@@ -3529,9 +3535,8 @@ pub const JIT = struct {
             self.state.?.builder.positionBuilderAtEnd(self.state.?.current.?.block.?);
         }
 
-        // Lambda function, need to create an ObjClosure
-        // Regular function actually don't need closures since their *upvalues* are globals
-        if (function_type == .Anonymous) {
+        // Unless this is the root function we were compiling, we wrap the function in a closure
+        if (self.state.?.current != null) {
             // Call bz_closure
             return try self.buildExternApiCall(
                 .bz_closure,
