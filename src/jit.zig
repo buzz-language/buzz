@@ -1307,8 +1307,16 @@ pub const JIT = struct {
                 );
             }
 
+            if (previous != null) {
+                _ = try self.buildPop();
+            }
+
             previous = value;
+
+            _ = try self.buildPush(previous.?);
         }
+
+        _ = try self.buildPop();
 
         return previous.?;
     }
@@ -2148,40 +2156,43 @@ pub const JIT = struct {
                 const left_f = if (left_type_def == .Float) self.unwrap(.Float, left.?) else null;
                 const right_i = if (right_type_def == .Integer) self.unwrap(.Integer, right.?) else null;
                 const right_f = if (right_type_def == .Float) self.unwrap(.Float, right.?) else null;
-                const left_s = if (left_type_def == .String) self.unwrap(.String, left.?) else null;
-                const right_s = if (right_type_def == .String) self.unwrap(.String, right.?) else null;
 
-                switch (binary_node.operator) {
-                    .EqualEqual => {
-                        return try self.buildExternApiCall(
-                            .bz_valueEqual,
-                            &[_]*l.Value{
-                                left.?,
-                                right.?,
-                            },
-                        );
-                    },
-                    .BangEqual => {
-                        return self.wrap(
-                            .Bool,
-                            self.state.?.builder.buildNot(
-                                self.unwrap(
-                                    .Bool,
-                                    try self.buildExternApiCall(
-                                        .bz_valueEqual,
-                                        &[_]*l.Value{
-                                            left.?,
-                                            right.?,
-                                        },
-                                    ),
+                // Avoid collection
+                if (left_i == null and left_f == null) {
+                    _ = try self.buildPush(left.?);
+                }
+
+                if (right_i == null and right_f == null) {
+                    _ = try self.buildPush(right.?);
+                }
+
+                const result = switch (binary_node.operator) {
+                    .EqualEqual => try self.buildExternApiCall(
+                        .bz_valueEqual,
+                        &[_]*l.Value{
+                            left.?,
+                            right.?,
+                        },
+                    ),
+                    .BangEqual => self.wrap(
+                        .Bool,
+                        self.state.?.builder.buildNot(
+                            self.unwrap(
+                                .Bool,
+                                try self.buildExternApiCall(
+                                    .bz_valueEqual,
+                                    &[_]*l.Value{
+                                        left.?,
+                                        right.?,
+                                    },
                                 ),
-                                "",
                             ),
-                        );
-                    },
-                    .Greater, .Less, .GreaterEqual, .LessEqual => {
+                            "",
+                        ),
+                    ),
+                    .Greater, .Less, .GreaterEqual, .LessEqual => cmp: {
                         if (left_f != null or right_f != null) {
-                            return self.wrap(
+                            break :cmp self.wrap(
                                 .Bool,
                                 self.state.?.builder.buildFCmp(
                                     switch (binary_node.operator) {
@@ -2200,7 +2211,7 @@ pub const JIT = struct {
                             );
                         }
 
-                        break :bin self.wrap(
+                        break :cmp self.wrap(
                             .Bool,
                             self.state.?.builder.buildICmp(
                                 switch (binary_node.operator) {
@@ -2218,11 +2229,11 @@ pub const JIT = struct {
                             ),
                         );
                     },
-                    .Plus => {
+                    .Plus => plus: {
                         switch (binary_node.left.type_def.?.def_type) {
                             .Integer, .Float => {
                                 if (left_f != null or right_f != null) {
-                                    break :bin self.wrap(
+                                    break :plus self.wrap(
                                         .Float,
                                         self.state.?.builder.buildFAdd(
                                             if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
@@ -2232,7 +2243,7 @@ pub const JIT = struct {
                                     );
                                 }
 
-                                break :bin self.wrap(
+                                break :plus self.wrap(
                                     .Integer,
                                     self.state.?.builder.buildAdd(
                                         left_i.?,
@@ -2241,15 +2252,15 @@ pub const JIT = struct {
                                     ),
                                 );
                             },
-                            .String => break :bin try self.buildExternApiCall(
+                            .String => break :plus try self.buildExternApiCall(
                                 .bz_objStringConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
-                                    self.wrap(.String, left_s.?),
-                                    self.wrap(.String, right_s.?),
+                                    left.?,
+                                    right.?,
                                 },
                             ),
-                            .List => break :bin try self.buildExternApiCall(
+                            .List => break :plus try self.buildExternApiCall(
                                 .bz_listConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
@@ -2257,7 +2268,7 @@ pub const JIT = struct {
                                     right.?,
                                 },
                             ),
-                            .Map => break :bin try self.buildExternApiCall(
+                            .Map => break :plus try self.buildExternApiCall(
                                 .bz_mapConcat,
                                 &[_]*l.Value{
                                     self.vmConstant(),
@@ -2268,9 +2279,9 @@ pub const JIT = struct {
                             else => unreachable,
                         }
                     },
-                    .Minus => {
+                    .Minus => minus: {
                         if (left_f != null or right_f != null) {
-                            break :bin self.wrap(
+                            break :minus self.wrap(
                                 .Float,
                                 self.state.?.builder.buildFSub(
                                     if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
@@ -2280,7 +2291,7 @@ pub const JIT = struct {
                             );
                         }
 
-                        break :bin self.wrap(
+                        break :minus self.wrap(
                             .Integer,
                             self.state.?.builder.buildSub(
                                 left_i orelse left_f.?,
@@ -2289,9 +2300,9 @@ pub const JIT = struct {
                             ),
                         );
                     },
-                    .Star => {
+                    .Star => star: {
                         if (left_f != null or right_f != null) {
-                            break :bin self.wrap(
+                            break :star self.wrap(
                                 .Float,
                                 self.state.?.builder.buildFMul(
                                     if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
@@ -2301,7 +2312,7 @@ pub const JIT = struct {
                             );
                         }
 
-                        break :bin self.wrap(
+                        break :star self.wrap(
                             .Integer,
                             self.state.?.builder.buildMul(
                                 left_i orelse left_f.?,
@@ -2310,9 +2321,9 @@ pub const JIT = struct {
                             ),
                         );
                     },
-                    .Slash => {
+                    .Slash => slash: {
                         if (left_f != null or right_f != null) {
-                            break :bin self.wrap(
+                            break :slash self.wrap(
                                 .Float,
                                 self.state.?.builder.buildFDiv(
                                     if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
@@ -2323,7 +2334,7 @@ pub const JIT = struct {
                         }
 
                         // Div result is always float
-                        break :bin self.wrap(
+                        break :slash self.wrap(
                             .Integer,
                             self.state.?.builder.buildSDiv(
                                 left_i orelse left_f.?,
@@ -2332,9 +2343,9 @@ pub const JIT = struct {
                             ),
                         );
                     },
-                    .Percent => {
+                    .Percent => percent: {
                         if (left_f != null or right_f != null) {
-                            break :bin self.wrap(
+                            break :percent self.wrap(
                                 .Float,
                                 self.state.?.builder.buildFRem(
                                     if (left_i) |i| self.state.?.builder.buildSIToFP(i, self.context.getContext().doubleType(), "") else left_f.?,
@@ -2344,7 +2355,7 @@ pub const JIT = struct {
                             );
                         }
 
-                        break :bin self.wrap(
+                        break :percent self.wrap(
                             .Integer,
                             self.state.?.builder.buildSRem(
                                 left_i orelse left_f.?,
@@ -2354,7 +2365,17 @@ pub const JIT = struct {
                         );
                     },
                     else => unreachable,
+                };
+
+                if (left_i == null and left_f == null) {
+                    _ = try self.buildPop();
                 }
+
+                if (right_i == null and right_f == null) {
+                    _ = try self.buildPop();
+                }
+
+                break :bin result;
             },
         };
     }
