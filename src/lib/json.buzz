@@ -250,7 +250,12 @@ object Json {
 
     || Encode to a JSON string
     || @return str the JSON string
-    fun encode() > str {
+    fun encode({Json, void}? seen) > str {
+        seen = seen ?? {<Json, void>};
+
+        assert(seen![this] == null, message: "Circular reference in Json structure");
+        seen![this] = void;
+
         if (this.string -> string) {
             return "\"{string}\"";
         } else if (this.boolean -> boolean) {
