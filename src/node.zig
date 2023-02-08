@@ -4052,10 +4052,10 @@ pub const CallNode = struct {
         if (self.async_call) {
             if (!invoked) {
                 // zig fmt: off
-                const call_arg_count = if (!invoked) @intCast(u8, arguments_order_ref.items.len)
+                const call_arg_count = if (!invoked) @intCast(u8, arg_count)
                     else
-                        if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, self.arguments.count()) + 1 
-                        else @intCast(u8, self.arguments.count());
+                        if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, arg_count) + 1 
+                        else @intCast(u8, arg_count);
                 // zig fmt: on
 
                 try codegen.emitCodeArgs(
@@ -4080,7 +4080,7 @@ pub const CallNode = struct {
 
                 try codegen.emitTwo(
                     self.node.location,
-                    if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, self.arguments.count()) + 1 else @intCast(u8, self.arguments.count()),
+                    if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance) @intCast(u8, arg_count) + 1 else @intCast(u8, self.arguments.count()),
                     if (self.catch_default != null) 1 else 0,
                 );
 
@@ -4120,9 +4120,9 @@ pub const CallNode = struct {
             try codegen.emitTwo(
                 self.node.location,
                 if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)
-                    @intCast(u8, arguments_order_ref.items.len) + 1
+                    @intCast(u8, arg_count) + 1
                 else
-                    @intCast(u8, self.arguments.count()),
+                    @intCast(u8, arg_count),
                 if (self.catch_default != null) 1 else 0,
             );
         }
