@@ -154,6 +154,7 @@ pub const ExternApi = enum {
     bz_listNext,
     bz_mapNext,
     bz_enumNext,
+    bz_clone,
     globals,
 
     bz_dumpStack,
@@ -217,6 +218,7 @@ pub const ExternApi = enum {
             .bz_listNext => "bz_listNext",
             .bz_mapNext => "bz_mapNext",
             .bz_enumNext => "bz_enumNext",
+            .bz_clone => "bz_clone",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -279,6 +281,7 @@ pub const ExternApi = enum {
             .bz_listNext => "bz_listNext",
             .bz_mapNext => "bz_mapNext",
             .bz_enumNext => "bz_enumNext",
+            .bz_clone => "bz_clone",
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
 
             .jmp_buf => "jmp_buf",
@@ -729,6 +732,17 @@ pub const ExternApi = enum {
                 3,
                 .False,
             ),
+            .bz_clone => l.functionType(
+                try ExternApi.value.lower(context),
+                &[_]*l.Type{
+                    // vm
+                    context.pointerType(0),
+                    // value to clone
+                    try ExternApi.value.lower(context),
+                },
+                2,
+                .False,
+            ),
             .nativefn => l.functionType(
                 context.intType(@bitSizeOf(c_int)),
                 &[_]*l.Type{
@@ -1108,7 +1122,7 @@ pub const JIT = struct {
     fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
-        var value = if (node.isConstant(node))
+        var value = if (node.isConstant(node) and node.node_type != .List and node.node_type != .Map)
             self.context.getContext().intType(64).constInt(
                 (node.toValue(node, self.vm.gc) catch return VM.Error.Custom).val,
                 .False,
@@ -1651,11 +1665,17 @@ pub const JIT = struct {
                 var value = defaults.get(key).?;
                 value = if (value.isObj()) try _obj.cloneObject(value.obj(), self.vm) else value;
 
-                // Push default
+                // Push clone of default
                 _ = try self.buildPush(
-                    (try ExternApi.value.lower(self.context.getContext())).constInt(
-                        value.val,
-                        .False,
+                    try self.buildExternApiCall(
+                        .bz_clone,
+                        &[_]*l.Value{
+                            self.vmConstant(),
+                            (try ExternApi.value.lower(self.context.getContext())).constInt(
+                                value.val,
+                                .False,
+                            ),
+                        },
                     ),
                 );
             }

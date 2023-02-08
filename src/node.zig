@@ -1235,7 +1235,8 @@ pub const ListNode = struct {
         const self = Self.cast(node).?;
 
         for (self.items) |item| {
-            if (!item.isConstant(item)) {
+            // A constant list can't contain other list/maps since they won't be cloned
+            if (item.node_type == .List or item.node_type == .Map or !item.isConstant(item)) {
                 return false;
             }
         }
@@ -1397,13 +1398,13 @@ pub const MapNode = struct {
         const self = Self.cast(node).?;
 
         for (self.keys) |key| {
-            if (!key.isConstant(key)) {
+            if (key.node_type == .List or key.node_type == .Map or !key.isConstant(key)) {
                 return false;
             }
         }
 
         for (self.values) |value| {
-            if (!value.isConstant(value)) {
+            if (value.node_type == .List or value.node_type == .Map or !value.isConstant(value)) {
                 return false;
             }
         }

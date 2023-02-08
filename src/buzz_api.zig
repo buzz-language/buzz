@@ -1117,3 +1117,7 @@ export fn bz_enumNext(vm: *VM, enum_value: Value, case: Value) Value {
 
     return Value.Null;
 }
+
+export fn bz_clone(vm: *VM, value: Value) Value {
+    return vm.cloneValue(value) catch @panic("Could not clone value");
+}

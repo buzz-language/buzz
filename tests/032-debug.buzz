@@ -3,7 +3,11 @@ import "lib/debug" as debug;
 import Json from "lib/json";
 
 test "Get AST" {
-    str source = debug.ast("import \"lib/std\"; fun main([str] args) > void -> print(\"hello world\");", scriptName: "test");
+    str source = debug.ast(`
+        import \"lib/std\";
+        
+        fun main([str] args) > void -> print(\"hello world\");
+    `, scriptName: "test");
 
     Json jsonAST = Json.decode(source);
 

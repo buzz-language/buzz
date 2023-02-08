@@ -264,11 +264,11 @@ object Json {
             return "{integer}";
         } else if (this.floating -> floating) {
             return "{floating}";
-        } else if (this.map != null) {
+        } else if (this.map -> map) {
             str json = "\{";
-            const int size = this.map!.size();
+            const int size = map.size();
             int count = 0;
-            foreach (str key, Json value in this.map!) {
+            foreach (str key, Json value in map) {
                 json = json + "\"{key}\":{value.encode()}";
 
                 if (count < size - 1) {
@@ -278,11 +278,11 @@ object Json {
                 count = count + 1;
             }
             return json + "}";
-        } else if (this.list != null) {
+        } else if (this.list -> list) {
             str json = "[";
 
-            const int len = this.list!.len();
-            foreach (int i, Json value in this.list!) {
+            const int len = list.len();
+            foreach (int i, Json value in list) {
                 json = json + value.encode();
 
                 if (i < len - 1) {

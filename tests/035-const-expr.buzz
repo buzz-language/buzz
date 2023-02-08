@@ -12,7 +12,7 @@ fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewh
 
 object A {
     [int] list = [1, 2, 3],
-    {str, [int]} map = { "yo": [1, 2, 3] },
+    {str, int} map = { "yo": 1 },
 }
 
 test "Constant expression" {
@@ -30,7 +30,7 @@ test "Constant expression" {
     assert(a.list.len() == 4, message: "object default value were cloned");
     assert(b.list.len() == 3, message: "object default value were cloned");
 
-    a.map["lo"] = [4, 5, 6];
+    a.map["lo"] = 4;
 
     assert(a.map.size() == 2, message: "object default value were cloned");
     assert(b.map.size() == 1, message: "object default value were cloned");
