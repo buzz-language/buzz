@@ -125,14 +125,20 @@ export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
     return if (string.len > 0) @ptrCast([*]const u8, string) else null;
 }
 
-/// Dump value
-export fn bz_valueDump(value: Value, vm: *VM) void {
-    if (!value.isObj()) {
+fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), depth: usize) void {
+    if (depth > 50) {
+        std.debug.print("...", .{});
+        return;
+    }
+
+    if (!value.isObj() or seen.get(value.obj()) != null) {
         const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
         defer vm.gc.allocator.free(string);
 
         std.debug.print("{s}", .{string});
     } else {
+        seen.put(value.obj(), {}) catch unreachable;
+
         switch (value.obj().obj_type) {
             .Type,
             .Closure,
@@ -152,7 +158,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
             .UpValue => {
                 const upvalue = ObjUpValue.cast(value.obj()).?;
 
-                bz_valueDump(if (upvalue.closed != null) upvalue.closed.? else upvalue.location.*, vm);
+                valueDump(if (upvalue.closed != null) upvalue.closed.? else upvalue.location.*, vm, seen, depth);
             },
 
             .String => {
@@ -172,7 +178,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
 
                 std.debug.print("[ ", .{});
                 for (list.items.items) |item| {
-                    bz_valueDump(item, vm);
+                    valueDump(item, vm, seen, depth + 1);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("]", .{});
@@ -186,9 +192,9 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
                 while (it.next()) |kv| {
                     const key = kv.key_ptr.*;
 
-                    bz_valueDump(key, vm);
+                    valueDump(key, vm, seen, depth + 1);
                     std.debug.print(": ", .{});
-                    bz_valueDump(kv.value_ptr.*, vm);
+                    valueDump(kv.value_ptr.*, vm, seen, depth + 1);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -201,7 +207,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
                 std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
                 for (enum_type_def.cases.items) |case, i| {
                     std.debug.print("{s} -> ", .{case});
-                    bz_valueDump(enumeration.cases.items[i], vm);
+                    valueDump(enumeration.cases.items[i], vm, seen, depth);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -234,7 +240,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
                     while (static_it.next()) |static_kv| {
                         if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
                             std.debug.print(" = ", .{});
-                            bz_valueDump(static_kv.value_ptr.*, vm);
+                            valueDump(static_kv.value_ptr.*, vm, seen, depth + 1);
                             break;
                         }
                     }
@@ -253,7 +259,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
                     while (field_it.next()) |field_kv| {
                         if (std.mem.eql(u8, field_kv.key_ptr.*.string, kv.key_ptr.*)) {
                             std.debug.print(" = ", .{});
-                            bz_valueDump(field_kv.value_ptr.*, vm);
+                            valueDump(field_kv.value_ptr.*, vm, seen, depth + 1);
                             break;
                         }
                     }
@@ -279,13 +285,21 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
                 var it = object_instance.fields.iterator();
                 while (it.next()) |kv| {
                     std.debug.print("{s} = ", .{kv.key_ptr.*.string});
-                    bz_valueDump(kv.value_ptr.*, vm);
+                    valueDump(kv.value_ptr.*, vm, seen, depth + 1);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
             },
         }
     }
+}
+
+/// Dump value
+export fn bz_valueDump(value: Value, vm: *VM) void {
+    var seen = std.AutoHashMap(*_obj.Obj, void).init(vm.gc.allocator);
+    defer seen.deinit();
+
+    valueDump(value, vm, &seen, 0);
 }
 
 export fn bz_valueToUserData(value: Value) *UserData {
