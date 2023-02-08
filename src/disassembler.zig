@@ -94,13 +94,13 @@ fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     return offset + 1;
 }
 
-pub fn dumpStack(vm: *VM) !void {
+pub fn dumpStack(vm: *VM) void {
     print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
     var value = @ptrCast([*]_value.Value, vm.current_fiber.stack[0..]);
     while (@ptrToInt(value) < @ptrToInt(vm.current_fiber.stack_top)) {
-        var value_str: []const u8 = try _value.valueToStringAlloc(std.heap.c_allocator, value[0]);
+        var value_str: []const u8 = _value.valueToStringAlloc(std.heap.c_allocator, value[0]) catch unreachable;
         defer std.heap.c_allocator.free(value_str);
 
         if (vm.currentFrame().?.slots == value) {

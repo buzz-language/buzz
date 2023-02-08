@@ -1661,32 +1661,23 @@ pub const JIT = struct {
             }
         }
 
-        var new_ctx: *l.Value = self.state.?.current.?.function.?.getParam(0);
-        if (function_type != .Extern) {
-            new_ctx = self.state.?.builder.buildAlloca(
-                try self.lowerExternApi(.nativectx),
-                "new_ctx",
-            );
+        var new_ctx: *l.Value = self.state.?.builder.buildAlloca(
+            try self.lowerExternApi(.nativectx),
+            "new_ctx",
+        );
 
-            callee = try self.buildExternApiCall(
-                .bz_context,
-                &[_]*l.Value{
-                    self.state.?.current.?.function.?.getParam(0),
-                    callee,
-                    new_ctx,
-                    self.context.getContext().intType(@bitSizeOf(usize)).constInt(
-                        arg_keys.len,
-                        .False,
-                    ),
-                },
-            );
-        } else { // If extern, extract pointer to its raw function
-            // TODO: declare it in LLVM and call that?
-            callee = try self.buildExternApiCall(
-                .bz_valueToExternNativeFn,
-                &[_]*l.Value{callee},
-            );
-        }
+        callee = try self.buildExternApiCall(
+            .bz_context,
+            &[_]*l.Value{
+                self.state.?.current.?.function.?.getParam(0),
+                callee,
+                new_ctx,
+                self.context.getContext().intType(@bitSizeOf(usize)).constInt(
+                    arg_keys.len,
+                    .False,
+                ),
+            },
+        );
 
         // Regular function, just call it
         var result = self.state.?.builder.buildCall(
@@ -1715,7 +1706,7 @@ pub const JIT = struct {
             return try self.generateHandleExternReturn(
                 function_type_def.resolved_type.?.Function.return_type.def_type != .Void,
                 result,
-                call_node.arguments.count(),
+                function_type_def.resolved_type.?.Function.parameters.count(),
                 catch_value,
             );
         }
@@ -1772,6 +1763,7 @@ pub const JIT = struct {
         else
             self.context.getContext().intType(64).constInt(Value.Void.val, .False);
 
+        // **[*]Value
         const stack_top_field_ptr = self.state.?.builder.buildStructGEP(
             try self.lowerExternApi(.nativectx),
             self.state.?.current.?.function.?.getParam(0),
@@ -1779,12 +1771,14 @@ pub const JIT = struct {
             "stack_top_field_ptr",
         );
 
+        // *[*]Value
         const stack_top_ptr = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0).pointerType(0),
             stack_top_field_ptr,
             "stack_top_ptr",
         );
 
+        // [*]Value
         const stack_top = self.state.?.builder.buildLoad(
             (try self.lowerExternApi(.value)).pointerType(0),
             stack_top_ptr,
@@ -3364,7 +3358,7 @@ pub const JIT = struct {
                         Value.Null.val,
                         .False,
                     ),
-                    "next_key_exists",
+                    "end_of_iterable",
                 ),
                 out_block,
                 loop_block,

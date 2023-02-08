@@ -204,7 +204,12 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var start_value = floatToInteger(ctx.vm.peek(1));
     var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
     var upto_value: Value = floatToInteger(ctx.vm.peek(0));
-    var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
+    var upto: ?i32 = if (upto_value.isInteger())
+        upto_value.integer()
+    else if (upto_value.isFloat())
+        @floatToInt(i32, upto_value.float())
+    else
+        null;
 
     if (start == null or start.? < 0 or start.? >= self.items.items.len) {
         var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
@@ -220,7 +225,10 @@ pub fn sub(ctx: *NativeCtx) c_int {
         return -1;
     }
 
-    const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len) @intCast(usize, start.? + upto.?) else self.items.items.len;
+    const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len)
+        @intCast(usize, start.? + upto.?)
+    else
+        self.items.items.len;
     var substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
 
     var list = ctx.vm.gc.allocateObject(ObjList, ObjList{

@@ -969,7 +969,7 @@ export fn bz_closure(
 export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
     std.debug.print("base is {}, top is {}\n", .{ @ptrToInt(ctx.base), @ptrToInt(ctx.vm.current_fiber.stack_top) });
     std.debug.print("#{}:\n", .{off});
-    dumpStack(ctx.vm) catch unreachable;
+    dumpStack(ctx.vm);
 }
 
 export fn bz_getStringField(vm: *VM, string_value: Value, field_name_value: Value, bind: bool) Value {
@@ -1071,7 +1071,6 @@ export fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value {
         if (index.isNull()) null else index.integer(),
     ) catch @panic("Could not get next list index")) |new_index| {
         index.* = Value.fromInteger(new_index);
-
         return list.items.items[@intCast(usize, new_index)];
     }
 
