@@ -167,6 +167,7 @@ pub const Fiber = struct {
                     vm.peek(self.arg_count),
                     self.arg_count,
                     if (self.has_catch_value) vm.pop() else null,
+                    true,
                 );
             },
             .OP_INVOKE_ROUTINE => { // | receiver | ...args | ?catch |
@@ -174,6 +175,7 @@ pub const Fiber = struct {
                     self.method.?,
                     self.arg_count,
                     if (self.has_catch_value) vm.pop() else null,
+                    true,
                 );
             },
             else => unreachable,
@@ -470,7 +472,7 @@ pub const VM = struct {
         try self.gc.registerVM(self);
         defer self.gc.unregisterVM(self);
 
-        try self.callValue(self.peek(1), 0, null);
+        try self.callValue(self.peek(1), 0, null, false);
 
         self.current_fiber.status = .Running;
 
@@ -1269,6 +1271,7 @@ pub const VM = struct {
             self.peek(arg_count),
             arg_count,
             catch_value,
+            false,
         ) catch |e| {
             panic(e);
             unreachable;
@@ -1302,12 +1305,12 @@ pub const VM = struct {
         if (instance.fields.get(method)) |field| {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-            self.callValue(field, arg_count, catch_value) catch |e| {
+            self.callValue(field, arg_count, catch_value, false) catch |e| {
                 panic(e);
                 unreachable;
             };
         } else {
-            self.invokeFromObject(instance.object.?, method, arg_count, catch_value) catch |e| {
+            self.invokeFromObject(instance.object.?, method, arg_count, catch_value, false) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -1341,7 +1344,7 @@ pub const VM = struct {
         var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-        self.callValue(member_value, arg_count, catch_value) catch |e| {
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1374,7 +1377,7 @@ pub const VM = struct {
         var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-        self.callValue(member_value, arg_count, catch_value) catch |e| {
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1406,7 +1409,7 @@ pub const VM = struct {
         }).?;
         var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value) catch |e| {
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1440,7 +1443,7 @@ pub const VM = struct {
 
         var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value) catch |e| {
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1474,7 +1477,7 @@ pub const VM = struct {
 
         var member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value) catch |e| {
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
             unreachable;
         };
@@ -3440,7 +3443,7 @@ pub const VM = struct {
     }
 
     // FIXME: catch_values should be on the stack like arguments
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) JIT.Error!void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
@@ -3448,7 +3451,7 @@ pub const VM = struct {
             jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (jit.shouldCompileFunction(closure)) {
+            if (!in_fiber and jit.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
                 var success = true;
@@ -3479,7 +3482,7 @@ pub const VM = struct {
         }
 
         // Is there a jitted version of it?
-        if (native) |jitted_function| {
+        if (!in_fiber and native != null) {
             if (BuildOptions.jit_debug) {
                 std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
             }
@@ -3490,7 +3493,7 @@ pub const VM = struct {
                     NativeFn,
                     @alignCast(
                         @alignOf(Native),
-                        jitted_function,
+                        native.?,
                     ),
                 ),
                 arg_count,
@@ -3596,7 +3599,6 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Default value in case of error
-                self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
                 self.push(catch_value.?);
                 return;
             }
@@ -3622,7 +3624,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) JIT.Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
@@ -3634,6 +3636,7 @@ pub const VM = struct {
                         closure,
                         arg_count,
                         catch_value,
+                        in_fiber,
                     );
                 } else {
                     assert(bound.native != null);
@@ -3650,6 +3653,7 @@ pub const VM = struct {
                     ObjClosure.cast(obj).?,
                     arg_count,
                     catch_value,
+                    in_fiber,
                 );
             },
             .Native => {
@@ -3666,16 +3670,16 @@ pub const VM = struct {
         }
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {
+    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !void {
         if (object.methods.get(name)) |method| {
-            return self.call(method, arg_count, catch_value);
+            return self.call(method, arg_count, catch_value, in_fiber);
         } else {
             unreachable;
         }
     }
 
     // FIXME: find way to remove
-    fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value) !void {
+    fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !void {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.obj();
@@ -3688,17 +3692,17 @@ pub const VM = struct {
                 if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-                    return try self.callValue(field, arg_count, catch_value);
+                    return try self.callValue(field, arg_count, catch_value, in_fiber);
                 }
 
-                try self.invokeFromObject(instance.object.?, name, arg_count, catch_value);
+                try self.invokeFromObject(instance.object.?, name, arg_count, catch_value, in_fiber);
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value);
+                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
                 }
 
                 unreachable;
@@ -3708,7 +3712,7 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value);
+                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
                 }
 
                 unreachable;
@@ -3718,7 +3722,7 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value);
+                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
                 }
 
                 unreachable;
@@ -3730,7 +3734,7 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value);
+                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
                 }
 
                 unreachable;
@@ -3742,7 +3746,7 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value);
+                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
                 }
 
                 unreachable;

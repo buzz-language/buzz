@@ -578,6 +578,7 @@ pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *cons
         closure.toValue(),
         len,
         if (catch_value) |v| v.* else null,
+        false,
     ) catch unreachable;
 
     // If not compiled, run it with the VM loop
