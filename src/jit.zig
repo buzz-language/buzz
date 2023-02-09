@@ -799,6 +799,8 @@ pub const ExternApi = enum {
 pub const JIT = struct {
     const Self = @This();
 
+    pub const Error = error{CantCompile} || VM.Error;
+
     vm: *VM,
 
     state: ?GenState = null,
@@ -807,6 +809,8 @@ pub const JIT = struct {
     lowered_types: std.AutoHashMap(*ObjTypeDef, *l.Type),
     // List of closures being or already compiled
     compiled_closures: std.AutoHashMap(*ObjClosure, void),
+    // Closure we can't compile (containing async call, or yield)
+    blacklisted_closures: std.AutoHashMap(*ObjClosure, void),
 
     orc_jit: *l.OrcLLJIT,
     context: *l.OrcThreadSafeContext,
@@ -856,6 +860,7 @@ pub const JIT = struct {
             .orc_jit = orc_jit,
             .context = l.OrcThreadSafeContext.create(),
             .compiled_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
+            .blacklisted_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
         };
 
         return self;
@@ -871,7 +876,7 @@ pub const JIT = struct {
     }
 
     // TODO: Kinda stupid, it's either Value or function type
-    fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) VM.Error!*l.Type {
+    fn lowerType(self: *Self, obj_typedef: *ObjTypeDef) JIT.Error!*l.Type {
         var lowered = self.lowered_types.get(obj_typedef);
 
         if (lowered) |ulowered| {
@@ -969,7 +974,7 @@ pub const JIT = struct {
         );
     }
 
-    pub fn compileNativeFn(self: *Self, native: *ObjNative) VM.Error!*anyopaque {
+    pub fn compileNativeFn(self: *Self, native: *ObjNative) JIT.Error!*anyopaque {
         const name = self.vm.gc.allocator.dupeZ(u8, native.name);
         defer self.vm.gc.allocator.free(name);
 
@@ -1005,7 +1010,7 @@ pub const JIT = struct {
             return false;
         }
 
-        if (self.compiled_closures.get(closure) != null) {
+        if (self.compiled_closures.get(closure) != null or self.blacklisted_closures.get(closure) != null) {
             return false;
         }
 
@@ -1015,7 +1020,7 @@ pub const JIT = struct {
             (closure.function.call_count / self.call_count) == BuildOptions.jit_prof_threshold;
     }
 
-    pub fn compileFunction(self: *Self, closure: *ObjClosure) VM.Error!void {
+    pub fn compileFunction(self: *Self, closure: *ObjClosure) JIT.Error!void {
         const previous_state = self.state;
 
         var module = l.Module.createWithName("buzz-jit", self.context.getContext());
@@ -1051,7 +1056,20 @@ pub const JIT = struct {
             std.debug.print("Compiling function `{s}`\n", .{qualified_name.items});
         }
 
-        _ = try self.generateNode(function_node.toNode());
+        _ = self.generateNode(function_node.toNode()) catch |err| {
+            if (err == JIT.Error.CantCompile) {
+                if (BuildOptions.jit_debug) {
+                    std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
+                }
+
+                // self.state.?.deinit();
+                self.state = previous_state;
+
+                try self.blacklisted_closures.put(closure, {});
+            }
+
+            return err;
+        };
 
         var error_message: [*:0]const u8 = undefined;
         // verifyModule always allocs the error_message even if there is no error
@@ -1119,7 +1137,7 @@ pub const JIT = struct {
         self.state = previous_state;
     }
 
-    fn generateNode(self: *Self, node: *ParseNode) VM.Error!?*l.Value {
+    fn generateNode(self: *Self, node: *ParseNode) JIT.Error!?*l.Value {
         const lowered_type = if (node.type_def) |type_def| try self.lowerType(type_def) else null;
 
         var value = if (node.isConstant(node) and node.node_type != .List and node.node_type != .Map)
@@ -1184,6 +1202,11 @@ pub const JIT = struct {
             .Pattern => try self.generatePattern(PatternNode.cast(node).?),
             .ForEach => try self.generateForEach(ForEachNode.cast(node).?),
             .InlineIf => try self.generateInlineIf(InlineIfNode.cast(node).?),
+            .AsyncCall,
+            .Resume,
+            .Resolve,
+            .Yield,
+            => return JIT.Error.CantCompile,
 
             else => {
                 std.debug.print("{} NYI\n", .{node.node_type});
@@ -1274,7 +1297,7 @@ pub const JIT = struct {
         return self.state.?.closure.?.function.chunk.constants.items[arg];
     }
 
-    fn generateString(self: *Self, string_node: *StringNode) VM.Error!?*l.Value {
+    fn generateString(self: *Self, string_node: *StringNode) JIT.Error!?*l.Value {
         if (string_node.elements.len == 0) {
             return (try self.lowerExternApi(.value)).constInt(
                 self.readConstant(0).val,
@@ -1321,7 +1344,7 @@ pub const JIT = struct {
         return previous.?;
     }
 
-    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) VM.Error!?*l.Value {
+    fn generateNamedVariable(self: *Self, named_variable_node: *NamedVariableNode) JIT.Error!?*l.Value {
         const function_type: ?ObjFunction.FunctionType = if (named_variable_node.node.type_def.?.def_type == .Function)
             named_variable_node.node.type_def.?.resolved_type.?.Function.function_type
         else
@@ -1346,6 +1369,10 @@ pub const JIT = struct {
 
                     // Does it need to be compiled?
                     if (self.compiled_closures.get(closure) == null) {
+                        if (self.blacklisted_closures.get(closure) != null) {
+                            return Error.CantCompile;
+                        }
+
                         const qualified_name = try self.getFunctionQualifiedName(
                             @ptrCast(
                                 *FunctionNode,
@@ -1411,7 +1438,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateCall(self: *Self, call_node: *CallNode) VM.Error!?*l.Value {
+    fn generateCall(self: *Self, call_node: *CallNode) JIT.Error!?*l.Value {
         // This is not a call but an Enum(value)
         if (call_node.callee.type_def.?.def_type == .Enum) {
             const value = call_node.arguments.get(call_node.arguments.keys()[0]).?;
@@ -1834,7 +1861,7 @@ pub const JIT = struct {
         return result;
     }
 
-    fn generateReturn(self: *Self, return_node: *ReturnNode) VM.Error!?*l.Value {
+    fn generateReturn(self: *Self, return_node: *ReturnNode) JIT.Error!?*l.Value {
         if (return_node.unconditional) {
             self.state.?.current.?.return_emitted = true;
         }
@@ -1847,7 +1874,7 @@ pub const JIT = struct {
         );
     }
 
-    fn generateIf(self: *Self, if_node: *IfNode) VM.Error!?*l.Value {
+    fn generateIf(self: *Self, if_node: *IfNode) JIT.Error!?*l.Value {
         const constant_condition = if (if_node.condition.isConstant(if_node.condition) and if_node.unwrapped_identifier == null and if_node.casted_type == null)
             if_node.condition.toValue(if_node.condition, self.vm.gc) catch unreachable
         else
@@ -1962,7 +1989,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateInlineIf(self: *Self, inline_if_node: *InlineIfNode) VM.Error!?*l.Value {
+    fn generateInlineIf(self: *Self, inline_if_node: *InlineIfNode) JIT.Error!?*l.Value {
         const constant_condition = if (inline_if_node.condition.isConstant(inline_if_node.condition))
             inline_if_node.condition.toValue(inline_if_node.condition, self.vm.gc) catch unreachable
         else
@@ -2043,7 +2070,7 @@ pub const JIT = struct {
         );
     }
 
-    fn generateBinary(self: *Self, binary_node: *BinaryNode) VM.Error!?*l.Value {
+    fn generateBinary(self: *Self, binary_node: *BinaryNode) JIT.Error!?*l.Value {
         const left_type_def = binary_node.left.type_def.?.def_type;
         const right_type_def = binary_node.right.type_def.?.def_type;
 
@@ -2380,7 +2407,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateWhile(self: *Self, while_node: *WhileNode) VM.Error!?*l.Value {
+    fn generateWhile(self: *Self, while_node: *WhileNode) JIT.Error!?*l.Value {
         if (while_node.condition.isConstant(while_node.condition) and !(while_node.condition.toValue(while_node.condition, self.vm.gc) catch @panic("Could not fold while loop")).boolean()) {
             return null;
         }
@@ -2433,7 +2460,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateDoUntil(self: *Self, do_until_node: *DoUntilNode) VM.Error!?*l.Value {
+    fn generateDoUntil(self: *Self, do_until_node: *DoUntilNode) JIT.Error!?*l.Value {
         const loop_block = self.context.getContext().createBasicBlock("loop");
         const out_block = self.context.getContext().createBasicBlock("out");
         const cond_block = self.context.getContext().createBasicBlock("cond");
@@ -2482,7 +2509,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateFor(self: *Self, for_node: *ForNode) VM.Error!?*l.Value {
+    fn generateFor(self: *Self, for_node: *ForNode) JIT.Error!?*l.Value {
         if (for_node.condition.isConstant(for_node.condition) and !(for_node.condition.toValue(for_node.condition, self.vm.gc) catch @panic("Could not fold for loop")).boolean()) {
             return null;
         }
@@ -2548,7 +2575,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateBreak(self: *Self, break_node: *ParseNode) VM.Error!?*l.Value {
+    fn generateBreak(self: *Self, break_node: *ParseNode) JIT.Error!?*l.Value {
         try self.closeScope(break_node);
 
         self.buildBr(self.state.?.current.?.break_block.?);
@@ -2563,7 +2590,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateContinue(self: *Self, continue_node: *ParseNode) VM.Error!?*l.Value {
+    fn generateContinue(self: *Self, continue_node: *ParseNode) JIT.Error!?*l.Value {
         try self.closeScope(continue_node);
 
         self.buildBr(self.state.?.current.?.continue_block.?);
@@ -2578,7 +2605,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateList(self: *Self, list_node: *ListNode) VM.Error!?*l.Value {
+    fn generateList(self: *Self, list_node: *ListNode) JIT.Error!?*l.Value {
         const item_type = (try self.lowerExternApi(.value)).constInt(
             list_node.node.type_def.?.resolved_type.?.List.item_type.toValue().val,
             .False,
@@ -2607,7 +2634,7 @@ pub const JIT = struct {
         return list;
     }
 
-    fn generateMap(self: *Self, map_node: *MapNode) VM.Error!?*l.Value {
+    fn generateMap(self: *Self, map_node: *MapNode) JIT.Error!?*l.Value {
         const map = try self.buildExternApiCall(
             .bz_newMap,
             &[_]*l.Value{
@@ -2634,7 +2661,7 @@ pub const JIT = struct {
         return map;
     }
 
-    fn generateDot(self: *Self, dot_node: *DotNode) VM.Error!?*l.Value {
+    fn generateDot(self: *Self, dot_node: *DotNode) JIT.Error!?*l.Value {
         const callee_type = dot_node.callee.type_def.?;
 
         // TODO: not super readable...
@@ -2798,7 +2825,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateSubscript(self: *Self, subscript_node: *SubscriptNode) VM.Error!?*l.Value {
+    fn generateSubscript(self: *Self, subscript_node: *SubscriptNode) JIT.Error!?*l.Value {
         const subscripted = (try self.generateNode(subscript_node.subscripted)).?;
         const index = (try self.generateNode(subscript_node.index)).?;
         const value = if (subscript_node.value) |val| (try self.generateNode(val)).? else null;
@@ -2862,7 +2889,7 @@ pub const JIT = struct {
         };
     }
 
-    fn generateIs(self: *Self, is_node: *IsNode) VM.Error!?*l.Value {
+    fn generateIs(self: *Self, is_node: *IsNode) JIT.Error!?*l.Value {
         return try self.buildExternApiCall(
             .bz_valueIs,
             &[_]*l.Value{
@@ -2875,7 +2902,7 @@ pub const JIT = struct {
         );
     }
 
-    fn generateTry(self: *Self, try_node: *TryNode) VM.Error!?*l.Value {
+    fn generateTry(self: *Self, try_node: *TryNode) JIT.Error!?*l.Value {
         const body_block = self.context.getContext().createBasicBlock("body");
         const raise_block = self.context.getContext().createBasicBlock("raise");
         const out_block = self.context.getContext().createBasicBlock("out");
@@ -3106,7 +3133,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateThrow(self: *Self, throw_node: *ThrowNode) VM.Error!?*l.Value {
+    fn generateThrow(self: *Self, throw_node: *ThrowNode) JIT.Error!?*l.Value {
         _ = try self.buildExternApiCall(
             .bz_throw,
             &[_]*l.Value{
@@ -3118,7 +3145,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateUnwrap(self: *Self, unwrap_node: *UnwrapNode) VM.Error!?*l.Value {
+    fn generateUnwrap(self: *Self, unwrap_node: *UnwrapNode) JIT.Error!?*l.Value {
         const next_expr_block = self.context.getContext().createBasicBlock("next_expr");
 
         const value = (try self.generateNode(unwrap_node.unwrapped)).?;
@@ -3153,7 +3180,7 @@ pub const JIT = struct {
         return value;
     }
 
-    fn generateObjectInit(self: *Self, object_init_node: *ObjectInitNode) VM.Error!?*l.Value {
+    fn generateObjectInit(self: *Self, object_init_node: *ObjectInitNode) JIT.Error!?*l.Value {
         const object = if (object_init_node.object) |node|
             (try self.generateNode(node)).?
         else
@@ -3202,7 +3229,7 @@ pub const JIT = struct {
         return try self.buildPop();
     }
 
-    fn generateForceUnwrap(self: *Self, force_unwrap_node: *ForceUnwrapNode) VM.Error!?*l.Value {
+    fn generateForceUnwrap(self: *Self, force_unwrap_node: *ForceUnwrapNode) JIT.Error!?*l.Value {
         const expr = (try self.generateNode(force_unwrap_node.unwrapped)).?;
 
         const is_null = self.state.?.builder.buildICmp(
@@ -3248,7 +3275,7 @@ pub const JIT = struct {
         return expr;
     }
 
-    fn generateUnary(self: *Self, unary_node: *UnaryNode) VM.Error!?*l.Value {
+    fn generateUnary(self: *Self, unary_node: *UnaryNode) JIT.Error!?*l.Value {
         const left = (try self.generateNode(unary_node.left)).?;
 
         return switch (unary_node.operator) {
@@ -3283,14 +3310,14 @@ pub const JIT = struct {
         };
     }
 
-    fn generatePattern(self: *Self, pattern_node: *PatternNode) VM.Error!?*l.Value {
+    fn generatePattern(self: *Self, pattern_node: *PatternNode) JIT.Error!?*l.Value {
         return self.context.getContext().intType(64).constInt(
             pattern_node.constant.toValue().val,
             .False,
         );
     }
 
-    fn generateForEach(self: *Self, foreach_node: *ForEachNode) VM.Error!?*l.Value {
+    fn generateForEach(self: *Self, foreach_node: *ForEachNode) JIT.Error!?*l.Value {
         // If iteratble is empty constant, skip the node
         if (foreach_node.iterable.isConstant(foreach_node.iterable)) {
             const iterable = (foreach_node.iterable.toValue(foreach_node.iterable, self.vm.gc) catch @panic("Could not compile foreach loop")).obj();
@@ -3425,7 +3452,7 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateBlock(self: *Self, block_node: *BlockNode) VM.Error!?*l.Value {
+    fn generateBlock(self: *Self, block_node: *BlockNode) JIT.Error!?*l.Value {
         for (block_node.statements.items) |statement| {
             _ = try self.generateNode(statement);
         }
@@ -3433,11 +3460,11 @@ pub const JIT = struct {
         return null;
     }
 
-    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) VM.Error!?*l.Value {
+    fn generateFunDeclaration(self: *Self, fun_declaration_node: *FunDeclarationNode) JIT.Error!?*l.Value {
         return try self.generateFunction(fun_declaration_node.function);
     }
 
-    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) VM.Error!?*l.Value {
+    fn generateVarDeclaration(self: *Self, var_declaration_node: *VarDeclarationNode) JIT.Error!?*l.Value {
         // We should only declare locals
         assert(var_declaration_node.slot_type == .Local);
 
@@ -3479,7 +3506,7 @@ pub const JIT = struct {
 
     // We create 2 function at the LLVM level: one with the NativeFn signature that will be called by buzz code,
     // and one with a signature reflecting the buzz signature that will be called by JITted functions
-    fn generateFunction(self: *Self, function_node: *FunctionNode) VM.Error!?*l.Value {
+    fn generateFunction(self: *Self, function_node: *FunctionNode) JIT.Error!?*l.Value {
         const node = &function_node.node;
 
         const function_def = function_node.node.type_def.?.resolved_type.?.Function;

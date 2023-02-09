@@ -859,7 +859,7 @@ export fn bz_popTryCtx(self: *VM) void {
 // Like bz_throw but assumes the error payload is already on the stack
 export fn bz_rethrow(vm: *VM) void {
     // Are we in a JIT compiled function and within a try-catch?
-    if (vm.currentFrame().?.in_native_call and vm.current_fiber.try_context != null) {
+    if ((vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
         // FIXME: close try scope
 
         if (builtin.os.tag == .macos or builtin.os.tag == .linux) {

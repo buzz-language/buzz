@@ -449,7 +449,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) Error!void {
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) JIT.Error!void {
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             null, // parent fiber
@@ -3359,28 +3359,31 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value) Error!void {
-        std.debug.print("lo\n", .{});
+    pub fn throw(self: *Self, code: Error, payload: Value) JIT.Error!void {
         var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
+        defer stack.deinit();
 
-        while (self.current_fiber.frame_count > 0) {
-            var frame: *CallFrame = self.currentFrame().?;
-            try stack.append(frame.*);
+        while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
+            const frame = self.currentFrame();
+            if (self.current_fiber.frame_count > 0) {
+                try stack.append(frame.?.*);
 
-            // Are we in a try-catch?
-            if (frame.try_ip) |try_ip| {
-                // Push error and jump to start of the catch clauses
-                self.push(payload);
+                // Are we in a try-catch?
+                if (frame.?.try_ip) |try_ip| {
+                    // Push error and jump to start of the catch clauses
+                    self.push(payload);
 
-                frame.ip = try_ip;
+                    frame.?.ip = try_ip;
 
-                return;
+                    return;
+                }
+
+                // Pop frame
+                self.closeUpValues(&frame.?.slots[0]);
+                self.current_fiber.frame_count -= 1;
+                _ = self.current_fiber.frames.pop();
             }
 
-            // Pop frame
-            self.closeUpValues(&frame.slots[0]);
-            self.current_fiber.frame_count -= 1;
-            _ = self.current_fiber.frames.pop();
             if (self.current_fiber.frame_count == 0 and self.current_fiber.parent_fiber == null) {
                 // No more frames, the error is uncaught.
                 _ = self.pop();
@@ -3423,19 +3426,21 @@ pub const VM = struct {
                 return;
             }
 
-            self.current_fiber.stack_top = frame.slots;
+            if (frame != null) {
+                self.current_fiber.stack_top = frame.?.slots;
 
-            if (frame.error_value) |error_value| {
-                // Push error_value as failed function return value
-                self.push(error_value);
+                if (frame.?.error_value) |error_value| {
+                    // Push error_value as failed function return value
+                    self.push(error_value);
 
-                return;
+                    return;
+                }
             }
         }
     }
 
     // FIXME: catch_values should be on the stack like arguments
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) JIT.Error!void {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
@@ -3446,9 +3451,16 @@ pub const VM = struct {
             if (jit.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
-                try jit.compileFunction(closure);
+                var success = true;
+                jit.compileFunction(closure) catch |err| {
+                    if (err == JIT.Error.CantCompile) {
+                        success = false;
+                    } else {
+                        return err;
+                    }
+                };
 
-                if (BuildOptions.jit_debug) {
+                if (BuildOptions.jit_debug and success) {
                     std.debug.print(
                         "Compiled function `{s}` in {d} ms\n",
                         .{
@@ -3460,7 +3472,9 @@ pub const VM = struct {
 
                 jit.jit_time += timer.read();
 
-                native = closure.function.native;
+                if (success) {
+                    native = closure.function.native;
+                }
             }
         }
 
@@ -3582,6 +3596,7 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Default value in case of error
+                self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
                 self.push(catch_value.?);
                 return;
             }
@@ -3607,7 +3622,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) JIT.Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
