@@ -3060,6 +3060,10 @@ pub const FunctionNode = struct {
     test_slots: ?[]usize = null,
     exported_count: ?usize = null,
 
+    // Set when the function is first generated
+    // The JIT compiler can then reference it when creating its closure
+    function: ?*ObjFunction = null,
+
     pub fn nextId() usize {
         Self.next_id += 1;
 
@@ -3224,6 +3228,8 @@ pub const FunctionNode = struct {
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
+
+        self.function = current_function;
 
         return current_function;
     }

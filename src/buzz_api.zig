@@ -934,19 +934,8 @@ export fn bz_closure(
     native: *anyopaque,
     native_raw: *anyopaque,
 ) Value {
-    const function_def = function_node.node.type_def.?.resolved_type.?.Function;
-
-    // Create an ObjFunction
-    var obj_function = ctx.vm.gc.allocateObject(
-        ObjFunction,
-        ObjFunction.init(
-            ctx.vm.gc.allocator,
-            function_node,
-            function_def.name,
-        ) catch @panic("Could not instanciate closure"),
-    ) catch @panic("Could not instanciate closure");
-    obj_function.type_def = function_node.node.type_def.?;
-    obj_function.upvalue_count = @intCast(u8, function_node.upvalue_binding.count());
+    // Set native pointers in objfunction
+    var obj_function = function_node.function.?;
     obj_function.native = native;
     obj_function.native_raw = native_raw;
 
