@@ -921,7 +921,7 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
         .stack_top = &ctx.vm.current_fiber.stack_top,
     };
 
-    if (closure != null and ctx.vm.jit != null and ctx.vm.jit.?.shouldCompileFunction(closure.?)) {
+    if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
         ctx.vm.jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
     }
 

@@ -22,11 +22,13 @@ const BuzzDebugOptions = struct {
 
 const BuzzJITOptions = struct {
     on: bool,
+    debug_on: bool,
     debug: bool,
-    prof_threshold: f64 = 0.005,
+    prof_threshold: f128 = 0.05,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
+        options.addOption(@TypeOf(self.on), "jit_debug_on", self.debug_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
     }
@@ -201,16 +203,21 @@ pub fn build(b: *Build) !void {
                 "jit_debug",
                 "Show debug information for the JIT engine",
             ) orelse false,
+            .debug_on = b.option(
+                bool,
+                "jit_debug_on",
+                "JIT engine will compile any function encountered",
+            ) orelse false,
             .on = b.option(
                 bool,
                 "jit",
                 "Turn on JIT engine",
             ) orelse false,
             .prof_threshold = b.option(
-                f64,
+                f128,
                 "jit_prof_threshold",
                 "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
-            ) orelse 0.005,
+            ) orelse 0.05,
         },
     };
 

@@ -1014,10 +1014,10 @@ pub const JIT = struct {
             return false;
         }
 
-        return if (BuildOptions.jit_debug)
+        return if (BuildOptions.jit_debug_on)
             return true
         else
-            (closure.function.call_count / self.call_count) == BuildOptions.jit_prof_threshold;
+            closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.call_count)) > BuildOptions.jit_prof_threshold;
     }
 
     pub fn compileFunction(self: *Self, closure: *ObjClosure) JIT.Error!void {
@@ -1053,7 +1053,7 @@ pub const JIT = struct {
         defer qualified_name_raw.deinit();
 
         if (BuildOptions.jit_debug) {
-            std.debug.print("Compiling function `{s}`\n", .{qualified_name.items});
+            std.debug.print("Compiling function `{s}` because it was called {}/{} times\n", .{ qualified_name.items, closure.function.call_count, self.call_count });
         }
 
         _ = self.generateNode(function_node.toNode()) catch |err| {
