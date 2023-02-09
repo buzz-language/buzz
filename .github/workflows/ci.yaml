@@ -12,8 +12,6 @@ jobs:
         run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       - name: Install LLVM
         run: brew install llvm
-      - name: LLVM info
-        run: brew info llvm
       - name: Install pcre
         run: brew install pcre
       - name: Checkout project
@@ -24,18 +22,18 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - name: Build
-        run: LLVM_PATH=/usr/local/opt/llvm zig build -Duse_mimalloc=false
       - name: Run tests
         run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false
+      - name: Run tests JIT on
+        run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false -Djit
+      - name: Run tests JIT debug
+        run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false -Djit -Djit_debug
   # FIXME: doesn't find LLVM
   # test-linux:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - name: Install LLVM
   #       run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends llvm llvm-dev libllvm15
-  #     - name: Where is LLVM?
-  #       run: dpkg -L libllvm15
   #     - name: Checkout project
   #       uses: actions/checkout@v3.0.0
   #     - name: Checkout submodules
