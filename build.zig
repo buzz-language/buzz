@@ -224,12 +224,23 @@ pub fn build(b: *Build) !void {
     var llibs = std.ArrayList([]const u8).init(std.heap.page_allocator);
     defer llibs.deinit();
 
-    sys_libs.appendSlice(&[_][]const u8{ "llvm", "pcre" }) catch unreachable;
+    sys_libs.appendSlice(&[_][]const u8{
+        "llvm-15",
+        "pcre",
+    }) catch unreachable;
     if (build_options.use_mimalloc) {
         sys_libs.append("mimalloc") catch unreachable;
     }
 
-    includes.appendSlice(&[_][]const u8{ "/usr/local/include", "/usr/include" }) catch unreachable;
+    includes.appendSlice(&[_][]const u8{
+        "/usr/local/include",
+        "/usr/include",
+    }) catch unreachable;
+
+    llibs.appendSlice(&[_][]const u8{
+        "/usr/local/lib",
+        "/usr/lib",
+    }) catch unreachable;
 
     if (builtin.os.tag == .macos) {
         includes.append("/opt/homebrew/include") catch unreachable;
