@@ -4,7 +4,7 @@
 
 # 👨‍🚀 buzz
 
-A small/lightweight typed scripting language written in Zig
+A small/lightweight statically typed scripting language written in Zig
 
 <p align="center">
     <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
@@ -13,7 +13,7 @@ A small/lightweight typed scripting language written in Zig
 ## Features
 
 - Small in size and complexity (just a bit more than Lua though)
-- Strict typing
+- Statically typed
 - Unambiguous
 - No nonsense coercion
 - [Fibers](#fibers)
@@ -22,24 +22,26 @@ A small/lightweight typed scripting language written in Zig
     - LSP (in progress)
     - Debugger and DAP (planned)
     - [TextMate syntax](https://github.com/buzz-language/code)
+- JIT compilation (in progress, activate by building buzz with `-Djit`)
 
 ## Progress
 
-We're not far from completing [milestone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, we implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
+I'm not far from completing [milestone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, I also implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
+I recently got sidetracked a bit and started implementing the JIT compiler with LLVM.
 
 ## How to build
 
 ### Requirements
-- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only be tested on x86/M1.
+- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
 - Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
 - libpcre (not libpcre2)
 - libc
 - [mimalloc](https://github.com/microsoft/mimalloc) (can be turned off by building buzz with `-Duse_mimalloc=false`)
-- LLVM 15.0.6 (for the coming soon JIT compiler)
+- LLVM 15.0.6+: you can set the environment variable `LLVM_PATH` if zig can't find it on its own
 - zig master
 
 ### Steps
-1. Clone project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
+1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
 3. Add to your shell rc:
 ```bash
@@ -49,7 +51,7 @@ export PATH="$BUZZ_PATH:$PATH"
 4. Build it: `zig build -Drelease-safe`
 5. Have fun: `buzz <myscript.buzz>`
 
-Additionnally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
+Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
 ## Quick tour
 
@@ -303,7 +305,7 @@ foreach (int value in fibonnaciFib) {
 
 ### Objects
 
-An `object` is like a class except it can't be inherited from and can't inherit from anything:
+An `object` is like a class, except it can't be inherited from and can't inherit from anything:
 
 ```buzz
 object Person {
@@ -504,7 +506,7 @@ fun main([str] args) > void {
 
 ### Call C/Zig code
 
-First define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib` (only dylib right now):
+First, define the buzz interface. The `extern` keyword means that buzz we'll look for a dynamic library named `libmylib.dylib/so/dll`):
 
 ```buzz
 | mylib.buzz
@@ -518,7 +520,11 @@ Then implement it in Zig or C using the [buzz_api](https://github.com/buzz-langu
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-// We have to respect C ABI
+// The function must always have this signature
+// It returns: 
+//     - 0 if no return value
+//     - 1 if there's a return value (that you must push on the stack before returning)
+//     - -1 if there's an error (that you also push on the stack before returning)
 export fn assert(ctx: *api.NativeCtx) c_int {
     const condition: bool = ctx.vm.bz_peek(1).bz_valueToBool();
 
@@ -540,9 +546,3 @@ fun main([str] args) > void {
     assert(1 + 1 == 2, message: "Congrats on doing math!");
 }
 ```
-
-_Native_ functions have all the same signature `fn myfunction(vm: *VM) bool`. If values must be returned, push them on the stack and return `true`.
-
-<p align="center">
-    <img src="https://raw.githubusercontent.com/ziglang/logo/master/zig-logo-dark.svg" alt="zig" height="100">
-</p>
