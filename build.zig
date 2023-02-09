@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
+const Build = std.build;
 
 const BuzzDebugOptions = struct {
     debug: bool,
@@ -58,7 +58,7 @@ const BuzzBuildOptions = struct {
     gc: BuzzGCOptions,
     jit: BuzzJITOptions,
 
-    pub fn step(self: BuzzBuildOptions, b: *std.build.Builder) *std.build.OptionsStep {
+    pub fn step(self: BuzzBuildOptions, b: *Build) *std.build.OptionsStep {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
@@ -72,10 +72,10 @@ const BuzzBuildOptions = struct {
     }
 };
 
-pub fn build(b: *Builder) !void {
+pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.11.0-dev.1478+ce20ebb50") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.1580+a5b34a61a") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -214,7 +214,7 @@ pub fn build(b: *Builder) !void {
         },
     };
 
-    const build_mode = b.standardReleaseOptions();
+    const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
     var sys_libs = std.ArrayList([]const u8).init(std.heap.page_allocator);
@@ -247,8 +247,12 @@ pub fn build(b: *Builder) !void {
         llibs.append(lib.items) catch unreachable;
     }
 
-    var exe = b.addExecutable("buzz", "src/main.zig");
-    exe.setTarget(target);
+    var exe = b.addExecutable(.{
+        .name = "buzz",
+        .root_source_file = Build.FileSource.relative("src/main.zig"),
+        .target = target,
+        .optimize = build_mode,
+    });
     exe.setOutputDir("dist");
     exe.install();
     for (includes.items) |include| {
@@ -260,14 +264,20 @@ pub fn build(b: *Builder) !void {
     for (sys_libs.items) |slib| {
         exe.linkSystemLibrary(slib);
     }
-    exe.setBuildMode(build_mode);
+    if (!build_options.use_mimalloc) {
+        exe.linkLibC();
+    }
     exe.setMainPkgPath(".");
 
     exe.addOptions("build_options", build_options.step(b));
 
-    var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
+    var lib = b.addSharedLibrary(.{
+        .name = "buzz",
+        .root_source_file = Build.FileSource.relative("src/buzz_api.zig"),
+        .target = target,
+        .optimize = build_mode,
+    });
     lib.setOutputDir("dist/lib");
-    lib.setTarget(target);
     lib.install();
     for (includes.items) |include| {
         lib.addIncludePath(include);
@@ -278,8 +288,10 @@ pub fn build(b: *Builder) !void {
     for (sys_libs.items) |slib| {
         lib.linkSystemLibrary(slib);
     }
+    if (!build_options.use_mimalloc) {
+        lib.linkLibC();
+    }
     lib.setMainPkgPath("src");
-    lib.setBuildMode(build_mode);
 
     lib.addOptions("build_options", build_options.step(b));
 
@@ -326,9 +338,13 @@ pub fn build(b: *Builder) !void {
 
     var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
     for (lib_paths) |lib_path, index| {
-        var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
+        var std_lib = b.addSharedLibrary(.{
+            .name = lib_names[index],
+            .root_source_file = Build.FileSource.relative(lib_path),
+            .target = target,
+            .optimize = build_mode,
+        });
         std_lib.setOutputDir("dist/lib");
-        std_lib.setTarget(target);
         std_lib.install();
         for (includes.items) |include| {
             std_lib.addIncludePath(include);
@@ -339,8 +355,10 @@ pub fn build(b: *Builder) !void {
         for (sys_libs.items) |slib| {
             std_lib.linkSystemLibrary(slib);
         }
+        if (!build_options.use_mimalloc) {
+            std_lib.linkLibC();
+        }
         std_lib.setMainPkgPath("src");
-        std_lib.setBuildMode(build_mode);
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
 
@@ -373,8 +391,10 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(b.getInstallStep());
 
-    var unit_tests = b.addTest("src/main.zig");
-    unit_tests.linkLibC();
+    var unit_tests = b.addTest(.{
+        .root_source_file = Build.FileSource.relative("src/main.zig"),
+        .target = target,
+    });
     for (includes.items) |include| {
         unit_tests.addIncludePath(include);
     }
@@ -384,8 +404,9 @@ pub fn build(b: *Builder) !void {
     for (sys_libs.items) |slib| {
         unit_tests.linkSystemLibrary(slib);
     }
-    unit_tests.setBuildMode(.Debug);
-    unit_tests.setTarget(target);
+    if (!build_options.use_mimalloc) {
+        unit_tests.linkLibC();
+    }
     unit_tests.addOptions("build_options", build_options.step(b));
     test_step.dependOn(&unit_tests.step);
 
