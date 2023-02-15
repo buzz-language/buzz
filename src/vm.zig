@@ -3481,10 +3481,10 @@ pub const VM = struct {
             }
         }
 
-        // Is there a jitted version of it?
+        // Is there a compiled version of it?
         if (!in_fiber and native != null) {
             if (BuildOptions.jit_debug) {
-                std.debug.print("Calling jitted version of function `{s}`\n", .{closure.function.name.string});
+                std.debug.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
             }
 
             try self.callCompiled(
@@ -3524,6 +3524,10 @@ pub const VM = struct {
         }
 
         self.current_fiber.frame_count += 1;
+
+        if (BuildOptions.jit_debug) {
+            std.debug.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
+        }
     }
 
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {

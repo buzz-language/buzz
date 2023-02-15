@@ -63,7 +63,7 @@ const VM = @import("./vm.zig").VM;
 const GenState = struct {
     module: *l.OrcThreadSafeModule,
     builder: *l.Builder,
-    // Closure being jitted right now
+    // Closure being compiled right now
     closure: ?*ObjClosure = null,
     current: ?*Frame = null,
     opt_jump: ?OptJump = null,
@@ -3488,7 +3488,7 @@ pub const JIT = struct {
 
         try qualified_name.appendSlice(name);
 
-        // Main and script are not allowed to be jitted
+        // Main and script are not allowed to be compiled
         assert(function_type != .ScriptEntryPoint and function_type != .Script);
 
         // Don't qualify extern functions
@@ -4145,61 +4145,62 @@ pub const JIT = struct {
         const fun_block = self.context.getContext().createBasicBlock("fun");
         const err_propagate_block = self.context.getContext().createBasicBlock("err_propagate");
 
-        // That version of the function takes argument from the stack and pushes the result of the raw version on the stack
         var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
         self.state.?.builder.positionBuilderAtEnd(block);
 
-        // Catch any error to forward them as a buzz error (push paylod + return -1)
-        // Set it as current jump env
-        const try_ctx = try self.buildExternApiCall(
-            .bz_setTryCtx,
-            &[_]*l.Value{
-                self.vmConstant(),
-            },
-        );
+        if (function_def.error_types != null and function_def.error_types.?.len > 0) {
+            // Catch any error to forward them as a buzz error (push paylod + return -1)
+            // Set it as current jump env
+            const try_ctx = try self.buildExternApiCall(
+                .bz_setTryCtx,
+                &[_]*l.Value{
+                    self.vmConstant(),
+                },
+            );
 
-        const env = self.state.?.builder.buildStructGEP(
-            try self.lowerExternApi(.tryctx),
-            try_ctx,
-            1,
-            "env",
-        );
+            const env = self.state.?.builder.buildStructGEP(
+                try self.lowerExternApi(.tryctx),
+                try_ctx,
+                1,
+                "env",
+            );
 
-        // setjmp
-        const status = try self.buildExternApiCall(
-            .setjmp,
-            &[_]*l.Value{env},
-        );
+            // setjmp
+            const status = try self.buildExternApiCall(
+                .setjmp,
+                &[_]*l.Value{env},
+            );
 
-        // If status is 0, go to body, else go to catch clauses
-        const has_error = self.state.?.builder.buildICmp(
-            .EQ,
-            status,
-            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(1, .False),
-            "has_error",
-        );
+            // If status is 0, go to body, else go to catch clauses
+            const has_error = self.state.?.builder.buildICmp(
+                .EQ,
+                status,
+                self.context.getContext().intType(@bitSizeOf(c_int)).constInt(1, .False),
+                "has_error",
+            );
 
-        _ = self.state.?.builder.buildCondBr(
-            has_error,
-            err_propagate_block,
-            fun_block,
-        );
+            _ = self.state.?.builder.buildCondBr(
+                has_error,
+                err_propagate_block,
+                fun_block,
+            );
 
-        native_fn.appendExistingBasicBlock(err_propagate_block);
-        self.state.?.builder.positionBuilderAtEnd(err_propagate_block);
-        self.state.?.current.?.block = err_propagate_block;
+            native_fn.appendExistingBasicBlock(err_propagate_block);
+            self.state.?.builder.positionBuilderAtEnd(err_propagate_block);
+            self.state.?.current.?.block = err_propagate_block;
 
-        // Payload already on stack so juste return -1;
-        _ = self.state.?.builder.buildRet(
-            self.context.getContext().intType(@bitSizeOf(c_int)).constInt(
-                @bitCast(c_ulonglong, @as(i64, -1)),
-                .True,
-            ),
-        );
+            // Payload already on stack so juste return -1;
+            _ = self.state.?.builder.buildRet(
+                self.context.getContext().intType(@bitSizeOf(c_int)).constInt(
+                    @bitCast(c_ulonglong, @as(i64, -1)),
+                    .True,
+                ),
+            );
 
-        native_fn.appendExistingBasicBlock(fun_block);
-        self.state.?.builder.positionBuilderAtEnd(fun_block);
-        self.state.?.current.?.block = fun_block;
+            native_fn.appendExistingBasicBlock(fun_block);
+            self.state.?.builder.positionBuilderAtEnd(fun_block);
+            self.state.?.current.?.block = fun_block;
+        }
 
         // Call the raw function
         const result = self.state.?.builder.buildCall(

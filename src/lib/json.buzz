@@ -33,11 +33,7 @@ object JsonParser {
     }
 
     fun match(str expected) > bool {
-        if (this.offset > this.source.len()) {
-            return false;
-        }
-
-        if (this.source[this.offset] != expected) {
+        if (this.offset > this.source.len() or this.source[this.offset] != expected) {
             return false;
         }
 

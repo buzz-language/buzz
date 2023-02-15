@@ -48,7 +48,7 @@ I recently got sidetracked a bit and started implementing the JIT compiler with 
 export BUZZ_PATH="/path/to/buzz/dist"
 export PATH="$BUZZ_PATH:$PATH"
 ```
-4. Build it: `zig build -Drelease-safe`
+4. Build it: `zig build -Doptimize=ReleaseSafe`
 5. Have fun: `buzz <myscript.buzz>`
 
 Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
