@@ -24,8 +24,8 @@ jobs:
           version: master
       - name: Run tests
         run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false
-      - name: Run tests JIT on
-        run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false -Djit
+      # - name: Run tests JIT on
+      #   run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false -Djit
       - name: Run tests JIT debug
         run: LLVM_PATH=/usr/local/opt/llvm BUZZ_PATH=./dist zig build test -Duse_mimalloc=false -Djit -Djit_debug_on
   # FIXME: doesn't find LLVM
