@@ -985,10 +985,13 @@ pub const JIT = struct {
             return false;
         }
 
+        const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
+        const user_hot = function_node.node.docblock != null and std.mem.indexOf(u8, function_node.node.docblock.?.lexeme, "@hot") != null;
+
         return if (BuildOptions.jit_debug_on)
             return true
         else
-            closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.call_count)) > BuildOptions.jit_prof_threshold;
+            (BuildOptions.jit_debug and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.call_count)) > BuildOptions.jit_prof_threshold);
     }
 
     pub fn compileFunction(self: *Self, closure: *ObjClosure) JIT.Error!void {

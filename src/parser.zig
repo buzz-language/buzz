@@ -1451,6 +1451,8 @@ pub const Parser = struct {
                     if (static) object_placeholder else try object_placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
                 );
 
+                method_node.docblock = docblock;
+
                 if (FunctionNode.cast(method_node)) |function_node| {
                     function_node.static = static;
                 }
