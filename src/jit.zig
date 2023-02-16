@@ -974,35 +974,6 @@ pub const JIT = struct {
         );
     }
 
-    pub fn compileNativeFn(self: *Self, native: *ObjNative) JIT.Error!*anyopaque {
-        const name = self.vm.gc.allocator.dupeZ(u8, native.name);
-        defer self.vm.gc.allocator.free(name);
-
-        self.state.?.module.addFunction(
-            name.ptr,
-            try self.lowerExternApi(.nativefn),
-        );
-
-        var error_message: [*:0]const u8 = undefined;
-        // verifyModule always allocs the error_message even if there is no error
-        defer l.disposeMessage(error_message);
-
-        if (self.state.?.module.verify(.ReturnStatus, &error_message).toBool()) {
-            std.debug.print("\n{s}\n", .{error_message});
-
-            @panic("LLVM module verification failed");
-        }
-
-        var fun_addr: u64 = undefined;
-        if (self.orc_jit.lookup(&fun_addr, name.ptr)) |orc_error| {
-            std.debug.print("\n{s}\n", .{orc_error.getErrorMessage()});
-
-            @panic("Could find script symbol in module loaded in LLJIT");
-        }
-
-        return @intToPtr(*anyopaque, fun_addr);
-    }
-
     pub fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
@@ -1070,15 +1041,13 @@ pub const JIT = struct {
 
             return err;
         };
+        if (BuildOptions.jit_debug) {
+            var error_message: [*:0]const u8 = undefined;
+            defer l.disposeMessage(error_message);
 
-        var error_message: [*:0]const u8 = undefined;
-        // verifyModule always allocs the error_message even if there is no error
-        defer l.disposeMessage(error_message);
+            if (self.state.?.module.verify(.ReturnStatus, &error_message).toBool()) {
+                std.debug.print("\n{s}\n", .{error_message});
 
-        if (self.state.?.module.verify(.ReturnStatus, &error_message).toBool()) {
-            std.debug.print("\n{s}\n", .{error_message});
-
-            if (BuildOptions.jit_debug) {
                 const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
                 var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
                 defer filename.deinit();
@@ -1088,12 +1057,10 @@ pub const JIT = struct {
                     self.vm.gc.allocator.dupeZ(u8, filename.items) catch unreachable,
                     &error_message,
                 );
+
+                @panic("LLVM module verification failed");
             }
 
-            @panic("LLVM module verification failed");
-        }
-
-        if (BuildOptions.jit_debug) {
             const simple_name = function_node.node.type_def.?.resolved_type.?.Function.name.string;
             var filename = std.ArrayList(u8).init(self.vm.gc.allocator);
             defer filename.deinit();
