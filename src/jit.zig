@@ -4115,7 +4115,7 @@ pub const JIT = struct {
         var block = self.context.getContext().appendBasicBlock(native_fn, @ptrCast([*:0]const u8, nativefn_qualified_name.items));
         self.state.?.builder.positionBuilderAtEnd(block);
 
-        if (function_def.error_types != null and function_def.error_types.?.len > 0) {
+        if (function_type == .Test or (function_def.error_types != null and function_def.error_types.?.len > 0)) {
             // Catch any error to forward them as a buzz error (push paylod + return -1)
             // Set it as current jump env
             const try_ctx = try self.buildExternApiCall(
