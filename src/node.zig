@@ -3061,7 +3061,7 @@ pub const FunctionNode = struct {
     exported_count: ?usize = null,
 
     // Set when the function is first generated
-    // The JIT compiler can then reference it when creating its closure
+    // The LLVMJIT compiler can then reference it when creating its closure
     function: ?*ObjFunction = null,
 
     pub fn nextId() usize {

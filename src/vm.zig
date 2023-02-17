@@ -11,7 +11,7 @@ const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 const _jit = @import("jit.zig");
-const JIT = _jit.JIT;
+const LLVMJIT = _jit.LLVMJIT;
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -316,7 +316,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
-    jit: ?JIT = null,
+    jit: ?LLVMJIT = null,
     testing: bool,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, testing: bool) !Self {
@@ -337,7 +337,7 @@ pub const VM = struct {
     }
 
     pub fn initJIT(self: *Self) !void {
-        self.jit = JIT.init(self);
+        self.jit = LLVMJIT.init(self);
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -451,7 +451,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) JIT.Error!void {
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) LLVMJIT.Error!void {
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             null, // parent fiber
@@ -1574,7 +1574,7 @@ pub const VM = struct {
                 panic(e);
                 unreachable;
             };
-            // FIXME: give reference to JIT?
+            // FIXME: give reference to LLVMJIT?
             vm.* = VM.init(self.gc, self.import_registry, self.testing) catch |e| {
                 panic(e);
                 unreachable;
@@ -3362,7 +3362,7 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value) JIT.Error!void {
+    pub fn throw(self: *Self, code: Error, payload: Value) LLVMJIT.Error!void {
         var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
         defer stack.deinit();
 
@@ -3443,7 +3443,7 @@ pub const VM = struct {
     }
 
     // FIXME: catch_values should be on the stack like arguments
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) LLVMJIT.Error!void {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
@@ -3456,7 +3456,7 @@ pub const VM = struct {
 
                 var success = true;
                 jit.compileFunction(closure) catch |err| {
-                    if (err == JIT.Error.CantCompile) {
+                    if (err == LLVMJIT.Error.CantCompile) {
                         success = false;
                     } else {
                         return err;
@@ -3576,7 +3576,7 @@ pub const VM = struct {
         }
     }
 
-    // A JIT compiled function pops its stack on its own
+    // A LLVMJIT compiled function pops its stack on its own
     fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;
@@ -3628,7 +3628,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) LLVMJIT.Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
