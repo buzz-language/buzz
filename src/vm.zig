@@ -5,13 +5,14 @@ const _value = @import("./value.zig");
 const _chunk = @import("./chunk.zig");
 const _disassembler = @import("./disassembler.zig");
 const _obj = @import("./obj.zig");
+const _node = @import("./node.zig");
 const Allocator = std.mem.Allocator;
 const BuildOptions = @import("build_options");
 const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const _jit = @import("jit.zig");
-const LLVMJIT = _jit.LLVMJIT;
+const LLVMJIT = @import("llvmjit.zig").LLVMJIT;
+const MIRJIT = @import("mirjit.zig");
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -40,6 +41,7 @@ const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
+const FunctionNode = _node.FunctionNode;
 const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
 const Chunk = _chunk.Chunk;
@@ -316,7 +318,8 @@ pub const VM = struct {
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
-    jit: ?LLVMJIT = null,
+    llvm_jit: ?LLVMJIT = null,
+    mir_jit: ?MIRJIT = null,
     testing: bool,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, testing: bool) !Self {
@@ -331,13 +334,26 @@ pub const VM = struct {
         return self;
     }
 
-    pub fn deinit(_: *Self) void {
+    pub fn deinit(self: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
+        switch (BuildOptions.jit_engine) {
+            .llvm => {
+                self.llvm_jit.?.deinit();
+                self.llvm_jit = null;
+            },
+            .mir => {
+                self.mir_jit.?.deinit();
+                self.mir_jit = null;
+            },
+        }
     }
 
     pub fn initJIT(self: *Self) !void {
-        self.jit = LLVMJIT.init(self);
+        switch (BuildOptions.jit_engine) {
+            .llvm => self.llvm_jit = LLVMJIT.init(self),
+            .mir => self.mir_jit = MIRJIT.init(self),
+        }
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -3447,15 +3463,15 @@ pub const VM = struct {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
-        if (self.jit) |*jit| {
-            jit.call_count += 1;
+        if (self.llvm_jit) |*llvm_jit| {
+            llvm_jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (!in_fiber and jit.shouldCompileFunction(closure)) {
+            if (!in_fiber and self.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
                 var success = true;
-                jit.compileFunction(closure) catch |err| {
+                llvm_jit.compileFunction(closure) catch |err| {
                     if (err == LLVMJIT.Error.CantCompile) {
                         success = false;
                     } else {
@@ -3473,7 +3489,39 @@ pub const VM = struct {
                     );
                 }
 
-                jit.jit_time += timer.read();
+                llvm_jit.jit_time += timer.read();
+
+                if (success) {
+                    native = closure.function.native;
+                }
+            }
+        } else if (self.mir_jit) |*mir_jit| {
+            mir_jit.call_count += 1;
+            // Do we need to jit the function?
+            // TODO: figure out threshold strategy
+            if (!in_fiber and self.shouldCompileFunction(closure)) {
+                var timer = std.time.Timer.start() catch unreachable;
+
+                var success = true;
+                mir_jit.compileFunction(closure) catch |err| {
+                    if (err == LLVMJIT.Error.CantCompile) {
+                        success = false;
+                    } else {
+                        return err;
+                    }
+                };
+
+                if (BuildOptions.jit_debug and success) {
+                    std.debug.print(
+                        "Compiled function `{s}` in {d} ms\n",
+                        .{
+                            closure.function.type_def.resolved_type.?.Function.name.string,
+                            @intToFloat(f64, timer.read()) / 1000000,
+                        },
+                    );
+                }
+
+                mir_jit.jit_time += timer.read();
 
                 if (success) {
                     native = closure.function.native;
@@ -3793,5 +3841,29 @@ pub const VM = struct {
         }
 
         return created_upvalue;
+    }
+
+    fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
+        const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
+
+        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint) {
+            return false;
+        }
+
+        if (self.llvm_jit != null and (self.llvm_jit.?.compiled_closures.get(closure) != null or self.llvm_jit.?.blacklisted_closures.get(closure) != null)) {
+            return false;
+        }
+
+        if (self.mir_jit != null and (self.mir_jit.?.compiled_closures.get(closure) != null or self.mir_jit.?.blacklisted_closures.get(closure) != null)) {
+            return false;
+        }
+
+        const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
+        const user_hot = function_node.node.docblock != null and std.mem.indexOf(u8, function_node.node.docblock.?.lexeme, "@hot") != null;
+
+        return if (BuildOptions.jit_debug_on)
+            return true
+        else
+            (BuildOptions.jit_debug and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, if (self.llvm_jit) |jit| jit.call_count else self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
     }
 };

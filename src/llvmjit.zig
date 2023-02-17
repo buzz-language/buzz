@@ -109,8 +109,6 @@ pub const ExternApi = enum {
     tryctx,
 
     bz_push,
-    bz_valueToExternNativeFn,
-    bz_valueToRawNative,
     bz_objStringConcat,
     bz_objStringSubscript,
     bz_toString,
@@ -132,8 +130,6 @@ pub const ExternApi = enum {
     bz_closeUpValues,
     bz_getUpValue,
     bz_setUpValue,
-    bz_getUpValues,
-    bz_getGlobals,
     bz_closure,
     bz_context,
     bz_instance,
@@ -173,8 +169,6 @@ pub const ExternApi = enum {
             .globals => "globals",
 
             .bz_push => "bz_push",
-            .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
-            .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_objStringSubscript => "bz_objStringSubscript",
             .bz_toString => "bz_toString",
@@ -196,8 +190,6 @@ pub const ExternApi = enum {
             .bz_closeUpValues => "bz_closeUpValues",
             .bz_getUpValue => "bz_getUpValue",
             .bz_setUpValue => "bz_setUpValue",
-            .bz_getUpValues => "bz_getUpValues",
-            .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
             .bz_context => "bz_context",
             .bz_instance => "bz_instance",
@@ -236,8 +228,6 @@ pub const ExternApi = enum {
             .globals => "globals",
 
             .bz_push => "bz_push",
-            .bz_valueToExternNativeFn => "bz_valueToExternNativeFn",
-            .bz_valueToRawNative => "bz_valueToRawNative",
             .bz_objStringConcat => "bz_objStringConcat",
             .bz_objStringSubscript => "bz_objStringSubscript",
             .bz_toString => "bz_toString",
@@ -259,8 +249,6 @@ pub const ExternApi = enum {
             .bz_getUpValue => "bz_getUpValue",
             .bz_setUpValue => "bz_setUpValue",
             .bz_closeUpValues => "bz_closeUpValues",
-            .bz_getUpValues => "bz_getUpValues",
-            .bz_getGlobals => "bz_getGlobals",
             .bz_closure => "bz_closure",
             .bz_context => "bz_context",
             .bz_instance => "bz_instance",
@@ -299,12 +287,6 @@ pub const ExternApi = enum {
                     context.intType(64),
                 },
                 2,
-                .False,
-            ),
-            .bz_valueToExternNativeFn, .bz_valueToRawNative => l.functionType(
-                context.pointerType(0),
-                &[_]*l.Type{context.intType(64)},
-                1,
                 .False,
             ),
             .bz_objStringConcat => l.functionType(
@@ -505,22 +487,6 @@ pub const ExternApi = enum {
                 2,
                 .False,
             ),
-            .bz_getUpValues => l.functionType(
-                context.pointerType(0),
-                &[_]*l.Type{
-                    try ExternApi.value.lower(context),
-                },
-                1,
-                .False,
-            ),
-            .bz_getGlobals => l.functionType(
-                (try ExternApi.value.lower(context)).pointerType(0),
-                &[_]*l.Type{
-                    try ExternApi.value.lower(context),
-                },
-                1,
-                .False,
-            ),
             .bz_closure => l.functionType(
                 try ExternApi.value.lower(context),
                 &[_]*l.Type{
@@ -588,9 +554,9 @@ pub const ExternApi = enum {
                 &[_]*l.Type{
                     // vm
                     context.pointerType(0),
-                    // field name
+                    // instance
                     try ExternApi.value.lower(context),
-                    // value
+                    // field
                     try ExternApi.value.lower(context),
                     // bind
                     context.intType(1),
@@ -599,12 +565,12 @@ pub const ExternApi = enum {
                 .False,
             ),
             .bz_getObjectField => l.functionType(
-                // instance
+                // field
                 try ExternApi.value.lower(context),
                 &[_]*l.Type{
-                    // field name
+                    // subject
                     try ExternApi.value.lower(context),
-                    // value
+                    // field
                     try ExternApi.value.lower(context),
                 },
                 2,
@@ -688,7 +654,6 @@ pub const ExternApi = enum {
             .setjmp => l.functionType(
                 context.intType(@bitSizeOf(c_int)),
                 &[_]*l.Type{
-                    // vm
                     try ExternApi.jmp_buf.lower(context),
                 },
                 1,
@@ -853,7 +818,7 @@ pub const LLVMJIT = struct {
         var main_jit_dylib = orc_jit.getMainJITDylib();
         main_jit_dylib.addGenerator(process_definition_generator);
 
-        var self = Self{
+        return Self{
             .vm = vm,
             .api_lowered_types = std.AutoHashMap(ExternApi, *l.Type).init(vm.gc.allocator),
             .lowered_types = std.AutoHashMap(*ObjTypeDef, *l.Type).init(vm.gc.allocator),
@@ -862,8 +827,6 @@ pub const LLVMJIT = struct {
             .compiled_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
             .blacklisted_closures = std.AutoHashMap(*ObjClosure, void).init(vm.gc.allocator),
         };
-
-        return self;
     }
 
     pub fn deinit(self: *Self) void {
@@ -1044,6 +1007,7 @@ pub const LLVMJIT = struct {
 
             return err;
         };
+
         if (BuildOptions.jit_debug) {
             var error_message: [*:0]const u8 = undefined;
             defer l.disposeMessage(error_message);
@@ -2437,7 +2401,7 @@ pub const LLVMJIT = struct {
         const previous_out_block = self.state.?.current.?.break_block;
         self.state.?.current.?.break_block = out_block;
         const previous_continue_block = self.state.?.current.?.continue_block;
-        self.state.?.current.?.continue_block = cond_block;
+        self.state.?.current.?.continue_block = loop_block;
 
         self.buildBr(loop_block);
 

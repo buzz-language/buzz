@@ -55,19 +55,18 @@ else
 // Stack manipulation
 
 /// Push a Value to the stack
-export fn bz_push(self: *VM, value: Value) void {
-    self.push(value);
+export fn bz_push(vm: *VM, value: Value) void {
+    vm.push(value);
 }
 
 /// Pop a Value from the stack and returns it
-export fn bz_pop(self: *VM) Value {
-    self.current_fiber.stack_top -= 1;
-    return @ptrCast(*Value, self.current_fiber.stack_top).*;
+export fn bz_pop(vm: *VM) Value {
+    return vm.pop();
 }
 
 /// Peeks at the stack at [distance] from the stack top
-export fn bz_peek(self: *VM, distance: u32) Value {
-    return @ptrCast(*Value, self.current_fiber.stack_top - 1 - distance).*;
+export fn bz_peek(vm: *VM, dist: u32) Value {
+    return vm.peek(dist);
 }
 
 // Value manipulations
@@ -798,14 +797,6 @@ export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
     return ObjNative.cast(value.obj());
 }
 
-export fn bz_valueToExternNativeFn(value: Value) *anyopaque {
-    return ObjNative.cast(value.obj()).?.native;
-}
-
-export fn bz_valueToRawNative(value: Value) *anyopaque {
-    return ObjClosure.cast(value.obj()).?.function.native_raw.?;
-}
-
 export fn bz_valueEqual(self: Value, other: Value) Value {
     return Value.fromBoolean(_value.valueEql(self, other));
 }
@@ -892,14 +883,6 @@ export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
     ctx.upvalues[slot].location.* = value;
 }
 
-export fn bz_getUpValues(closure: Value) [*]*ObjUpValue {
-    return ObjClosure.cast(closure.obj()).?.upvalues.items.ptr;
-}
-
-export fn bz_getGlobals(closure: Value) [*]Value {
-    return ObjClosure.cast(closure.obj()).?.globals.items.ptr;
-}
-
 export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
     const bound = if (closure_value.obj().obj_type == .Bound) ObjBoundMethod.cast(closure_value.obj()).? else null;
     const closure = if (bound) |bd|
@@ -922,7 +905,10 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     };
 
     if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
-        ctx.vm.jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
+        switch (BuildOptions.jit_engine) {
+            .llvm => ctx.vm.llvm_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function"),
+            .mir => ctx.vm.mir_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function"),
+        }
     }
 
     return if (closure) |cls| cls.function.native_raw.? else native.?.native;
@@ -951,7 +937,10 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
-    ctx.vm.jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
+    switch (BuildOptions.jit_engine) {
+        .llvm => ctx.vm.llvm_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure"),
+        .mir => ctx.vm.mir_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure"),
+    }
 
     var it = function_node.upvalue_binding.iterator();
     while (it.next()) |kv| {
