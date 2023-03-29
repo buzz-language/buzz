@@ -57,6 +57,7 @@ const OptJump = struct {
 };
 
 const GenState = struct {
+    ctx: m.MIR_context_t,
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
     // Closure being compiled right now
@@ -69,13 +70,14 @@ const GenState = struct {
     pub fn deinit(self: *GenState) void {
         self.function_items.deinit();
         self.prototypes.deinit();
+        m.MIR_finish_module(self.ctx);
+        m.MIR_finish(self.ctx);
     }
 };
 
 const Self = @This();
 
 vm: *VM,
-ctx: m.MIR_context_t,
 state: ?GenState = null,
 // List of closures being or already compiled
 compiled_closures: std.AutoHashMap(*o.ObjClosure, void),
@@ -87,21 +89,8 @@ call_count: u128 = 0,
 jit_time: usize = 0,
 
 pub fn init(vm: *VM) Self {
-    const ctx = m.MIR_init();
-
-    // - `0` means only register allocator and machine code generator work
-    // - `1` means additional code selection task.  On this level MIR generator creates more compact and faster
-    // code than on zero level with practically on the same speed
-    // - `2` means additionally common sub-expression elimination and sparse conditional constant propagation.
-    // This is a default level.  This level is valuable if you generate bad input MIR code with a lot redundancy
-    // and constants.  The generation speed on level `1` is about 50% faster than on level `2`
-    // - `3` means additionally register renaming and loop invariant code motion.  The generation speed
-    // on level `2` is about 50% faster than on level `3`
-    // m.MIR_gen_set_optimize_level(if (BuildOptions.jit_debug) 0 else 3);
-
     return .{
         .vm = vm,
-        .ctx = ctx,
         .compiled_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .blacklisted_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
     };
@@ -110,10 +99,10 @@ pub fn init(vm: *VM) Self {
 pub fn deinit(self: *Self) void {
     self.compiled_closures.deinit();
     self.blacklisted_closures.deinit();
-    m.MIR_finish(self.ctx);
 }
 
 pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
+    const ctx = m.MIR_init();
     const function = closure.function;
 
     const function_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), function.node));
@@ -124,10 +113,10 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
     );
     defer qualified_name.deinit();
 
-    const module = m.MIR_new_module(self.ctx, qualified_name.items.ptr);
-    defer m.MIR_finish_module(self.ctx);
+    const module = m.MIR_new_module(ctx, qualified_name.items.ptr);
 
     self.state = .{
+        .ctx = ctx,
         .module = module,
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
         .function_items = std.AutoHashMap(*n.FunctionNode, [2]m.MIR_item_t).init(self.vm.gc.allocator),
@@ -147,13 +136,13 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
         );
     }
 
-    _ = self.generateNode(function_node.toNode()) catch |err| {
+    _ = self.generateFunction(function_node) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
                 std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
             }
 
-            // self.state.?.deinit();
+            self.state.?.deinit();
             self.state = null;
 
             try self.blacklisted_closures.put(closure, {});
@@ -170,10 +159,10 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
         const debug_file = std.c.fopen(@ptrCast([*:0]const u8, debug_path.items.ptr), "w").?;
         defer _ = std.c.fclose(debug_file);
 
-        m.MIR_output_module(self.ctx, debug_file, module);
+        m.MIR_output_module(self.state.?.ctx, debug_file, module);
     }
 
-    m.MIR_load_module(self.ctx, module);
+    m.MIR_load_module(self.state.?.ctx, module);
 
     // Load external functions
     var it = self.state.?.prototypes.iterator();
@@ -182,16 +171,15 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
             // TODO: don't mix those with actual api functions
             .rawfn, .nativefn => {},
             else => m.MIR_load_external(
-                self.ctx,
+                self.state.?.ctx,
                 kv.key_ptr.*.name(),
                 kv.key_ptr.*.ptr(),
             ),
         }
     }
-    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
+    m.MIR_link(self.state.?.ctx, m.MIR_set_lazy_gen_interface, null);
 
-    m.MIR_gen_init(self.ctx, 1);
-    defer m.MIR_gen_finish(self.ctx);
+    m.MIR_gen_init(self.state.?.ctx, 1);
 
     if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -200,13 +188,14 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
 
         const debug_file = std.c.fopen(@ptrCast([*:0]const u8, debug_path.items.ptr), "w").?;
 
-        m.MIR_gen_set_debug_file(self.ctx, 0, debug_file);
+        m.MIR_gen_set_debug_file(self.state.?.ctx, 0, debug_file);
     }
 
     const fun_items = self.state.?.function_items.get(function_node).?;
-    closure.function.native = m.MIR_gen(self.ctx, 0, fun_items[0]);
-    closure.function.native_raw = m.MIR_gen(self.ctx, 0, fun_items[1]);
+    closure.function.native = m.MIR_gen(self.state.?.ctx, 0, fun_items[0]);
+    closure.function.native_raw = m.MIR_gen(self.state.?.ctx, 0, fun_items[1]);
 
+    m.MIR_gen_finish(self.state.?.ctx);
     self.state.?.deinit();
     self.state = null;
 }
@@ -232,13 +221,13 @@ fn buildCloseUpValues(self: *Self) !void {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -247,13 +236,13 @@ fn buildCloseUpValues(self: *Self) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -263,17 +252,17 @@ fn buildCloseUpValues(self: *Self) !void {
 
     // Store value on stack top
     self.SUB(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
-        m.MIR_new_uint_op(self.ctx, @sizeOf(u64)),
+        m.MIR_new_uint_op(self.state.?.ctx, @sizeOf(u64)),
     );
 
     try self.buildExternApiCall(
         .bz_closeUpValues,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-            m.MIR_new_reg_op(self.ctx, stack_top_base),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         },
     );
 }
@@ -285,13 +274,13 @@ fn buildStackPtr(self: *Self, distance: usize) !m.MIR_op_t {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -300,13 +289,13 @@ fn buildStackPtr(self: *Self, distance: usize) !m.MIR_op_t {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -316,12 +305,12 @@ fn buildStackPtr(self: *Self, distance: usize) !m.MIR_op_t {
 
     // Store value on stack top
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
     );
 
     return m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_U64,
         (-1 - @intCast(i64, distance)) * @sizeOf(u64),
         stack_top_base,
@@ -337,13 +326,13 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -352,13 +341,13 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -368,12 +357,12 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
 
     // Store value on stack top
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
     );
 
     const top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_base,
@@ -389,8 +378,8 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
     // Increment stack top
     self.ADD(
         stack_top,
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
-        m.MIR_new_uint_op(self.ctx, @sizeOf(u64)),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
+        m.MIR_new_uint_op(self.state.?.ctx, @sizeOf(u64)),
     );
 }
 
@@ -401,13 +390,13 @@ fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -416,13 +405,13 @@ fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -431,25 +420,25 @@ fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
     );
 
     // Decrement stack top
     self.SUB(
         stack_top,
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
-        m.MIR_new_uint_op(self.ctx, @sizeOf(u64)),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
+        m.MIR_new_uint_op(self.state.?.ctx, @sizeOf(u64)),
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
     );
 
     // Store new top in result reg
     const top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_base,
@@ -459,7 +448,7 @@ fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
 
     self.MOV(
         dest orelse m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             try self.REG("dismiss", m.MIR_T_I64),
         ),
         top,
@@ -473,13 +462,13 @@ fn buildPeek(self: *Self, distance: u32, dest: m.MIR_op_t) !void {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -488,13 +477,13 @@ fn buildPeek(self: *Self, distance: u32, dest: m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -503,12 +492,12 @@ fn buildPeek(self: *Self, distance: u32, dest: m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
         stack_top,
     );
 
     const top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         (-1 - @intCast(i32, distance)) * @sizeOf(u64),
         stack_top_base,
@@ -524,16 +513,16 @@ fn buildGetLocal(self: *Self, slot: usize) !m.MIR_op_t {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     const base = try self.REG("base", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, base),
+        m.MIR_new_reg_op(self.state.?.ctx, base),
         m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_U64,
             @offsetOf(o.NativeCtx, "base"),
             ctx_reg,
@@ -543,12 +532,12 @@ fn buildGetLocal(self: *Self, slot: usize) !m.MIR_op_t {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, slot),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, slot),
     );
 
     return m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_U64,
         0,
         base,
@@ -564,9 +553,9 @@ fn buildSetLocal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     const base = try self.REG("base", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, base),
+        m.MIR_new_reg_op(self.state.?.ctx, base),
         m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_U64,
             @offsetOf(o.NativeCtx, "base"),
             ctx_reg,
@@ -576,12 +565,12 @@ fn buildSetLocal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, slot),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, slot),
     );
 
     const local = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_U64,
         0,
         base,
@@ -597,16 +586,16 @@ fn buildGetGlobal(self: *Self, slot: usize) !m.MIR_op_t {
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     const globals = try self.REG("globals", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, globals),
+        m.MIR_new_reg_op(self.state.?.ctx, globals),
         m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             @offsetOf(o.NativeCtx, "globals"),
             ctx_reg,
@@ -616,12 +605,12 @@ fn buildGetGlobal(self: *Self, slot: usize) !m.MIR_op_t {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, slot),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, slot),
     );
 
     return m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_U64,
         0,
         globals,
@@ -637,9 +626,9 @@ fn buildSetGlobal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     const globals = try self.REG("globals", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, globals),
+        m.MIR_new_reg_op(self.state.?.ctx, globals),
         m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             @offsetOf(o.NativeCtx, "globals"),
             ctx_reg,
@@ -649,12 +638,12 @@ fn buildSetGlobal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, slot),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, slot),
     );
 
     const local = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         globals,
@@ -669,40 +658,40 @@ fn buildValueToBoolean(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     self.EQ(
         dest,
         value,
-        m.MIR_new_uint_op(self.ctx, v.TrueMask),
+        m.MIR_new_uint_op(self.state.?.ctx, v.TrueMask),
     );
 }
 
 fn buildValueFromBoolean(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
-    const true_label = m.MIR_new_label(self.ctx);
-    const out_label = m.MIR_new_label(self.ctx);
+    const true_label = m.MIR_new_label(self.state.?.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
 
     self.BEQ(
         dest,
         value,
-        m.MIR_new_uint_op(self.ctx, 1),
+        m.MIR_new_uint_op(self.state.?.ctx, 1),
     );
 
     self.MOV(
         dest,
-        m.MIR_new_uint_op(self.ctx, v.Value.False.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.False.val),
     );
 
     self.JMP(out_label);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         true_label,
     );
 
     self.MOV(
         dest,
-        m.MIR_new_uint_op(self.ctx, v.Value.True.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.True.val),
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -712,27 +701,27 @@ fn buildValueToInteger(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     self.AND(
         dest,
         value,
-        m.MIR_new_uint_op(self.ctx, 0xffffffff),
+        m.MIR_new_uint_op(self.state.?.ctx, 0xffffffff),
     );
 }
 
 fn buildValueFromInteger(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     self.OR(
         dest,
-        m.MIR_new_uint_op(self.ctx, v.IntegerMask),
+        m.MIR_new_uint_op(self.state.?.ctx, v.IntegerMask),
         value,
     );
 }
 
 fn buildValueToObj(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
-    self.NOT(dest, m.MIR_new_uint_op(self.ctx, v.PointerMask));
+    self.NOT(dest, m.MIR_new_uint_op(self.state.?.ctx, v.PointerMask));
     self.AND(dest, value, dest);
 }
 
 fn buildValueFromObj(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     self.OR(
         dest,
-        m.MIR_new_uint_op(self.ctx, v.PointerMask),
+        m.MIR_new_uint_op(self.state.?.ctx, v.PointerMask),
         value,
     );
 }
@@ -795,18 +784,18 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
     var full_args = std.ArrayList(m.MIR_op_t).init(self.vm.gc.allocator);
     defer full_args.deinit();
 
-    try full_args.append(m.MIR_new_ref_op(self.ctx, try method.declare(self)));
-    try full_args.append(m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name())));
+    try full_args.append(m.MIR_new_ref_op(self.state.?.ctx, try method.declare(self)));
+    try full_args.append(m.MIR_new_ref_op(self.state.?.ctx, m.MIR_new_import(self.state.?.ctx, method.name())));
     if (dest) |udest| {
         try full_args.append(udest);
     }
     try full_args.appendSlice(args);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn_arr(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_CALL,
             full_args.items.len,
             full_args.items.ptr,
@@ -817,32 +806,32 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
 fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
     var value = if (node.isConstant(node) and node.node_type != .List and node.node_type != .Map)
         m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             (node.toValue(node, self.vm.gc) catch return VM.Error.Custom).val,
         )
     else switch (node.node_type) {
         .Boolean => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             v.Value.fromBoolean(n.BooleanNode.cast(node).?.constant).val,
         ),
         .Float => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             v.Value.fromFloat(n.FloatNode.cast(node).?.float_constant).val,
         ),
         .Integer => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             v.Value.fromInteger(n.IntegerNode.cast(node).?.integer_constant).val,
         ),
         .StringLiteral => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             n.StringLiteralNode.cast(node).?.constant.toValue().val,
         ),
         .Null => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             v.Value.Null.val,
         ),
         .Void => m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             v.Value.Void.val,
         ),
         .String => try self.generateString(n.StringNode.cast(node).?),
@@ -893,11 +882,11 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         if (node.patch_opt_jumps) {
             assert(self.state.?.opt_jump != null);
 
-            const out_label = m.MIR_new_label(self.ctx);
+            const out_label = m.MIR_new_label(self.state.?.ctx);
 
             // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
             self.MOV(
-                m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.opt_jump.?.alloca),
                 value.?,
             );
 
@@ -906,26 +895,26 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
             // Patch opt blocks with the branching
             for (self.state.?.opt_jump.?.current_insn.items) |current_insn| {
                 m.MIR_insert_insn_after(
-                    self.ctx,
+                    self.state.?.ctx,
                     self.state.?.current.?.function.?,
                     current_insn,
                     m.MIR_new_insn(
-                        self.ctx,
+                        self.state.?.ctx,
                         m.MIR_BEQ,
-                        m.MIR_new_label_op(self.ctx, out_label),
-                        m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
-                        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+                        m.MIR_new_label_op(self.state.?.ctx, out_label),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.opt_jump.?.alloca),
+                        m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val),
                     ),
                 );
             }
 
             m.MIR_append_insn(
-                self.ctx,
+                self.state.?.ctx,
                 self.state.?.current.?.function.?,
                 out_label,
             );
 
-            value = m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca);
+            value = m.MIR_new_reg_op(self.state.?.ctx, self.state.?.opt_jump.?.alloca);
 
             self.state.?.opt_jump.?.deinit();
             self.state.?.opt_jump = null;
@@ -941,7 +930,7 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
 fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
     if (string_node.elements.len == 0) {
         return m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             self.readConstant(0).val,
         ); // Constant 0 is the empty string
     }
@@ -952,7 +941,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
 
         if (element.type_def.?.def_type != .String or element.type_def.?.optional) {
             const dest = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("result", m.MIR_T_I64),
             );
 
@@ -960,7 +949,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
                 .bz_toString,
                 dest,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     value,
                 },
             );
@@ -970,7 +959,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
 
         if (index >= 1) {
             const dest = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("result", m.MIR_T_I64),
             );
 
@@ -978,7 +967,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
                 .bz_objStringConcat,
                 dest,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     previous.?,
                     value,
                 },
@@ -1033,7 +1022,7 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
                     unreachable;
                 }
 
-                return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
+                return m.MIR_new_uint_op(self.state.?.ctx, closure.toValue().val);
             } else {
                 return try self.buildGetGlobal(named_variable_node.slot);
             }
@@ -1053,8 +1042,8 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
                     .bz_setUpValue,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
-                        m.MIR_new_uint_op(self.ctx, named_variable_node.slot),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.ctx_reg.?),
+                        m.MIR_new_uint_op(self.state.?.ctx, named_variable_node.slot),
                         (try self.generateNode(value)).?,
                     },
                 );
@@ -1063,15 +1052,15 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
             }
 
             const upvalue = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("upvalue", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getUpValue,
                 upvalue,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
-                    m.MIR_new_uint_op(self.ctx, named_variable_node.slot),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.ctx_reg.?),
+                    m.MIR_new_uint_op(self.state.?.ctx, named_variable_node.slot),
                 },
             );
 
@@ -1088,15 +1077,15 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
 
         try self.buildExternApiCall(
             .bz_getEnumCaseFromValue,
-            m.MIR_new_reg_op(self.ctx, result_reg),
+            m.MIR_new_reg_op(self.state.?.ctx, result_reg),
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 (try self.generateNode(call_node.callee)).?,
                 (try self.generateNode(value)).?,
             },
         );
 
-        return m.MIR_new_reg_op(self.ctx, result_reg);
+        return m.MIR_new_reg_op(self.state.?.ctx, result_reg);
     }
 
     // Find out if call is invoke or regular call
@@ -1108,7 +1097,7 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
 
     const subject = if (invoked_on != null) try self.generateNode(dot.?.callee) else null;
     const callee_reg = try self.REG("callee", m.MIR_T_I64);
-    const callee = m.MIR_new_reg_op(self.ctx, callee_reg);
+    const callee = m.MIR_new_reg_op(self.state.?.ctx, callee_reg);
     if (invoked_on != null) {
         switch (invoked_on.?) {
             .Object => try self.buildExternApiCall(
@@ -1117,7 +1106,7 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
                 &[_]m.MIR_op_t{
                     subject.?,
                     m.MIR_new_uint_op(
-                        self.ctx,
+                        self.state.?.ctx,
                         (try self.vm.gc.copyString(n.DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
                     ),
                 },
@@ -1142,16 +1131,16 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
                 callee,
                 &[_]m.MIR_op_t{
                     // vm
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     // subject
                     subject.?,
                     // member
                     m.MIR_new_uint_op(
-                        self.ctx,
+                        self.state.?.ctx,
                         (try self.vm.gc.copyString(n.DotNode.cast(call_node.callee).?.identifier.lexeme)).toValue().val,
                     ),
                     // bound
-                    m.MIR_new_uint_op(self.ctx, 0),
+                    m.MIR_new_uint_op(self.state.?.ctx, 0),
                 },
             ),
             else => unreachable,
@@ -1187,7 +1176,7 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
     }
 
     const post_call_label = if (has_catch_clause)
-        m.MIR_new_label(self.ctx)
+        m.MIR_new_label(self.state.?.ctx)
     else
         null;
 
@@ -1197,27 +1186,27 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
         null;
 
     if (has_catch_clause) {
-        const catch_label = m.MIR_new_label(self.ctx);
-        const continue_label = m.MIR_new_label(self.ctx);
+        const catch_label = m.MIR_new_label(self.state.?.ctx);
+        const continue_label = m.MIR_new_label(self.state.?.ctx);
 
         // setjmp to catch any error bubbling up here
         const try_ctx = try self.REG("try_ctx", m.MIR_T_I64);
         const index = try self.REG("index", m.MIR_T_I64);
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, index),
-            m.MIR_new_uint_op(self.ctx, 0),
+            m.MIR_new_reg_op(self.state.?.ctx, index),
+            m.MIR_new_uint_op(self.state.?.ctx, 0),
         );
 
         try self.buildExternApiCall(
             .bz_setTryCtx,
-            m.MIR_new_reg_op(self.ctx, try_ctx),
+            m.MIR_new_reg_op(self.state.?.ctx, try_ctx),
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             },
         );
 
         const env = m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             @offsetOf(r.TryCtx, "env"),
             try_ctx,
@@ -1228,30 +1217,30 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
         const status = try self.REG("status", m.MIR_T_I64);
         try self.buildExternApiCall(
             .setjmp,
-            m.MIR_new_reg_op(self.ctx, status),
+            m.MIR_new_reg_op(self.state.?.ctx, status),
             &[_]m.MIR_op_t{env},
         );
 
         self.BEQ(
-            m.MIR_new_label_op(self.ctx, catch_label),
-            m.MIR_new_reg_op(self.ctx, status),
-            m.MIR_new_uint_op(self.ctx, 1),
+            m.MIR_new_label_op(self.state.?.ctx, catch_label),
+            m.MIR_new_reg_op(self.state.?.ctx, status),
+            m.MIR_new_uint_op(self.state.?.ctx, 1),
         );
 
         self.JMP(continue_label);
 
-        m.MIR_append_insn(self.ctx, self.state.?.current.?.function.?, catch_label);
+        m.MIR_append_insn(self.state.?.ctx, self.state.?.current.?.function.?, catch_label);
 
         // on error set return alloca with catch_value
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
+            m.MIR_new_reg_op(self.state.?.ctx, return_alloca.?),
             catch_value.?,
         );
 
         self.JMP(post_call_label.?);
 
         // else continue
-        m.MIR_append_insn(self.ctx, self.state.?.current.?.function.?, continue_label);
+        m.MIR_append_insn(self.state.?.ctx, self.state.?.current.?.function.?, continue_label);
     }
 
     // This is an async call, create a fiber
@@ -1266,7 +1255,7 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
     if (invoked_on != null) {
         _ = try self.buildPush(subject.?);
     } else {
-        _ = try self.buildPush(m.MIR_new_uint_op(self.ctx, v.Value.Void.val));
+        _ = try self.buildPush(m.MIR_new_uint_op(self.state.?.ctx, v.Value.Void.val));
     }
 
     const args: std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef) = function_type_def.resolved_type.?.Function.parameters;
@@ -1296,14 +1285,14 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
             const clone = try self.REG("clone", m.MIR_T_I64);
             try self.buildExternApiCall(
                 .bz_clone,
-                m.MIR_new_reg_op(self.ctx, clone),
+                m.MIR_new_reg_op(self.state.?.ctx, clone),
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-                    m.MIR_new_uint_op(self.ctx, value.val),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_uint_op(self.state.?.ctx, value.val),
                 },
             );
 
-            try self.buildPush(m.MIR_new_reg_op(self.ctx, clone));
+            try self.buildPush(m.MIR_new_reg_op(self.state.?.ctx, clone));
         }
     }
 
@@ -1313,41 +1302,41 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
         .bz_context,
         callee,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.ctx_reg.?),
             callee,
-            m.MIR_new_reg_op(self.ctx, new_ctx),
-            m.MIR_new_uint_op(self.ctx, arg_keys.len),
+            m.MIR_new_reg_op(self.state.?.ctx, new_ctx),
+            m.MIR_new_uint_op(self.state.?.ctx, arg_keys.len),
         },
     );
 
     // Regular function, just call it
     const result = try self.REG("result", m.MIR_T_I64);
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn_arr(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_CALL,
             4,
             &[_]m.MIR_op_t{
-                m.MIR_new_ref_op(self.ctx, try ExternApi.rawfn.declare(self)),
+                m.MIR_new_ref_op(self.state.?.ctx, try ExternApi.rawfn.declare(self)),
                 callee,
-                m.MIR_new_reg_op(self.ctx, result),
-                m.MIR_new_reg_op(self.ctx, new_ctx),
+                m.MIR_new_reg_op(self.state.?.ctx, result),
+                m.MIR_new_reg_op(self.state.?.ctx, new_ctx),
             },
         ),
     );
 
     if (post_call_label) |label| {
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             label,
         );
 
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, result),
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
+            m.MIR_new_reg_op(self.state.?.ctx, result),
+            m.MIR_new_reg_op(self.state.?.ctx, return_alloca.?),
         );
     }
 
@@ -1355,13 +1344,13 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
         return try self.generateHandleExternReturn(
             function_type_def.resolved_type.?.Function.error_types != null,
             function_type_def.resolved_type.?.Function.return_type.def_type != .Void,
-            m.MIR_new_reg_op(self.ctx, result),
+            m.MIR_new_reg_op(self.state.?.ctx, result),
             function_type_def.resolved_type.?.Function.parameters.count(),
             catch_value,
         );
     }
 
-    return m.MIR_new_reg_op(self.ctx, result);
+    return m.MIR_new_reg_op(self.state.?.ctx, result);
 }
 
 // Handle Extern call like VM.callNative does
@@ -1374,18 +1363,18 @@ fn generateHandleExternReturn(
     catch_value: ?m.MIR_op_t,
 ) !m.MIR_op_t {
     if (can_fail) {
-        const continue_label = m.MIR_new_label(self.ctx);
+        const continue_label = m.MIR_new_label(self.state.?.ctx);
 
         self.BNE(
             continue_label,
             return_code,
-            m.MIR_new_int_op(self.ctx, -1),
+            m.MIR_new_int_op(self.state.?.ctx, -1),
         );
 
         if (catch_value) |value| {
             // Pop error
             const discard = try self.REG("discard", m.MIR_T_I64);
-            try self.buildPop(m.MIR_new_reg_op(self.ctx, discard));
+            try self.buildPop(m.MIR_new_reg_op(self.state.?.ctx, discard));
 
             // Push catch value
             try self.buildPush(value);
@@ -1394,19 +1383,19 @@ fn generateHandleExternReturn(
                 .bz_rethrow,
                 null,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 },
             );
 
             try self.buildExternApiCall(
                 .exit,
                 null,
-                &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                &[_]m.MIR_op_t{m.MIR_new_uint_op(self.state.?.ctx, 1)},
             );
         }
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             continue_label,
         );
@@ -1414,11 +1403,11 @@ fn generateHandleExternReturn(
 
     const result = try self.REG("result", m.MIR_T_I64);
     if (should_return) {
-        try self.buildPop(m.MIR_new_reg_op(self.ctx, result));
+        try self.buildPop(m.MIR_new_reg_op(self.state.?.ctx, result));
     } else {
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, result),
-            m.MIR_new_uint_op(self.ctx, v.Value.Void.val),
+            m.MIR_new_reg_op(self.state.?.ctx, result),
+            m.MIR_new_uint_op(self.state.?.ctx, v.Value.Void.val),
         );
     }
 
@@ -1427,13 +1416,13 @@ fn generateHandleExternReturn(
     const index = try self.REG("index", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         ctx_reg,
@@ -1442,13 +1431,13 @@ fn generateHandleExternReturn(
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -1460,10 +1449,10 @@ fn generateHandleExternReturn(
     self.SUB(
         stack_top,
         stack_top,
-        m.MIR_new_uint_op(self.ctx, arg_count + 1),
+        m.MIR_new_uint_op(self.state.?.ctx, arg_count + 1),
     );
 
-    return m.MIR_new_reg_op(self.ctx, result);
+    return m.MIR_new_reg_op(self.state.?.ctx, result);
 }
 
 fn generateReturn(self: *Self, return_node: *n.ReturnNode) Error!?m.MIR_op_t {
@@ -1472,15 +1461,15 @@ fn generateReturn(self: *Self, return_node: *n.ReturnNode) Error!?m.MIR_op_t {
     }
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_ret_insn(
-            self.ctx,
+            self.state.?.ctx,
             1,
             if (return_node.value) |value|
                 (try self.generateNode(value)).?
             else
-                m.MIR_new_uint_op(self.ctx, v.Value.Void.val),
+                m.MIR_new_uint_op(self.state.?.ctx, v.Value.Void.val),
         ),
     );
 
@@ -1499,7 +1488,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
     else
         null;
     const condition = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("condition", m.MIR_T_I64),
     );
 
@@ -1510,7 +1499,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
             condition,
             &[_]m.MIR_op_t{
                 condition_value.?,
-                m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+                m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val),
             },
         );
 
@@ -1527,7 +1516,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
             condition,
             &[_]m.MIR_op_t{
                 condition_value.?,
-                m.MIR_new_uint_op(self.ctx, casted_type.toValue().val),
+                m.MIR_new_uint_op(self.state.?.ctx, casted_type.toValue().val),
             },
         );
 
@@ -1544,10 +1533,10 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
         );
     }
 
-    const out_label = m.MIR_new_label(self.ctx);
-    const then_label = m.MIR_new_label(self.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
+    const then_label = m.MIR_new_label(self.state.?.ctx);
     const else_label = if (if_node.else_branch != null)
-        m.MIR_new_label(self.ctx)
+        m.MIR_new_label(self.state.?.ctx)
     else
         null;
 
@@ -1562,9 +1551,9 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
         );
     } else {
         self.BEQ(
-            m.MIR_new_label_op(self.ctx, then_label),
+            m.MIR_new_label_op(self.state.?.ctx, then_label),
             condition,
-            m.MIR_new_uint_op(self.ctx, 1),
+            m.MIR_new_uint_op(self.state.?.ctx, 1),
         );
 
         self.JMP(
@@ -1577,7 +1566,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
 
     if (constant_condition == null or constant_condition.?.boolean()) {
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             then_label,
         );
@@ -1595,7 +1584,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
     if (constant_condition == null or !constant_condition.?.boolean()) {
         if (if_node.else_branch) |else_branch| {
             m.MIR_append_insn(
-                self.ctx,
+                self.state.?.ctx,
                 self.state.?.current.?.function.?,
                 else_label,
             );
@@ -1605,7 +1594,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
     }
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -1624,9 +1613,9 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
 
     const resolved = try self.REG("resolved", m.MIR_T_I64);
 
-    const out_label = m.MIR_new_label(self.ctx);
-    const then_label = m.MIR_new_label(self.ctx);
-    const else_label = m.MIR_new_label(self.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
+    const then_label = m.MIR_new_label(self.state.?.ctx);
+    const else_label = m.MIR_new_label(self.state.?.ctx);
 
     if (constant_condition != null) {
         self.JMP(
@@ -1637,7 +1626,7 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
         );
     } else {
         const unwrapped_condition = m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             try self.REG("ucond", m.MIR_T_I64),
         );
 
@@ -1648,9 +1637,9 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
         );
 
         self.BEQ(
-            m.MIR_new_label_op(self.ctx, then_label),
+            m.MIR_new_label_op(self.state.?.ctx, then_label),
             unwrapped_condition,
-            m.MIR_new_uint_op(self.ctx, 1),
+            m.MIR_new_uint_op(self.state.?.ctx, 1),
         );
 
         self.JMP(else_label);
@@ -1658,13 +1647,13 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
 
     if (constant_condition == null or constant_condition.?.boolean()) {
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             then_label,
         );
 
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, resolved),
+            m.MIR_new_reg_op(self.state.?.ctx, resolved),
             (try self.generateNode(inline_if_node.body)).?,
         );
 
@@ -1673,24 +1662,24 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
 
     if (constant_condition == null or !constant_condition.?.boolean()) {
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             else_label,
         );
 
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, resolved),
+            m.MIR_new_reg_op(self.state.?.ctx, resolved),
             (try self.generateNode(inline_if_node.else_branch)).?,
         );
     }
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
 
-    return m.MIR_new_reg_op(self.ctx, resolved);
+    return m.MIR_new_reg_op(self.state.?.ctx, resolved);
 }
 
 fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
@@ -1713,15 +1702,15 @@ fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
             const right_value = (try self.generateNode(binary_node.right)).?;
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             const left = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("left", m.MIR_T_I64),
             );
             const right = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("right", m.MIR_T_I64),
             );
 
@@ -1894,7 +1883,7 @@ fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
 
 fn genereateConditional(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
     const value = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("value", m.MIR_T_I64),
     );
 
@@ -1903,13 +1892,13 @@ fn genereateConditional(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op
         (try self.generateNode(binary_node.left)).?,
     );
 
-    const out_label = m.MIR_new_label(self.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
 
     self.BNE(
         out_label,
         value,
         m.MIR_new_uint_op(
-            self.ctx,
+            self.state.?.ctx,
             switch (binary_node.operator) {
                 .QuestionQuestion => v.Value.Null.val,
                 .And => v.Value.True.val,
@@ -1925,7 +1914,7 @@ fn genereateConditional(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -1935,15 +1924,15 @@ fn genereateConditional(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op
 
 fn generateBitwise(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
     const res = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("res", m.MIR_T_I64),
     );
     const left = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("left", m.MIR_T_I64),
     );
     const right = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("right", m.MIR_T_I64),
     );
 
@@ -1977,8 +1966,8 @@ fn generateWhile(self: *Self, while_node: *n.WhileNode) Error!?m.MIR_op_t {
         return null;
     }
 
-    const cond_label = m.MIR_new_label(self.ctx);
-    const out_label = m.MIR_new_label(self.ctx);
+    const cond_label = m.MIR_new_label(self.state.?.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
 
     const previous_out_label = self.state.?.current.?.break_label;
     self.state.?.current.?.break_label = out_label;
@@ -1986,21 +1975,21 @@ fn generateWhile(self: *Self, while_node: *n.WhileNode) Error!?m.MIR_op_t {
     self.state.?.current.?.continue_label = cond_label;
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         cond_label,
     );
 
     self.BEQ(
-        m.MIR_new_label_op(self.ctx, out_label),
+        m.MIR_new_label_op(self.state.?.ctx, out_label),
         (try self.generateNode(while_node.condition)).?,
-        m.MIR_new_uint_op(self.ctx, v.Value.False.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.False.val),
     );
 
     _ = try self.generateNode(while_node.block);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -2012,8 +2001,8 @@ fn generateWhile(self: *Self, while_node: *n.WhileNode) Error!?m.MIR_op_t {
 }
 
 fn generateDoUntil(self: *Self, do_until_node: *n.DoUntilNode) Error!?m.MIR_op_t {
-    const out_label = m.MIR_new_label(self.ctx);
-    const loop_label = m.MIR_new_label(self.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
+    const loop_label = m.MIR_new_label(self.state.?.ctx);
 
     const previous_out_label = self.state.?.current.?.break_label;
     self.state.?.current.?.break_label = out_label;
@@ -2021,7 +2010,7 @@ fn generateDoUntil(self: *Self, do_until_node: *n.DoUntilNode) Error!?m.MIR_op_t
     self.state.?.current.?.continue_label = loop_label;
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         loop_label,
     );
@@ -2029,13 +2018,13 @@ fn generateDoUntil(self: *Self, do_until_node: *n.DoUntilNode) Error!?m.MIR_op_t
     _ = try self.generateNode(do_until_node.block);
 
     self.BEQ(
-        m.MIR_new_label_op(self.ctx, loop_label),
+        m.MIR_new_label_op(self.state.?.ctx, loop_label),
         (try self.generateNode(do_until_node.condition)).?,
-        m.MIR_new_uint_op(self.ctx, v.Value.True.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.True.val),
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -2051,8 +2040,8 @@ fn generateFor(self: *Self, for_node: *n.ForNode) Error!?m.MIR_op_t {
         return null;
     }
 
-    const cond_label = m.MIR_new_label(self.ctx);
-    const out_label = m.MIR_new_label(self.ctx);
+    const cond_label = m.MIR_new_label(self.state.?.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
     const previous_out_label = self.state.?.current.?.break_label;
     self.state.?.current.?.break_label = out_label;
     const previous_continue_label = self.state.?.current.?.continue_label;
@@ -2065,15 +2054,15 @@ fn generateFor(self: *Self, for_node: *n.ForNode) Error!?m.MIR_op_t {
 
     // Condition
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         cond_label,
     );
 
     self.BEQ(
-        m.MIR_new_label_op(self.ctx, out_label),
+        m.MIR_new_label_op(self.state.?.ctx, out_label),
         (try self.generateNode(for_node.condition)).?,
-        m.MIR_new_uint_op(self.ctx, v.Value.False.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.False.val),
     );
 
     _ = try self.generateNode(for_node.body);
@@ -2086,7 +2075,7 @@ fn generateFor(self: *Self, for_node: *n.ForNode) Error!?m.MIR_op_t {
     self.JMP(cond_label);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -2115,7 +2104,7 @@ fn generateContinue(self: *Self, continue_node: *n.ParseNode) Error!?m.MIR_op_t 
 
 fn generateList(self: *Self, list_node: *n.ListNode) Error!?m.MIR_op_t {
     const new_list = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("new_list", m.MIR_T_I64),
     );
 
@@ -2123,8 +2112,8 @@ fn generateList(self: *Self, list_node: *n.ListNode) Error!?m.MIR_op_t {
         .bz_newList,
         new_list,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, list_node.node.type_def.?.resolved_type.?.List.item_type.toValue().val),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_uint_op(self.state.?.ctx, list_node.node.type_def.?.resolved_type.?.List.item_type.toValue().val),
         },
     );
 
@@ -2136,7 +2125,7 @@ fn generateList(self: *Self, list_node: *n.ListNode) Error!?m.MIR_op_t {
             .bz_listAppend,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 new_list,
                 (try self.generateNode(item)).?,
             },
@@ -2150,7 +2139,7 @@ fn generateList(self: *Self, list_node: *n.ListNode) Error!?m.MIR_op_t {
 
 fn generateMap(self: *Self, map_node: *n.MapNode) Error!?m.MIR_op_t {
     const new_map = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("new_map", m.MIR_T_I64),
     );
 
@@ -2158,8 +2147,8 @@ fn generateMap(self: *Self, map_node: *n.MapNode) Error!?m.MIR_op_t {
         .bz_newMap,
         new_map,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, map_node.node.type_def.?.toValue().val),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_uint_op(self.state.?.ctx, map_node.node.type_def.?.toValue().val),
         },
     );
 
@@ -2171,7 +2160,7 @@ fn generateMap(self: *Self, map_node: *n.MapNode) Error!?m.MIR_op_t {
             .bz_mapSet,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 new_map,
                 (try self.generateNode(key)).?,
                 (try self.generateNode(map_node.values[index])).?,
@@ -2194,17 +2183,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getFiberField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2217,17 +2206,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getPatternField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2240,17 +2229,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getStringField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2269,9 +2258,9 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
                     .bz_setObjectField,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                         (try self.generateNode(dot_node.callee)).?,
-                        m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                        m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
                         gen_value,
                     },
                 );
@@ -2280,16 +2269,16 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getObjectField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
                 },
             );
 
@@ -2308,9 +2297,9 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
                     .bz_setInstanceField,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                         (try self.generateNode(dot_node.callee)).?,
-                        m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                        m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
                         gen_value,
                     },
                 );
@@ -2319,17 +2308,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getInstanceField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2338,7 +2327,7 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
 
         .Enum => {
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
@@ -2346,7 +2335,7 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
                 res,
                 &[_]m.MIR_op_t{
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
                 },
             );
 
@@ -2355,7 +2344,7 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
 
         .EnumInstance => {
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
@@ -2375,17 +2364,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getListField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2398,17 +2387,17 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
                 .bz_getMapField,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     (try self.generateNode(dot_node.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
-                    m.MIR_new_uint_op(self.ctx, 1),
+                    m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(dot_node.identifier.lexeme)).toValue().val),
+                    m.MIR_new_uint_op(self.state.?.ctx, 1),
                 },
             );
 
@@ -2427,7 +2416,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
     switch (subscript_node.subscripted.type_def.?.def_type) {
         .List => {
             const index = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("index", m.MIR_T_I64),
             );
 
@@ -2438,7 +2427,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                     .bz_listSet,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                         subscripted,
                         index,
                         val,
@@ -2449,7 +2438,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
 
@@ -2457,7 +2446,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                 .bz_listGet,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     subscripted,
                     index,
                 },
@@ -2467,7 +2456,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
         },
         .String => {
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
 
@@ -2475,7 +2464,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                 .bz_objStringSubscript,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     subscripted,
                     index_val,
                 },
@@ -2489,7 +2478,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                     .bz_mapSet,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                         subscripted,
                         index_val,
                         val,
@@ -2500,7 +2489,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
             }
 
             const res = m.MIR_new_reg_op(
-                self.ctx,
+                self.state.?.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
 
@@ -2508,7 +2497,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                 .bz_mapGet,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                    m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                     subscripted,
                     index_val,
                 },
@@ -2522,7 +2511,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
 
 fn generateIs(self: *Self, is_node: *n.IsNode) Error!?m.MIR_op_t {
     const res = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("res", m.MIR_T_I64),
     );
 
@@ -2531,7 +2520,7 @@ fn generateIs(self: *Self, is_node: *n.IsNode) Error!?m.MIR_op_t {
         res,
         &[_]m.MIR_op_t{
             (try self.generateNode(is_node.left)).?,
-            m.MIR_new_uint_op(self.ctx, is_node.constant.val),
+            m.MIR_new_uint_op(self.state.?.ctx, is_node.constant.val),
         },
     );
 
@@ -2539,20 +2528,20 @@ fn generateIs(self: *Self, is_node: *n.IsNode) Error!?m.MIR_op_t {
 }
 
 fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
-    const raise_label = m.MIR_new_label(self.ctx);
-    const out_label = m.MIR_new_label(self.ctx);
-    const catch_label = m.MIR_new_label(self.ctx);
+    const raise_label = m.MIR_new_label(self.state.?.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
+    const catch_label = m.MIR_new_label(self.state.?.ctx);
     var clause_labels = std.ArrayList(m.MIR_insn_t).init(self.vm.gc.allocator);
     defer clause_labels.deinit();
 
     for (try_node.clauses.keys()) |_| {
         try clause_labels.append(
-            m.MIR_new_label(self.ctx),
+            m.MIR_new_label(self.state.?.ctx),
         );
     }
 
     const unconditional_label = if (try_node.unconditional_clause != null)
-        m.MIR_new_label(self.ctx)
+        m.MIR_new_label(self.state.?.ctx)
     else
         null;
 
@@ -2560,13 +2549,13 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     const stack_top_ptr_base = try self.REG("stack_top_ptr_base", m.MIR_T_I64);
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, index),
-        m.MIR_new_uint_op(self.ctx, 0),
+        m.MIR_new_reg_op(self.state.?.ctx, index),
+        m.MIR_new_uint_op(self.state.?.ctx, 0),
     );
 
     // *[*]Value
     const stack_top_ptr = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         @offsetOf(o.NativeCtx, "stack_top"),
         self.state.?.current.?.ctx_reg.?,
@@ -2575,13 +2564,13 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     );
 
     self.MOV(
-        m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+        m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
         stack_top_ptr,
     );
 
     // [*]Value
     const stack_top = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         stack_top_ptr_base,
@@ -2593,14 +2582,14 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     const try_ctx = try self.REG("try_ctx", m.MIR_T_I64);
     try self.buildExternApiCall(
         .bz_setTryCtx,
-        m.MIR_new_reg_op(self.ctx, try_ctx),
+        m.MIR_new_reg_op(self.state.?.ctx, try_ctx),
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
         },
     );
 
     const env = m.MIR_new_mem_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_T_P,
         0,
         try_ctx,
@@ -2612,16 +2601,16 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     const status = try self.REG("status", m.MIR_T_I64);
     try self.buildExternApiCall(
         .setjmp,
-        m.MIR_new_reg_op(self.ctx, status),
+        m.MIR_new_reg_op(self.state.?.ctx, status),
         &[_]m.MIR_op_t{
             env,
         },
     );
 
     self.BEQ(
-        m.MIR_new_label_op(self.ctx, catch_label),
-        m.MIR_new_reg_op(self.ctx, status),
-        m.MIR_new_int_op(self.ctx, 1),
+        m.MIR_new_label_op(self.state.?.ctx, catch_label),
+        m.MIR_new_reg_op(self.state.?.ctx, status),
+        m.MIR_new_int_op(self.state.?.ctx, 1),
     );
 
     _ = try self.generateNode(try_node.body);
@@ -2629,7 +2618,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     self.JMP(out_label);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         catch_label,
     );
@@ -2642,7 +2631,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         .bz_closeUpValues,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             stack_top,
         },
     );
@@ -2651,7 +2640,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     self.MOV(stack_top_ptr, stack_top);
 
     // Put error back on stack
-    try self.buildPush(m.MIR_new_reg_op(self.ctx, payload));
+    try self.buildPush(m.MIR_new_reg_op(self.state.?.ctx, payload));
 
     self.JMP(
         if (clause_labels.items.len > 0) clause_labels.items[0] else unconditional_label.?,
@@ -2662,7 +2651,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         const clause = try_node.clauses.get(type_def).?;
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             label,
         );
@@ -2671,28 +2660,28 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         const err_payload = try self.REG("err_paylaod", m.MIR_T_I64);
         try self.buildPeek(
             0,
-            m.MIR_new_reg_op(self.ctx, err_payload),
+            m.MIR_new_reg_op(self.state.?.ctx, err_payload),
         );
 
         const matches = try self.REG("matches", m.MIR_T_I64);
         try self.buildExternApiCall(
             .bz_valueIs,
-            m.MIR_new_reg_op(self.ctx, matches),
+            m.MIR_new_reg_op(self.state.?.ctx, matches),
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, err_payload),
-                m.MIR_new_uint_op(self.ctx, type_def.toValue().val),
+                m.MIR_new_reg_op(self.state.?.ctx, err_payload),
+                m.MIR_new_uint_op(self.state.?.ctx, type_def.toValue().val),
             },
         );
 
         self.unwrap(
             .Bool,
-            m.MIR_new_reg_op(self.ctx, matches),
-            m.MIR_new_reg_op(self.ctx, matches),
+            m.MIR_new_reg_op(self.state.?.ctx, matches),
+            m.MIR_new_reg_op(self.state.?.ctx, matches),
         );
 
         self.BEQ(
             m.MIR_new_label_op(
-                self.ctx,
+                self.state.?.ctx,
                 if (index < try_node.clauses.keys().len - 1)
                     clause_labels.items[index + 1]
                 else if (unconditional_label) |unconditional|
@@ -2700,8 +2689,8 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
                 else
                     raise_label,
             ),
-            m.MIR_new_reg_op(self.ctx, matches),
-            m.MIR_new_uint_op(self.ctx, 0),
+            m.MIR_new_reg_op(self.state.?.ctx, matches),
+            m.MIR_new_uint_op(self.state.?.ctx, 0),
         );
 
         // Unwind TryCtx
@@ -2709,7 +2698,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
             .bz_popTryCtx,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             },
         );
 
@@ -2720,7 +2709,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
 
     if (unconditional_label) |label| {
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             self.state.?.current.?.function.?,
             label,
         );
@@ -2730,7 +2719,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
             .bz_popTryCtx,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             },
         );
 
@@ -2740,7 +2729,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
     }
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         raise_label,
     );
@@ -2750,7 +2739,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         .bz_popTryCtx,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
         },
     );
 
@@ -2759,12 +2748,12 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         .bz_rethrow,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
         },
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -2774,7 +2763,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         .bz_popTryCtx,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
         },
     );
 
@@ -2786,7 +2775,7 @@ fn generateThrow(self: *Self, throw_node: *n.ThrowNode) Error!?m.MIR_op_t {
         .bz_throw,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             (try self.generateNode(throw_node.error_value)).?,
         },
     );
@@ -2807,14 +2796,14 @@ fn generateUnwrap(self: *Self, unwrap_node: *n.UnwrapNode) Error!?m.MIR_op_t {
     }
 
     const current_insn = m.MIR_new_insn(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_MOV,
-        m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
+        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.opt_jump.?.alloca),
         value,
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         current_insn,
     );
@@ -2828,22 +2817,22 @@ fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m
     const object = if (object_init_node.object) |node|
         (try self.generateNode(node)).?
     else
-        m.MIR_new_uint_op(self.ctx, v.Value.Null.val);
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val);
 
     const typedef = if (object_init_node.object == null)
-        m.MIR_new_uint_op(self.ctx, object_init_node.node.type_def.?.toValue().val)
+        m.MIR_new_uint_op(self.state.?.ctx, object_init_node.node.type_def.?.toValue().val)
     else
-        m.MIR_new_uint_op(self.ctx, v.Value.Null.val);
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val);
 
     const instance = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("instance", m.MIR_T_I64),
     );
     try self.buildExternApiCall(
         .bz_instance,
         instance,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
             object,
             typedef,
         },
@@ -2860,7 +2849,7 @@ fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m
             null,
             &[_]m.MIR_op_t{
                 instance,
-                m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString(property_name)).toValue().val),
+                m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString(property_name)).toValue().val),
                 (try self.generateNode(value)).?,
             },
         );
@@ -2874,25 +2863,25 @@ fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m
 fn generateForceUnwrap(self: *Self, force_unwrap_node: *n.ForceUnwrapNode) Error!?m.MIR_op_t {
     const expr = (try self.generateNode(force_unwrap_node.unwrapped)).?;
 
-    const out_label = m.MIR_new_label(self.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
 
     self.BEQ(
-        m.MIR_new_label_op(self.ctx, out_label),
+        m.MIR_new_label_op(self.state.?.ctx, out_label),
         expr,
-        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+        m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val),
     );
 
     try self.buildExternApiCall(
         .bz_throw,
         null,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString("Force unwrapped optional is null")).toValue().val),
+            m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+            m.MIR_new_uint_op(self.state.?.ctx, (try self.vm.gc.copyString("Force unwrapped optional is null")).toValue().val),
         },
     );
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -2903,7 +2892,7 @@ fn generateForceUnwrap(self: *Self, force_unwrap_node: *n.ForceUnwrapNode) Error
 fn generateUnary(self: *Self, unary_node: *n.UnaryNode) Error!?m.MIR_op_t {
     const left = (try self.generateNode(unary_node.left)).?;
     const result = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         try self.REG("result", m.MIR_T_I64),
     );
 
@@ -2940,7 +2929,7 @@ fn generateUnary(self: *Self, unary_node: *n.UnaryNode) Error!?m.MIR_op_t {
 }
 
 fn generatePattern(self: *Self, pattern_node: *n.PatternNode) Error!?m.MIR_op_t {
-    return m.MIR_new_uint_op(self.ctx, pattern_node.constant.toValue().val);
+    return m.MIR_new_uint_op(self.state.?.ctx, pattern_node.constant.toValue().val);
 }
 
 fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t {
@@ -2972,8 +2961,8 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
     const key_ptr = try self.buildStackPtr(2);
     const value_ptr = try self.buildStackPtr(1);
 
-    const cond_label = m.MIR_new_label(self.ctx);
-    const out_label = m.MIR_new_label(self.ctx);
+    const cond_label = m.MIR_new_label(self.state.?.ctx);
+    const out_label = m.MIR_new_label(self.state.?.ctx);
 
     const previous_out_label = self.state.?.current.?.break_label;
     self.state.?.current.?.break_label = out_label;
@@ -2981,7 +2970,7 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
     self.state.?.current.?.continue_label = cond_label;
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         cond_label,
     );
@@ -2992,7 +2981,7 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
         unreachable;
     } else if (foreach_node.iterable.type_def.?.def_type == .Enum) {
         const next_case = m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             try self.REG("next_case", m.MIR_T_I64),
         );
 
@@ -3000,7 +2989,7 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
             .bz_enumNext,
             next_case,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 iterable,
                 value_ptr,
             },
@@ -3011,14 +3000,14 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
 
         // If next key is null stop, otherwise do loop
         self.BEQ(
-            m.MIR_new_label_op(self.ctx, out_label),
+            m.MIR_new_label_op(self.state.?.ctx, out_label),
             value_ptr,
-            m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+            m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val),
         );
     } else {
         // The `next` method will store the new key in the key local
         const next_value = m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             try self.REG("next_value", m.MIR_T_I64),
         );
         try self.buildExternApiCall(
@@ -3030,7 +3019,7 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
             },
             next_value,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
                 iterable,
                 // Pass ptr so the method can put he new key in it
                 key_ptr,
@@ -3042,9 +3031,9 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
 
         // If next key is null stop, otherwise loop
         self.BEQ(
-            m.MIR_new_label_op(self.ctx, out_label),
+            m.MIR_new_label_op(self.state.?.ctx, out_label),
             key_ptr,
-            m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+            m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val),
         );
     }
 
@@ -3053,7 +3042,7 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
     self.JMP(cond_label);
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         out_label,
     );
@@ -3085,7 +3074,7 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
             (try self.generateNode(value)).?
         else
             m.MIR_new_uint_op(
-                self.ctx,
+                self.state.?.ctx,
                 v.Value.Null.val,
             ),
     );
@@ -3116,7 +3105,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     defer qualified_name.deinit();
 
     const function = m.MIR_new_func_arr(
-        self.ctx,
+        self.state.?.ctx,
         qualified_name.items.ptr,
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
@@ -3133,13 +3122,13 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     self.state.?.current.?.function = function;
 
     // Build ref to ctx arg and vm
-    self.state.?.current.?.ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
-    self.state.?.current.?.vm_reg = m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_I64, "vm");
+    self.state.?.current.?.ctx_reg = m.MIR_reg(self.state.?.ctx, "ctx", function.u.func);
+    self.state.?.current.?.vm_reg = m.MIR_new_func_reg(self.state.?.ctx, function.u.func, m.MIR_T_I64, "vm");
 
     self.ADD(
-        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.vm_reg.?),
-        m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
-        m.MIR_new_uint_op(self.ctx, @offsetOf(o.NativeCtx, "vm")),
+        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.vm_reg.?),
+        m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.ctx_reg.?),
+        m.MIR_new_uint_op(self.state.?.ctx, @offsetOf(o.NativeCtx, "vm")),
     );
 
     if (function_node.arrow_expr) |arrow_expr| {
@@ -3152,10 +3141,10 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     }
 
     if (self.state.?.current.?.function_node.node.type_def.?.resolved_type.?.Function.return_type.def_type == .Void and !self.state.?.current.?.return_emitted) {
-        self.RET(m.MIR_new_uint_op(self.ctx, v.Value.Null.val));
+        self.RET(m.MIR_new_uint_op(self.state.?.ctx, v.Value.Null.val));
     }
 
-    m.MIR_finish_func(self.ctx);
+    m.MIR_finish_func(self.state.?.ctx);
 
     // Add the NativeFn version of the function
     const native_fn = try self.generateNativeFn(function_node, function);
@@ -3174,8 +3163,8 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     if (self.state.?.current != null) {
         // Call bz_closure
         const dest = m.MIR_new_reg_op(
-            self.ctx,
-            m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_U64, "result"),
+            self.state.?.ctx,
+            m.MIR_new_func_reg(self.state.?.ctx, function.u.func, m.MIR_T_U64, "result"),
         );
 
         try self.buildExternApiCall(
@@ -3183,18 +3172,18 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
             dest,
             &[_]m.MIR_op_t{
                 // ctx
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
+                m.MIR_new_reg_op(self.state.?.ctx, self.state.?.current.?.ctx_reg.?),
                 // function_node
-                m.MIR_new_uint_op(self.ctx, @ptrToInt(function_node)),
-                m.MIR_new_ref_op(self.ctx, native_fn),
-                m.MIR_new_ref_op(self.ctx, function),
+                m.MIR_new_uint_op(self.state.?.ctx, @ptrToInt(function_node)),
+                m.MIR_new_ref_op(self.state.?.ctx, native_fn),
+                m.MIR_new_ref_op(self.state.?.ctx, function),
             },
         );
 
         return dest;
     }
 
-    return m.MIR_new_ref_op(self.ctx, function);
+    return m.MIR_new_ref_op(self.state.?.ctx, function);
 }
 
 // TODO: we do everything "manually" because our helper use current function
@@ -3208,7 +3197,7 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     defer nativefn_qualified_name.deinit();
 
     const function = m.MIR_new_func_arr(
-        self.ctx,
+        self.state.?.ctx,
         nativefn_qualified_name.items.ptr,
         1,
         &[_]m.MIR_type_t{m.MIR_T_I64},
@@ -3222,19 +3211,19 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         },
     );
 
-    const ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
+    const ctx_reg = m.MIR_reg(self.state.?.ctx, "ctx", function.u.func);
     if (function_type == .Test or (function_def.error_types != null and function_def.error_types.?.len > 0)) {
-        const vm_reg = m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_I64, "vm");
+        const vm_reg = m.MIR_new_func_reg(self.state.?.ctx, function.u.func, m.MIR_T_I64, "vm");
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_ADD,
-                m.MIR_new_reg_op(self.ctx, vm_reg),
-                m.MIR_new_reg_op(self.ctx, ctx_reg),
+                m.MIR_new_reg_op(self.state.?.ctx, vm_reg),
+                m.MIR_new_reg_op(self.state.?.ctx, ctx_reg),
                 m.MIR_new_uint_op(
-                    self.ctx,
+                    self.state.?.ctx,
                     @offsetOf(o.NativeCtx, "vm"),
                 ),
             ),
@@ -3243,49 +3232,49 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         // Catch any error to forward them as a buzz error (push paylod + return -1)
         // Set it as current jump env
         const index = m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "index",
         );
         const try_ctx_reg = m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "try_ctx",
         );
         const try_ctx = m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             try_ctx_reg,
         );
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn_arr(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_CALL,
                 4,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_ref_op(self.ctx, try ExternApi.bz_setTryCtx.declare(self)),
-                    m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, ExternApi.bz_setTryCtx.name())),
+                    m.MIR_new_ref_op(self.state.?.ctx, try ExternApi.bz_setTryCtx.declare(self)),
+                    m.MIR_new_ref_op(self.state.?.ctx, m.MIR_new_import(self.state.?.ctx, ExternApi.bz_setTryCtx.name())),
                     try_ctx,
-                    m.MIR_new_reg_op(self.ctx, vm_reg),
+                    m.MIR_new_reg_op(self.state.?.ctx, vm_reg),
                 },
             ),
         );
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_MOV,
-                m.MIR_new_reg_op(self.ctx, index),
-                m.MIR_new_uint_op(self.ctx, 0),
+                m.MIR_new_reg_op(self.state.?.ctx, index),
+                m.MIR_new_uint_op(self.state.?.ctx, 0),
             ),
         );
         const env = m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             0,
             try_ctx_reg,
@@ -3295,58 +3284,58 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
 
         // setjmp
         const status = m.MIR_new_reg_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_new_func_reg(
-                self.ctx,
+                self.state.?.ctx,
                 function.u.func,
                 m.MIR_T_I64,
                 "status",
             ),
         );
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn_arr(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_CALL,
                 4,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_ref_op(self.ctx, try ExternApi.setjmp.declare(self)),
-                    m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, ExternApi.setjmp.name())),
+                    m.MIR_new_ref_op(self.state.?.ctx, try ExternApi.setjmp.declare(self)),
+                    m.MIR_new_ref_op(self.state.?.ctx, m.MIR_new_import(self.state.?.ctx, ExternApi.setjmp.name())),
                     status,
                     env,
                 },
             ),
         );
 
-        const fun_label = m.MIR_new_label(self.ctx);
+        const fun_label = m.MIR_new_label(self.state.?.ctx);
 
         // If status is 0, go to body, else go to catch clauses
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_BEQ,
-                m.MIR_new_label_op(self.ctx, fun_label),
+                m.MIR_new_label_op(self.state.?.ctx, fun_label),
                 status,
-                m.MIR_new_uint_op(self.ctx, 1),
+                m.MIR_new_uint_op(self.state.?.ctx, 1),
             ),
         );
 
         // Payload already on stack so juste return -1;
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_ret_insn(
-                self.ctx,
+                self.state.?.ctx,
                 1,
-                m.MIR_new_int_op(self.ctx, -1),
+                m.MIR_new_int_op(self.state.?.ctx, -1),
             ),
         );
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             fun_label,
         );
@@ -3354,26 +3343,26 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
 
     // Call the raw function
     const result = m.MIR_new_reg_op(
-        self.ctx,
+        self.state.?.ctx,
         m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "result",
         ),
     );
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         function,
         m.MIR_new_insn_arr(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_CALL,
             4,
             &[_]m.MIR_op_t{
-                m.MIR_new_ref_op(self.ctx, try ExternApi.rawfn.declare(self)),
-                m.MIR_new_ref_op(self.ctx, raw_fn),
+                m.MIR_new_ref_op(self.state.?.ctx, try ExternApi.rawfn.declare(self)),
+                m.MIR_new_ref_op(self.state.?.ctx, raw_fn),
                 result,
-                m.MIR_new_reg_op(self.ctx, ctx_reg),
+                m.MIR_new_reg_op(self.state.?.ctx, ctx_reg),
             },
         ),
     );
@@ -3383,38 +3372,38 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     // Push its result back into the VM
     if (should_return) {
         const stack_top_ptr_base = m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "stack_top_ptr_base",
         );
         const stack_top_base = m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "stack_top_base",
         );
         const index = m.MIR_new_func_reg(
-            self.ctx,
+            self.state.?.ctx,
             function.u.func,
             m.MIR_T_I64,
             "index2",
         );
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_MOV,
-                m.MIR_new_reg_op(self.ctx, index),
-                m.MIR_new_uint_op(self.ctx, 0),
+                m.MIR_new_reg_op(self.state.?.ctx, index),
+                m.MIR_new_uint_op(self.state.?.ctx, 0),
             ),
         );
 
         // *[*]Value
         const stack_top_ptr = m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             @offsetOf(o.NativeCtx, "stack_top"),
             ctx_reg,
@@ -3423,19 +3412,19 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         );
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_MOV,
-                m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+                m.MIR_new_reg_op(self.state.?.ctx, stack_top_ptr_base),
                 stack_top_ptr,
             ),
         );
 
         // [*]Value
         const stack_top = m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             0,
             stack_top_ptr_base,
@@ -3445,18 +3434,18 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
 
         // Store value on stack top
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_MOV,
-                m.MIR_new_reg_op(self.ctx, stack_top_base),
+                m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
                 stack_top,
             ),
         );
 
         const top = m.MIR_new_mem_op(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_T_P,
             0,
             stack_top_base,
@@ -3465,10 +3454,10 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         );
 
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_MOV,
                 top,
                 result,
@@ -3477,32 +3466,32 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
 
         // Increment stack top
         m.MIR_append_insn(
-            self.ctx,
+            self.state.?.ctx,
             function,
             m.MIR_new_insn(
-                self.ctx,
+                self.state.?.ctx,
                 m.MIR_ADD,
                 stack_top,
-                m.MIR_new_reg_op(self.ctx, stack_top_base),
-                m.MIR_new_uint_op(self.ctx, @sizeOf(u64)),
+                m.MIR_new_reg_op(self.state.?.ctx, stack_top_base),
+                m.MIR_new_uint_op(self.state.?.ctx, @sizeOf(u64)),
             ),
         );
     }
 
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         function,
         m.MIR_new_ret_insn(
-            self.ctx,
+            self.state.?.ctx,
             1,
             m.MIR_new_int_op(
-                self.ctx,
+                self.state.?.ctx,
                 if (should_return) 1 else 0,
             ),
         ),
     );
 
-    m.MIR_finish_func(self.ctx);
+    m.MIR_finish_func(self.state.?.ctx);
 
     return function;
 }
@@ -3539,10 +3528,10 @@ inline fn readConstant(self: *Self, arg: u24) v.Value {
 // MIR helper functions
 inline fn MOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_MOV,
             dest,
             value,
@@ -3552,10 +3541,10 @@ inline fn MOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
 
 inline fn EQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_EQ,
             dest,
             left,
@@ -3566,10 +3555,10 @@ inline fn EQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn EQS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_EQS,
             dest,
             left,
@@ -3580,10 +3569,10 @@ inline fn EQS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DEQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DEQ,
             dest,
             left,
@@ -3594,10 +3583,10 @@ inline fn DEQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn GT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_GT,
             dest,
             left,
@@ -3608,10 +3597,10 @@ inline fn GT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn GTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_GTS,
             dest,
             left,
@@ -3622,10 +3611,10 @@ inline fn GTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DGT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DGT,
             dest,
             left,
@@ -3636,10 +3625,10 @@ inline fn DGT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn LT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_LT,
             dest,
             left,
@@ -3650,10 +3639,10 @@ inline fn LT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn LTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_LTS,
             dest,
             left,
@@ -3664,10 +3653,10 @@ inline fn LTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DLT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DLT,
             dest,
             left,
@@ -3678,10 +3667,10 @@ inline fn DLT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn GE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_GE,
             dest,
             left,
@@ -3692,10 +3681,10 @@ inline fn GE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn GES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_GES,
             dest,
             left,
@@ -3706,10 +3695,10 @@ inline fn GES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DGE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DGE,
             dest,
             left,
@@ -3720,10 +3709,10 @@ inline fn DGE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn LE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_LE,
             dest,
             left,
@@ -3734,10 +3723,10 @@ inline fn LE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn LES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_LES,
             dest,
             left,
@@ -3748,10 +3737,10 @@ inline fn LES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DLE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DLE,
             dest,
             left,
@@ -3762,10 +3751,10 @@ inline fn DLE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn NE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_NE,
             dest,
             left,
@@ -3776,10 +3765,10 @@ inline fn NE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn NES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_NES,
             dest,
             left,
@@ -3790,10 +3779,10 @@ inline fn NES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DNE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DNE,
             dest,
             left,
@@ -3804,10 +3793,10 @@ inline fn DNE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_BEQ,
             label,
             left,
@@ -3818,12 +3807,12 @@ inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_BNE,
-            m.MIR_new_label_op(self.ctx, label),
+            m.MIR_new_label_op(self.state.?.ctx, label),
             left,
             right,
         ),
@@ -3832,22 +3821,22 @@ inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_o
 
 inline fn JMP(self: *Self, label: m.MIR_insn_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_JMP,
-            m.MIR_new_label_op(self.ctx, label),
+            m.MIR_new_label_op(self.state.?.ctx, label),
         ),
     );
 }
 
 inline fn ADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_ADD,
             dest,
             left,
@@ -3858,10 +3847,10 @@ inline fn ADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn ADDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_ADDS,
             dest,
             left,
@@ -3872,10 +3861,10 @@ inline fn ADDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn SUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_SUB,
             dest,
             left,
@@ -3886,10 +3875,10 @@ inline fn SUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn SUBS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_SUBS,
             dest,
             left,
@@ -3900,10 +3889,10 @@ inline fn SUBS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn DSUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DSUB,
             dest,
             left,
@@ -3914,10 +3903,10 @@ inline fn DSUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn MUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_MUL,
             dest,
             left,
@@ -3928,10 +3917,10 @@ inline fn MUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn MULS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_MULS,
             dest,
             left,
@@ -3942,10 +3931,10 @@ inline fn MULS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn DMUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DMUL,
             dest,
             left,
@@ -3956,10 +3945,10 @@ inline fn DMUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn DIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DIV,
             dest,
             left,
@@ -3970,10 +3959,10 @@ inline fn DIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn DIVS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DIVS,
             dest,
             left,
@@ -3984,10 +3973,10 @@ inline fn DIVS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn DDIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DDIV,
             dest,
             left,
@@ -3998,10 +3987,10 @@ inline fn DDIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn MOD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_MOD,
             dest,
             left,
@@ -4012,10 +4001,10 @@ inline fn MOD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn MODS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_MODS,
             dest,
             left,
@@ -4026,10 +4015,10 @@ inline fn MODS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
 
 inline fn AND(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_AND,
             dest,
             left,
@@ -4040,10 +4029,10 @@ inline fn AND(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn OR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_OR,
             dest,
             left,
@@ -4054,10 +4043,10 @@ inline fn OR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
 
 inline fn XOR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_XOR,
             dest,
             left,
@@ -4068,10 +4057,10 @@ inline fn XOR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn SHL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_LSH,
             dest,
             left,
@@ -4082,10 +4071,10 @@ inline fn SHL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn SHR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_RSH,
             dest,
             left,
@@ -4096,24 +4085,24 @@ inline fn SHR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
 
 inline fn NOT(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_XOR,
             dest,
             value,
-            m.MIR_new_uint_op(self.ctx, 0xffffffffffffffff),
+            m.MIR_new_uint_op(self.state.?.ctx, 0xffffffffffffffff),
         ),
     );
 }
 
 inline fn I2F(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_I2F,
             dest,
             value,
@@ -4123,10 +4112,10 @@ inline fn I2F(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
 
 inline fn NEGS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_NEGS,
             dest,
             value,
@@ -4136,10 +4125,10 @@ inline fn NEGS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
 
 inline fn DNEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_DNEG,
             dest,
             value,
@@ -4149,10 +4138,10 @@ inline fn DNEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
 
 inline fn RET(self: *Self, return_value: m.MIR_op_t) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_ret_insn(
-            self.ctx,
+            self.state.?.ctx,
             1,
             return_value,
         ),
@@ -4161,13 +4150,13 @@ inline fn RET(self: *Self, return_value: m.MIR_op_t) void {
 
 inline fn ALLOCA(self: *Self, reg: m.MIR_reg_t, size: usize) void {
     m.MIR_append_insn(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?,
         m.MIR_new_insn(
-            self.ctx,
+            self.state.?.ctx,
             m.MIR_ALLOCA,
-            m.MIR_new_reg_op(self.ctx, reg),
-            m.MIR_new_uint_op(self.ctx, size),
+            m.MIR_new_reg_op(self.state.?.ctx, reg),
+            m.MIR_new_uint_op(self.state.?.ctx, size),
         ),
     );
 }
@@ -4184,7 +4173,7 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
     }
 
     const reg = m.MIR_new_func_reg(
-        self.ctx,
+        self.state.?.ctx,
         self.state.?.current.?.function.?.u.func,
         reg_type,
         actual_name.items.ptr,
@@ -4252,7 +4241,7 @@ pub const ExternApi = enum {
     exit,
 
     pub fn declare(self: ExternApi, jit: *Self) !m.MIR_item_t {
-        const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
+        const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.state.?.ctx);
 
         try jit.state.?.prototypes.put(
             self,
