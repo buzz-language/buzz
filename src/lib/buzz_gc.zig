@@ -9,7 +9,7 @@ export fn allocated(ctx: *api.NativeCtx) c_int {
 
 export fn collect(ctx: *api.NativeCtx) c_int {
     if (!ctx.vm.bz_collect()) {
-        ctx.vm.bz_pushError("lib.gc.CollectError", "lib.gc.CollectError".len);
+        ctx.vm.pushError("lib.gc.CollectError");
 
         return -1;
     }

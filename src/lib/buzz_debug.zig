@@ -51,7 +51,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             error.Overflow,
             error.InvalidCharacter,
             error.NoSpaceLeft,
-            => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+            => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -64,7 +64,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             switch (err) {
                 error.OutOfMemory,
                 error.NoSpaceLeft,
-                => ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len),
+                => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
             }
 
             return -1;
@@ -72,7 +72,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
 
         ctx.vm.bz_pushString(
             api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
-                ctx.vm.bz_pushError("lib.errors.OutOfMemoryError", "lib.errors.OutOfMemoryError".len);
+                ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
                 return -1;
             },
@@ -81,7 +81,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.bz_pushError("lib.errors.CompileError", "lib.errors.CompileError".len);
+    ctx.vm.pushError("lib.errors.CompileError");
 
     return -1;
 }

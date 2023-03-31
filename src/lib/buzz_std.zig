@@ -114,10 +114,7 @@ export fn char(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.bz_pushError(
-        "lib.errors.OutOfMemoryError",
-        "lib.errors.OutOfMemoryError".len,
-    );
+    ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
     return -1;
 }
