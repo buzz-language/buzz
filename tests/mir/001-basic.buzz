@@ -1,0 +1,7 @@
+import "lib/std";
+
+test "basic" {
+    str msg = "hello world";
+
+    print(msg);
+}

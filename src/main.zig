@@ -16,7 +16,7 @@ const FunctionNode = @import("./node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const JIT = @import("./jit.zig").JIT;
+const LLVMJIT = @import("./llvmjit.zig").LLVMJIT;
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -183,7 +183,13 @@ pub fn main() !void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit) "LLVM 15.0.6" else "no",
+                if (BuildOptions.jit)
+                    switch (BuildOptions.jit_engine) {
+                        .mir => "MIR",
+                        .llvm => "LLVM 15.0.6",
+                    }
+                else
+                    "no",
             },
         );
 
