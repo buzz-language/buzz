@@ -171,7 +171,7 @@ pub fn join(ctx: *NativeCtx) c_int {
     var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
     var writer = result.writer();
     defer result.deinit();
-    for (self.items.items) |item, i| {
+    for (self.items.items, 0..) |item, i| {
         valueToString(&writer, item) catch {
             var err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
@@ -279,7 +279,7 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     var list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     var closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
-    for (list.items.items) |item, index| {
+    for (list.items.items, 0..) |item, index| {
         var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
         defer args.deinit();
 
@@ -305,7 +305,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     var closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
     var accumulator = ctx.vm.peek(0);
 
-    for (list.items.items) |item, index| {
+    for (list.items.items, 0..) |item, index| {
         var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
         defer args.deinit();
 
@@ -343,7 +343,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
         ),
     ) catch unreachable; // TODO: handle error
 
-    for (list.items.items) |item, index| {
+    for (list.items.items, 0..) |item, index| {
         var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
         defer args.deinit();
 
@@ -384,7 +384,7 @@ pub fn map(ctx: *NativeCtx) c_int {
         ),
     ) catch unreachable; // TODO: handle error
 
-    for (list.items.items) |item, index| {
+    for (list.items.items, 0..) |item, index| {
         var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
         defer args.deinit();
 

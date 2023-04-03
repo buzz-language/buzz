@@ -144,8 +144,8 @@ export fn pow(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_pushInteger(
             std.math.powi(i32, n_i.?, p_i.?) catch |err| {
                 switch (err) {
-                    error.Overflow => ctx.vm.pushError("lib.std.Overflow"),
-                    error.Underflow => ctx.vm.pushError("lib.std.Underflow"),
+                    error.Overflow => ctx.vm.pushError("lib.errors.OverflowError"),
+                    error.Underflow => ctx.vm.pushError("lib.errors.UnderflowError"),
                 }
 
                 return -1;

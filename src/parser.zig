@@ -405,7 +405,7 @@ pub const Parser = struct {
         // If top level, search `main` or `test` function(s) and call them
         // Then put any exported globals on the stack
         if (function_type == .ScriptEntryPoint) {
-            for (self.globals.items) |global, index| {
+            for (self.globals.items, 0..) |global, index| {
                 if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
                     function_node.main_slot = index;
                     break;
@@ -415,7 +415,7 @@ pub const Parser = struct {
 
         var test_slots = std.ArrayList(usize).init(self.gc.allocator);
         // Create an entry point wich runs all `test`
-        for (self.globals.items) |global, index| {
+        for (self.globals.items, 0..) |global, index| {
             if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
                 try test_slots.append(index);
             }
@@ -430,7 +430,7 @@ pub const Parser = struct {
 
         // Check there's no more root placeholders
         if (BuildOptions.debug_placeholders) {
-            for (self.globals.items) |global, index| {
+            for (self.globals.items, 0..) |global, index| {
                 if (global.type_def.def_type == .Placeholder) {
                     std.debug.print(
                         "Placeholder remaining in globals at {}: @{} {s}\n",
@@ -3651,7 +3651,7 @@ pub const Parser = struct {
             .Enum => {
                 var enum_def: ObjEnum.EnumDef = callee.type_def.?.resolved_type.?.Enum;
 
-                for (enum_def.cases.items) |case, index| {
+                for (enum_def.cases.items, 0..) |case, index| {
                     if (mem.eql(u8, case, member_name)) {
                         var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
                             .EnumInstance = callee.type_def.?,
@@ -5053,7 +5053,7 @@ pub const Parser = struct {
             return try self.addLocal(name, variable_type, constant);
         } else {
             // Check a global with the same name doesn't exists
-            for (self.globals.items) |global, index| {
+            for (self.globals.items, 0..) |global, index| {
                 if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
                     if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
@@ -5107,7 +5107,7 @@ pub const Parser = struct {
 
     fn dumpGlobals(self: *Self) !void {
         if (BuildOptions.debug) {
-            for (self.globals.items) |global, index| {
+            for (self.globals.items, 0..) |global, index| {
                 std.debug.print(
                     "global {}: {s} @{} {s}\n",
                     .{
@@ -5123,7 +5123,7 @@ pub const Parser = struct {
 
     fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef, constant: bool) !usize {
         // Search for an existing placeholder global with the same name
-        for (self.globals.items) |global, index| {
+        for (self.globals.items, 0..) |global, index| {
             if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.name.string)) {
                 if (global_type.def_type != .Placeholder) {
                     try self.resolvePlaceholder(global.type_def, global_type, constant);

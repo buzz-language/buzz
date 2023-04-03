@@ -27,6 +27,7 @@ enum FileSystemError {
     SystemResources,
     WouldBlock,
     FileLocksNotSupported,
+    NonCanonical,
 }
 
 enum ExecError {
@@ -59,6 +60,12 @@ enum SocketError {
     FileDescriptorNotASocket,
     FileNotFound,
     HostLacksNetworkAddresses,
+    Incomplete,
+    InterfaceNotFound,
+    InvalidCharacter,
+    InvalidEnd,
+    InvalidIPAddressFormat,
+    InvalidIpv4Mapping,
     InvalidProtocolOption,
     NameServerFailure,
     NetworkSubsystemFailed,

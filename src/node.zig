@@ -990,7 +990,7 @@ pub const StringNode = struct {
             return null;
         }
 
-        for (self.elements) |element, index| {
+        for (self.elements, 0..) |element, index| {
             if (element.type_def == null or element.type_def.?.def_type == .Placeholder) {
                 try codegen.reportPlaceholder(element.type_def.?.resolved_type.?.Placeholder);
 
@@ -1019,7 +1019,7 @@ pub const StringNode = struct {
 
         try out.writeAll("{\"node\": \"String\", \"elements\": [");
 
-        for (self.elements) |element, i| {
+        for (self.elements, 0..) |element, i| {
             try element.toJson(element, out);
 
             if (i < self.elements.len - 1) {
@@ -1308,7 +1308,7 @@ pub const ListNode = struct {
 
         try out.writeAll("{\"node\": \"List\", \"items\": [");
 
-        for (self.items) |item, i| {
+        for (self.items, 0..) |item, i| {
             try item.toJson(item, out);
 
             if (i < self.items.len - 1) {
@@ -1338,7 +1338,7 @@ pub const ListNode = struct {
             try out.writeAll(">");
         }
 
-        for (self.items) |item, i| {
+        for (self.items, 0..) |item, i| {
             // If trailing comma, means we want all element on its own line
             if (self.trailing_comma) {
                 try out.writeAll("\n");
@@ -1423,7 +1423,7 @@ pub const MapNode = struct {
 
             assert(self.keys.len == self.values.len);
 
-            for (self.keys) |key, index| {
+            for (self.keys, 0..) |key, index| {
                 const value = self.values[index];
                 try map.map.put(
                     try key.toValue(key, gc),
@@ -1454,7 +1454,7 @@ pub const MapNode = struct {
 
         assert(self.keys.len == self.values.len);
 
-        for (self.keys) |key, i| {
+        for (self.keys, 0..) |key, i| {
             const value = self.values[i];
 
             _ = try key.toByteCode(key, codegen, breaks);
@@ -1494,7 +1494,7 @@ pub const MapNode = struct {
 
         try out.writeAll("{\"node\": \"Map\", \"items\": [");
 
-        for (self.keys) |key, i| {
+        for (self.keys, 0..) |key, i| {
             try out.writeAll("{\"key\":");
 
             try key.toJson(key, out);
@@ -1534,7 +1534,7 @@ pub const MapNode = struct {
             try out.writeAll(">");
         }
 
-        for (self.keys) |key, i| {
+        for (self.keys, 0..) |key, i| {
             // If trailing comma, means we want all element on its own line
             if (self.trailing_comma) {
                 try out.writeAll("\n");
@@ -3061,7 +3061,7 @@ pub const FunctionNode = struct {
     exported_count: ?usize = null,
 
     // Set when the function is first generated
-    // The JIT compiler can then reference it when creating its closure
+    // The LLVMJIT compiler can then reference it when creating its closure
     function: ?*ObjFunction = null,
 
     pub fn nextId() usize {
@@ -3889,7 +3889,7 @@ pub const CallNode = struct {
 
         var missing_arguments = std.AutoArrayHashMap(*ObjString, usize).init(codegen.gc.allocator);
         defer missing_arguments.deinit();
-        for (arg_keys) |arg_name, pindex| {
+        for (arg_keys, 0..) |arg_name, pindex| {
             try missing_arguments.put(arg_name, pindex);
         }
 
@@ -3899,7 +3899,7 @@ pub const CallNode = struct {
 
         // First push on the stack arguments has they are parsed
         var needs_reorder = false;
-        for (self.arguments.keys()) |arg_key, index| {
+        for (self.arguments.keys(), 0..) |arg_key, index| {
             const argument = self.arguments.get(arg_key).?;
             const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key.string, "$")) arg_keys[0] else arg_key;
             const def_arg_type = args.get(actual_arg_key);
@@ -3969,7 +3969,7 @@ pub const CallNode = struct {
             while (true) {
                 var ordered = true;
 
-                for (arguments_order_ref.items) |arg_key, index| {
+                for (arguments_order_ref.items, 0..) |arg_key, index| {
                     const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key.string, "$")) args.keys()[0] else arg_key;
                     const correct_index = args.getIndex(actual_arg_key).?;
 
@@ -4162,7 +4162,7 @@ pub const CallNode = struct {
         }
 
         try out.writeAll(", \"resolved_generics\": [");
-        for (self.resolved_generics) |generic, i| {
+        for (self.resolved_generics, 0..) |generic, i| {
             try out.writeAll("\"");
             try generic.toString(out);
             try out.writeAll("\"");
@@ -4174,7 +4174,7 @@ pub const CallNode = struct {
 
         try out.writeAll("], \"arguments\": [");
 
-        for (self.arguments.keys()) |key, i| {
+        for (self.arguments.keys(), 0..) |key, i| {
             const argument = self.arguments.get(key).?;
 
             try out.print("{{\"name\": \"{s}\", \"value\": ", .{key.string});
@@ -4601,7 +4601,7 @@ pub const EnumNode = struct {
 
         try out.writeAll("{\"node\": \"Enum\", \"cases\": [");
 
-        for (self.cases.items) |case, i| {
+        for (self.cases.items, 0..) |case, i| {
             try case.toJson(case, out);
             if (i < self.cases.items.len - 1) {
                 try out.writeAll(",");
@@ -4629,7 +4629,7 @@ pub const EnumNode = struct {
             try out.writeAll(")");
         }
         try out.print(" {s} {{\n", .{enum_def.name.string});
-        for (enum_def.cases.items) |case, i| {
+        for (enum_def.cases.items, 0..) |case, i| {
             try out.writeByteNTimes(' ', (depth + 1) * 4);
             try out.writeAll(case);
 
@@ -5458,7 +5458,7 @@ pub const ForNode = struct {
 
         try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
 
-        for (self.init_declarations.items) |var_declaration, i| {
+        for (self.init_declarations.items, 0..) |var_declaration, i| {
             try var_declaration.node.toJson(&var_declaration.node, out);
 
             if (i < self.init_declarations.items.len - 1) {
@@ -5495,7 +5495,7 @@ pub const ForNode = struct {
         try out.writeByteNTimes(' ', depth * 4);
 
         try out.writeAll("for (");
-        for (self.init_declarations.items) |decl, i| {
+        for (self.init_declarations.items, 0..) |decl, i| {
             try decl.node.render(&decl.node, out, depth);
             if (i < self.init_declarations.items.len - 1) {
                 try out.writeAll(", ");
@@ -5506,7 +5506,7 @@ pub const ForNode = struct {
         try self.condition.render(self.condition, out, depth);
         try out.writeAll("; ");
 
-        for (self.post_loop.items) |expr, i| {
+        for (self.post_loop.items, 0..) |expr, i| {
             try expr.render(expr, out, depth);
 
             if (i < self.post_loop.items.len - 1) {
@@ -6111,7 +6111,7 @@ pub const BlockNode = struct {
 
         try out.writeAll("{\"node\": \"Block\", \"statements\": [");
 
-        for (self.statements.items) |statement, i| {
+        for (self.statements.items, 0..) |statement, i| {
             try statement.toJson(statement, out);
 
             if (i < self.statements.items.len - 1) {

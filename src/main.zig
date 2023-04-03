@@ -16,7 +16,7 @@ const FunctionNode = @import("./node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const JIT = @import("./jit.zig").JIT;
+const LLVMJIT = @import("./llvmjit.zig").LLVMJIT;
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -167,7 +167,7 @@ pub fn main() !void {
     };
     defer res.deinit();
 
-    if (res.args.version) {
+    if (res.args.version == 1) {
         std.debug.print(
             "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
             .{
@@ -183,14 +183,20 @@ pub fn main() !void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit) "LLVM 15.0.6" else "no",
+                if (BuildOptions.jit)
+                    switch (BuildOptions.jit_engine) {
+                        .mir => "MIR",
+                        .llvm => "LLVM 15.0.6",
+                    }
+                else
+                    "no",
             },
         );
 
         std.os.exit(0);
     }
 
-    if (res.args.help or res.positionals.len == 0) {
+    if (res.args.help == 1 or res.positionals.len == 0) {
         std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
         try clap.usage(
@@ -226,7 +232,16 @@ pub fn main() !void {
         positionals.deinit();
     }
 
-    const flavor: RunFlavor = if (res.args.check) RunFlavor.Check else if (res.args.@"test") RunFlavor.Test else if (res.args.fmt) RunFlavor.Fmt else if (res.args.tree) RunFlavor.Ast else RunFlavor.Run;
+    const flavor: RunFlavor = if (res.args.check == 1)
+        RunFlavor.Check
+    else if (res.args.@"test" == 1)
+        RunFlavor.Test
+    else if (res.args.fmt == 1)
+        RunFlavor.Fmt
+    else if (res.args.tree == 1)
+        RunFlavor.Ast
+    else
+        RunFlavor.Run;
 
     runFile(
         allocator,

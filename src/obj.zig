@@ -3168,7 +3168,7 @@ pub const ObjTypeDef = struct {
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");
-                    for (function_def.error_types.?) |error_type, index| {
+                    for (function_def.error_types.?, 0..) |error_type, index| {
                         try error_type.toStringRaw(writer, qualified);
 
                         if (index < function_def.error_types.?.len - 1) {
@@ -3367,7 +3367,7 @@ pub const ObjTypeDef = struct {
                     return false;
                 }
 
-                for (a_keys) |_, index| {
+                for (a_keys, 0..) |_, index| {
                     if (!expected.Function.parameters.get(a_keys[index]).?
                         .eql(actual.Function.parameters.get(b_keys[index]).?))
                     {

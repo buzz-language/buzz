@@ -21,16 +21,23 @@ const BuzzDebugOptions = struct {
 };
 
 const BuzzJITOptions = struct {
+    pub const Engine = enum {
+        llvm,
+        mir,
+    };
+
     on: bool,
     debug_on: bool,
     debug: bool,
     prof_threshold: f128 = 0.05,
+    engine: Engine,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.on), "jit_debug_on", self.debug_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
+        options.addOption(@TypeOf(self.engine), "jit_engine", self.engine);
     }
 };
 
@@ -77,7 +84,7 @@ const BuzzBuildOptions = struct {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.11.0-dev.1580+a5b34a61a") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.2371+a3145037") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -87,6 +94,14 @@ pub fn build(b: *Build) !void {
     std.fs.cwd().makeDir("dist/lib") catch {};
 
     try std.fs.cwd().access("dist/lib", .{});
+
+    const jit_engine_opt = b.option(
+        []const u8,
+        "jit_engine",
+        "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
+    ) orelse "llvm";
+
+    const jit_engine: BuzzJITOptions.Engine = if (std.mem.eql(u8, jit_engine_opt, "mir")) .mir else .llvm;
 
     var build_options = BuzzBuildOptions{
         // Version is latest tag or empty string
@@ -218,6 +233,7 @@ pub fn build(b: *Build) !void {
                 "jit_prof_threshold",
                 "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
             ) orelse 0.05,
+            .engine = jit_engine,
         },
     };
 
@@ -231,10 +247,19 @@ pub fn build(b: *Build) !void {
     var llibs = std.ArrayList([]const u8).init(std.heap.page_allocator);
     defer llibs.deinit();
 
-    sys_libs.appendSlice(&[_][]const u8{
-        "llvm-15",
-        "pcre",
-    }) catch unreachable;
+    sys_libs.appendSlice(
+        if (build_options.jit.on) &[_][]const u8{
+            // switch (build_options.jit.engine) {
+            //     .mir => "mir",
+            //     .llvm => "llvm-15",
+            // },
+            "mir",
+            "llvm-15",
+            "pcre",
+        } else &[_][]const u8{
+            "pcre",
+        },
+    ) catch unreachable;
     if (build_options.use_mimalloc) {
         sys_libs.append("mimalloc") catch unreachable;
     }
@@ -254,15 +279,17 @@ pub fn build(b: *Build) !void {
         llibs.append("/opt/homebrew/lib") catch unreachable;
     }
 
-    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-        var lib = std.ArrayList(u8).init(std.heap.page_allocator);
+    if (build_options.jit.on) { // and build_options.jit.engine == .llvm) {
+        if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+            var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+            var lib = std.ArrayList(u8).init(std.heap.page_allocator);
 
-        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-        lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+            inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+            lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
 
-        includes.append(inc.items) catch unreachable;
-        llibs.append(lib.items) catch unreachable;
+            includes.append(inc.items) catch unreachable;
+            llibs.append(lib.items) catch unreachable;
+        }
     }
 
     var exe = b.addExecutable(.{
@@ -355,7 +382,7 @@ pub fn build(b: *Build) !void {
     };
 
     var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
-    for (lib_paths) |lib_path, index| {
+    for (lib_paths, 0..) |lib_path, index| {
         var std_lib = b.addSharedLibrary(.{
             .name = lib_names[index],
             .root_source_file = Build.FileSource.relative(lib_path),

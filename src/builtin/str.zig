@@ -338,7 +338,7 @@ pub fn upper(ctx: *NativeCtx) c_int {
     };
     defer ctx.vm.gc.allocator.free(new_str);
 
-    for (str.string) |char, index| {
+    for (str.string, 0..) |char, index| {
         switch (char) {
             'a'...'z' => new_str[index] = std.ascii.toUpper(char),
             else => new_str[index] = char,
@@ -374,7 +374,7 @@ pub fn lower(ctx: *NativeCtx) c_int {
     };
     defer ctx.vm.gc.allocator.free(new_str);
 
-    for (str.string) |char, index| {
+    for (str.string, 0..) |char, index| {
         switch (char) {
             'A'...'Z' => new_str[index] = std.ascii.toLower(char),
             else => new_str[index] = char,
