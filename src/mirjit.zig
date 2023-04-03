@@ -59,15 +59,12 @@ const OptJump = struct {
 const GenState = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
-    // Closure being compiled right now
+    // Root closure (not necessarily the one being compiled)
     closure: ?*o.ObjClosure = null,
-    // MIR_item_t of generated functions (needed when calling MIR_gen)
-    function_items: std.AutoHashMap(*n.FunctionNode, [2]m.MIR_item_t),
     current: ?*Frame = null,
     opt_jump: ?OptJump = null,
 
     pub fn deinit(self: *GenState) void {
-        self.function_items.deinit();
         self.prototypes.deinit();
     }
 };
@@ -81,9 +78,18 @@ state: ?GenState = null,
 compiled_closures: std.AutoHashMap(*o.ObjClosure, void),
 // Closure we can't compile (containing async call, or yield)
 blacklisted_closures: std.AutoHashMap(*o.ObjClosure, void),
-// Call call of all functions
+// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
+// Once compiled, the value is set to an array of the native and raw native func_items
+functions_queue: std.AutoHashMap(*n.FunctionNode, ?[2]m.MIR_item_t),
+// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
+objclosures_queue: std.AutoHashMap(*o.ObjClosure, void),
+// External api to link
+required_ext_api: std.AutoHashMap(ExternApi, void),
+// Modules to load when linking/generating
+modules: std.ArrayList(m.MIR_module_t),
+// Call count of all functions
 call_count: u128 = 0,
-// Keeps track of time spent in the LLVMJIT
+// Keeps track of time spent in the JIT
 jit_time: usize = 0,
 
 pub fn init(vm: *VM) Self {
@@ -104,21 +110,27 @@ pub fn init(vm: *VM) Self {
         .ctx = ctx,
         .compiled_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .blacklisted_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
+        .functions_queue = std.AutoHashMap(*n.FunctionNode, ?[2]m.MIR_item_t).init(vm.gc.allocator),
+        .objclosures_queue = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
+        .required_ext_api = std.AutoHashMap(ExternApi, void).init(vm.gc.allocator),
+        .modules = std.ArrayList(m.MIR_module_t).init(vm.gc.allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
     self.compiled_closures.deinit();
     self.blacklisted_closures.deinit();
+    assert(self.functions_queue.count() == 0);
+    self.functions_queue.deinit();
+    assert(self.objclosures_queue.count() == 0);
+    self.objclosures_queue.deinit();
+    self.modules.deinit();
+    self.required_ext_api.deinit();
     m.MIR_finish(self.ctx);
 }
 
-pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
-    const function = closure.function;
-
-    const function_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), function.node));
-
-    var qualified_name = try self.getFunctionQualifiedName(
+fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.FunctionNode) Error!void {
+    const qualified_name = try self.getFunctionQualifiedName(
         function_node,
         false,
     );
@@ -127,24 +139,27 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
     const module = m.MIR_new_module(self.ctx, qualified_name.items.ptr);
     defer m.MIR_finish_module(self.ctx);
 
+    try self.modules.append(module);
+
     self.state = .{
         .module = module,
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
-        .function_items = std.AutoHashMap(*n.FunctionNode, [2]m.MIR_item_t).init(self.vm.gc.allocator),
     };
 
-    try self.compiled_closures.put(closure, {});
-    self.state.?.closure = closure;
+    if (closure) |uclosure| {
+        try self.compiled_closures.put(uclosure, {});
+        self.state.?.closure = uclosure;
 
-    if (BuildOptions.jit_debug) {
-        std.debug.print(
-            "Compiling function `{s}` because it was called {}/{} times\n",
-            .{
-                qualified_name.items,
-                closure.function.call_count,
-                self.call_count,
-            },
-        );
+        if (BuildOptions.jit_debug) {
+            std.debug.print(
+                "Compiling function `{s}` because it was called {}/{} times\n",
+                .{
+                    qualified_name.items,
+                    uclosure.function.call_count,
+                    self.call_count,
+                },
+            );
+        }
     }
 
     _ = self.generateNode(function_node.toNode()) catch |err| {
@@ -156,7 +171,9 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
             // self.state.?.deinit();
             self.state = null;
 
-            try self.blacklisted_closures.put(closure, {});
+            if (closure) |uclosure| {
+                try self.blacklisted_closures.put(uclosure, {});
+            }
         }
 
         return err;
@@ -172,12 +189,60 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
 
         m.MIR_output_module(self.ctx, debug_file, module);
     }
+}
 
-    m.MIR_load_module(self.ctx, module);
+pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
+    const function = closure.function;
+    const function_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), function.node));
+
+    if (BuildOptions.jit_debug) {
+        const qualified_name = try self.getFunctionQualifiedName(
+            function_node,
+            false,
+        );
+        defer qualified_name.deinit();
+        std.debug.print(
+            "Compiling function `{s}`\n",
+            .{
+                qualified_name.items,
+            },
+        );
+    }
+
+    // Remember we need to set this functions fields
+    try self.objclosures_queue.put(closure, {});
+
+    // Build the function
+    try self.buildFunction(closure, function_node);
+
+    // Did we encountered other functions that need to be compiled?
+    var it = self.functions_queue.iterator();
+    while (it.next()) |kv| {
+        const node = kv.key_ptr.*;
+
+        // Does it have an associated closure?
+        var it2 = self.objclosures_queue.iterator();
+        var sub_closure: ?*o.ObjClosure = null;
+        while (it2.next()) |kv2| {
+            if (kv2.key_ptr.*.function.node == @ptrCast(*anyopaque, node)) {
+                sub_closure = kv2.key_ptr.*;
+                break;
+            }
+        }
+
+        if (kv.value_ptr.* == null) {
+            try self.buildFunction(sub_closure, node);
+        }
+    }
+
+    // Load modules
+    for (self.modules.items) |module| {
+        m.MIR_load_module(self.ctx, module);
+    }
 
     // Load external functions
-    var it = self.state.?.prototypes.iterator();
-    while (it.next()) |kv| {
+    var it_ext = self.required_ext_api.iterator();
+    while (it_ext.next()) |kv| {
         switch (kv.key_ptr.*) {
             // TODO: don't mix those with actual api functions
             .rawfn, .nativefn => {},
@@ -188,12 +253,20 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
             ),
         }
     }
+
+    // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
 
     m.MIR_gen_init(self.ctx, 1);
     defer m.MIR_gen_finish(self.ctx);
 
     if (BuildOptions.jit_debug) {
+        const qualified_name = try self.getFunctionQualifiedName(
+            function_node,
+            false,
+        );
+        defer qualified_name.deinit();
+
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/{s}.mir\u{0}", .{qualified_name.items}) catch unreachable;
@@ -203,9 +276,35 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
         m.MIR_gen_set_debug_file(self.ctx, 0, debug_file);
     }
 
-    const fun_items = self.state.?.function_items.get(function_node).?;
-    closure.function.native = m.MIR_gen(self.ctx, 0, fun_items[0]);
-    closure.function.native_raw = m.MIR_gen(self.ctx, 0, fun_items[1]);
+    // Generate all needed functions and set them in corresponding ObjFunctions
+    var it2 = self.functions_queue.iterator();
+    while (it2.next()) |kv| {
+        const node = kv.key_ptr.*;
+        const items = kv.value_ptr.*.?;
+
+        const native = m.MIR_gen(self.ctx, 0, items[0]);
+        const native_raw = m.MIR_gen(self.ctx, 0, items[1]);
+
+        // Find out if we need to set it in a ObjFunction
+        var it3 = self.objclosures_queue.iterator();
+        var set = false;
+        while (it3.next()) |kv2| {
+            if (kv2.key_ptr.*.function.node == @ptrCast(*anyopaque, node)) {
+                kv2.key_ptr.*.function.native = native;
+                kv2.key_ptr.*.function.native_raw = native_raw;
+                set = true;
+                break;
+            }
+        }
+
+        assert(set);
+    }
+
+    // Ensure queues are empty for future use
+    self.functions_queue.clearAndFree();
+    self.objclosures_queue.clearAndFree();
+    self.required_ext_api.clearAndFree();
+    self.modules.clearAndFree();
 
     self.state.?.deinit();
     self.state = null;
@@ -942,7 +1041,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
     if (string_node.elements.len == 0) {
         return m.MIR_new_uint_op(
             self.ctx,
-            self.readConstant(0).val,
+            self.state.?.closure.?.function.chunk.constants.items[0].val,
         ); // Constant 0 is the empty string
     }
 
@@ -1029,8 +1128,17 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
                         return Error.CantCompile;
                     }
 
-                    // TODO: compile
-                    unreachable;
+                    // Remember we need to set native fields of this ObjFunction later
+                    try self.objclosures_queue.put(closure, {});
+
+                    // Remember that we need to compile this function later
+                    try self.functions_queue.put(
+                        @ptrCast(
+                            *n.FunctionNode,
+                            @alignCast(@alignOf(n.FunctionNode), closure.function.node),
+                        ),
+                        null,
+                    );
                 }
 
                 return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
@@ -3094,16 +3202,10 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
 }
 
 fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op_t {
+    const root_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), self.state.?.closure.?.function.node));
+
     const function_def = function_node.node.type_def.?.resolved_type.?.Function;
     const function_type = function_def.function_type;
-
-    var enclosing = self.state.?.current;
-    self.state.?.current = try self.vm.gc.allocator.create(Frame);
-    self.state.?.current.?.* = Frame{
-        .enclosing = enclosing,
-        .function_node = function_node,
-        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
-    };
 
     // Those are not allowed to be compiled
     assert(function_type != .Extern and function_type != .Script and function_type != .ScriptEntryPoint);
@@ -3114,6 +3216,60 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         true,
     );
     defer qualified_name.deinit();
+
+    // If this is not the root function, we need to compile this later
+    if (root_node != function_node) {
+        var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node, false);
+        defer nativefn_qualified_name.deinit();
+
+        // Remember that we need to compile this function later
+        try self.functions_queue.put(
+            @ptrCast(
+                *n.FunctionNode,
+                @alignCast(@alignOf(n.FunctionNode), function_node),
+            ),
+            null,
+        );
+
+        // For now declare it
+        const native_raw = m.MIR_new_import(self.ctx, qualified_name.items.ptr);
+        const native = m.MIR_new_import(self.ctx, nativefn_qualified_name.items.ptr);
+
+        // Call bz_closure
+        const dest = m.MIR_new_reg_op(
+            self.ctx,
+            m.MIR_new_func_reg(
+                self.ctx,
+                self.state.?.current.?.function.?.u.func,
+                m.MIR_T_U64,
+                "result",
+            ),
+        );
+
+        try self.buildExternApiCall(
+            .bz_closure,
+            dest,
+            &[_]m.MIR_op_t{
+                // ctx
+                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
+                // function_node
+                m.MIR_new_uint_op(self.ctx, @ptrToInt(function_node)),
+                m.MIR_new_ref_op(self.ctx, native_raw),
+                m.MIR_new_ref_op(self.ctx, native),
+            },
+        );
+
+        return dest;
+    }
+
+    // FIXME: since MIR doesn't allow compiling multiple functions at the same time, there's no notion of "enclosing" frame
+    var enclosing = self.state.?.current;
+    self.state.?.current = try self.vm.gc.allocator.create(Frame);
+    self.state.?.current.?.* = Frame{
+        .enclosing = enclosing,
+        .function_node = function_node,
+        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+    };
 
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -3160,7 +3316,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     // Add the NativeFn version of the function
     const native_fn = try self.generateNativeFn(function_node, function);
 
-    try self.state.?.function_items.put(
+    try self.functions_queue.put(
         function_node,
         [_]m.MIR_item_t{
             self.state.?.current.?.function.?,
@@ -3170,34 +3326,9 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
 
     self.state.?.current = self.state.?.current.?.enclosing;
 
-    // Unless this is the root function we were compiling, we wrap the function in a closure
-    if (self.state.?.current != null) {
-        // Call bz_closure
-        const dest = m.MIR_new_reg_op(
-            self.ctx,
-            m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_U64, "result"),
-        );
-
-        try self.buildExternApiCall(
-            .bz_closure,
-            dest,
-            &[_]m.MIR_op_t{
-                // ctx
-                m.MIR_new_reg_op(self.ctx, self.state.?.current.?.ctx_reg.?),
-                // function_node
-                m.MIR_new_uint_op(self.ctx, @ptrToInt(function_node)),
-                m.MIR_new_ref_op(self.ctx, native_fn),
-                m.MIR_new_ref_op(self.ctx, function),
-            },
-        );
-
-        return dest;
-    }
-
     return m.MIR_new_ref_op(self.ctx, function);
 }
 
-// TODO: we do everything "manually" because our helper use current function
 fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_item_t) !m.MIR_item_t {
     const function_def = function_node.node.type_def.?.resolved_type.?.Function;
     const function_type = function_def.function_type;
@@ -3530,10 +3661,6 @@ fn getFunctionQualifiedName(self: *Self, function_node: *n.FunctionNode, raw: bo
     try qualified_name.append(0);
 
     return qualified_name;
-}
-
-inline fn readConstant(self: *Self, arg: u24) v.Value {
-    return self.state.?.closure.?.function.chunk.constants.items[arg];
 }
 
 // MIR helper functions
@@ -4254,6 +4381,7 @@ pub const ExternApi = enum {
     pub fn declare(self: ExternApi, jit: *Self) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
 
+        try jit.required_ext_api.put(self, {});
         try jit.state.?.prototypes.put(
             self,
             prototype,
