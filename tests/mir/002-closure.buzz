@@ -1,0 +1,9 @@
+import "lib/std";
+
+test "basic" {
+    Function(str msg) > void hello = fun (str msg) > void -> print(msg);
+
+    str msg = "hello world";
+
+    hello(msg);
+}

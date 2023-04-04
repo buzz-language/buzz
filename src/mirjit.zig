@@ -27,7 +27,7 @@ const GenState = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
     // Root closure (not necessarily the one being compiled)
-    closure: ?*o.ObjClosure = null,
+    closure: *o.ObjClosure,
     opt_jump: ?OptJump = null,
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
@@ -130,6 +130,11 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
         false,
     );
     defer qualified_name.deinit();
+    const raw_qualified_name = try self.getFunctionQualifiedName(
+        function_node,
+        true,
+    );
+    defer raw_qualified_name.deinit();
 
     const module = m.MIR_new_module(self.ctx, qualified_name.items.ptr);
     defer m.MIR_finish_module(self.ctx);
@@ -141,11 +146,11 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
         .function_node = function_node,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .closure = closure orelse self.state.?.closure,
     };
 
     if (closure) |uclosure| {
         try self.compiled_closures.put(uclosure, {});
-        self.state.?.closure = uclosure;
 
         if (BuildOptions.jit_debug) {
             std.debug.print(
@@ -154,6 +159,15 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
                     qualified_name.items,
                     uclosure.function.call_count,
                     self.call_count,
+                },
+            );
+        }
+    } else {
+        if (BuildOptions.jit_debug) {
+            std.debug.print(
+                "Compiling closure `{s}`\n",
+                .{
+                    qualified_name.items,
                 },
             );
         }
@@ -176,10 +190,14 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
         return err;
     };
 
+    // Export generated function so it can be linked
+    _ = m.MIR_new_export(self.ctx, raw_qualified_name.items.ptr);
+    _ = m.MIR_new_export(self.ctx, qualified_name.items.ptr);
+
     if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
-        debug_path.writer().print("./dist/{s}.mod.mir\u{0}", .{qualified_name.items}) catch unreachable;
+        debug_path.writer().print("./dist/gen/{s}.mod.mir\u{0}", .{qualified_name.items}) catch unreachable;
 
         const debug_file = std.c.fopen(@ptrCast([*:0]const u8, debug_path.items.ptr), "w").?;
         defer _ = std.c.fclose(debug_file);
@@ -191,20 +209,6 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
 pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
     const function = closure.function;
     const function_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), function.node));
-
-    if (BuildOptions.jit_debug) {
-        const qualified_name = try self.getFunctionQualifiedName(
-            function_node,
-            false,
-        );
-        defer qualified_name.deinit();
-        std.debug.print(
-            "Compiling function `{s}`\n",
-            .{
-                qualified_name.items,
-            },
-        );
-    }
 
     // Remember we need to set this functions fields
     try self.objclosures_queue.put(closure, {});
@@ -266,7 +270,7 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
 
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
-        debug_path.writer().print("./dist/{s}.mir\u{0}", .{qualified_name.items}) catch unreachable;
+        debug_path.writer().print("./dist/gen/{s}.mir\u{0}", .{qualified_name.items}) catch unreachable;
 
         const debug_file = std.c.fopen(@ptrCast([*:0]const u8, debug_path.items.ptr), "w").?;
 
@@ -284,17 +288,13 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
-        var set = false;
         while (it3.next()) |kv2| {
             if (kv2.key_ptr.*.function.node == @ptrCast(*anyopaque, node)) {
                 kv2.key_ptr.*.function.native = native;
                 kv2.key_ptr.*.function.native_raw = native_raw;
-                set = true;
                 break;
             }
         }
-
-        assert(set);
     }
 
     // Ensure queues are empty for future use
@@ -1038,7 +1038,7 @@ fn generateString(self: *Self, string_node: *n.StringNode) Error!?m.MIR_op_t {
     if (string_node.elements.len == 0) {
         return m.MIR_new_uint_op(
             self.ctx,
-            self.state.?.closure.?.function.chunk.constants.items[0].val,
+            self.state.?.closure.function.chunk.constants.items[0].val,
         ); // Constant 0 is the empty string
     }
 
@@ -1117,7 +1117,7 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
                 return null;
             } else if (is_constant_fn) {
                 // Get the actual Value as it is right now (which is correct since a function doesn't change)
-                const closure = o.ObjClosure.cast(self.state.?.closure.?.globals.items[named_variable_node.slot].obj()).?;
+                const closure = o.ObjClosure.cast(self.state.?.closure.globals.items[named_variable_node.slot].obj()).?;
 
                 // Does it need to be compiled?
                 if (self.compiled_closures.get(closure) == null) {
@@ -3199,7 +3199,7 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
 }
 
 fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op_t {
-    const root_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), self.state.?.closure.?.function.node));
+    const root_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), self.state.?.function_node));
 
     const function_def = function_node.node.type_def.?.resolved_type.?.Function;
     const function_type = function_def.function_type;
@@ -3235,12 +3235,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         // Call bz_closure
         const dest = m.MIR_new_reg_op(
             self.ctx,
-            m.MIR_new_func_reg(
-                self.ctx,
-                self.state.?.function.?.u.func,
-                m.MIR_T_U64,
-                "result",
-            ),
+            try self.REG("result", m.MIR_T_I64),
         );
 
         try self.buildExternApiCall(
