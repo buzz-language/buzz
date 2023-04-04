@@ -291,3 +291,5 @@ pub const ObjPattern = opaque {
 pub const ObjFiber = opaque {
     pub extern fn bz_getFiberField(vm: *VM, field_name_value: Value) Value;
 };
+
+pub extern fn dumpInt(value: u64) void;

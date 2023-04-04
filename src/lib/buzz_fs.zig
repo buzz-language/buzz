@@ -16,9 +16,9 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.ReadOnlyFileSystem,
         error.SymLinkLoop,
         error.SystemResources,
+        error.FileNotFound,
         => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
 
-        error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
         error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
     }
 }
@@ -109,10 +109,10 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.SharingViolation,
         error.SymLinkLoop,
         error.SystemResources,
+        error.FileNotFound,
         => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
-        error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
     }
 }
 
@@ -141,11 +141,11 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.WouldBlock,
+        error.FileNotFound,
         => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
         error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
-        error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
     }
 }
 
@@ -247,10 +247,10 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
+        error.FileNotFound,
         => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
-        error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
     }
 }
 
@@ -272,7 +272,6 @@ export fn list(ctx: *api.NativeCtx) c_int {
     const dir = if (std.fs.path.isAbsolute(filename_slice))
         std.fs.openIterableDirAbsolute(filename_slice, .{}) catch |err| {
             handleOpenDirAbsoluteError(ctx, err);
-
             return -1;
         }
     else

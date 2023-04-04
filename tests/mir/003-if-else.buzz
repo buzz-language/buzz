@@ -1,0 +1,22 @@
+import "lib/std";
+
+fun hello(str who, int age) > int {
+    if (age > 12) {
+        print("yeah if!");
+    } else {
+        print("yeah else!");
+    }
+    print("Hello {who} you're {age}!");
+
+    if (12 > 0) {
+        print("constant if yeah!");
+    } else {
+        assert(false, message: "the fuck");
+    }
+
+    return 12;
+}
+
+test "basic" {
+    print("Got: {hello("Joe", age: 36)}");
+}

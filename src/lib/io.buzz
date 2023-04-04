@@ -1,7 +1,7 @@
 import "lib/errors";
 
 || @private
-extern fun FileOpen(str filename, int mode) > int !> FileNotFoundError, FileSystemError, UnexpectedError;
+extern fun FileOpen(str filename, int mode) > int !> FileSystemError, UnexpectedError;
 || @private
 extern fun FileClose(int fd) > void;
 || @private
@@ -35,7 +35,7 @@ object File {
     || @param filename Path of file to open
     || @param mode Mode with which to open it
     || @return opened file
-    static fun open(str filename, FileMode mode) > File !> FileNotFoundError, FileSystemError, UnexpectedError {
+    static fun open(str filename, FileMode mode) > File !> FileSystemError, UnexpectedError {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };

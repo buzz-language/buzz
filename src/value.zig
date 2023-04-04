@@ -65,7 +65,7 @@ pub const Value = packed struct {
         return .{ .val = PointerMask | @ptrToInt(val) };
     }
 
-    pub inline fn getTag(self: Value) u3 {
+    pub inline fn getTag(self: Value) Tag {
         return @intCast(Tag, @intCast(u32, self.val >> 32) & TagMask);
     }
 
@@ -159,6 +159,11 @@ pub fn valueToString(writer: *const std.ArrayList(u8).Writer, value: Value) (All
         return;
     }
 
+    if (value.isFloat()) {
+        try writer.print("{d}", .{value.float()});
+        return;
+    }
+
     switch (value.getTag()) {
         TagBoolean => try writer.print("{}", .{value.boolean()}),
         TagInteger => try writer.print("{d}", .{value.integer()}),
@@ -220,6 +225,10 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
         return value.obj().is(type_def);
     }
 
+    if (value.isFloat()) {
+        return type_def.def_type == .Float;
+    }
+
     return switch (value.getTag()) {
         TagBoolean => type_def.def_type == .Bool,
         TagInteger => type_def.def_type == .Integer,
@@ -233,6 +242,10 @@ pub fn valueIs(type_def_val: Value, value: Value) bool {
 pub fn valueTypeEql(value: Value, type_def: *ObjTypeDef) bool {
     if (value.isObj()) {
         return value.obj().typeEql(type_def);
+    }
+
+    if (value.isFloat()) {
+        return type_def.def_type == .Float;
     }
 
     return switch (value.getTag()) {

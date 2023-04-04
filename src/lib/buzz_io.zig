@@ -42,10 +42,10 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.WouldBlock,
+        error.FileNotFound,
         => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
-        error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
     }
 }
 

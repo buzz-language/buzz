@@ -337,15 +337,17 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
-        switch (BuildOptions.jit_engine) {
-            .llvm => {
-                self.llvm_jit.?.deinit();
-                self.llvm_jit = null;
-            },
-            .mir => {
-                self.mir_jit.?.deinit();
-                self.mir_jit = null;
-            },
+        if (BuildOptions.jit) {
+            switch (BuildOptions.jit_engine) {
+                .llvm => {
+                    self.llvm_jit.?.deinit();
+                    self.llvm_jit = null;
+                },
+                .mir => {
+                    self.mir_jit.?.deinit();
+                    self.mir_jit = null;
+                },
+            }
         }
     }
 
@@ -652,7 +654,7 @@ pub const VM = struct {
 
     fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
         if (BuildOptions.debug_stack) {
-            dumpStack(self) catch unreachable;
+            dumpStack(self);
         }
 
         if (BuildOptions.debug_current_instruction or BuildOptions.debug_stack) {
@@ -3624,7 +3626,7 @@ pub const VM = struct {
         }
     }
 
-    // A LLVMJIT compiled function pops its stack on its own
+    // A JIT compiled function pops its stack on its own
     fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;

@@ -21,7 +21,7 @@ extern fun buzzExit(int exitCode) > void;
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-extern fun execute([str] command) > int !> FileSystemError, UnexpectedError, FileNotFoundError;
+extern fun execute([str] command) > int !> FileSystemError, UnexpectedError;
 
 export time;
 export env;

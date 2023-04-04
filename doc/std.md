@@ -168,7 +168,7 @@ Returns environment variable under `key`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### `extern fun execute([str] command) > int !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError `
+### `extern fun execute([str] command) > int !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
 Execute command and return its exit code
 - **`command`:** command to execute
 
@@ -188,19 +188,19 @@ A TCP Server
 Returns current directory absolute path
 
 **Returns:**  current directory
-### `extern fun makeDirectory(str path) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError `
+### `extern fun makeDirectory(str path) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
 Creates directory path
 - **`path`:** directory to create
 
-### `extern fun delete(str path) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError `
+### `extern fun delete(str path) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### `extern fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.FileNotFoundError, lib.errors.UnexpectedError `
+### `extern fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
 Moves/renames file
 - **`destination`:** where to move it
 
-### `extern fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.UnexpectedError, lib.errors.FileNotFoundError `
+### `extern fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
 List files under path
 - **`path`:** directory to list
 

@@ -248,15 +248,9 @@ pub fn build(b: *Build) !void {
     defer llibs.deinit();
 
     sys_libs.appendSlice(
-        if (build_options.jit.on) &[_][]const u8{
-            // switch (build_options.jit.engine) {
-            //     .mir => "mir",
-            //     .llvm => "llvm-15",
-            // },
+        &[_][]const u8{
             "mir",
             "llvm-15",
-            "pcre",
-        } else &[_][]const u8{
             "pcre",
         },
     ) catch unreachable;
@@ -279,17 +273,15 @@ pub fn build(b: *Build) !void {
         llibs.append("/opt/homebrew/lib") catch unreachable;
     }
 
-    if (build_options.jit.on) { // and build_options.jit.engine == .llvm) {
-        if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-            var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-            var lib = std.ArrayList(u8).init(std.heap.page_allocator);
+    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
+        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
+        var lib = std.ArrayList(u8).init(std.heap.page_allocator);
 
-            inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-            lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
+        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
+        lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
 
-            includes.append(inc.items) catch unreachable;
-            llibs.append(lib.items) catch unreachable;
-        }
+        includes.append(inc.items) catch unreachable;
+        llibs.append(lib.items) catch unreachable;
     }
 
     var exe = b.addExecutable(.{

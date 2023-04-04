@@ -170,8 +170,7 @@ object JsonParser {
                 return Json{ floating = floating };
             }
         } else if (parseInt(number) -> integer) {
-                return Json{ integer = integer };
-            
+            return Json{ integer = integer };
         }
         
         throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };

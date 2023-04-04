@@ -1100,3 +1100,7 @@ export fn bz_enumNext(vm: *VM, enum_value: Value, case: Value) Value {
 export fn bz_clone(vm: *VM, value: Value) Value {
     return vm.cloneValue(value) catch @panic("Could not clone value");
 }
+
+export fn dumpInt(value: u64) void {
+    std.debug.print("-> {}\n", .{value});
+}
