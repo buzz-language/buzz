@@ -4,6 +4,8 @@ enum FileSystemError {
     DeviceBusy,
     DiskQuota,
     FileBusy,
+    FileLocksNotSupported,
+    FileNotFound,
     FileSystem,
     FileTooBig,
     InputOutput,
@@ -13,6 +15,7 @@ enum FileSystemError {
     LinkQuotaExceeded,
     NameTooLong,
     NoDevice,
+    NonCanonical,
     NoSpaceLeft,
     NotDir,
     NotSupported,
@@ -26,22 +29,20 @@ enum FileSystemError {
     SystemFdQuotaExceeded,
     SystemResources,
     WouldBlock,
-    FileLocksNotSupported,
-    NonCanonical,
 }
 
 enum ExecError {
+    ChildExecFailed,
     CurrentWorkingDirectoryUnlinked,
+    InvalidExe,
+    InvalidFileDescriptor,
+    InvalidName,
+    InvalidUserId,
+    PermissionDenied,
     ResourceLimitReached,
+    TooBig,
     WaitAbandoned,
     WaitTimeOut,
-    InvalidFileDescriptor,
-    PermissionDenied,
-    InvalidExe,
-    InvalidUserId,
-    InvalidName,
-    TooBig,
-    ChildExecFailed,
 }
 
 enum SocketError {
@@ -58,7 +59,6 @@ enum SocketError {
     ConnectionResetByPeer,
     ConnectionTimedOut,
     FileDescriptorNotASocket,
-    FileNotFound,
     HostLacksNetworkAddresses,
     Incomplete,
     InterfaceNotFound,
@@ -88,39 +88,36 @@ enum SocketError {
     WouldBlock,
 }
 
-object FileNotFoundError {}
-
 enum ReadWriteError {
-    OperationAborted,
     BrokenPipe,
     ConnectionResetByPeer,
     ConnectionTimedOut,
-    NotOpenForReading,
-    StreamTooLong,
-    NotOpenForWriting,
     LockViolation,
     NetNameDeleted,
+    NotOpenForReading,
+    NotOpenForWriting,
+    OperationAborted,
+    StreamTooLong,
 }
 
-object OutOfMemoryError {}
 object CompileError {}
 object InterpretError {}
-object UnexpectedError {}
 object InvalidArgumentError {}
+object NotYetImplementedError {}
+object OutOfMemoryError {}
 object OverflowError {}
 object UnderflowError {}
-object NotYetImplementedError {}
+object UnexpectedError {}
 
-export FileSystemError;
-export ExecError;
-export SocketError;
-export FileNotFoundError;
-export ReadWriteError;
-export OutOfMemoryError;
 export CompileError;
+export ExecError;
+export FileSystemError;
 export InterpretError;
-export UnexpectedError;
 export InvalidArgumentError;
-export OverflowError;
-export UnderflowError;
 export NotYetImplementedError;
+export OutOfMemoryError;
+export OverflowError;
+export ReadWriteError;
+export SocketError;
+export UnderflowError;
+export UnexpectedError;
