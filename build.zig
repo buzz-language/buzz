@@ -445,7 +445,8 @@ pub fn build(b: *Build) !void {
         unit_tests.linkLibC();
     }
     unit_tests.addOptions("build_options", build_options.step(b));
-    test_step.dependOn(&unit_tests.step);
+    b.installArtifact(unit_tests);
+    test_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
     // Copy {lib}.buzz files to dist/lib
     for (all_lib_names) |name| {
