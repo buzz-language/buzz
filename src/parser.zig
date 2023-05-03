@@ -3919,7 +3919,7 @@ pub const Parser = struct {
                     .String => subscripted_type_def = type_def,
                     .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
                     .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
-                    else => try self.reportErrorFmt("Type `{s}` is not subscriptable", .{try type_def.toStringAlloc(self.gc.allocator)}),
+                    else => try self.reportErrorFmt("Type `{s}` is not subscriptable", .{(try type_def.toStringAlloc(self.gc.allocator)).items}),
                 }
             } else {
                 try self.reportError("Optional type is not subscriptable");
@@ -5066,7 +5066,7 @@ pub const Parser = struct {
                                     .{
                                         @ptrToInt(global.type_def),
                                         @ptrToInt(variable_type),
-                                        try variable_type.toStringAlloc(self.gc.allocator),
+                                        (try variable_type.toStringAlloc(self.gc.allocator)).items,
                                         variable_type.optional,
                                     },
                                 );

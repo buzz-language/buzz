@@ -2973,12 +2973,12 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
-    pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
         var str = std.ArrayList(u8).init(allocator);
 
         try self.toString(&str.writer());
 
-        return str.items;
+        return str;
     }
 
     pub fn toString(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {

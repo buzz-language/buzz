@@ -7,6 +7,7 @@ test "Opening a socket" {
         address: "127.0.0.1",
         port: 8080,
         reuseAddr: true,
+        reusePort: true,
     );
 
     print("Listening on 127.0.0.1:8080...");

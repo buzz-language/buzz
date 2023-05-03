@@ -22,12 +22,11 @@ A small/lightweight statically typed scripting language written in Zig
     - LSP (in progress)
     - Debugger and DAP (planned)
     - [TextMate syntax](https://github.com/buzz-language/code)
-- JIT compilation (in progress, activate by building buzz with `-Djit`)
+- JIT compilation with [MIR](https://github.com/vnmakarov/mir)
 
 ## Progress
 
 I'm not far from completing [milestone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, I also implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
-I recently got sidetracked a bit and started implementing the JIT compiler with [MIR](https://github.com/vnmakarov/mir).
 
 ## How to build
 
@@ -47,13 +46,13 @@ I recently got sidetracked a bit and started implementing the JIT compiler with 
 cd mir
 make
 ```
-3. Add to your shell rc:
+4. Add to your shell rc:
 ```bash
 export BUZZ_PATH="/path/to/buzz/dist"
-export PATH="$BUZZ_PATH:$PATH"
+export PATH="$BUZZ_PATH/bin:$PATH"
 ```
-4. Build it: `zig build -Doptimize=ReleaseSafe`
-5. Have fun: `buzz <myscript.buzz>`
+5. Build it: `zig build -Doptimize=ReleaseSafe -p dist`
+6. Have fun: `buzz <myscript.buzz>`
 
 Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 

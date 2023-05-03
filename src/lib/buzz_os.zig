@@ -513,18 +513,22 @@ export fn SocketWrite(ctx: *api.NativeCtx) c_int {
 
 export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
+    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i32 = ctx.vm.bz_peek(1).integer();
+    const port: ?i32 = ctx.vm.bz_peek(2).integer();
     if (port == null or port.? < 0) {
         ctx.vm.pushError("lib.errors.InvalidArgumentError");
 
         return -1;
     }
 
-    const reuse_address: bool = ctx.vm.bz_peek(0).boolean();
+    const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
+    const reuse_port: bool = ctx.vm.bz_peek(0).boolean();
 
-    var server = std.net.StreamServer.init(.{ .reuse_address = reuse_address });
+    var server = std.net.StreamServer.init(.{
+        .reuse_address = reuse_address,
+        .reuse_port = reuse_port,
+    });
 
     const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
         switch (err) {
@@ -641,15 +645,17 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
 export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
     const server_socket: std.os.socket_t = @intCast(
         std.os.socket_t,
-        ctx.vm.bz_peek(1).integer(),
+        ctx.vm.bz_peek(2).integer(),
     );
-    const reuse_address: bool = ctx.vm.bz_peek(0).boolean();
+    const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
+    const reuse_port: bool = ctx.vm.bz_peek(0).boolean();
 
     const default_options = std.net.StreamServer.Options{};
     var server = std.net.StreamServer{
         .sockfd = server_socket,
         .kernel_backlog = default_options.kernel_backlog,
         .reuse_address = reuse_address,
+        .reuse_port = reuse_port,
         .listen_address = undefined,
     };
 

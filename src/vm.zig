@@ -981,13 +981,13 @@ pub const VM = struct {
         };
         self.push(
             Value.fromObj(
-                (self.gc.copyString(str) catch |e| {
+                (self.gc.copyString(str.items) catch |e| {
                     panic(e);
                     unreachable;
                 }).toObj(),
             ),
         );
-        self.gc.allocator.free(str);
+        str.deinit();
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3406,8 +3406,8 @@ pub const VM = struct {
                 }
 
                 const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
-                defer self.gc.allocator.free(value_str);
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str});
+                defer value_str.deinit();
+                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str.items});
 
                 for (stack.items) |stack_frame| {
                     std.debug.print(

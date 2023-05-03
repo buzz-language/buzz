@@ -171,7 +171,7 @@ pub fn main() !void {
 
     if (res.args.version == 1) {
         std.debug.print(
-            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2022 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
+            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
             .{
                 if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
                 BuildOptions.sha,
@@ -313,7 +313,7 @@ test "Testing behavior" {
                     .{
                         .allocator = allocator,
                         .argv = ([_][]const u8{
-                            "./zig-out/bin/buzz",
+                            "./dist/bin/buzz",
                             "-t",
                             file_name,
                         })[0..],

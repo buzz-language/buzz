@@ -131,10 +131,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
     }
 
     if (!value.isObj() or seen.get(value.obj()) != null) {
-        const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
-        defer vm.gc.allocator.free(string);
+        const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+        defer string.deinit();
 
-        std.debug.print("{s}", .{string});
+        std.debug.print("{s}", .{string.items});
     } else {
         seen.put(value.obj(), {}) catch unreachable;
 
@@ -148,10 +148,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Fiber,
             .EnumInstance,
             => {
-                const string = valueToStringAlloc(vm.gc.allocator, value) catch "";
-                defer vm.gc.allocator.free(string);
+                const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+                defer string.deinit();
 
-                std.debug.print("{s}", .{string});
+                std.debug.print("{s}", .{string.items});
             },
 
             .UpValue => {
@@ -230,10 +230,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                 var it = object_def.static_fields.iterator();
                 while (it.next()) |kv| {
-                    const static_field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
-                    defer vm.gc.allocator.free(static_field_type_str);
+                    const static_field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
+                    defer static_field_type_str.deinit();
 
-                    std.debug.print("static {s} {s}", .{ static_field_type_str, kv.key_ptr.* });
+                    std.debug.print("static {s} {s}", .{ static_field_type_str.items, kv.key_ptr.* });
 
                     var static_it = object.static_fields.iterator();
                     while (static_it.next()) |static_kv| {
@@ -249,10 +249,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                 it = object_def.fields.iterator();
                 while (it.next()) |kv| {
-                    const field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
-                    defer vm.gc.allocator.free(field_type_str);
+                    const field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
+                    defer field_type_str.deinit();
 
-                    std.debug.print("{s} {s}", .{ field_type_str, kv.key_ptr.* });
+                    std.debug.print("{s} {s}", .{ field_type_str.items, kv.key_ptr.* });
 
                     var field_it = object.fields.iterator();
                     while (field_it.next()) |field_kv| {
@@ -268,10 +268,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                 it = object_def.methods.iterator();
                 while (it.next()) |kv| {
-                    const method_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch "";
-                    defer vm.gc.allocator.free(method_type_str);
+                    const method_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
+                    defer method_type_str.deinit();
 
-                    std.debug.print("{s}, ", .{method_type_str});
+                    std.debug.print("{s}, ", .{method_type_str.items});
                 }
 
                 std.debug.print("}}", .{});
@@ -362,10 +362,10 @@ export fn bz_toString(vm: *VM, value: Value) Value {
     const str = valueToStringAlloc(vm.gc.allocator, value) catch {
         @panic("Could not convert value to string");
     };
-    defer vm.gc.allocator.free(str);
+    defer str.deinit();
 
     return Value.fromObj(
-        (vm.gc.copyString(str) catch {
+        (vm.gc.copyString(str.items) catch {
             @panic("Could not convert value to string");
         }).toObj(),
     );

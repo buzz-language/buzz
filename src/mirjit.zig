@@ -3451,7 +3451,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
-                .size = @sizeOf(*o.NativeCtx),
+                .size = undefined,
             },
         },
     );
@@ -3530,7 +3530,7 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
-                .size = @sizeOf(*o.NativeCtx),
+                .size = undefined,
             },
         },
     );
@@ -4438,17 +4438,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "obj_string",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index_value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4462,22 +4462,22 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_P,
                         .name = "function_node",
-                        .size = @sizeOf(*n.FunctionNode),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_P,
                         .name = "native",
-                        .size = @sizeOf(*anyopaque),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_raw",
-                        .size = @sizeOf(*anyopaque),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4491,12 +4491,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4510,17 +4510,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4534,12 +4534,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4553,22 +4553,22 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4582,12 +4582,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "other",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4605,17 +4605,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*anyopaque),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "other_list",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4629,17 +4629,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4653,7 +4653,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum_instance",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4667,12 +4667,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "subject",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "field",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4692,22 +4692,22 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "subject",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "field",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U8,
                         .name = "bind",
-                        .size = @sizeOf(bool),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4724,22 +4724,22 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "instance",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "field",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4753,12 +4753,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "slot",
-                        .size = @sizeOf(usize),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4772,17 +4772,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "slot",
-                        .size = @sizeOf(usize),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4796,12 +4796,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "last",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4816,7 +4816,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4830,7 +4830,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4844,12 +4844,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "payload",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4863,22 +4863,22 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "function",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_P,
                         .name = "new_native_ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "arg_count",
-                        .size = @sizeOf(usize),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4892,7 +4892,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "jmp_buf",
-                        .size = @sizeOf(*anyopaque),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4906,12 +4906,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4925,12 +4925,12 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "offset",
-                        .size = @sizeOf(usize),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4944,7 +4944,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U8,
                         .name = "status",
-                        .size = @sizeOf(c_int),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4962,17 +4962,17 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
-                        .size = @sizeOf(*VM),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "iterable",
-                        .size = @sizeOf(v.Value),
+                        .size = undefined,
                     },
                     .{
                         .type = m.MIR_T_P,
                         .name = "key",
-                        .size = @sizeOf(*v.Value),
+                        .size = undefined,
                     },
                 },
             ),
@@ -4986,7 +4986,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                 },
             ),
@@ -5000,7 +5000,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
-                        .size = @sizeOf(*o.NativeCtx),
+                        .size = undefined,
                     },
                 },
             ),
@@ -5015,7 +5015,7 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
-                        .size = @sizeOf(u64),
+                        .size = undefined,
                     },
                 },
             ),

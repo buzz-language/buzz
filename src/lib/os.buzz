@@ -39,9 +39,9 @@ extern fun SocketRead(int fd, int n) > str? !> InvalidArgumentError, FileSystemE
 || @private
 extern fun SocketWrite(int fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
 || @private
-extern fun SocketServerStart(str address, int port, bool reuseAddr) > int !> InvalidArgumentError, SocketError, UnexpectedError, FileSystemError;
+extern fun SocketServerStart(str address, int port, bool reuseAddr, bool reusePort) > int !> InvalidArgumentError, SocketError, UnexpectedError, FileSystemError;
 || @private
-extern fun SocketServerAccept(int fd, bool reuseAddr) > int !> SocketError, UnexpectedError;
+extern fun SocketServerAccept(int fd, bool reuseAddr, bool reusePort) > int !> SocketError, UnexpectedError;
 || @private
 extern fun SocketReadLine(int fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 || @private
@@ -107,18 +107,22 @@ object TcpServer {
     Socket serverSocket,
     || @private
     bool reuseAddr,
+    || @private
+    bool reusePort,
 
     || Starts a TCP server
     || @param address Address to listen on
     || @param port Port to listen on
     || @param reuseAddr Wether we want to accept multiple connections
+    || @param reusePort Wether we want to accept multiple connections
     || @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(str address, int port, bool reuseAddr) > TcpServer !> SocketError, UnexpectedError, InvalidArgumentError, FileSystemError {
+    static fun init(str address, int port, bool reuseAddr, bool reusePort) > TcpServer !> SocketError, UnexpectedError, InvalidArgumentError, FileSystemError {
         return TcpServer{
             serverSocket = Socket{
-                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
+                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr, reusePort: reusePort),
             },
             reuseAddr = reuseAddr,
+            reusePort = reusePort,
         };
     }
 
@@ -126,7 +130,7 @@ object TcpServer {
     || @return Socket opened with the client
     fun accept() > Socket !> SocketError, UnexpectedError {
         return Socket{
-            fd = SocketServerAccept(this.serverSocket.fd, reuseAddr: this.reuseAddr),
+            fd = SocketServerAccept(this.serverSocket.fd, reuseAddr: this.reuseAddr, reusePort: this.reusePort),
         };
     }
 

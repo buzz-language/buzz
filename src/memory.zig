@@ -53,7 +53,7 @@ pub const TypeRegistry = struct {
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
             if (self.registry.get(type_def_str)) |type_def_ptr| {
-                self.gc.allocator.free(type_def_str); // If already in map, we don't need this string anymore
+                type_def_buf.deinit(); // If already in map, we don't need this string anymore
                 return type_def_ptr;
             }
         }
@@ -69,11 +69,11 @@ pub const TypeRegistry = struct {
     }
 
     pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
-        const type_def_str: []const u8 = try type_def.toStringAlloc(self.gc.allocator);
+        const type_def_str = try type_def.toStringAlloc(self.gc.allocator);
 
         assert(type_def.def_type != .Placeholder);
 
-        _ = try self.registry.put(type_def_str, type_def);
+        _ = try self.registry.put(type_def_str.items, type_def);
     }
 
     pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
@@ -369,14 +369,25 @@ pub const GarbageCollector = struct {
     pub fn markObj(self: *Self, obj: *Obj) !void {
         if (obj.is_marked) {
             if (BuildOptions.gc_debug) {
-                std.debug.print("{*} {s} already marked or old\n", .{ obj, try valueToStringAlloc(self.allocator, Value.fromObj(obj)) });
+                std.debug.print(
+                    "{*} {s} already marked or old\n",
+                    .{
+                        obj,
+                        (try valueToStringAlloc(self.allocator, Value.fromObj(obj))).items,
+                    },
+                );
             }
             return;
         }
 
         if (BuildOptions.gc_debug) {
             std.debug.print("marking {*}: ", .{obj});
-            std.debug.print("{s}\n", .{try valueToStringAlloc(self.allocator, Value.fromObj(obj))});
+            std.debug.print(
+                "{s}\n",
+                .{
+                    (try valueToStringAlloc(self.allocator, Value.fromObj(obj))).items,
+                },
+            );
         }
 
         obj.is_marked = true;
@@ -464,13 +475,13 @@ pub const GarbageCollector = struct {
                 var obj_typedef = ObjTypeDef.cast(obj).?;
 
                 const str = try obj_typedef.toStringAlloc(self.allocator);
-                defer self.allocator.free(str);
+                defer str.deinit();
 
-                if (self.type_registry.registry.get(str)) |registered_obj| {
+                if (self.type_registry.registry.get(str.items)) |registered_obj| {
                     if (registered_obj == obj_typedef) {
-                        _ = self.type_registry.registry.remove(str);
+                        _ = self.type_registry.registry.remove(str.items);
                         if (BuildOptions.gc_debug) {
-                            std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str });
+                            std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str.items });
                         }
                     } else {
                         // std.debug.print(

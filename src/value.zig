@@ -144,12 +144,12 @@ pub inline fn floatToInteger(value: Value) Value {
     return value;
 }
 
-pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
     var str = std.ArrayList(u8).init(allocator);
 
     try valueToString(&str.writer(), value);
 
-    return str.items;
+    return str;
 }
 
 pub fn valueToString(writer: *const std.ArrayList(u8).Writer, value: Value) (Allocator.Error || std.fmt.BufPrintError)!void {
