@@ -88,21 +88,9 @@ call_count: u128 = 0,
 jit_time: usize = 0,
 
 pub fn init(vm: *VM) Self {
-    const ctx = m.MIR_init();
-
-    // - `0` means only register allocator and machine code generator work
-    // - `1` means additional code selection task.  On this level MIR generator creates more compact and faster
-    // code than on zero level with practically on the same speed
-    // - `2` means additionally common sub-expression elimination and sparse conditional constant propagation.
-    // This is a default level.  This level is valuable if you generate bad input MIR code with a lot redundancy
-    // and constants.  The generation speed on level `1` is about 50% faster than on level `2`
-    // - `3` means additionally register renaming and loop invariant code motion.  The generation speed
-    // on level `2` is about 50% faster than on level `3`
-    // m.MIR_gen_set_optimize_level(if (BuildOptions.jit_debug) 0 else 3);
-
     return .{
         .vm = vm,
-        .ctx = ctx,
+        .ctx = m.MIR_init(),
         .compiled_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .blacklisted_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .functions_queue = std.AutoHashMap(*n.FunctionNode, ?[2]m.MIR_item_t).init(vm.gc.allocator),
@@ -136,7 +124,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     );
     defer raw_qualified_name.deinit();
 
-    const module = m.MIR_new_module(self.ctx, qualified_name.items.ptr);
+    const module = m.MIR_new_module(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
 
     try self.modules.append(module);
@@ -192,8 +180,8 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     };
 
     // Export generated function so it can be linked
-    _ = m.MIR_new_export(self.ctx, raw_qualified_name.items.ptr);
-    _ = m.MIR_new_export(self.ctx, qualified_name.items.ptr);
+    _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, raw_qualified_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
 
     if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -3424,8 +3412,8 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         );
 
         // For now declare it
-        const native_raw = m.MIR_new_import(self.ctx, qualified_name.items.ptr);
-        const native = m.MIR_new_import(self.ctx, nativefn_qualified_name.items.ptr);
+        const native_raw = m.MIR_new_import(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
+        const native = m.MIR_new_import(self.ctx, @ptrCast([*:0]u8, nativefn_qualified_name.items.ptr));
 
         // Call bz_closure
         const dest = m.MIR_new_reg_op(
@@ -3449,16 +3437,20 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         return dest;
     }
 
+    // FIXME: FIME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
+    defer ctx_name.deinit();
     const function = m.MIR_new_func_arr(
         self.ctx,
-        qualified_name.items.ptr,
+        @ptrCast([*:0]u8, qualified_name.items.ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         1,
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = "ctx",
+                .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
                 .size = @sizeOf(*o.NativeCtx),
             },
         },
@@ -3488,9 +3480,8 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     );
 
     if (function_node.arrow_expr) |arrow_expr| {
-        const arrow_value = (try self.generateNode(arrow_expr)).?;
+        try self.buildReturn((try self.generateNode(arrow_expr)).?);
 
-        try self.buildReturn(arrow_value);
         self.state.?.return_emitted = true;
     } else {
         _ = try self.generateNode(function_node.body.?.toNode());
@@ -3525,16 +3516,20 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     var nativefn_qualified_name = try self.getFunctionQualifiedName(function_node, false);
     defer nativefn_qualified_name.deinit();
 
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
+    defer ctx_name.deinit();
     const function = m.MIR_new_func_arr(
         self.ctx,
-        nativefn_qualified_name.items.ptr,
+        @ptrCast([*:0]u8, nativefn_qualified_name.items.ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_I64},
         1,
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = "ctx",
+                .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
                 .size = @sizeOf(*o.NativeCtx),
             },
         },
@@ -4353,7 +4348,7 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
         self.ctx,
         self.state.?.function.?.u.func,
         reg_type,
-        actual_name.items.ptr,
+        @ptrCast([*:0]u8, actual_name.items.ptr),
     );
 
     try self.state.?.registers.put(name, count + 1);
