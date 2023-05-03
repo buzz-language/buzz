@@ -16,7 +16,6 @@ const FunctionNode = @import("./node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const LLVMJIT = @import("./llvmjit.zig").LLVMJIT;
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -118,8 +117,6 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             const gc_ms: f64 = @intToFloat(f64, gc.gc_time) / 1000000;
             const jit_ms: f64 = if (vm.mir_jit) |jit|
                 @intToFloat(f64, jit.jit_time) / 1000000
-            else if (vm.llvm_jit) |jit|
-                @intToFloat(f64, jit.jit_time) / 1000000
             else
                 0;
             std.debug.print(
@@ -189,12 +186,9 @@ pub fn main() !void {
                     "gpa"
                 else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
                 if (BuildOptions.jit)
-                    switch (BuildOptions.jit_engine) {
-                        .mir => "MIR",
-                        .llvm => "LLVM 15.0.6",
-                    }
+                    "on"
                 else
-                    "no",
+                    "off",
             },
         );
 

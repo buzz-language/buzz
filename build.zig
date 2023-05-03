@@ -21,23 +21,16 @@ const BuzzDebugOptions = struct {
 };
 
 const BuzzJITOptions = struct {
-    pub const Engine = enum {
-        llvm,
-        mir,
-    };
-
     on: bool,
     debug_on: bool,
     debug: bool,
     prof_threshold: f128 = 0.05,
-    engine: Engine,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.on), "jit_debug_on", self.debug_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
-        options.addOption(@TypeOf(self.engine), "jit_engine", self.engine);
     }
 };
 
@@ -94,14 +87,6 @@ pub fn build(b: *Build) !void {
     std.fs.cwd().makeDir("dist/lib") catch {};
 
     try std.fs.cwd().access("dist/lib", .{});
-
-    const jit_engine_opt = b.option(
-        []const u8,
-        "jit_engine",
-        "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
-    ) orelse "llvm";
-
-    const jit_engine: BuzzJITOptions.Engine = if (std.mem.eql(u8, jit_engine_opt, "mir")) .mir else .llvm;
 
     var build_options = BuzzBuildOptions{
         // Version is latest tag or empty string
@@ -233,7 +218,6 @@ pub fn build(b: *Build) !void {
                 "jit_prof_threshold",
                 "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
             ) orelse 0.05,
-            .engine = jit_engine,
         },
     };
 
@@ -250,7 +234,6 @@ pub fn build(b: *Build) !void {
     sys_libs.appendSlice(
         &[_][]const u8{
             "mir",
-            "llvm-15",
             "pcre",
         },
     ) catch unreachable;
@@ -273,17 +256,6 @@ pub fn build(b: *Build) !void {
     if (builtin.os.tag == .macos) {
         includes.append("/opt/homebrew/include") catch unreachable;
         llibs.append("/opt/homebrew/lib") catch unreachable;
-    }
-
-    if (std.os.getenv("LLVM_PATH")) |llvm_path| {
-        var inc = std.ArrayList(u8).init(std.heap.page_allocator);
-        var lib = std.ArrayList(u8).init(std.heap.page_allocator);
-
-        inc.writer().print("{s}/include", .{llvm_path}) catch unreachable;
-        lib.writer().print("{s}/lib", .{llvm_path}) catch unreachable;
-
-        includes.append(inc.items) catch unreachable;
-        llibs.append(lib.items) catch unreachable;
     }
 
     var exe = b.addExecutable(.{

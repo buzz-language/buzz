@@ -27,7 +27,7 @@ A small/lightweight statically typed scripting language written in Zig
 ## Progress
 
 I'm not far from completing [milestone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, I also implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
-I recently got sidetracked a bit and started implementing the JIT compiler with LLVM.
+I recently got sidetracked a bit and started implementing the JIT compiler with [MIR](https://github.com/vnmakarov/mir).
 
 ## How to build
 
@@ -37,12 +37,16 @@ I recently got sidetracked a bit and started implementing the JIT compiler with 
 - libpcre (not libpcre2)
 - libc
 - [mimalloc](https://github.com/microsoft/mimalloc) (can be turned off by building buzz with `-Duse_mimalloc=false`)
-- LLVM 15.0.6+: you can set the environment variable `LLVM_PATH` if zig can't find it on its own
 - zig master
 
 ### Steps
 1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
+3. Build MIR:
+```bash
+cd mir
+make
+```
 3. Add to your shell rc:
 ```bash
 export BUZZ_PATH="/path/to/buzz/dist"

@@ -905,10 +905,7 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     };
 
     if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
-        switch (BuildOptions.jit_engine) {
-            .llvm => ctx.vm.llvm_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function"),
-            .mir => ctx.vm.mir_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function"),
-        }
+        ctx.vm.mir_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
     }
 
     return if (closure) |cls| cls.function.native_raw.? else native.?.native;
@@ -937,10 +934,7 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
-    switch (BuildOptions.jit_engine) {
-        .llvm => ctx.vm.llvm_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure"),
-        .mir => ctx.vm.mir_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure"),
-    }
+    ctx.vm.mir_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
 
     var it = function_node.upvalue_binding.iterator();
     while (it.next()) |kv| {

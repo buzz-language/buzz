@@ -11,7 +11,6 @@ const BuildOptions = @import("build_options");
 const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const LLVMJIT = @import("llvmjit.zig").LLVMJIT;
 const MIRJIT = @import("mirjit.zig");
 
 const Value = _value.Value;
@@ -318,7 +317,6 @@ pub const VM = struct {
     current_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
-    llvm_jit: ?LLVMJIT = null,
     mir_jit: ?MIRJIT = null,
     testing: bool,
 
@@ -338,24 +336,13 @@ pub const VM = struct {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
         if (BuildOptions.jit) {
-            switch (BuildOptions.jit_engine) {
-                .llvm => {
-                    self.llvm_jit.?.deinit();
-                    self.llvm_jit = null;
-                },
-                .mir => {
-                    self.mir_jit.?.deinit();
-                    self.mir_jit = null;
-                },
-            }
+            self.mir_jit.?.deinit();
+            self.mir_jit = null;
         }
     }
 
     pub fn initJIT(self: *Self) !void {
-        switch (BuildOptions.jit_engine) {
-            .llvm => self.llvm_jit = LLVMJIT.init(self),
-            .mir => self.mir_jit = MIRJIT.init(self),
-        }
+        self.mir_jit = MIRJIT.init(self);
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -469,7 +456,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) LLVMJIT.Error!void {
+    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) MIRJIT.Error!void {
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             null, // parent fiber
@@ -1592,7 +1579,7 @@ pub const VM = struct {
                 panic(e);
                 unreachable;
             };
-            // FIXME: give reference to LLVMJIT?
+            // FIXME: give reference to JIT?
             vm.* = VM.init(self.gc, self.import_registry, self.testing) catch |e| {
                 panic(e);
                 unreachable;
@@ -3380,7 +3367,7 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value) LLVMJIT.Error!void {
+    pub fn throw(self: *Self, code: Error, payload: Value) MIRJIT.Error!void {
         var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
         defer stack.deinit();
 
@@ -3461,43 +3448,11 @@ pub const VM = struct {
     }
 
     // FIXME: catch_values should be on the stack like arguments
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) LLVMJIT.Error!void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
-        if (self.llvm_jit) |*llvm_jit| {
-            llvm_jit.call_count += 1;
-            // Do we need to jit the function?
-            // TODO: figure out threshold strategy
-            if (!in_fiber and self.shouldCompileFunction(closure)) {
-                var timer = std.time.Timer.start() catch unreachable;
-
-                var success = true;
-                llvm_jit.compileFunction(closure) catch |err| {
-                    if (err == LLVMJIT.Error.CantCompile) {
-                        success = false;
-                    } else {
-                        return err;
-                    }
-                };
-
-                if (BuildOptions.jit_debug and success) {
-                    std.debug.print(
-                        "Compiled function `{s}` in {d} ms\n",
-                        .{
-                            closure.function.type_def.resolved_type.?.Function.name.string,
-                            @intToFloat(f64, timer.read()) / 1000000,
-                        },
-                    );
-                }
-
-                llvm_jit.jit_time += timer.read();
-
-                if (success) {
-                    native = closure.function.native;
-                }
-            }
-        } else if (self.mir_jit) |*mir_jit| {
+        if (self.mir_jit) |*mir_jit| {
             mir_jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
@@ -3506,7 +3461,7 @@ pub const VM = struct {
 
                 var success = true;
                 mir_jit.compileFunction(closure) catch |err| {
-                    if (err == LLVMJIT.Error.CantCompile) {
+                    if (err == MIRJIT.Error.CantCompile) {
                         success = false;
                     } else {
                         return err;
@@ -3678,7 +3633,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) LLVMJIT.Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
@@ -3852,10 +3807,6 @@ pub const VM = struct {
             return false;
         }
 
-        if (self.llvm_jit != null and (self.llvm_jit.?.compiled_closures.get(closure) != null or self.llvm_jit.?.blacklisted_closures.get(closure) != null)) {
-            return false;
-        }
-
         if (self.mir_jit != null and (self.mir_jit.?.compiled_closures.get(closure) != null or self.mir_jit.?.blacklisted_closures.get(closure) != null)) {
             return false;
         }
@@ -3866,6 +3817,6 @@ pub const VM = struct {
         return if (BuildOptions.jit_debug_on)
             return true
         else
-            (BuildOptions.jit_debug and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, if (self.llvm_jit) |jit| jit.call_count else self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
+            (BuildOptions.jit_debug and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
     }
 };
