@@ -261,11 +261,13 @@ pub fn build(b: *Build) !void {
     includes.appendSlice(&[_][]const u8{
         "/usr/local/include",
         "/usr/include",
+        "mir",
     }) catch unreachable;
 
     llibs.appendSlice(&[_][]const u8{
         "/usr/local/lib",
         "/usr/lib",
+        "mir",
     }) catch unreachable;
 
     if (builtin.os.tag == .macos) {
