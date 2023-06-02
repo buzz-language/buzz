@@ -5,7 +5,7 @@ test "math" {
     assert(math.abs(-12.234) == 12.234, message: "math.abs");
     assert(math.acos(0.1) == 1.4706289056333368, message: "math.acos");
     assert(math.asin(0.1) == 0.1001674211615598, message: "math.asin");
-    assert(math.atan(0.1) == 0.09966865249116202, message: "math.atan");
+    assert(math.atan(0.1) == 0.09966865249116204, message: "math.atan");
     assert(math.ceil(12.234) == 13, message: "math.ceil");
     assert(math.cos(12.234) == 0.9452715049027691, message: "math.cos");
     assert(math.exp(12.234) == 205664.19575705, message: "math.exp");

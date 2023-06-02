@@ -3539,15 +3539,14 @@ pub const VM = struct {
         self.currentFrame().?.in_native_call = true;
 
         var result: Value = Value.Null;
-        const native_return = native(
-            &NativeCtx{
-                .vm = self,
-                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
-                .base = self.current_fiber.stack_top - arg_count - 1,
-                .stack_top = &self.current_fiber.stack_top,
-            },
-        );
+        var ctx = NativeCtx{
+            .vm = self,
+            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
+            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .base = self.current_fiber.stack_top - arg_count - 1,
+            .stack_top = &self.current_fiber.stack_top,
+        };
+        const native_return = native(&ctx);
 
         self.currentFrame().?.in_native_call = false;
 
@@ -3587,15 +3586,14 @@ pub const VM = struct {
             frame.in_native_call = true;
         }
 
-        const native_return = native(
-            &NativeCtx{
-                .vm = self,
-                .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-                .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
-                .base = self.current_fiber.stack_top - arg_count - 1,
-                .stack_top = &self.current_fiber.stack_top,
-            },
-        );
+        var ctx = NativeCtx{
+            .vm = self,
+            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
+            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .base = self.current_fiber.stack_top - arg_count - 1,
+            .stack_top = &self.current_fiber.stack_top,
+        };
+        const native_return = native(&ctx);
 
         if (self.currentFrame()) |frame| {
             frame.in_native_call = false;

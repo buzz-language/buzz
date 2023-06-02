@@ -268,7 +268,7 @@ test "Testing behavior" {
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
-            if (file.kind == .File and std.mem.endsWith(u8, file.name, ".buzz")) {
+            if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
                 var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
 
@@ -298,7 +298,7 @@ test "Testing behavior" {
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
-            if (file.kind == .File and std.mem.endsWith(u8, file.name, ".buzz")) {
+            if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
                 var file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
                 defer allocator.free(file_name);
                 _ = try std.fmt.bufPrint(file_name, "tests/compile_errors/{s}", .{file.name});

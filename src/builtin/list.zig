@@ -129,7 +129,7 @@ pub fn sort(ctx: *NativeCtx) c_int {
     // fun compare(T lhs, T rhs) > bool
     var sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
-    std.sort.sort(
+    std.sort.insertion(
         Value,
         self.items.items,
         SortContext{
