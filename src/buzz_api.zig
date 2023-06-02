@@ -590,15 +590,30 @@ pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *cons
 
 // Assumes the global exists
 export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
-    const object = bz_getQualified(self, qualified_name, len);
+    const object = ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
 
-    self.push(
-        // Dismiss error because if we fail to create the error payload there's not much to salvage anyway
-        (self.gc.allocateObject(
-            ObjObjectInstance,
-            ObjObjectInstance.init(self.gc.allocator, ObjObject.cast(object.obj()).?, null),
-        ) catch unreachable).toValue(),
-    );
+    const instance: *ObjObjectInstance = self.gc.allocateObject(
+        ObjObjectInstance,
+        ObjObjectInstance.init(
+            self.gc.allocator,
+            object,
+            null,
+        ),
+    ) catch {
+        @panic("Could not create error");
+    };
+
+    // Set instance fields with default values
+    var it = object.fields.iterator();
+    while (it.next()) |kv| {
+        instance.setField(
+            self.gc,
+            kv.key_ptr.*,
+            self.cloneValue(kv.value_ptr.*) catch @panic("Could not set object property"),
+        ) catch @panic("Could not set object property");
+    }
+
+    self.push(instance.toValue());
 }
 
 export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {

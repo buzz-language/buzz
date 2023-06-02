@@ -100,14 +100,30 @@ enum ReadWriteError {
     StreamTooLong,
 }
 
-object CompileError {}
-object InterpretError {}
-object InvalidArgumentError {}
-object NotYetImplementedError {}
-object OutOfMemoryError {}
-object OverflowError {}
-object UnderflowError {}
-object UnexpectedError {}
+object CompileError {
+    str message = "CompileError",
+}
+object InterpretError {
+    str message = "InterpretError",
+}
+object InvalidArgumentError {
+    str message = "InvalidArgumentError",
+}
+object NotYetImplementedError {
+    str message = "NotYetImplementedError",
+}
+object OutOfMemoryError {
+    str message = "OutOfMemoryError",
+}
+object OverflowError {
+    str message = "OverflowError",
+}
+object UnderflowError {
+    str message = "UnderflowError",
+}
+object UnexpectedError {
+    str message = "UnexpectedError",
+}
 
 export CompileError;
 export ExecError;
