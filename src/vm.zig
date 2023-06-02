@@ -3371,6 +3371,16 @@ pub const VM = struct {
         var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
         defer stack.deinit();
 
+        const error_site = if (self.currentFrame()) |current_frame|
+            current_frame.closure.function.chunk.lines.items[current_frame.ip - 1] + 1
+        else
+            null;
+
+        const error_file = if (self.currentFrame()) |current_frame|
+            current_frame.closure.function.type_def.resolved_type.?.Function.script_name.string
+        else
+            null;
+
         while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
             const frame = self.currentFrame();
             if (self.current_fiber.frame_count > 0) {
@@ -3408,6 +3418,16 @@ pub const VM = struct {
                 const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
                 defer value_str.deinit();
                 std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str.items});
+
+                if (error_site) |site| {
+                    std.debug.print(
+                        "\tat {s}:{d}\n",
+                        .{
+                            error_file.?,
+                            site,
+                        },
+                    );
+                }
 
                 for (stack.items) |stack_frame| {
                     std.debug.print(

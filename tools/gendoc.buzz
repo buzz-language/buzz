@@ -177,9 +177,9 @@ fun main([str] args) > void
        WriteWhileReadingError
 {
     {str, str} markdownDoc = {<str, str>};
-    foreach (int i, str file in list("lib")) {
+    foreach (int i, str file in list("src/lib")) {
         if (file.endsWith(".buzz")) {
-            [Declaration] declarations = getDeclarations("lib/{file}");
+            [Declaration] declarations = getDeclarations("src/lib/{file}");
 
             if (declarations.len() > 0) {
                 Buffer out = Buffer.init();
