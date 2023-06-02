@@ -1,7 +1,0 @@
-import "lib/std";
-
-fun get() > int -> 12;
-
-test "return" {
-    print("{get()}");
-}

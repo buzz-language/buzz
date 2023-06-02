@@ -1,9 +1,0 @@
-import "lib/std";
-
-fun hello(str msg) > void -> print(msg);
-
-test "basic" {
-    str msg = "hello world";
-
-    hello(msg);
-}
