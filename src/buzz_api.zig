@@ -130,7 +130,9 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
         return;
     }
 
-    if (!value.isObj() or seen.get(value.obj()) != null) {
+    if (value.isNull()) {
+        std.debug.print("null", .{});
+    } else if (!value.isObj() or seen.get(value.obj()) != null) {
         const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
         defer string.deinit();
 
