@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const MIR_no_error: c_int = 0;
 pub const MIR_syntax_error: c_int = 1;
 pub const MIR_binary_io_error: c_int = 2;
@@ -431,13 +433,9 @@ pub extern fn MIR_new_string_data(ctx: MIR_context_t, name: [*:0]const u8, str: 
 pub extern fn MIR_new_ref_data(ctx: MIR_context_t, name: [*:0]const u8, item: MIR_item_t, disp: i64) MIR_item_t;
 pub extern fn MIR_new_expr_data(ctx: MIR_context_t, name: [*:0]const u8, expr_item: MIR_item_t) MIR_item_t;
 pub extern fn MIR_new_proto_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: ?[*]const MIR_type_t, nargs: usize, vars: ?[*]const MIR_var_t) MIR_item_t;
-pub extern fn MIR_new_proto(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) MIR_item_t;
 pub extern fn MIR_new_vararg_proto_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vars: *MIR_var_t) MIR_item_t;
-pub extern fn MIR_new_vararg_proto(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) MIR_item_t;
 pub extern fn MIR_new_func_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: [*]const MIR_type_t, nargs: usize, vars: [*]const MIR_var_t) MIR_item_t;
-pub extern fn MIR_new_func(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) MIR_item_t;
 pub extern fn MIR_new_vararg_func_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vars: *MIR_var_t) MIR_item_t;
-pub extern fn MIR_new_vararg_func(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) MIR_item_t;
 pub extern fn MIR_item_name(ctx: MIR_context_t, item: MIR_item_t) [*:0]const u8;
 pub extern fn MIR_get_item_func(ctx: MIR_context_t, item: MIR_item_t) MIR_func_t;
 pub extern fn MIR_new_func_reg(ctx: MIR_context_t, func: MIR_func_t, @"type": MIR_type_t, name: [*:0]const u8) MIR_reg_t;
@@ -446,9 +444,6 @@ pub extern fn MIR_finish_module(ctx: MIR_context_t) void;
 pub extern fn MIR_get_error_func(ctx: MIR_context_t) MIR_error_func_t;
 pub extern fn MIR_set_error_func(ctx: MIR_context_t, func: MIR_error_func_t) void;
 pub extern fn MIR_new_insn_arr(ctx: MIR_context_t, code: MIR_insn_code_t, nops: usize, ops: [*]const MIR_op_t) MIR_insn_t;
-pub extern fn MIR_new_insn(ctx: MIR_context_t, code: MIR_insn_code_t, ...) MIR_insn_t;
-pub extern fn MIR_new_call_insn(ctx: MIR_context_t, nops: usize, ...) MIR_insn_t;
-pub extern fn MIR_new_ret_insn(ctx: MIR_context_t, nops: usize, ...) MIR_insn_t;
 pub extern fn MIR_copy_insn(ctx: MIR_context_t, insn: MIR_insn_t) MIR_insn_t;
 pub extern fn MIR_insn_name(ctx: MIR_context_t, code: MIR_insn_code_t) [*:0]const u8;
 pub extern fn MIR_insn_nops(ctx: MIR_context_t, insn: MIR_insn_t) usize;
@@ -512,7 +507,6 @@ pub const MIR_val_t = extern union {
     d: f64,
     ld: c_longdouble,
 };
-pub extern fn MIR_interp(ctx: MIR_context_t, func_item: MIR_item_t, results: *MIR_val_t, nargs: usize, ...) void;
 pub extern fn MIR_interp_arr(ctx: MIR_context_t, func_item: MIR_item_t, results: *MIR_val_t, nargs: usize, vals: *MIR_val_t) void;
 pub extern fn MIR_set_interp_interface(ctx: MIR_context_t, func_item: MIR_item_t) void;
 extern fn _MIR_uniq_string(ctx: MIR_context_t, str: [*:0]const u8) [*:0]const u8;
@@ -568,29 +562,3 @@ pub extern fn MIR_set_gen_interface(ctx: MIR_context_t, func_item: MIR_item_t) v
 pub extern fn MIR_set_parallel_gen_interface(ctx: MIR_context_t, func_item: MIR_item_t) void;
 pub extern fn MIR_set_lazy_gen_interface(ctx: MIR_context_t, func_item: MIR_item_t) void;
 pub extern fn MIR_gen_finish(ctx: MIR_context_t) void;
-
-const std = @import("std");
-
-const Native = fn (l: *L) u64;
-const NativeFn = *const Native;
-
-fn print(msg: [*:0]u8, addr: u64) void {
-    std.debug.print("\n> {s}: {x}\n", .{ msg, addr });
-}
-
-const L = struct {
-    top: *[*]u64,
-};
-
-fn MOV(ctx: MIR_context_t, func: MIR_item_t, dest: MIR_op_t, value: MIR_op_t) void {
-    MIR_append_insn(
-        ctx,
-        func,
-        MIR_new_insn(
-            ctx,
-            MIR_MOV,
-            dest,
-            value,
-        ),
-    );
-}
