@@ -3647,8 +3647,6 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     // Push its result back into the VM
     if (should_return) {
         try self.buildPush(result);
-    } else {
-        try self.buildPush(m.MIR_new_uint_op(self.ctx, v.Value.Void.val));
     }
 
     self.RET(

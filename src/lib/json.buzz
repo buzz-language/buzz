@@ -68,11 +68,12 @@ object JsonParser {
         }
 
         const str char = this.advance() ?? "\00";
+        const int byte = char.byte(0);
         if (char == "[") {
             return Json{ list = this.array() };
         } else if (char == "\{") {
             return Json{ map = this.map() };
-        } else if ((char.byte(0) >= "0".byte(0) and char.byte(0) <= "9".byte(0)) or char == "-") {
+        } else if ((byte >= "0".byte(0) and byte <= "9".byte(0)) or char == "-") {
             return this.number(char);
         } else if (char == "\"") {
             return Json{ string = this.string() };
