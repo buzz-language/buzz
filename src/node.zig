@@ -3057,7 +3057,9 @@ pub const FunctionNode = struct {
 
     // Useful when generating root script bootstrap code
     main_slot: ?usize = null,
+    main_location: ?Token = null,
     test_slots: ?[]usize = null,
+    test_locations: ?[]Token = null,
     exported_count: ?usize = null,
 
     // Set when the function is first generated
@@ -3163,15 +3165,15 @@ pub const FunctionNode = struct {
                 // Then put any exported globals on the stack
                 if (!codegen.testing and function_type == .ScriptEntryPoint) {
                     if (self.main_slot) |main_slot| {
-                        try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, main_slot));
-                        try codegen.emitCodeArg(node.location, .OP_GET_LOCAL, 0); // cli args are always local 0
-                        try codegen.emitCodeArgs(node.location, .OP_CALL, 1, 0);
+                        try codegen.emitCodeArg(self.main_location.?, .OP_GET_GLOBAL, @intCast(u24, main_slot));
+                        try codegen.emitCodeArg(self.main_location.?, .OP_GET_LOCAL, 0); // cli args are always local 0
+                        try codegen.emitCodeArgs(self.main_location.?, .OP_CALL, 1, 0);
                     }
                 } else if (codegen.testing and self.test_slots != null) {
                     // Create an entry point wich runs all `test`
-                    for (self.test_slots.?) |slot| {
-                        try codegen.emitCodeArg(node.location, .OP_GET_GLOBAL, @intCast(u24, slot));
-                        try codegen.emitCodeArgs(node.location, .OP_CALL, 0, 0);
+                    for (self.test_slots.?, 0..) |slot, index| {
+                        try codegen.emitCodeArg(self.test_locations.?[index], .OP_GET_GLOBAL, @intCast(u24, slot));
+                        try codegen.emitCodeArgs(self.test_locations.?[index], .OP_CALL, 0, 0);
                     }
                 }
 

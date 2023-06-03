@@ -141,6 +141,7 @@ pub const Local = struct {
 pub const Global = struct {
     prefix: ?[]const u8 = null,
     name: *ObjString, // TODO: do i need to mark those? does it need to be an objstring?
+    location: Token,
     type_def: *ObjTypeDef,
     initialized: bool = false,
     exported: bool = false,
@@ -408,20 +409,24 @@ pub const Parser = struct {
             for (self.globals.items, 0..) |global, index| {
                 if (mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
                     function_node.main_slot = index;
+                    function_node.main_location = global.location;
                     break;
                 }
             }
         }
 
         var test_slots = std.ArrayList(usize).init(self.gc.allocator);
+        var test_locations = std.ArrayList(Token).init(self.gc.allocator);
         // Create an entry point wich runs all `test`
         for (self.globals.items, 0..) |global, index| {
             if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
                 try test_slots.append(index);
+                try test_locations.append(global.location);
             }
         }
 
         function_node.test_slots = test_slots.items;
+        function_node.test_locations = test_locations.items;
 
         // If we're being imported, put all globals on the stack
         if (self.imported) {
@@ -3451,6 +3456,9 @@ pub const Parser = struct {
             .callee = callee,
             .identifier = self.parser.previous_token.?,
         };
+
+        node.node.location = start_location;
+
         // Check that name is a property
         const callee_def_type = if (callee.type_def) |type_def| type_def.def_type else .Placeholder;
         switch (callee_def_type) {
@@ -3755,7 +3763,6 @@ pub const Parser = struct {
             },
         }
 
-        node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
@@ -4412,10 +4419,10 @@ pub const Parser = struct {
         const name_token: Token = Token{
             .token_type = .Test,
             .lexeme = test_id.items,
-            .line = 0,
-            .column = 0,
-            .source = "",
-            .script_name = "",
+            .line = start_location.line,
+            .column = start_location.column,
+            .source = start_location.source,
+            .script_name = start_location.script_name,
         };
 
         const slot = try self.declareVariable(&function_def_placeholder, name_token, true);
@@ -5141,6 +5148,7 @@ pub const Parser = struct {
         try self.globals.append(
             Global{
                 .name = try self.gc.copyString(name.lexeme),
+                .location = name,
                 .type_def = global_type,
                 .constant = constant,
             },
