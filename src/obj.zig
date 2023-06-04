@@ -278,7 +278,8 @@ pub const ObjFiber = struct {
 };
 
 pub const pcre_struct = switch (builtin.os.tag) {
-    .linux, .freebsd, .openbsd => pcre.struct_real_pcre,
+    .linux => pcre.pcre,
+    .freebsd, .openbsd => pcre.struct_real_pcre,
     .macos, .tvos, .watchos, .ios => pcre.struct_real_pcre8_or_16,
     else => unreachable,
 };
