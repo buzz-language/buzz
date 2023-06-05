@@ -10,6 +10,8 @@ A small/lightweight statically typed scripting language written in Zig
     <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
+[Discord](https://discord.gg/VnMdNSdpNV)
+
 ## Features
 
 - Small in size and complexity (just a bit more than Lua though)
