@@ -77,7 +77,7 @@ const BuzzBuildOptions = struct {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.11.0-dev.3336+6c2f37455") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.3731+c6e2e1ae4") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }

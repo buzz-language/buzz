@@ -181,7 +181,7 @@ pub const StringParser = struct {
             _ = self.advance();
         }
 
-        const num_str: []const u8 = self.source[start..std.math.min(self.offset + 1, self.source.len)];
+        const num_str: []const u8 = self.source[start..@min(self.offset + 1, self.source.len)];
         _ = self.advance();
         const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
 

@@ -75,7 +75,7 @@ const Buffer = struct {
             return null;
         }
 
-        const read_slice = self.buffer.items[self.cursor..std.math.min(self.cursor + n, self.buffer.items.len)];
+        const read_slice = self.buffer.items[self.cursor..@min(self.cursor + n, self.buffer.items.len)];
 
         self.cursor += read_slice.len;
 

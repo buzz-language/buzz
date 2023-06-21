@@ -78,7 +78,7 @@ export fn max(ctx: *api.NativeCtx) c_int {
     const a_f: f64 = ctx.vm.bz_peek(0).float();
     const b_f: f64 = ctx.vm.bz_peek(1).float();
 
-    ctx.vm.bz_pushFloat(std.math.max(a_f, b_f));
+    ctx.vm.bz_pushFloat(@max(a_f, b_f));
 
     return 1;
 }
@@ -87,7 +87,7 @@ export fn min(ctx: *api.NativeCtx) c_int {
     const a_f: f64 = ctx.vm.bz_peek(0).float();
     const b_f: f64 = ctx.vm.bz_peek(1).float();
 
-    ctx.vm.bz_pushFloat(std.math.min(a_f, b_f));
+    ctx.vm.bz_pushFloat(@min(a_f, b_f));
 
     return 1;
 }

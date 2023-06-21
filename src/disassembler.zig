@@ -31,7 +31,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 
     print("{}\t{s}({} args, {} catches)", .{
         code,
-        value_str.items[0..std.math.min(value_str.items.len, 100)],
+        value_str.items[0..@min(value_str.items.len, 100)],
         arg_count,
         catch_count,
     });
@@ -77,7 +77,7 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     print("{}\t{} {s}", .{
         code,
         constant,
-        value_str.items[0..std.math.min(value_str.items.len, 100)],
+        value_str.items[0..@min(value_str.items.len, 100)],
     });
 
     return offset + 1;
@@ -113,9 +113,9 @@ pub fn dumpStack(vm: *VM) void {
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
-            print("{} {s} frame\n ", .{ @ptrToInt(value), value_str.items[0..std.math.min(value_str.items.len, 100)] });
+            print("{} {s} frame\n ", .{ @ptrToInt(value), value_str.items[0..@min(value_str.items.len, 100)] });
         } else {
-            print("{} {s}\n ", .{ @ptrToInt(value), value_str.items[0..std.math.min(value_str.items.len, 100)] });
+            print("{} {s}\n ", .{ @ptrToInt(value), value_str.items[0..@min(value_str.items.len, 100)] });
         }
 
         value += 1;
@@ -254,7 +254,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
             defer value_str.deinit();
 
-            print("{}\t{} {s}", .{ instruction, constant, value_str.items[0..std.math.min(value_str.items.len, 100)] });
+            print("{}\t{} {s}", .{ instruction, constant, value_str.items[0..@min(value_str.items.len, 100)] });
 
             var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].obj()).?;
             var i: u8 = 0;
