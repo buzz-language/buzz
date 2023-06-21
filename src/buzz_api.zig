@@ -314,6 +314,10 @@ export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
     return (if (string) |ustring| vm.gc.copyString(ustring[0..len]) else vm.gc.copyString("")) catch null;
 }
 
+export fn bz_valueToObjString(value: Value) *ObjString {
+    return ObjString.cast(value.obj()).?;
+}
+
 /// ObjString -> [*]const u8 + len
 export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8 {
     len.* = obj_string.string.len;
@@ -378,12 +382,32 @@ export fn bz_toString(vm: *VM, value: Value) Value {
 // Type helpers
 
 /// Returns the [str] type
-export fn bz_stringType() Value {
-    const bool_type = allocator.create(ObjTypeDef) catch @panic("Could not create type");
+export fn bz_stringType(vm: *VM) Value {
+    return (vm.gc.type_registry.getTypeDef(
+        ObjTypeDef{ .def_type = .String, .optional = false },
+    ) catch @panic("Out of memory")).toValue();
+}
 
-    bool_type.* = ObjTypeDef{ .def_type = .String, .optional = false };
+export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
+    const map_def = ObjMap.MapDef.init(
+        vm.gc.allocator,
+        ObjTypeDef.cast(key_type.obj()).?,
+        ObjTypeDef.cast(value_type.obj()).?,
+    );
 
-    return bool_type.toValue();
+    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+        .Map = map_def,
+    };
+
+    const typedef = vm.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .Map,
+            .optional = false,
+            .resolved_type = resolved_type,
+        },
+    ) catch @panic("Out of memory");
+
+    return typedef.toValue();
 }
 
 export fn bz_allocated(self: *VM) usize {
@@ -578,8 +602,7 @@ pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *cons
     }
 }
 
-// Assumes the global exists
-export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
+export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value {
     const object = ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
 
     const instance: *ObjObjectInstance = self.gc.allocateObject(
@@ -603,7 +626,12 @@ export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void 
         ) catch @panic("Could not set object property");
     }
 
-    self.push(instance.toValue());
+    return instance.toValue();
+}
+
+// Assumes the global exists
+export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
+    self.push(bz_instanceQualified(self, qualified_name, len));
 }
 
 export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {

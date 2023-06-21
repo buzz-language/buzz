@@ -3495,7 +3495,7 @@ pub const VM = struct {
                         "\tat {s}:{d}:{d}\n",
                         .{
                             error_file.?,
-                            site.line,
+                            site.line + 1,
                             site.column,
                         },
                     );
@@ -3510,7 +3510,7 @@ pub const VM = struct {
                         },
                     );
                     if (stack_frame.call_site) |call_site| {
-                        std.debug.print(":{d}:{d}\n", .{ call_site.line, call_site.column });
+                        std.debug.print(":{d}:{d}\n", .{ call_site.line + 1, call_site.column });
                     } else {
                         std.debug.print("\n", .{});
                     }

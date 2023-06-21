@@ -6,130 +6,28 @@ import "errors";
 
 | https://datatracker.ietf.org/doc/html/rfc2616
 
-object HttpParseError {
-    str? message = null,
+enum(str) Method {
+    GET,
+    HEAD,
+    POST,
+    PUT,
+    DELETE,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    PATCH,
 }
 
-object Request {
-    str method = "GET",
-    {str, str} headers = {<str, str>},
-    str path = "/",
-    int contentLength = 0,
-    str? body = null,
-
-    fun toString() > str {
-        try {
-            Buffer result = Buffer.init();
-
-            result.write("{this.method} {this.path} HTTP/1.1\r\n");
-            foreach (str key, str value in this.headers) {
-                result.write("{key}: {value}\r\n");
-            }
-
-            result.write("{this.body ?? ""}\r\n");
-
-            str strResult = result.toString();
-            result.deinit();
-
-            return strResult;
-        } catch {}
-
-        return "";
-    }
-
-    static fun read(File input) > Request !> HttpParseError, ReadWriteError, FileSystemError, UnexpectedError, InvalidArgumentError {
-        | Parse request line
-        [str] methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(input.readLine() ?? "") ?? [<str>];
-
-        if (methodAndUrl.len() == 0) {
-            throw HttpParseError{ message = "Could not parse request: bad request line" };
-        }
-
-        str method = methodAndUrl[1];
-        str path = methodAndUrl[2];
-
-        | Parse headers
-        {str, str} headers = {<str, str>};
-        int contentLength = 0;
-        int lineOffset = 0;
-        for (str? line = input.readLine(); line != null; line = input.readLine()) {
-            if (line == "\n" or line == "\r" or line == "") {
-                break;
-            }
-
-            [str] headerMatch = _^([^:]+): (.+)_.match(line ?? "") ?? [<str>];
-
-            if (headerMatch.len() == 0) {
-                throw HttpParseError{ message = "Could not parse request headers" };
-            }
-
-            headers[headerMatch[1].lower()] = headerMatch[2];
-
-            if (headerMatch[1].lower() == "content-length") {
-                contentLength = parseInt(headerMatch[2].trim()) ?? 0;
-            }
-        }
-
-        | Parse body
-        str? body = if (contentLength > 0) input.read(contentLength) else null;
-
-        return Request{
-            method = method,
-            path = path,
-            headers = headers,
-            contentLength = contentLength,
-            body = body,
-        };
-    }
-
-    static fun parse(str raw) > Request !> HttpParseError {
-        [str] lines = raw.split("\n");
-        [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
-
-        if (methodAndUrl == null) {
-            throw HttpParseError{ message = "Could not parse request method and path" };
-        }
-
-        str method = methodAndUrl![1];
-        str path = methodAndUrl![2];
-
-        {str, str} headers = {<str, str>};
-        int contentLength = 0;
-        int lineOffset = 0;
-        foreach (str line in lines.sub(1)) {
-            if (line == "\n" or line == "\r" or line == "") {
-                break;
-            }
-
-            lineOffset = lineOffset + 1;
-
-            [str]? headerMatch = _^([^:]+): (.+)_.match(line);
-
-            if (headerMatch == null) {
-                throw HttpParseError{ message = "Could not parse request headers" };
-            }
-
-            headers[headerMatch![1]] = headerMatch![2];
-
-            if (headerMatch![1] == "Content-Length" or headerMatch![1] == "content-length") {
-                contentLength = parseInt(headerMatch![2].trim()) ?? 0;
-            }
-        }
-
-        str? body = null;
-        if (contentLength > 0) {
-            body = lines.sub(lineOffset + 2).join("\n");
-        }
-
-        return Request{
-            method = method,
-            path = path,
-            headers = headers,
-            contentLength = contentLength,
-            body = body,
-        };
-    }
-}
+|| @private
+extern fun HttpClientNew() > ud;
+|| @private
+extern fun HttpClientDeinit(ud client) > void;
+|| @private
+extern fun HttpClientSend(ud client, Method method, str uri, {str, str} headers) > ud !> HttpError;
+|| @private
+extern fun HttpRequestWait(ud request) > void !> HttpError;
+|| @private
+extern fun HttpRequestRead(ud request) > Response !> HttpError;
 
 const {int, str} reasons = {
     100: "Continue",
@@ -201,25 +99,133 @@ const {int, str} reasons = {
     599: "Network Connect Timeout Error",
 };
 
+enum HttpError {
+    CannotRedirect,
+    CertificateBundleLoadFailure,
+    CompressionInitializationFailed,
+    CompressionNotSupported,
+    ConnectionRefused,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    DecompressionFailure,
+    EndOfStream,
+    HostLacksNetworkAddresses,
+    HttpChunkInvalid,
+    HttpConnectionHeaderUnsupported,
+    HttpHeaderContinuationsUnsupported,
+    HttpHeadersExceededSizeLimit,
+    HttpHeadersInvalid,
+    HttpRedirectMissingLocation,
+    HttpTransferEncodingUnsupported,
+    InvalidCharacter,
+    InvalidContentLength,
+    InvalidFormat,
+    InvalidPort,
+    InvalidTrailers,
+    MalformedUri,
+    NameServerFailure,
+    NetworkUnreachable,
+    Overflow,
+    StreamTooLong,
+    TemporaryNameServerFailure,
+    TlsAlert,
+    TlsFailure,
+    TlsInitializationFailed,
+    TooManyHttpRedirects,
+    UnexpectedCharacter,
+    UnexpectedConnectFailure,
+    UnexpectedReadFailure,
+    UnexpectedWriteFailure,
+    UnknownHostName,
+    UnsupportedTransferEncoding,
+    UnsupportedUrlScheme,
+    UriMissingHost,
+}
+
+object HttpParseError{
+    str? message = null,
+}
+
+object Connection {
+    || @private
+    ud connection,
+}
+
+object Client {
+    || @private
+    ud client,
+
+    static fun init() > Client {
+        return Client{
+            client = HttpClientNew(),
+        };
+    }
+
+    fun send(Request request) > Request !> HttpError {
+        ud requestPtr = HttpClientSend(
+            client: this.client,
+            method: request.method,
+            uri: request.uri,
+            headers: request.headers,
+        );
+
+        request.request = requestPtr;
+
+        return request;
+    }
+
+    fun deinit() > void {
+        HttpClientDeinit(this.client);
+    }
+}
+
+object Request {
+    ud? request = null,
+    Response? response = null,
+    Method method,
+    {str, str} headers = {<str, str>},
+    str uri = "/",
+    str? body = null,
+
+    fun wait() > Response !> HttpError, InvalidArgumentError, HttpParseError {
+        if (this.response != null) {
+            throw InvalidArgumentError{};
+        }
+
+        if (this.request -> request) {
+            HttpRequestWait(request);
+
+            return HttpRequestRead(request);
+        }
+
+        throw InvalidArgumentError{};
+    }
+
+    fun toString() > str {
+        try {
+            Buffer result = Buffer.init();
+
+            result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
+            foreach (str key, str value in this.headers) {
+                result.write("{key}: {value}\r\n");
+            }
+
+            result.write("{this.body ?? ""}\r\n");
+
+            str strResult = result.toString();
+            result.deinit();
+
+            return strResult;
+        } catch {}
+
+        return "";
+    }
+}
+
 object Response {
     int status = 200,
     {str, str} headers = {<str, str>},
     str? body = null,
-
-    fun write(File out) > void !> FileSystemError, ReadWriteError, UnexpectedError {
-        try {
-            out.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
-            foreach (str key, str value in this.headers) {
-                out.write("{key}: {value}\r\n");
-            }
-
-            out.write("\r\n{this.body ?? ""}\r\n");
-            
-            return;
-        } catch {}
-
-        out.write("HTTP/1.1 500 Internal Server Error");
-    }
 
     fun toString() > str {
         try {
@@ -242,6 +248,9 @@ object Response {
     }
 }
 
+export Client;
 export Request;
 export Response;
 export HttpParseError;
+export HttpError;
+export Method;

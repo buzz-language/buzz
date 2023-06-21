@@ -207,7 +207,7 @@ export fn BufferWrite(ctx: *api.NativeCtx) c_int {
 
     buffer.write(bytes.?[0..len]) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
             error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
@@ -224,7 +224,7 @@ export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
 
     buffer.setAt(@intCast(index), @intCast(value)) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
         }
 
         return -1;
@@ -251,7 +251,7 @@ export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
 
     buffer.writeBool(value) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
             error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
@@ -309,7 +309,7 @@ export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
 
     buffer.writeInteger(number.integer()) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
             error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
@@ -325,7 +325,7 @@ export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
 
     buffer.writeFloat(number.float()) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
             error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 

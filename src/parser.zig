@@ -3809,7 +3809,7 @@ pub const Parser = struct {
                 }
             },
             .Enum => {
-                var enum_def: ObjEnum.EnumDef = callee.type_def.?.resolved_type.?.Enum;
+                const enum_def = callee.type_def.?.resolved_type.?.Enum;
 
                 for (enum_def.cases.items, 0..) |case, index| {
                     if (mem.eql(u8, case, member_name)) {

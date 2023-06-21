@@ -1,0 +1,23 @@
+import "std";
+import "http";
+import "debug";
+
+test "Client" {
+    Client client = Client.init();
+
+    Request request = Request{
+        method = Method.GET,
+        headers = {
+            "accept": "*/*",
+        },
+        uri = "https://godsays.xyz/",
+    };
+
+    dump(request);
+
+    Response response = client.send(request).wait();
+
+    dump(response);
+
+    client.deinit();
+}

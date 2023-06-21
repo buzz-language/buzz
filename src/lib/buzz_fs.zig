@@ -280,7 +280,10 @@ export fn list(ctx: *api.NativeCtx) c_int {
             return -1;
         };
 
-    var file_list = api.ObjList.bz_newList(ctx.vm, api.ObjTypeDef.bz_stringType());
+    var file_list = api.ObjList.bz_newList(
+        ctx.vm,
+        api.ObjTypeDef.bz_stringType(ctx.vm),
+    );
 
     ctx.vm.bz_push(file_list);
 
