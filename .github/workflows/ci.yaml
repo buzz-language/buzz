@@ -29,7 +29,7 @@ jobs:
       - name: Cleanup
         run: rm -rf zig-cache dist
       - name: Build with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_debug_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
       - name: Run tests with JIT always on
         run: BUZZ_PATH=./dist ./dist/bin/test
       - name: Cleanup
@@ -54,7 +54,7 @@ jobs:
       - name: Cleanup
         run: rm -rf zig-cache dist
       - name: Build with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_debug_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
       - name: Run tests with JIT always on
         run: BUZZ_PATH=./dist ./dist/bin/test
       - name: Cleanup

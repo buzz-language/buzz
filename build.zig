@@ -22,13 +22,13 @@ const BuzzDebugOptions = struct {
 
 const BuzzJITOptions = struct {
     on: bool,
-    debug_on: bool,
+    always_on: bool,
     debug: bool,
     prof_threshold: f128 = 0.05,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
-        options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
-        options.addOption(@TypeOf(self.debug_on), "jit_debug_on", self.debug_on);
+        options.addOption(@TypeOf(self.debug), "debug_jit", self.debug);
+        options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
     }
@@ -200,12 +200,12 @@ pub fn build(b: *Build) !void {
         .jit = .{
             .debug = b.option(
                 bool,
-                "jit_debug",
+                "debug_jit",
                 "Show debug information for the JIT engine",
             ) orelse false,
-            .debug_on = b.option(
+            .always_on = b.option(
                 bool,
-                "jit_debug_on",
+                "jit_always_on",
                 "JIT engine will compile any function encountered",
             ) orelse false,
             .on = b.option(

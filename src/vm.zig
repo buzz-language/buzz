@@ -3488,7 +3488,7 @@ pub const VM = struct {
                     }
                 };
 
-                if (BuildOptions.jit_debug and success) {
+                if (BuildOptions.debug_jit and success) {
                     std.debug.print(
                         "Compiled function `{s}` in {d} ms\n",
                         .{
@@ -3508,7 +3508,7 @@ pub const VM = struct {
 
         // Is there a compiled version of it?
         if (!in_fiber and native != null) {
-            if (BuildOptions.jit_debug) {
+            if (BuildOptions.debug_jit) {
                 std.debug.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
             }
 
@@ -3550,7 +3550,7 @@ pub const VM = struct {
 
         self.current_fiber.frame_count += 1;
 
-        if (BuildOptions.jit_debug) {
+        if (BuildOptions.debug_jit) {
             std.debug.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
         }
     }
@@ -3832,9 +3832,9 @@ pub const VM = struct {
         const function_node = @ptrCast(*FunctionNode, @alignCast(@alignOf(FunctionNode), closure.function.node));
         const user_hot = function_node.node.docblock != null and std.mem.indexOf(u8, function_node.node.docblock.?.lexeme, "@hot") != null;
 
-        return if (BuildOptions.jit_debug_on)
+        return if (BuildOptions.jit_always_on)
             return true
         else
-            (BuildOptions.jit_debug and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
+            (BuildOptions.debug_jit and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
     }
 };

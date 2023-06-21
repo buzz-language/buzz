@@ -140,7 +140,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     if (closure) |uclosure| {
         try self.compiled_closures.put(uclosure, {});
 
-        if (BuildOptions.jit_debug) {
+        if (BuildOptions.debug_jit) {
             std.debug.print(
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
@@ -151,7 +151,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
             );
         }
     } else {
-        if (BuildOptions.jit_debug) {
+        if (BuildOptions.debug_jit) {
             std.debug.print(
                 "Compiling closure `{s}`\n",
                 .{
@@ -163,7 +163,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
 
     _ = self.generateNode(function_node.toNode()) catch |err| {
         if (err == Error.CantCompile) {
-            if (BuildOptions.jit_debug) {
+            if (BuildOptions.debug_jit) {
                 std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
             }
 
@@ -183,7 +183,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, raw_qualified_name.items.ptr));
     _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
 
-    if (BuildOptions.jit_debug) {
+    if (BuildOptions.debug_jit) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/gen/{s}.mod.mir\u{0}", .{qualified_name.items}) catch unreachable;
