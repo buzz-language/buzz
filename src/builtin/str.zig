@@ -145,7 +145,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var start_value = floatToInteger(ctx.vm.peek(1));
     var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
     var upto_value: Value = floatToInteger(ctx.vm.peek(0));
-    var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @floatToInt(i32, upto_value.float()) else null;
+    var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @intFromFloat(i32, upto_value.float()) else null;
 
     if (start == null or start.? < 0 or start.? >= self.string.len) {
         var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;

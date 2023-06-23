@@ -152,7 +152,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn fromObj(val: *anyopaque) Value {
-        return .{ .val = PointerMask | @ptrToInt(val) };
+        return .{ .val = PointerMask | @intFromPtr(val) };
     }
 
     pub inline fn getTag(self: Value) u3 {
@@ -204,7 +204,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn obj(self: Value) *anyopaque {
-        return @intToPtr(*anyopaque, self.val & ~PointerMask);
+        return @ptrFromInt(*anyopaque, self.val & ~PointerMask);
     }
 
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;

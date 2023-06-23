@@ -3,7 +3,7 @@ const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
 export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_push(api.Value.fromFloat(@intToFloat(f64, std.time.milliTimestamp())));
+    ctx.vm.bz_push(api.Value.fromFloat(@floatFromInt(f64, std.time.milliTimestamp())));
 
     return 1;
 }

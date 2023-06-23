@@ -504,7 +504,7 @@ pub const VM = struct {
     }
 
     pub inline fn getCode(instruction: u32) OpCode {
-        return @intToEnum(OpCode, @intCast(u8, instruction >> 24));
+        return @enumFromInt(OpCode, @intCast(u8, instruction >> 24));
     }
 
     inline fn getArg(instruction: u32) u24 {
@@ -675,7 +675,7 @@ pub const VM = struct {
         // Tail call
         @call(
             .always_tail,
-            op_table[@enumToInt(instruction)],
+            op_table[@intFromEnum(instruction)],
             .{
                 self,
                 current_frame,
@@ -2572,7 +2572,7 @@ pub const VM = struct {
     fn OP_BNOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const value = self.pop();
 
-        self.push(Value.fromInteger(~(if (value.isInteger()) value.integer() else @floatToInt(i32, value.float()))));
+        self.push(Value.fromInteger(~(if (value.isInteger()) value.integer() else @intFromFloat(i32, value.float()))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2601,11 +2601,11 @@ pub const VM = struct {
             if (right_f) |rf| {
                 self.push(Value.fromBoolean(lf > rf));
             } else {
-                self.push(Value.fromBoolean(lf > @intToFloat(f64, right_i.?)));
+                self.push(Value.fromBoolean(lf > @floatFromInt(f64, right_i.?)));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(@intToFloat(f64, left_i.?) > rf));
+                self.push(Value.fromBoolean(@floatFromInt(f64, left_i.?) > rf));
             } else {
                 self.push(Value.fromBoolean(left_i.? > right_i.?));
             }
@@ -2638,11 +2638,11 @@ pub const VM = struct {
             if (right_f) |rf| {
                 self.push(Value.fromBoolean(lf < rf));
             } else {
-                self.push(Value.fromBoolean(lf < @intToFloat(f64, right_i.?)));
+                self.push(Value.fromBoolean(lf < @floatFromInt(f64, right_i.?)));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(@intToFloat(f64, left_i.?) < rf));
+                self.push(Value.fromBoolean(@floatFromInt(f64, left_i.?) < rf));
             } else {
                 self.push(Value.fromBoolean(left_i.? < right_i.?));
             }
@@ -2775,7 +2775,7 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) + (right_f orelse @intToFloat(f64, right_i.?))));
+            self.push(Value.fromFloat((left_f orelse @floatFromInt(f64, left_i.?)) + (right_f orelse @floatFromInt(f64, right_i.?))));
         } else {
             // both integers
             self.push(Value.fromInteger(left_i.? + right_i.?));
@@ -2805,7 +2805,7 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) - (right_f orelse @intToFloat(f64, right_i.?))));
+            self.push(Value.fromFloat((left_f orelse @floatFromInt(f64, left_i.?)) - (right_f orelse @floatFromInt(f64, right_i.?))));
         } else {
             self.push(Value.fromInteger(left_i.? - right_i.?));
         }
@@ -2834,7 +2834,7 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) * (right_f orelse @intToFloat(f64, right_i.?))));
+            self.push(Value.fromFloat((left_f orelse @floatFromInt(f64, left_i.?)) * (right_f orelse @floatFromInt(f64, right_i.?))));
         } else {
             self.push(Value.fromInteger(left_i.? * right_i.?));
         }
@@ -2863,7 +2863,7 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         self.push(
-            Value.fromFloat((left_f orelse @intToFloat(f64, left_i.?)) / (right_f orelse @intToFloat(f64, right_i.?))),
+            Value.fromFloat((left_f orelse @floatFromInt(f64, left_i.?)) / (right_f orelse @floatFromInt(f64, right_i.?))),
         );
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2890,7 +2890,7 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat(@mod((left_f orelse @intToFloat(f64, left_i.?)), (right_f orelse @intToFloat(f64, right_i.?)))));
+            self.push(Value.fromFloat(@mod((left_f orelse @floatFromInt(f64, left_i.?)), (right_f orelse @floatFromInt(f64, right_i.?)))));
         } else {
             self.push(Value.fromInteger(@mod(left_i.?, right_i.?)));
         }
@@ -2918,7 +2918,7 @@ pub const VM = struct {
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
-        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) & (right_i orelse @floatToInt(i32, right_f.?))));
+        self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) & (right_i orelse @intFromFloat(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2943,7 +2943,7 @@ pub const VM = struct {
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
-        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) | (right_i orelse @floatToInt(i32, right_f.?))));
+        self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) | (right_i orelse @intFromFloat(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2967,7 +2967,7 @@ pub const VM = struct {
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
-        self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) ^ (right_i orelse @floatToInt(i32, right_f.?))));
+        self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) ^ (right_i orelse @intFromFloat(i32, right_f.?))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2991,19 +2991,19 @@ pub const VM = struct {
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
-        const b = right_i orelse @floatToInt(i32, right_f.?);
+        const b = right_i orelse @intFromFloat(i32, right_f.?);
 
         if (b < 0) {
             if (b * -1 > std.math.maxInt(u5)) {
                 self.push(Value.fromInteger(0));
             } else {
-                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1))));
+                self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1))));
             }
         } else {
             if (b > std.math.maxInt(u5)) {
                 self.push(Value.fromInteger(0));
             } else {
-                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b))));
+                self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) << @truncate(u5, @intCast(u64, b))));
             }
         }
 
@@ -3029,19 +3029,19 @@ pub const VM = struct {
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
-        const b = right_i orelse @floatToInt(i32, right_f.?);
+        const b = right_i orelse @intFromFloat(i32, right_f.?);
 
         if (b < 0) {
             if (b * -1 > std.math.maxInt(u5)) {
                 self.push(Value.fromInteger(0));
             } else {
-                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1))));
+                self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1))));
             }
         } else {
             if (b > std.math.maxInt(u5)) {
                 self.push(Value.fromInteger(0));
             } else {
-                self.push(Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b))));
+                self.push(Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b))));
             }
         }
 
@@ -3358,7 +3358,7 @@ pub const VM = struct {
             );
         }
 
-        op_table[@enumToInt(next_instruction)](
+        op_table[@intFromEnum(next_instruction)](
             self,
             next_current_frame,
             next_full_instruction,
@@ -3493,7 +3493,7 @@ pub const VM = struct {
                         "Compiled function `{s}` in {d} ms\n",
                         .{
                             closure.function.type_def.resolved_type.?.Function.name.string,
-                            @intToFloat(f64, timer.read()) / 1000000,
+                            @floatFromInt(f64, timer.read()) / 1000000,
                         },
                     );
                 }
@@ -3783,7 +3783,7 @@ pub const VM = struct {
     }
 
     pub fn closeUpValues(self: *Self, last: *Value) void {
-        while (self.current_fiber.open_upvalues != null and @ptrToInt(self.current_fiber.open_upvalues.?.location) >= @ptrToInt(last)) {
+        while (self.current_fiber.open_upvalues != null and @intFromPtr(self.current_fiber.open_upvalues.?.location) >= @intFromPtr(last)) {
             var upvalue: *ObjUpValue = self.current_fiber.open_upvalues.?;
             upvalue.closed = upvalue.location.*;
             upvalue.location = &upvalue.closed.?;
@@ -3794,7 +3794,7 @@ pub const VM = struct {
     pub fn captureUpvalue(self: *Self, local: *Value) !*ObjUpValue {
         var prev_upvalue: ?*ObjUpValue = null;
         var upvalue: ?*ObjUpValue = self.current_fiber.open_upvalues;
-        while (upvalue != null and @ptrToInt(upvalue.?.location) > @ptrToInt(local)) {
+        while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) {
             prev_upvalue = upvalue;
             upvalue = upvalue.?.next;
         }
@@ -3835,6 +3835,6 @@ pub const VM = struct {
         return if (BuildOptions.jit_always_on)
             return true
         else
-            (BuildOptions.debug_jit and user_hot) or (closure.function.call_count > 10 and (@intToFloat(f128, closure.function.call_count) / @intToFloat(f128, self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
+            (BuildOptions.debug_jit and user_hot) or (closure.function.call_count > 10 and (@floatFromInt(f128, closure.function.call_count) / @floatFromInt(f128, self.mir_jit.?.call_count)) > BuildOptions.jit_prof_threshold);
     }
 };

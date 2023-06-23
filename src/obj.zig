@@ -230,7 +230,7 @@ pub const ObjFiber = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @intToPtr(*anyopaque, @ptrToInt(unativeFn)),
+                    .native = @ptrFromInt(*anyopaque, @intFromPtr(unativeFn)),
                 },
             );
 
@@ -423,7 +423,7 @@ pub const ObjPattern = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
                 },
             );
 
@@ -568,7 +568,7 @@ pub const ObjString = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
                 },
             );
 
@@ -866,13 +866,13 @@ pub const ObjFunction = struct {
         try gc.markObj(self.name.toObj());
         try gc.markObj(self.type_def.toObj());
         if (BuildOptions.gc_debug) {
-            std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
+            std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
         }
         for (self.chunk.constants.items) |constant| {
             try gc.markValue(constant);
         }
         if (BuildOptions.gc_debug) {
-            std.debug.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @ptrToInt(self), self.name.string });
+            std.debug.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
         }
     }
 
@@ -1315,7 +1315,7 @@ pub const ObjList = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
                 },
             );
 
@@ -2127,7 +2127,7 @@ pub const ObjMap = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @intToPtr(*anyopaque, @ptrToInt(nativeFn)),
+                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
                 },
             );
 
@@ -3182,7 +3182,7 @@ pub const ObjTypeDef = struct {
             .Void => try writer.writeAll("void"),
 
             .Placeholder => {
-                try writer.print("{{PlaceholderDef @{}}}", .{@ptrToInt(self)});
+                try writer.print("{{PlaceholderDef @{}}}", .{@intFromPtr(self)});
             },
         }
 
@@ -3464,13 +3464,13 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
         .Fiber => {
             const fiber = ObjFiber.cast(obj).?.fiber;
 
-            try writer.print("fiber: 0x{x}", .{@ptrToInt(fiber)});
+            try writer.print("fiber: 0x{x}", .{@intFromPtr(fiber)});
         },
         .Type => {
             const type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
 
             try writer.print("type: 0x{x} `", .{
-                @ptrToInt(type_def),
+                @intFromPtr(type_def),
             });
 
             try type_def.toString(writer);
@@ -3483,11 +3483,11 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             try valueToString(writer, upvalue.closed orelse upvalue.location.*);
         },
         .Closure => try writer.print("closure: 0x{x} `{s}`", .{
-            @ptrToInt(ObjClosure.cast(obj).?),
+            @intFromPtr(ObjClosure.cast(obj).?),
             ObjClosure.cast(obj).?.function.name.string,
         }),
         .Function => try writer.print("function: 0x{x} `{s}`", .{
-            @ptrToInt(ObjFunction.cast(obj).?),
+            @intFromPtr(ObjFunction.cast(obj).?),
             ObjFunction.cast(obj).?.name.string,
         }),
         .ObjectInstance => {
@@ -3495,12 +3495,12 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
 
             if (instance.object) |object| {
                 try writer.print("object instance: 0x{x} `{s}`", .{
-                    @ptrToInt(instance),
+                    @intFromPtr(instance),
                     object.name.string,
                 });
             } else {
                 try writer.print("object instance: 0x{x} obj{{ ", .{
-                    @ptrToInt(instance),
+                    @intFromPtr(instance),
                 });
                 var it = instance.fields.iterator();
                 while (it.next()) |kv| {
@@ -3512,13 +3512,13 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             }
         },
         .Object => try writer.print("object: 0x{x} `{s}`", .{
-            @ptrToInt(ObjObject.cast(obj).?),
+            @intFromPtr(ObjObject.cast(obj).?),
             ObjObject.cast(obj).?.name.string,
         }),
         .List => {
             const list: *ObjList = ObjList.cast(obj).?;
 
-            try writer.print("list: 0x{x} [", .{@ptrToInt(list)});
+            try writer.print("list: 0x{x} [", .{@intFromPtr(list)});
 
             try list.type_def.resolved_type.?.List.item_type.toString(writer);
 
@@ -3528,7 +3528,7 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             const map: *ObjMap = ObjMap.cast(obj).?;
 
             try writer.print("map: 0x{x} {{", .{
-                @ptrToInt(map),
+                @intFromPtr(map),
             });
 
             try map.type_def.resolved_type.?.Map.key_type.toString(writer);
@@ -3540,7 +3540,7 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             try writer.writeAll("}");
         },
         .Enum => try writer.print("enum: 0x{x} `{s}`", .{
-            @ptrToInt(ObjEnum.cast(obj).?),
+            @intFromPtr(ObjEnum.cast(obj).?),
             ObjEnum.cast(obj).?.name.string,
         }),
         .EnumInstance => enum_instance: {
@@ -3568,18 +3568,18 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
 
                 try valueToString(writer, bound.receiver);
 
-                try writer.print(" to native 0x{}", .{@ptrToInt(bound.native.?)});
+                try writer.print(" to native 0x{}", .{@intFromPtr(bound.native.?)});
             }
         },
         .Native => {
             var native: *ObjNative = ObjNative.cast(obj).?;
 
-            try writer.print("native: 0x{x}", .{@ptrToInt(native)});
+            try writer.print("native: 0x{x}", .{@intFromPtr(native)});
         },
         .UserData => {
             var userdata: *ObjUserData = ObjUserData.cast(obj).?;
 
-            try writer.print("userdata: 0x{x}", .{@ptrToInt(userdata)});
+            try writer.print("userdata: 0x{x}", .{@intFromPtr(userdata)});
         },
     };
 }
@@ -3638,10 +3638,10 @@ pub const PlaceholderDef = struct {
                 std.debug.print(
                     ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
                     .{
-                        @ptrToInt(child),
+                        @intFromPtr(child),
                         if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
                         child.resolved_type.?.Placeholder.parent_relation.?,
-                        @ptrToInt(child.resolved_type.?.Placeholder.parent.?),
+                        @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
                         if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
                     },
                 );
@@ -3657,9 +3657,9 @@ pub const PlaceholderDef = struct {
             std.debug.print(
                 "Linking @{} (root: {}) with @{} as {}\n",
                 .{
-                    @ptrToInt(parent),
+                    @intFromPtr(parent),
                     parent.resolved_type.?.Placeholder.parent == null,
-                    @ptrToInt(child),
+                    @intFromPtr(child),
                     relation,
                 },
             );

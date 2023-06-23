@@ -62,7 +62,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn fromObj(val: *Obj) Value {
-        return .{ .val = PointerMask | @ptrToInt(val) };
+        return .{ .val = PointerMask | @intFromPtr(val) };
     }
 
     pub inline fn getTag(self: Value) Tag {
@@ -114,7 +114,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn obj(self: Value) *Obj {
-        return @intToPtr(*Obj, self.val & ~PointerMask);
+        return @ptrFromInt(*Obj, self.val & ~PointerMask);
     }
 };
 
@@ -137,8 +137,8 @@ pub inline fn floatToInteger(value: Value) Value {
     const float = if (value.isFloat()) value.float() else null;
 
     // FIXME also check that the f64 can fit in the i32
-    if (float != null and @floatToInt(i64, float.?) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
-        return Value.fromInteger(@floatToInt(i32, float.?));
+    if (float != null and @intFromFloat(i64, float.?) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
+        return Value.fromInteger(@intFromFloat(i32, float.?));
     }
 
     return value;
@@ -199,11 +199,11 @@ pub fn valueEql(a: Value, b: Value) bool {
             if (b_f) |bf| {
                 return af == bf;
             } else {
-                return af == @intToFloat(f64, b_i.?);
+                return af == @floatFromInt(f64, b_i.?);
             }
         } else {
             if (b_f) |bf| {
-                return @intToFloat(f64, a_i.?) == bf;
+                return @floatFromInt(f64, a_i.?) == bf;
             } else {
                 return a_i.? == b_i.?;
             }

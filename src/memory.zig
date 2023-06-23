@@ -61,7 +61,7 @@ pub const TypeRegistry = struct {
         var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
 
         if (BuildOptions.debug_placeholders) {
-            std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
+            std.debug.print("`{s}` @{}\n", .{ type_def_str, @intFromPtr(type_def_ptr) });
         }
         _ = try self.registry.put(type_def_str, type_def_ptr);
 
@@ -202,7 +202,7 @@ pub const GarbageCollector = struct {
         var allocated = try self.allocator.create(T);
 
         if (BuildOptions.gc_debug) {
-            std.debug.print("Allocated @{} {}\n", .{ @ptrToInt(allocated), T });
+            std.debug.print("Allocated @{} {}\n", .{ @intFromPtr(allocated), T });
         }
 
         self.gc_time += timer.read();
@@ -279,7 +279,7 @@ pub const GarbageCollector = struct {
             ObjString{ .string = chars },
         );
 
-        // std.debug.print("allocated new string @{} `{s}`\n", .{ @ptrToInt(&string.obj), string.string });
+        // std.debug.print("allocated new string @{} `{s}`\n", .{ @intFromPtr(&string.obj), string.string });
         try self.strings.put(string.string, string);
 
         return string;
@@ -352,10 +352,10 @@ pub const GarbageCollector = struct {
             // std.debug.print(
             //     "Marked obj @{} {} dirty, gray_stack @{} or GC @{} will be {} items long\n",
             //     .{
-            //         @ptrToInt(obj),
+            //         @intFromPtr(obj),
             //         obj.obj_type,
-            //         @ptrToInt(&self.gray_stack),
-            //         @ptrToInt(self),
+            //         @intFromPtr(&self.gray_stack),
+            //         @intFromPtr(self),
             //         self.gray_stack.items.len,
             //     },
             // );
@@ -410,7 +410,7 @@ pub const GarbageCollector = struct {
             std.debug.print(
                 "blackening @{} {}\n",
                 .{
-                    @ptrToInt(obj),
+                    @intFromPtr(obj),
                     obj.obj_type,
                 },
             );
@@ -441,7 +441,7 @@ pub const GarbageCollector = struct {
             std.debug.print(
                 "done blackening @{} {}\n",
                 .{
-                    @ptrToInt(obj),
+                    @intFromPtr(obj),
                     obj.obj_type,
                 },
             );
@@ -450,7 +450,7 @@ pub const GarbageCollector = struct {
 
     fn freeObj(self: *Self, obj: *Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
         if (BuildOptions.gc_debug) {
-            std.debug.print(">> freeing {} {}\n", .{ @ptrToInt(obj), obj.obj_type });
+            std.debug.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.obj_type });
         }
 
         self.allocator.destroy(obj.node.?);
@@ -481,7 +481,7 @@ pub const GarbageCollector = struct {
                     if (registered_obj == obj_typedef) {
                         _ = self.type_registry.registry.remove(str.items);
                         if (BuildOptions.gc_debug) {
-                            std.debug.print("Removed registered type @{} `{s}`\n", .{ @ptrToInt(registered_obj), str.items });
+                            std.debug.print("Removed registered type @{} `{s}`\n", .{ @intFromPtr(registered_obj), str.items });
                         }
                     } else {
                         // std.debug.print(
@@ -578,30 +578,30 @@ pub const GarbageCollector = struct {
         while (current_fiber) |ufiber| {
             // Mark main fiber
             if (BuildOptions.gc_debug) {
-                std.debug.print("MARKING STACK OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("MARKING STACK OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
             var i = @ptrCast([*]Value, fiber.stack);
-            while (@ptrToInt(i) < @ptrToInt(fiber.stack_top)) : (i += 1) {
+            while (@intFromPtr(i) < @intFromPtr(fiber.stack_top)) : (i += 1) {
                 try self.markValue(i[0]);
             }
             if (BuildOptions.gc_debug) {
-                std.debug.print("DONE MARKING STACK OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("DONE MARKING STACK OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
 
             // Mark closure
             if (BuildOptions.gc_debug) {
-                std.debug.print("MARKING FRAMES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("MARKING FRAMES OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
             for (fiber.frames.items) |frame| {
                 try self.markObj(frame.closure.toObj());
             }
             if (BuildOptions.gc_debug) {
-                std.debug.print("DONE MARKING FRAMES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("DONE MARKING FRAMES OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
 
             // Mark opened upvalues
             if (BuildOptions.gc_debug) {
-                std.debug.print("MARKING UPVALUES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("MARKING UPVALUES OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
             if (fiber.open_upvalues) |open_upvalues| {
                 var upvalue: ?*ObjUpValue = open_upvalues;
@@ -610,7 +610,7 @@ pub const GarbageCollector = struct {
                 }
             }
             if (BuildOptions.gc_debug) {
-                std.debug.print("DONE MARKING UPVALUES OF FIBER @{}\n", .{@ptrToInt(ufiber)});
+                std.debug.print("DONE MARKING UPVALUES OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
 
             current_fiber = ufiber.parent_fiber;
@@ -697,13 +697,13 @@ pub const GarbageCollector = struct {
 
         // Mark globals
         if (BuildOptions.gc_debug) {
-            std.debug.print("MARKING GLOBALS OF VM @{}\n", .{@ptrToInt(vm)});
+            std.debug.print("MARKING GLOBALS OF VM @{}\n", .{@intFromPtr(vm)});
         }
         for (vm.globals.items) |global| {
             try self.markValue(global);
         }
         if (BuildOptions.gc_debug) {
-            std.debug.print("DONE MARKING GLOBALS OF VM @{}\n", .{@ptrToInt(vm)});
+            std.debug.print("DONE MARKING GLOBALS OF VM @{}\n", .{@intFromPtr(vm)});
         }
     }
 
@@ -728,7 +728,7 @@ pub const GarbageCollector = struct {
         while (obj_node) |node| : (count += 1) {
             if (node.data.is_marked) {
                 if (BuildOptions.gc_debug and mode == .Full) {
-                    std.debug.print("UNMARKING @{}\n", .{@ptrToInt(node.data)});
+                    std.debug.print("UNMARKING @{}\n", .{@intFromPtr(node.data)});
                 }
                 // If not a full gc, we reset is_marked, this object is now 'old'
                 node.data.is_marked = if (mode == .Full) false else node.data.is_marked;
@@ -780,10 +780,10 @@ pub const GarbageCollector = struct {
                 std.debug.print(
                     "\tMarking VM @{}, on fiber @{} and closure @{} (function @{} {s})\n",
                     .{
-                        @ptrToInt(vm),
-                        @ptrToInt(vm.current_fiber),
-                        @ptrToInt(vm.currentFrame().?.closure),
-                        @ptrToInt(vm.currentFrame().?.closure.function),
+                        @intFromPtr(vm),
+                        @intFromPtr(vm.current_fiber),
+                        @intFromPtr(vm.currentFrame().?.closure),
+                        @intFromPtr(vm.currentFrame().?.closure.function),
                         vm.currentFrame().?.closure.function.name.string,
                     },
                 );

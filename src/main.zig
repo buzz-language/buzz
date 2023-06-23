@@ -111,12 +111,12 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         }
 
         if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-            const parsing_ms: f64 = @intToFloat(f64, parsing_time) / 1000000;
-            const codegen_ms: f64 = @intToFloat(f64, codegen_time) / 1000000;
-            const running_ms: f64 = @intToFloat(f64, running_time) / 1000000;
-            const gc_ms: f64 = @intToFloat(f64, gc.gc_time) / 1000000;
+            const parsing_ms: f64 = @floatFromInt(f64, parsing_time) / 1000000;
+            const codegen_ms: f64 = @floatFromInt(f64, codegen_time) / 1000000;
+            const running_ms: f64 = @floatFromInt(f64, running_time) / 1000000;
+            const gc_ms: f64 = @floatFromInt(f64, gc.gc_time) / 1000000;
             const jit_ms: f64 = if (vm.mir_jit) |jit|
-                @intToFloat(f64, jit.jit_time) / 1000000
+                @floatFromInt(f64, jit.jit_time) / 1000000
             else
                 0;
             std.debug.print(

@@ -2021,7 +2021,7 @@ pub const UnaryNode = struct {
             const value = try self.left.toValue(self.left, gc);
 
             return switch (self.operator) {
-                .Bnot => Value.fromInteger(~(if (value.isInteger()) value.integer() else @floatToInt(i32, value.float()))),
+                .Bnot => Value.fromInteger(~(if (value.isInteger()) value.integer() else @intFromFloat(i32, value.float()))),
                 .Bang => Value.fromBoolean(!value.boolean()),
                 .Minus => number: {
                     if (value.isInteger()) {
@@ -2177,16 +2177,16 @@ pub const BinaryNode = struct {
 
             switch (self.operator) {
                 .Ampersand => {
-                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) & (right_i orelse @floatToInt(i32, right_f.?)));
+                    return Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) & (right_i orelse @intFromFloat(i32, right_f.?)));
                 },
                 .Bor => {
-                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) | (right_i orelse @floatToInt(i32, right_f.?)));
+                    return Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) | (right_i orelse @intFromFloat(i32, right_f.?)));
                 },
                 .Xor => {
-                    return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) ^ (right_i orelse @floatToInt(i32, right_f.?)));
+                    return Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) ^ (right_i orelse @intFromFloat(i32, right_f.?)));
                 },
                 .ShiftLeft => {
-                    const b = right_i orelse @floatToInt(i32, right_f.?);
+                    const b = right_i orelse @intFromFloat(i32, right_f.?);
 
                     if (b < 0) {
                         if (b * -1 > std.math.maxInt(u6)) {
@@ -2194,7 +2194,7 @@ pub const BinaryNode = struct {
                         }
 
                         return Value.fromInteger(
-                            (left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1)),
+                            (left_i orelse @intFromFloat(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b * -1)),
                         );
                     } else {
                         if (b > std.math.maxInt(u6)) {
@@ -2202,25 +2202,25 @@ pub const BinaryNode = struct {
                         }
 
                         return Value.fromInteger(
-                            (left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b)),
+                            (left_i orelse @intFromFloat(i32, left_f.?)) << @truncate(u5, @intCast(u64, b)),
                         );
                     }
                 },
                 .ShiftRight => {
-                    const b = right_i orelse @floatToInt(i32, right_f.?);
+                    const b = right_i orelse @intFromFloat(i32, right_f.?);
 
                     if (b < 0) {
                         if (b * -1 > std.math.maxInt(u6)) {
                             return Value.fromInteger(0);
                         }
 
-                        return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1)));
+                        return Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) << @truncate(u5, @intCast(u64, b * -1)));
                     } else {
                         if (b > std.math.maxInt(u6)) {
                             return Value.fromInteger(0);
                         }
 
-                        return Value.fromInteger((left_i orelse @floatToInt(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b)));
+                        return Value.fromInteger((left_i orelse @intFromFloat(i32, left_f.?)) >> @truncate(u5, @intCast(u64, b)));
                     }
                 },
                 .QuestionQuestion => {
@@ -2235,11 +2235,11 @@ pub const BinaryNode = struct {
                         if (right_f) |rf| {
                             return Value.fromBoolean(lf > rf);
                         } else {
-                            return Value.fromBoolean(lf > @intToFloat(f64, right_i.?));
+                            return Value.fromBoolean(lf > @floatFromInt(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value.fromBoolean(@intToFloat(f64, left_i.?) > rf);
+                            return Value.fromBoolean(@floatFromInt(f64, left_i.?) > rf);
                         } else {
                             return Value.fromBoolean(left_i.? > right_i.?);
                         }
@@ -2251,11 +2251,11 @@ pub const BinaryNode = struct {
                         if (right_f) |rf| {
                             return Value.fromBoolean(lf < rf);
                         } else {
-                            return Value.fromBoolean(lf < @intToFloat(f64, right_i.?));
+                            return Value.fromBoolean(lf < @floatFromInt(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value.fromBoolean(@intToFloat(f64, left_i.?) < rf);
+                            return Value.fromBoolean(@floatFromInt(f64, left_i.?) < rf);
                         } else {
                             return Value.fromBoolean(left_i.? < right_i.?);
                         }
@@ -2267,11 +2267,11 @@ pub const BinaryNode = struct {
                         if (right_f) |rf| {
                             return Value.fromBoolean(lf >= rf);
                         } else {
-                            return Value.fromBoolean(lf >= @intToFloat(f64, right_i.?));
+                            return Value.fromBoolean(lf >= @floatFromInt(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value.fromBoolean(@intToFloat(f64, left_i.?) >= rf);
+                            return Value.fromBoolean(@floatFromInt(f64, left_i.?) >= rf);
                         } else {
                             return Value.fromBoolean(left_i.? >= right_i.?);
                         }
@@ -2283,11 +2283,11 @@ pub const BinaryNode = struct {
                         if (right_f) |rf| {
                             return Value.fromBoolean(lf <= rf);
                         } else {
-                            return Value.fromBoolean(lf <= @intToFloat(f64, right_i.?));
+                            return Value.fromBoolean(lf <= @floatFromInt(f64, right_i.?));
                         }
                     } else {
                         if (right_f) |rf| {
-                            return Value.fromBoolean(@intToFloat(f64, left_i.?) <= rf);
+                            return Value.fromBoolean(@floatFromInt(f64, left_i.?) <= rf);
                         } else {
                             return Value.fromBoolean(left_i.? <= right_i.?);
                         }
@@ -2317,7 +2317,7 @@ pub const BinaryNode = struct {
 
                         return (try gc.copyString(new_string.items)).toValue();
                     } else if (right_f != null or left_f != null) {
-                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) + (left_f orelse @intToFloat(f64, left_i.?)));
+                        return Value.fromFloat((right_f orelse @floatFromInt(f64, right_i.?)) + (left_f orelse @floatFromInt(f64, left_i.?)));
                     } else if (right_i != null or left_i != null) {
                         return Value.fromInteger(right_i.? + left_i.?);
                     } else if (right_l != null) {
@@ -2357,28 +2357,28 @@ pub const BinaryNode = struct {
                 },
                 .Minus => {
                     if (right_f != null or left_f != null) {
-                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) - (left_f orelse @intToFloat(f64, left_i.?)));
+                        return Value.fromFloat((right_f orelse @floatFromInt(f64, right_i.?)) - (left_f orelse @floatFromInt(f64, left_i.?)));
                     }
 
                     return Value.fromInteger(right_i.? - left_i.?);
                 },
                 .Star => {
                     if (right_f != null or left_f != null) {
-                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) * (left_f orelse @intToFloat(f64, left_i.?)));
+                        return Value.fromFloat((right_f orelse @floatFromInt(f64, right_i.?)) * (left_f orelse @floatFromInt(f64, left_i.?)));
                     }
 
                     return Value.fromInteger(right_i.? * left_i.?);
                 },
                 .Slash => {
                     if (right_f != null or left_f != null) {
-                        return Value.fromFloat((right_f orelse @intToFloat(f64, right_i.?)) / (left_f orelse @intToFloat(f64, left_i.?)));
+                        return Value.fromFloat((right_f orelse @floatFromInt(f64, right_i.?)) / (left_f orelse @floatFromInt(f64, left_i.?)));
                     }
 
-                    return Value.fromFloat(@intToFloat(f64, right_i.?) / @intToFloat(f64, left_i.?));
+                    return Value.fromFloat(@floatFromInt(f64, right_i.?) / @floatFromInt(f64, left_i.?));
                 },
                 .Percent => {
                     if (right_f != null or left_f != null) {
-                        return Value.fromFloat(@mod((right_f orelse @intToFloat(f64, right_i.?)), (left_f orelse @intToFloat(f64, left_i.?))));
+                        return Value.fromFloat(@mod((right_f orelse @floatFromInt(f64, right_i.?)), (left_f orelse @floatFromInt(f64, left_i.?))));
                     }
 
                     return Value.fromInteger(@mod(right_i.?, left_i.?));
@@ -4554,7 +4554,7 @@ pub const VarDeclarationNode = struct {
 
         try self.type_def.toString(out);
 
-        try out.print(" @{}\", ", .{@ptrToInt(self.type_def)});
+        try out.print(" @{}\", ", .{@intFromPtr(self.type_def)});
 
         if (self.value) |value| {
             try out.writeAll("\"value\": ");
@@ -6564,9 +6564,9 @@ pub const ObjectInitNode = struct {
                         std.debug.print(
                             "prop {}({}), value {}({})\n",
                             .{
-                                @ptrToInt(prop.resolved_type.?.ObjectInstance),
+                                @intFromPtr(prop.resolved_type.?.ObjectInstance),
                                 prop.optional,
-                                @ptrToInt(value.type_def.?.resolved_type.?.ObjectInstance),
+                                @intFromPtr(value.type_def.?.resolved_type.?.ObjectInstance),
                                 value.type_def.?.optional,
                             },
                         );

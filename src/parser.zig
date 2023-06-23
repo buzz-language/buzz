@@ -443,7 +443,7 @@ pub const Parser = struct {
                         "Placeholder remaining in globals at {}: @{} {s}\n",
                         .{
                             index,
-                            @ptrToInt(global.type_def),
+                            @intFromPtr(global.type_def),
                             if (global.type_def.resolved_type.?.Placeholder.name) |name| name.string else "Unknown",
                         },
                     );
@@ -715,8 +715,8 @@ pub const Parser = struct {
             std.debug.print(
                 "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
                 .{
-                    @ptrToInt(resolved_type),
-                    @ptrToInt(child),
+                    @intFromPtr(resolved_type),
+                    @intFromPtr(child),
                     if (child_placeholder.name) |name| name.string else "unknown",
                     child_placeholder.parent_relation.?,
                 },
@@ -956,9 +956,9 @@ pub const Parser = struct {
 
         if (BuildOptions.debug_placeholders) {
             std.debug.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
-                @ptrToInt(placeholder),
+                @intFromPtr(placeholder),
                 if (placeholder.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-                @ptrToInt(resolved_type),
+                @intFromPtr(resolved_type),
                 resolved_type.def_type,
                 resolved_type.optional,
             });
@@ -970,9 +970,9 @@ pub const Parser = struct {
                 std.debug.print(
                     "Replaced linked placeholder @{} ({s}) with rooted placeholder @{} ({s})\n",
                     .{
-                        @ptrToInt(placeholder),
+                        @intFromPtr(placeholder),
                         if (placeholder.resolved_type.?.Placeholder.name != null) placeholder.resolved_type.?.Placeholder.name.?.string else "unknown",
-                        @ptrToInt(resolved_type),
+                        @intFromPtr(resolved_type),
                         if (resolved_type.resolved_type.?.Placeholder.name != null) resolved_type.resolved_type.?.Placeholder.name.?.string else "unknown",
                     },
                 );
@@ -1009,10 +1009,10 @@ pub const Parser = struct {
             std.debug.print(
                 "Resolved placeholder @{} {s}({}) with @{}.{}({})\n",
                 .{
-                    @ptrToInt(placeholder),
+                    @intFromPtr(placeholder),
                     if (placeholder.resolved_type.?.Placeholder.name != null) placeholder.resolved_type.?.Placeholder.name.?.string else "unknown",
                     placeholder.optional,
-                    @ptrToInt(resolved_type),
+                    @intFromPtr(resolved_type),
                     resolved_type.def_type,
                     resolved_type.optional,
                 },
@@ -2779,7 +2779,7 @@ pub const Parser = struct {
     }
 
     inline fn getRule(token: TokenType) ParseRule {
-        return rules[@enumToInt(token)];
+        return rules[@intFromEnum(token)];
     }
 
     fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) !*ParseNode {
@@ -2801,16 +2801,16 @@ pub const Parser = struct {
             return CompileError.Unrecoverable;
         }
 
-        var canAssign: bool = @enumToInt(precedence) <= @enumToInt(Precedence.Assignment);
+        var canAssign: bool = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
         var node: *ParseNode = try prefixRule.?(self, canAssign);
 
-        while (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) >= @enumToInt(precedence)) {
+        while (@intFromEnum(getRule(self.parser.current_token.?.token_type).precedence) >= @intFromEnum(precedence)) {
             // Patch optional jumps
             if (self.opt_jumps) |jumps| {
                 assert(jumps.items.len > 0);
                 var first_jump: Precedence = jumps.items[0];
 
-                if (@enumToInt(getRule(self.parser.current_token.?.token_type).precedence) < @enumToInt(first_jump)) {
+                if (@intFromEnum(getRule(self.parser.current_token.?.token_type).precedence) < @intFromEnum(first_jump)) {
                     jumps.deinit();
                     self.opt_jumps = null;
 
@@ -3632,7 +3632,7 @@ pub const Parser = struct {
                         std.debug.print(
                             "static placeholder @{} for `{s}`\n",
                             .{
-                                @ptrToInt(placeholder),
+                                @intFromPtr(placeholder),
                                 member_name_token.lexeme,
                             },
                         );
@@ -3689,7 +3689,7 @@ pub const Parser = struct {
                         std.debug.print(
                             "property placeholder @{} for `{s}.{s}`\n",
                             .{
-                                @ptrToInt(placeholder),
+                                @intFromPtr(placeholder),
                                 object.resolved_type.?.Object.name.string,
                                 member_name_token.lexeme,
                             },
@@ -3930,7 +3930,7 @@ pub const Parser = struct {
         const rule: ParseRule = getRule(operator);
 
         const right: *ParseNode = try self.parsePrecedence(
-            @intToEnum(Precedence, @enumToInt(rule.precedence) + 1),
+            @enumFromInt(Precedence, @intFromEnum(rule.precedence) + 1),
             false,
         );
 
@@ -5117,7 +5117,7 @@ pub const Parser = struct {
             std.debug.print(
                 "global placeholder @{} for `{s}` at {}\n",
                 .{
-                    @ptrToInt(placeholder_type),
+                    @intFromPtr(placeholder_type),
                     name.lexeme,
                     global,
                 },
@@ -5156,13 +5156,13 @@ pub const Parser = struct {
                     if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-                        if (variable_type.resolved_type != null or @enumToInt(variable_type.def_type) < @enumToInt(ObjTypeDef.Type.ObjectInstance)) {
+                        if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(ObjTypeDef.Type.ObjectInstance)) {
                             if (BuildOptions.debug_placeholders) {
                                 std.debug.print(
                                     "Global placeholder @{} resolve with @{} {s} (opt {})\n",
                                     .{
-                                        @ptrToInt(global.type_def),
-                                        @ptrToInt(variable_type),
+                                        @intFromPtr(global.type_def),
+                                        @intFromPtr(variable_type),
                                         (try variable_type.toStringAlloc(self.gc.allocator)).items,
                                         variable_type.optional,
                                     },
@@ -5210,7 +5210,7 @@ pub const Parser = struct {
                     .{
                         index,
                         global.name.string,
-                        @ptrToInt(global.type_def),
+                        @intFromPtr(global.type_def),
                         try global.type_def.toString(self.gc.allocator),
                     },
                 );

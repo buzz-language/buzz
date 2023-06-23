@@ -207,7 +207,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var upto: ?i32 = if (upto_value.isInteger())
         upto_value.integer()
     else if (upto_value.isFloat())
-        @floatToInt(i32, upto_value.float())
+        @intFromFloat(i32, upto_value.float())
     else
         null;
 

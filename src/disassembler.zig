@@ -108,19 +108,19 @@ pub fn dumpStack(vm: *VM) void {
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
     var value = @ptrCast([*]_value.Value, vm.current_fiber.stack[0..]);
-    while (@ptrToInt(value) < @ptrToInt(vm.current_fiber.stack_top)) {
+    while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top)) {
         var value_str = _value.valueToStringAlloc(std.heap.c_allocator, value[0]) catch unreachable;
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
-            print("{} {s} frame\n ", .{ @ptrToInt(value), value_str.items[0..@min(value_str.items.len, 100)] });
+            print("{} {s} frame\n ", .{ @intFromPtr(value), value_str.items[0..@min(value_str.items.len, 100)] });
         } else {
-            print("{} {s}\n ", .{ @ptrToInt(value), value_str.items[0..@min(value_str.items.len, 100)] });
+            print("{} {s}\n ", .{ @intFromPtr(value), value_str.items[0..@min(value_str.items.len, 100)] });
         }
 
         value += 1;
     }
-    print("{} top\n", .{@ptrToInt(vm.current_fiber.stack_top)});
+    print("{} top\n", .{@intFromPtr(vm.current_fiber.stack_top)});
 
     print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
     print("\u{001b}[0m", .{});
@@ -136,7 +136,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
-    const instruction: OpCode = @intToEnum(OpCode, @intCast(u8, full_instruction >> 24));
+    const instruction: OpCode = @enumFromInt(OpCode, @intCast(u8, full_instruction >> 24));
     const arg: u24 = @intCast(u24, 0x00ffffff & full_instruction);
     return switch (instruction) {
         .OP_NULL,

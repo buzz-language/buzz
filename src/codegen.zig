@@ -96,16 +96,16 @@ pub const CodeGen = struct {
 
     // OP_ | arg
     pub fn emitCodeArg(self: *Self, location: Token, code: OpCode, arg: u24) !void {
-        try self.emit(location, (@intCast(u32, @enumToInt(code)) << 24) | @intCast(u32, arg));
+        try self.emit(location, (@intCast(u32, @intFromEnum(code)) << 24) | @intCast(u32, arg));
     }
 
     // OP_ | a | b
     pub fn emitCodeArgs(self: *Self, location: Token, code: OpCode, a: u8, b: u16) !void {
-        try self.emit(location, (@intCast(u32, @enumToInt(code)) << 24) | (@intCast(u32, a) << 16) | (@intCast(u32, b)));
+        try self.emit(location, (@intCast(u32, @intFromEnum(code)) << 24) | (@intCast(u32, a) << 16) | (@intCast(u32, b)));
     }
 
     pub fn emitOpCode(self: *Self, location: Token, code: OpCode) !void {
-        try self.emit(location, @intCast(u32, @intCast(u32, @enumToInt(code)) << 24));
+        try self.emit(location, @intCast(u32, @intCast(u32, @intFromEnum(code)) << 24));
     }
 
     pub fn emitLoop(self: *Self, location: Token, loop_start: usize) !void {
@@ -126,7 +126,7 @@ pub const CodeGen = struct {
     pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
         const instruction: u8 = @intCast(u8, original >> 24);
-        const code: OpCode = @intToEnum(OpCode, instruction);
+        const code: OpCode = @enumFromInt(OpCode, instruction);
 
         if (code == .OP_LOOP) { // Patching a continue statement
             assert(loop_start != null);

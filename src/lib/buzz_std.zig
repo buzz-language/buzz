@@ -21,7 +21,7 @@ export fn toInt(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (value.isFloat())
-                @floatToInt(i32, value.float())
+                @intFromFloat(i32, value.float())
             else
                 value.integer(),
         ),
@@ -36,7 +36,7 @@ export fn toFloat(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromFloat(
             if (value.isInteger())
-                @intToFloat(f64, value.integer())
+                @floatFromInt(f64, value.integer())
             else
                 value.float(),
         ),
