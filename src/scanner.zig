@@ -73,7 +73,10 @@ pub const Scanner = struct {
             '}' => self.makeToken(.RightBrace, null, null, null),
             ',' => self.makeToken(.Comma, null, null, null),
             ';' => self.makeToken(.Semicolon, null, null, null),
-            '.' => self.makeToken(.Dot, null, null, null),
+            '.' => if (self.match('.'))
+                self.makeToken(.Spread, null, null, null)
+            else
+                self.makeToken(.Dot, null, null, null),
             '>' => if (self.match('>'))
                 self.makeToken(.ShiftRight, null, null, null)
             else if (self.match('='))

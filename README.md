@@ -106,6 +106,8 @@ const float pi = 3.14;
     "two": 2,
     "three": 3,
 };
+| A range results in a list of ints
+[int] range = 0..10;
 ```
 
 ### Operators

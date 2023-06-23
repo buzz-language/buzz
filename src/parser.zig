@@ -94,6 +94,7 @@ const ObjectDeclarationNode = _node.ObjectDeclarationNode;
 const ProtocolDeclarationNode = _node.ProtocolDeclarationNode;
 const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
+const RangeNode = _node.RangeNode;
 const TryNode = _node.TryNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
@@ -334,6 +335,7 @@ pub const Parser = struct {
         .{ .prefix = resumeFiber, .infix = null, .precedence = .Primary }, // resume
         .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
+        .{ .prefix = null, .infix = null, .precedence = .Primary }, // ..
     };
 
     pub const ScriptImport = struct {
@@ -3145,14 +3147,51 @@ pub const Parser = struct {
     fn integer(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
+        const integer_constant = self.parser.previous_token.?.literal_integer.?;
+
+        if (try self.match(.Spread)) {
+            return try self.range(integer_constant);
+        }
+
         var node = try self.gc.allocator.create(IntegerNode);
 
         node.* = IntegerNode{
-            .integer_constant = self.parser.previous_token.?.literal_integer.?,
+            .integer_constant = integer_constant,
         };
         node.node.type_def = try self.gc.type_registry.getTypeDef(.{
             .def_type = .Integer,
         });
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn range(self: *Self, low: i32) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        try self.consume(.IntegerValue, "Expected range upper limit");
+
+        var node = try self.gc.allocator.create(RangeNode);
+
+        node.* = RangeNode{
+            .low = low,
+            .hi = self.parser.previous_token.?.literal_integer.?,
+        };
+        const item_type = try self.gc.type_registry.getTypeDef(.{
+            .def_type = .Integer,
+        });
+        const list_def = ObjList.ListDef.init(self.gc.allocator, item_type);
+        const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+            .List = list_def,
+        };
+        node.node.type_def = try self.gc.type_registry.getTypeDef(
+            .{
+                .optional = false,
+                .def_type = .List,
+                .resolved_type = resolved_type,
+            },
+        );
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
 

@@ -1,0 +1,13 @@
+import "lib/std";
+import "lib/debug";
+
+test "Ranges" {
+    [int] range = 0..10;
+    assert(range.len() == 10, message: "Could create list from range");
+
+    int sum = 0;
+    foreach (int n in 0..10) {
+        sum = sum + n;
+    }
+    assert(sum == 45, message: "Could iterate over range");
+}

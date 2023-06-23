@@ -174,6 +174,7 @@ pub const TokenType = enum {
     Resume, // resume
     Resolve, // resolve
     Yield, // yield
+    Spread, // ..
 };
 
 pub const keywords = std.ComptimeStringMap(TokenType, .{

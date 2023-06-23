@@ -994,6 +994,7 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         .Break => try self.generateBreak(node),
         .Continue => try self.generateContinue(node),
         .List => try self.generateList(n.ListNode.cast(node).?),
+        .Range => try self.generateRange(n.RangeNode.cast(node).?),
         .Dot => try self.generateDot(n.DotNode.cast(node).?),
         .Subscript => try self.generateSubscript(n.SubscriptNode.cast(node).?),
         .Map => try self.generateMap(n.MapNode.cast(node).?),
@@ -2434,6 +2435,42 @@ fn generateList(self: *Self, list_node: *n.ListNode) Error!?m.MIR_op_t {
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 new_list,
                 (try self.generateNode(item)).?,
+            },
+        );
+    }
+
+    try self.buildPop(null);
+
+    return new_list;
+}
+
+fn generateRange(self: *Self, range: *n.RangeNode) Error!?m.MIR_op_t {
+    const new_list = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("new_list", m.MIR_T_I64),
+    );
+
+    try self.buildExternApiCall(
+        .bz_newList,
+        new_list,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            m.MIR_new_uint_op(self.ctx, range.node.type_def.?.resolved_type.?.List.item_type.toValue().val),
+        },
+    );
+
+    // Prevent collection
+    try self.buildPush(new_list);
+
+    var i = range.low;
+    while (i < range.hi) : (i += 1) {
+        try self.buildExternApiCall(
+            .bz_listAppend,
+            null,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                new_list,
+                m.MIR_new_uint_op(self.ctx, v.Value.fromInteger(i).val),
             },
         );
     }
