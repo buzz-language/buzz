@@ -306,6 +306,11 @@ fib<void, int?> fibonnaciFib = &fibonnaci(10);
 foreach (int value in fibonnaciFib) {
     | ...
 }
+
+| The key can be omitted
+foreach (str char in aString) {
+    | ...
+}
 ```
 
 ### Objects

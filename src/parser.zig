@@ -1922,16 +1922,48 @@ pub const Parser = struct {
 
         self.beginScope();
 
-        var key: ?*ParseNode = try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, false);
+        var key: ?*ParseNode = try self.varDeclaration(
+            try self.parseTypeDef(null),
+            .Nothing,
+            false,
+            false,
+        );
 
         var value: ?*ParseNode = if (try self.match(.Comma))
-            try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, false)
+            try self.varDeclaration(
+                try self.parseTypeDef(null),
+                .Nothing,
+                false,
+                false,
+            )
         else
             null;
 
+        // If key is omitted, prepare the slot anyway
+        const key_omitted = value == null;
+        if (key_omitted) {
+            value = key;
+
+            key = try self.implicitVarDeclaration(
+                Token.identifier("$key"),
+                try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                false,
+            );
+
+            // Switch slots so that key is before value
+            const key_slot = VarDeclarationNode.cast(value.?).?.slot;
+            const value_slot = VarDeclarationNode.cast(key.?).?.slot;
+            VarDeclarationNode.cast(value.?).?.slot = VarDeclarationNode.cast(key.?).?.slot;
+            VarDeclarationNode.cast(key.?).?.slot = key_slot;
+
+            const value_local = self.current.?.locals[key_slot];
+            self.current.?.locals[key_slot] = self.current.?.locals[value_slot];
+            self.current.?.locals[value_slot] = value_local;
+        }
+
         try self.consume(.In, "Expected `in` after `foreach` variables.");
 
-        var iterable = try self.expression(false);
+        const iterable = try self.expression(false);
 
         // Local not usable by user but needed so that locals are correct
         _ = try self.addLocal(
@@ -1953,18 +1985,13 @@ pub const Parser = struct {
         });
         body.ends_scope = try self.endScope();
 
-        // Only one variable: it's the value not the key
-        if (value == null) {
-            value = key;
-            key = null;
-        }
-
         var node = try self.gc.allocator.create(ForEachNode);
         node.* = ForEachNode{
-            .key = if (key != null) VarDeclarationNode.cast(key.?).? else null,
+            .key = VarDeclarationNode.cast(key.?).?,
             .value = VarDeclarationNode.cast(value.?).?,
             .iterable = iterable,
             .block = body,
+            .key_omitted = key_omitted,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -2127,10 +2154,34 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    // Same as varDeclaration but does not parse anything (useful when we need to declare a variable that need to exists but is not exposed to the user)
+    fn implicitVarDeclaration(self: *Self, name: Token, parsed_type: *ObjTypeDef, constant: bool) !*ParseNode {
+        const var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+        const slot = try self.declareVariable(var_type, name, constant);
+
+        var node = try self.gc.allocator.create(VarDeclarationNode);
+        node.* = VarDeclarationNode{
+            .name = name,
+            .value = null,
+            .type_def = var_type,
+            .constant = constant,
+            .slot = slot,
+            .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
+            .expression = false,
+        };
+        node.node.location = self.parser.previous_token.?;
+        node.node.end_location = self.parser.previous_token.?;
+        node.node.type_def = node.type_def;
+
+        self.markInitialized();
+
+        return &node.node;
+    }
+
     fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        var var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+        const var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
         const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
 

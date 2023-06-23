@@ -5562,7 +5562,8 @@ pub const ForEachNode = struct {
         .render = render,
     },
 
-    key: ?*VarDeclarationNode = null,
+    key_omitted: bool,
+    key: *VarDeclarationNode,
     value: *VarDeclarationNode,
     iterable: *ParseNode,
     block: *ParseNode,
@@ -5585,24 +5586,31 @@ pub const ForEachNode = struct {
             try codegen.reportErrorAt(self.iterable.location, "Unknown type.");
             try codegen.reportPlaceholder(self.iterable.type_def.?.resolved_type.?.Placeholder);
         } else {
-            if (self.key) |key| {
-                if (key.type_def.def_type == .Placeholder) {
-                    try codegen.reportPlaceholder(key.type_def.resolved_type.?.Placeholder);
+            if (!self.key_omitted) {
+                if (self.key.type_def.def_type == .Placeholder) {
+                    try codegen.reportPlaceholder(self.key.type_def.resolved_type.?.Placeholder);
                 }
 
                 switch (self.iterable.type_def.?.def_type) {
                     .String, .List => {
-                        if (key.type_def.def_type != .Integer) {
-                            try codegen.reportErrorAt(key.node.location, "Expected `int`.");
+                        if (self.key.type_def.def_type != .Integer) {
+                            try codegen.reportErrorAt(self.key.node.location, "Expected `int`.");
                         }
                     },
                     .Map => {
-                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(key.type_def)) {
-                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, key.type_def, "Bad key type", key.node.location);
+                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(self.key.type_def)) {
+                            try codegen.reportTypeCheckAt(self.iterable.type_def.?.resolved_type.?.Map.key_type, self.key.type_def, "Bad key type", self.key.node.location);
                         }
                     },
-                    .Enum => try codegen.reportErrorAt(key.node.location, "No key available when iterating over enum."),
+                    .Enum => try codegen.reportErrorAt(self.key.node.location, "No key available when iterating over enum."),
                     else => try codegen.reportErrorAt(self.iterable.location, "Not iterable."),
+                }
+            } else {
+                // Key was omitted, put the correct type in the key var declation to avoid raising errors
+                switch (self.iterable.type_def.?.def_type) {
+                    .Map => self.key.type_def = self.iterable.type_def.?.resolved_type.?.Map.key_type,
+                    .String, .List => self.key.type_def = try codegen.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                    else => {},
                 }
             }
 
@@ -5681,10 +5689,9 @@ pub const ForEachNode = struct {
             }
         }
 
-        if (self.key) |key| {
-            _ = try key.node.toByteCode(&key.node, codegen, _breaks);
-        }
+        _ = try self.key.node.toByteCode(&self.key.node, codegen, _breaks);
         _ = try self.value.node.toByteCode(&self.value.node, codegen, _breaks);
+
         _ = try self.iterable.toByteCode(self.iterable, codegen, _breaks);
 
         const loop_start: usize = codegen.currentCode();
@@ -5703,7 +5710,17 @@ pub const ForEachNode = struct {
         );
 
         // If next key is null, exit loop
-        try codegen.emitCodeArg(self.node.location, .OP_GET_LOCAL, @intCast(u24, (self.key orelse self.value).slot));
+        try codegen.emitCodeArg(
+            self.node.location,
+            .OP_GET_LOCAL,
+            @intCast(
+                u24,
+                switch (self.iterable.type_def.?.def_type) {
+                    .String, .List, .Map => self.key.slot,
+                    else => self.value.slot,
+                },
+            ),
+        );
         try codegen.emitOpCode(self.node.location, .OP_NULL);
         try codegen.emitOpCode(self.node.location, .OP_EQUAL);
         try codegen.emitOpCode(self.node.location, .OP_NOT);
@@ -5729,7 +5746,7 @@ pub const ForEachNode = struct {
 
         try node.patchOptJumps(codegen);
         // Should have key, [value,] iterable to pop
-        assert(node.ends_scope != null and node.ends_scope.?.items.len >= 2);
+        assert(node.ends_scope != null and node.ends_scope.?.items.len == 3);
         try node.endScope(codegen);
 
         return null;
@@ -5741,9 +5758,9 @@ pub const ForEachNode = struct {
 
         try out.writeAll("{\"node\": \"ForEach\", ");
 
-        if (self.key) |key| {
+        if (!self.key_omitted) {
             try out.writeAll("\"key\": ");
-            try key.node.toJson(&key.node, out);
+            try self.key.node.toJson(&self.key.node, out);
         }
 
         try out.writeAll(", \"value\": ");
@@ -5772,8 +5789,8 @@ pub const ForEachNode = struct {
         try out.writeByteNTimes(' ', depth * 4);
 
         try out.writeAll("foreach (");
-        if (self.key) |key| {
-            try key.node.render(&key.node, out, depth);
+        if (!self.key_omitted) {
+            try self.key.node.render(&self.key.node, out, depth);
             try out.writeAll(", ");
         }
         try self.value.node.render(&self.value.node, out, depth);

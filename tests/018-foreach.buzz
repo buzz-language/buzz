@@ -56,3 +56,23 @@ test "foreach on str" {
 
     assert(hello == "hello world", message: "foreach on str");
 }
+
+test "Omit key in foreach" {
+    int sum = 0;
+    foreach (int n in [1, 2, 3]) {
+        sum = sum + n;
+    }
+    assert(sum == 6, message: "Could omit list key");
+
+    str hello = "";
+    foreach (str char in "hello") {
+        hello = "{hello}{char}";
+    }
+    assert(hello == "hello", message: "Could omit string key");
+
+    sum = 0;
+    foreach (int n in {"hello": 1, "world": 2}) {
+        sum = sum + n;
+    }
+    assert(sum == 3, message: "Could omit map key");
+}

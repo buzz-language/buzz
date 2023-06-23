@@ -3268,10 +3268,8 @@ fn generateForEach(self: *Self, foreach_node: *n.ForEachNode) Error!?m.MIR_op_t 
     }
 
     // key, value and iterable are locals of the foreach scope
-    if (foreach_node.key) |key| {
-        // var declaration so will push value on stack
-        _ = try self.generateNode(&key.node);
-    }
+    // var declaration so will push value on stack
+    _ = try self.generateNode(&foreach_node.key.node);
     // var declaration so will push value on stack
     _ = try self.generateNode(&foreach_node.value.node);
     const iterable = (try self.generateNode(foreach_node.iterable)).?;
