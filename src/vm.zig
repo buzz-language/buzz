@@ -628,6 +628,7 @@ pub const VM = struct {
         OP_GET_ENUM_CASE_FROM_VALUE,
 
         OP_LIST,
+        OP_RANGE,
         OP_LIST_APPEND,
 
         OP_MAP,
@@ -1706,6 +1707,53 @@ pub const VM = struct {
         };
 
         self.push(Value.fromObj(list.toObj()));
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_RANGE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const high = self.pop().integer();
+        const low = self.pop().integer();
+
+        var list: *ObjList = self.gc.allocateObject(
+            ObjList,
+            ObjList.init(
+                self.gc.allocator,
+                self.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Integer,
+                    },
+                ) catch @panic("Could not instanciate list"),
+            ),
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        self.push(Value.fromObj(list.toObj()));
+
+        if (low < high) {
+            var i: i32 = low;
+            while (i < high) : (i += 1) {
+                list.rawAppend(self.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
+            }
+        } else {
+            var i: i32 = low;
+            while (i > high) : (i -= 1) {
+                list.rawAppend(self.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
+            }
+        }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

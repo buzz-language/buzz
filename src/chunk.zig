@@ -107,6 +107,7 @@ pub const OpCode = enum(u8) {
     OP_GET_ENUM_CASE_FROM_VALUE,
 
     OP_LIST,
+    OP_RANGE,
     OP_LIST_APPEND,
 
     OP_MAP,

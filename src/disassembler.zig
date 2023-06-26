@@ -211,6 +211,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_OBJECT,
         .OP_ENUM,
         .OP_LIST,
+        .OP_RANGE,
         .OP_METHOD,
         .OP_PROPERTY,
         .OP_GET_OBJECT_PROPERTY,

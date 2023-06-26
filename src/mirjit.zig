@@ -946,7 +946,9 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
 }
 
 fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
-    var value = if (node.isConstant(node) and node.node_type != .List and node.node_type != .Map)
+    const constant = node.isConstant(node) and node.node_type != .List and node.node_type != .Map;
+
+    var value = if (constant)
         m.MIR_new_uint_op(
             self.ctx,
             (node.toValue(node, self.vm.gc) catch return VM.Error.Custom).val,
@@ -1061,9 +1063,10 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
             self.state.?.opt_jump.?.deinit();
             self.state.?.opt_jump = null;
         }
-
         // Close scope if needed
-        try self.closeScope(node);
+        if (!constant or node.node_type != .Range) { // Range creates locals for its limits, but we don't push anything if its constant
+            try self.closeScope(node);
+        }
     }
 
     return value;
@@ -2462,20 +2465,102 @@ fn generateRange(self: *Self, range: *n.RangeNode) Error!?m.MIR_op_t {
     // Prevent collection
     try self.buildPush(new_list);
 
-    var i = range.low;
-    while (i < range.hi) : (i += 1) {
-        try self.buildExternApiCall(
-            .bz_listAppend,
-            null,
-            &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                new_list,
-                m.MIR_new_uint_op(self.ctx, v.Value.fromInteger(i).val),
-            },
-        );
-    }
+    const low = (try self.generateNode(range.low)).?;
+    const high = (try self.generateNode(range.hi)).?;
 
-    try self.buildPop(null);
+    const current = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("current", m.MIR_T_I64),
+    );
+    self.MOV(current, low);
+    const reached_limit = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("reached_limit", m.MIR_T_I64),
+    );
+    const unwrapped_low = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("unwrapped_low", m.MIR_T_I64),
+    );
+    self.unwrap(.Integer, low, unwrapped_low);
+
+    const unwrapped_high = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("unwrapped_high", m.MIR_T_I64),
+    );
+    self.unwrap(.Integer, high, unwrapped_high);
+
+    // Select increment
+    const is_negative_delta = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("is_negative_delta", m.MIR_T_I64),
+    );
+    self.GES(is_negative_delta, unwrapped_low, unwrapped_high);
+
+    const neg_loop_label = m.MIR_new_label(self.ctx);
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, neg_loop_label),
+        is_negative_delta,
+        m.MIR_new_uint_op(self.ctx, 1),
+    );
+
+    const exit_label = m.MIR_new_label(self.ctx);
+
+    const pos_loop_label = m.MIR_new_label(self.ctx);
+    self.append(pos_loop_label);
+
+    self.GES(reached_limit, unwrapped_low, unwrapped_high);
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, exit_label),
+        reached_limit,
+        m.MIR_new_uint_op(self.ctx, 1),
+    );
+
+    // Add new element
+    try self.buildExternApiCall(
+        .bz_listAppend,
+        null,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            new_list,
+            current,
+        },
+    );
+
+    // Increment
+    self.ADDS(unwrapped_low, unwrapped_low, m.MIR_new_uint_op(self.ctx, 1));
+    self.wrap(.Integer, unwrapped_low, current);
+
+    self.JMP(pos_loop_label);
+
+    self.append(neg_loop_label);
+
+    self.LES(reached_limit, unwrapped_low, unwrapped_high);
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, exit_label),
+        reached_limit,
+        m.MIR_new_uint_op(self.ctx, 1),
+    );
+
+    // Add new element
+    try self.buildExternApiCall(
+        .bz_listAppend,
+        null,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            new_list,
+            current,
+        },
+    );
+
+    // Increment
+    self.SUBS(unwrapped_low, unwrapped_low, m.MIR_new_uint_op(self.ctx, 1));
+    self.wrap(.Integer, unwrapped_low, current);
+
+    self.JMP(neg_loop_label);
+
+    self.append(exit_label);
+
+    try self.buildPop(null); // Pop list
 
     return new_list;
 }

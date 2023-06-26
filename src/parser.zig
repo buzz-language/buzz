@@ -335,7 +335,7 @@ pub const Parser = struct {
         .{ .prefix = resumeFiber, .infix = null, .precedence = .Primary }, // resume
         .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
-        .{ .prefix = null, .infix = null, .precedence = .Primary }, // ..
+        .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
     };
 
     pub const ScriptImport = struct {
@@ -1613,6 +1613,7 @@ pub const Parser = struct {
             &object_type, // Should resolve object_placeholder and be discarded
             object_name,
             true, // Object is always constant
+            true,
         );
 
         assert(!object_type.optional);
@@ -1730,6 +1731,7 @@ pub const Parser = struct {
             &protocol_type, // Should resolve protocol_placeholder and be discarded
             protocol_name,
             true, // Protocol is always constant
+            true,
         );
 
         assert(!protocol_type.optional);
@@ -1965,14 +1967,16 @@ pub const Parser = struct {
 
         try self.consume(.In, "Expected `in` after `foreach` variables.");
 
-        const iterable = try self.expression(false);
-
         // Local not usable by user but needed so that locals are correct
-        _ = try self.addLocal(
+        const iterable_slot = try self.addLocal(
             Token.identifier("$iterable"),
-            iterable.type_def.?,
+            undefined,
             true,
         );
+
+        const iterable = try self.expression(false);
+
+        self.current.?.locals[iterable_slot].type_def = iterable.type_def.?;
 
         self.markInitialized();
 
@@ -2159,7 +2163,7 @@ pub const Parser = struct {
     // Same as varDeclaration but does not parse anything (useful when we need to declare a variable that need to exists but is not exposed to the user)
     fn implicitVarDeclaration(self: *Self, name: Token, parsed_type: *ObjTypeDef, constant: bool) !*ParseNode {
         const var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
-        const slot = try self.declareVariable(var_type, name, constant);
+        const slot = try self.declareVariable(var_type, name, constant, true);
 
         var node = try self.gc.allocator.create(VarDeclarationNode);
         node.* = VarDeclarationNode{
@@ -2405,7 +2409,7 @@ pub const Parser = struct {
             }
         }
 
-        var slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true);
+        const slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true, true);
 
         self.markInitialized();
 
@@ -2566,7 +2570,7 @@ pub const Parser = struct {
             },
         );
 
-        const slot: usize = try self.declareVariable(enum_type, enum_name, true);
+        const slot: usize = try self.declareVariable(enum_type, enum_name, true, true);
         self.markInitialized();
 
         try self.consume(.LeftBrace, "Expected `{` before enum body.");
@@ -3147,16 +3151,10 @@ pub const Parser = struct {
     fn integer(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        const integer_constant = self.parser.previous_token.?.literal_integer.?;
-
-        if (try self.match(.Spread)) {
-            return try self.range(integer_constant);
-        }
-
         var node = try self.gc.allocator.create(IntegerNode);
 
         node.* = IntegerNode{
-            .integer_constant = integer_constant,
+            .integer_constant = self.parser.previous_token.?.literal_integer.?,
         };
         node.node.type_def = try self.gc.type_registry.getTypeDef(.{
             .def_type = .Integer,
@@ -3167,21 +3165,21 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn range(self: *Self, low: i32) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
-        try self.consume(.IntegerValue, "Expected range upper limit");
-
+    fn range(self: *Self, _: bool, low: *ParseNode) anyerror!*ParseNode {
         var node = try self.gc.allocator.create(RangeNode);
+        const int_type = try self.gc.type_registry.getTypeDef(.{
+            .def_type = .Integer,
+        });
+
+        const high = try self.expression(false);
+
+        self.markInitialized();
 
         node.* = RangeNode{
             .low = low,
-            .hi = self.parser.previous_token.?.literal_integer.?,
+            .hi = high,
         };
-        const item_type = try self.gc.type_registry.getTypeDef(.{
-            .def_type = .Integer,
-        });
-        const list_def = ObjList.ListDef.init(self.gc.allocator, item_type);
+        const list_def = ObjList.ListDef.init(self.gc.allocator, int_type);
         const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
             .List = list_def,
         };
@@ -3192,7 +3190,7 @@ pub const Parser = struct {
                 .resolved_type = resolved_type,
             },
         );
-        node.node.location = start_location;
+        node.node.location = low.location;
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
@@ -4515,7 +4513,7 @@ pub const Parser = struct {
             .script_name = start_location.script_name,
         };
 
-        const slot = try self.declareVariable(&function_def_placeholder, name_token, true);
+        const slot = try self.declareVariable(&function_def_placeholder, name_token, true, true);
 
         self.markInitialized();
 
@@ -5077,7 +5075,7 @@ pub const Parser = struct {
     fn parseVariable(self: *Self, variable_type: *ObjTypeDef, constant: bool, error_message: []const u8) !usize {
         try self.consume(.Identifier, error_message);
 
-        return try self.declareVariable(variable_type, null, constant);
+        return try self.declareVariable(variable_type, null, constant, true);
     }
 
     inline fn markInitialized(self: *Self) void {
@@ -5127,13 +5125,13 @@ pub const Parser = struct {
         return global;
     }
 
-    fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token, constant: bool) !usize {
+    fn declareVariable(self: *Self, variable_type: *ObjTypeDef, name_token: ?Token, constant: bool, check_name: bool) !usize {
         var name: Token = name_token orelse self.parser.previous_token.?;
 
         if (self.current.?.scope_depth > 0) {
             // Check a local with the same name doesn't exists
             var i: usize = self.current.?.locals.len - 1;
-            while (i >= 0) : (i -= 1) {
+            while (check_name and i >= 0) : (i -= 1) {
                 var local: *Local = &self.current.?.locals[i];
 
                 if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
@@ -5149,32 +5147,34 @@ pub const Parser = struct {
 
             return try self.addLocal(name, variable_type, constant);
         } else {
-            // Check a global with the same name doesn't exists
-            for (self.globals.items, 0..) |global, index| {
-                if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
-                    // If we found a placeholder with that name, try to resolve it with `variable_type`
-                    if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
-                        // A function declares a global with an incomplete typedef so that it can handle recursion
-                        // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-                        if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(ObjTypeDef.Type.ObjectInstance)) {
-                            if (BuildOptions.debug_placeholders) {
-                                std.debug.print(
-                                    "Global placeholder @{} resolve with @{} {s} (opt {})\n",
-                                    .{
-                                        @intFromPtr(global.type_def),
-                                        @intFromPtr(variable_type),
-                                        (try variable_type.toStringAlloc(self.gc.allocator)).items,
-                                        variable_type.optional,
-                                    },
-                                );
+            if (check_name) {
+                // Check a global with the same name doesn't exists
+                for (self.globals.items, 0..) |global, index| {
+                    if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
+                        // If we found a placeholder with that name, try to resolve it with `variable_type`
+                        if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
+                            // A function declares a global with an incomplete typedef so that it can handle recursion
+                            // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
+                            if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(ObjTypeDef.Type.ObjectInstance)) {
+                                if (BuildOptions.debug_placeholders) {
+                                    std.debug.print(
+                                        "Global placeholder @{} resolve with @{} {s} (opt {})\n",
+                                        .{
+                                            @intFromPtr(global.type_def),
+                                            @intFromPtr(variable_type),
+                                            (try variable_type.toStringAlloc(self.gc.allocator)).items,
+                                            variable_type.optional,
+                                        },
+                                    );
+                                }
+
+                                try self.resolvePlaceholder(global.type_def, variable_type, constant);
                             }
 
-                            try self.resolvePlaceholder(global.type_def, variable_type, constant);
+                            return index;
+                        } else if (global.prefix == null) {
+                            try self.reportError("A global with the same name already exists.");
                         }
-
-                        return index;
-                    } else if (global.prefix == null) {
-                        try self.reportError("A global with the same name already exists.");
                     }
                 }
             }

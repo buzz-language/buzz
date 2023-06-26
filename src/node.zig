@@ -624,11 +624,17 @@ pub const RangeNode = struct {
         .render = render,
     },
 
-    low: i32,
-    hi: i32,
+    low: *ParseNode,
+    hi: *ParseNode,
 
     fn cnst(_: *anyopaque) bool {
-        return true;
+        // const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        // const self = Self.cast(node).?;
+
+        // return self.low.isConstant(self.low) and self.hi.isConstant(self.hi);
+
+        // If true, we'd still need to clone the value
+        return false;
     }
 
     fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
@@ -645,34 +651,62 @@ pub const RangeNode = struct {
             ),
         );
 
-        var i = self.low;
-        while (i < self.hi) : (i += 1) {
+        const low = (try self.low.toValue(self.low, gc)).integer();
+        const hi = (try self.hi.toValue(self.hi, gc)).integer();
+        const delta: i32 = if (low < hi) 1 else -1;
+
+        var i = low;
+        while ((low < hi and i < hi) or (low >= hi and i > hi)) : (i += delta) {
             try list.items.append(Value.fromInteger(i));
         }
 
         return list.toValue();
     }
 
-    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        var codegen = @ptrCast(*CodeGen, @alignCast(@alignOf(CodeGen), codegenPtr));
-        var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const codegen = @ptrCast(*CodeGen, @alignCast(@alignOf(CodeGen), codegenPtr));
+        const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
+        const self = Self.cast(node).?;
 
         if (node.synchronize(codegen)) {
             return null;
         }
 
-        var self = Self.cast(node).?;
-
-        const list_offset: usize = try codegen.emitList(self.node.location);
-
-        var i = self.low;
-        while (i < self.hi) : (i += 1) {
-            try codegen.emitConstant(self.node.location, Value.fromInteger(i));
-            try codegen.emitOpCode(self.node.location, .OP_LIST_APPEND);
+        // Type checking
+        if (self.low.type_def == null or self.low.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.low.type_def.?.resolved_type.?.Placeholder);
         }
 
-        const list_type_constant: u24 = try codegen.makeConstant(Value.fromObj(node.type_def.?.toObj()));
-        try codegen.patchList(list_offset, list_type_constant);
+        if (self.hi.type_def == null or self.hi.type_def.?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(self.hi.type_def.?.resolved_type.?.Placeholder);
+        }
+
+        if (self.low.type_def.?.def_type != .Integer) {
+            try codegen.reportTypeCheckAt(
+                try codegen.gc.type_registry.getTypeDef(.{
+                    .def_type = .Integer,
+                }),
+                self.low.type_def.?,
+                "Bad low range limit type",
+                self.low.location,
+            );
+        }
+
+        if (self.hi.type_def.?.def_type != .Integer) {
+            try codegen.reportTypeCheckAt(
+                try codegen.gc.type_registry.getTypeDef(.{
+                    .def_type = .Integer,
+                }),
+                self.hi.type_def.?,
+                "Bad high range limit type",
+                self.hi.location,
+            );
+        }
+
+        _ = try self.low.toByteCode(self.low, codegen, breaks);
+        _ = try self.hi.toByteCode(self.hi, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_RANGE);
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -684,18 +718,24 @@ pub const RangeNode = struct {
         var node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Range\", \"low\": {d}, \"hi\": {d}, ", .{ self.low, self.hi });
+        try out.print("{{\"node\": \"Range\", \"low\": ", .{});
+        try self.low.toJson(self.low, out);
+        try out.print(", \"high\": ", .{});
+        try self.hi.toJson(self.hi, out);
+        try out.print(", ", .{});
 
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");
     }
 
-    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, _: usize) RenderError!void {
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, inc: usize) RenderError!void {
         const node = @ptrCast(*ParseNode, @alignCast(@alignOf(ParseNode), nodePtr));
         const self = Self.cast(node).?;
 
-        try out.print("{d}..{d}", .{ self.low, self.hi });
+        try self.low.render(self.low, out, inc);
+        try out.print("..", .{});
+        try self.hi.render(self.hi, out, inc);
     }
 
     pub fn toNode(self: *Self) *ParseNode {
