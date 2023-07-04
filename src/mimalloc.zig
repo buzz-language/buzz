@@ -15,10 +15,9 @@ const MimAllocator = struct {
         _: usize,
     ) ?[*]u8 {
         return @ptrCast(
-            ?[*]u8,
             mi.mi_malloc_aligned(
                 len,
-                @as(usize, 1) << @intCast(u6, log2_align),
+                @as(usize, 1) << @as(u6, @intCast(log2_align)),
             ),
         );
     }

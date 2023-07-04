@@ -54,11 +54,11 @@ pub const Value = packed struct {
     }
 
     pub inline fn fromInteger(val: i32) Value {
-        return .{ .val = IntegerMask | @bitCast(u32, val) };
+        return .{ .val = IntegerMask | @as(u32, @bitCast(val)) };
     }
 
     pub inline fn fromFloat(val: f64) Value {
-        return .{ .val = @bitCast(u64, val) };
+        return .{ .val = @as(u64, @bitCast(val)) };
     }
 
     pub inline fn fromObj(val: *Obj) Value {
@@ -66,7 +66,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn getTag(self: Value) Tag {
-        return @intCast(Tag, @intCast(u32, self.val >> 32) & TagMask);
+        return @as(Tag, @intCast(@as(u32, @intCast(self.val >> 32)) & TagMask));
     }
 
     pub inline fn isBool(self: Value) bool {
@@ -106,15 +106,15 @@ pub const Value = packed struct {
     }
 
     pub inline fn integer(self: Value) i32 {
-        return @bitCast(i32, @intCast(u32, self.val & 0xffffffff));
+        return @as(i32, @bitCast(@as(u32, @intCast(self.val & 0xffffffff))));
     }
 
     pub inline fn float(self: Value) f64 {
-        return @bitCast(f64, self.val);
+        return @as(f64, @bitCast(self.val));
     }
 
     pub inline fn obj(self: Value) *Obj {
-        return @ptrFromInt(*Obj, self.val & ~PointerMask);
+        return @as(*Obj, @ptrFromInt(self.val & ~PointerMask));
     }
 };
 
@@ -137,8 +137,8 @@ pub inline fn floatToInteger(value: Value) Value {
     const float = if (value.isFloat()) value.float() else null;
 
     // FIXME also check that the f64 can fit in the i32
-    if (float != null and @intFromFloat(i64, float.?) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
-        return Value.fromInteger(@intFromFloat(i32, float.?));
+    if (float != null and @as(i64, @intFromFloat(float.?)) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
+        return Value.fromInteger(@as(i32, @intFromFloat(float.?)));
     }
 
     return value;
@@ -199,11 +199,11 @@ pub fn valueEql(a: Value, b: Value) bool {
             if (b_f) |bf| {
                 return af == bf;
             } else {
-                return af == @floatFromInt(f64, b_i.?);
+                return af == @as(f64, @floatFromInt(b_i.?));
             }
         } else {
             if (b_f) |bf| {
-                return @floatFromInt(f64, a_i.?) == bf;
+                return @as(f64, @floatFromInt(a_i.?)) == bf;
             } else {
                 return a_i.? == b_i.?;
             }

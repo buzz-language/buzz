@@ -157,6 +157,6 @@ pub const Chunk = struct {
         try self.constants.append(value);
         if (vm) |uvm| _ = uvm.pop();
 
-        return @intCast(u24, self.constants.items.len - 1);
+        return @as(u24, @intCast(self.constants.items.len - 1));
     }
 };

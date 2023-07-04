@@ -30,7 +30,7 @@ pub fn trim(ctx: *NativeCtx) c_int {
 pub fn len(ctx: *NativeCtx) c_int {
     const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@intCast(i32, str.string.len)));
+    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(str.string.len))));
 
     return 1;
 }
@@ -82,7 +82,7 @@ pub fn byte(ctx: *NativeCtx) c_int {
         return -1;
     }
 
-    ctx.vm.push(Value.fromInteger(@intCast(i32, self.string[@intCast(usize, index_i.?)])));
+    ctx.vm.push(Value.fromInteger(@intCast(self.string[@as(usize, @intCast(index_i.?))])));
 
     return 1;
 }
@@ -93,7 +93,7 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
 
     var index = std.mem.indexOf(u8, self.string, needle.string);
 
-    ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
+    ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(uindex)) else Value.Null);
 
     return 1;
 }
@@ -145,7 +145,12 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var start_value = floatToInteger(ctx.vm.peek(1));
     var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
     var upto_value: Value = floatToInteger(ctx.vm.peek(0));
-    var upto: ?i32 = if (upto_value.isInteger()) upto_value.integer() else if (upto_value.isFloat()) @intFromFloat(i32, upto_value.float()) else null;
+    var upto: ?i32 = if (upto_value.isInteger())
+        upto_value.integer()
+    else if (upto_value.isFloat())
+        @intFromFloat(upto_value.float())
+    else
+        null;
 
     if (start == null or start.? < 0 or start.? >= self.string.len) {
         var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
@@ -161,8 +166,8 @@ pub fn sub(ctx: *NativeCtx) c_int {
         return -1;
     }
 
-    const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.string.len) @intCast(usize, start.? + upto.?) else self.string.len;
-    var substr: []const u8 = self.string[@intCast(usize, start.?)..limit];
+    const limit: usize = if (upto != null and @as(usize, @intCast(start.? + upto.?)) < self.string.len) @intCast(start.? + upto.?) else self.string.len;
+    var substr: []const u8 = self.string[@as(usize, @intCast(start.?))..limit];
 
     ctx.vm.push(
         (ctx.vm.gc.copyString(substr) catch {

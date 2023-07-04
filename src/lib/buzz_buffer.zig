@@ -10,13 +10,13 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
 
         return -1;
     };
-    buffer.* = Buffer.init(api.VM.allocator, @intCast(usize, capacity)) catch {
+    buffer.* = Buffer.init(api.VM.allocator, @intCast(capacity)) catch {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @ptrCast(*api.UserData, buffer))) |userdata| {
+    if (api.ObjUserData.bz_newUserData(ctx.vm, @as(*api.UserData, @ptrCast(buffer)))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
 
         return 1;
@@ -47,7 +47,7 @@ const Buffer = struct {
     cursor: usize = 0,
 
     pub fn fromUserData(userdata: *api.UserData) *Self {
-        return @ptrCast(*Self, @alignCast(@alignOf(Self), userdata));
+        return @ptrCast(@alignCast(userdata));
     }
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
@@ -158,7 +158,7 @@ const Buffer = struct {
 
         self.cursor += @sizeOf(f64);
 
-        return @bitCast(f64, number);
+        return @bitCast(number);
     }
 
     pub fn writeFloat(self: *Self, float: f64) !void {
@@ -169,7 +169,7 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an float
-        try writer.writeIntNative(u64, @bitCast(u64, float));
+        try writer.writeIntNative(u64, @as(u64, @bitCast(float)));
     }
 
     pub fn empty(self: *Self) void {
@@ -182,9 +182,9 @@ export fn BufferRead(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const n = ctx.vm.bz_peek(0).integer();
 
-    const read_slice = buffer.read(@intCast(usize, n));
+    const read_slice = buffer.read(@intCast(n));
     if (read_slice) |uread_slice| {
-        if (api.ObjString.bz_string(ctx.vm, if (uread_slice.len > 0) @ptrCast([*]const u8, uread_slice) else null, uread_slice.len)) |obj_string| {
+        if (api.ObjString.bz_string(ctx.vm, if (uread_slice.len > 0) @as([*]const u8, @ptrCast(uread_slice)) else null, uread_slice.len)) |obj_string| {
             ctx.vm.bz_pushString(obj_string);
 
             return 1;
@@ -222,7 +222,7 @@ export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
     const index = ctx.vm.bz_peek(1).integer();
     const value = ctx.vm.bz_peek(0).integer();
 
-    buffer.setAt(@intCast(usize, index), @intCast(u8, value)) catch |err| {
+    buffer.setAt(@intCast(index), @intCast(value)) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
         }
@@ -346,7 +346,7 @@ export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
 export fn BufferLen(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
-    ctx.vm.bz_pushInteger(@intCast(i32, buffer.buffer.items.len));
+    ctx.vm.bz_pushInteger(@intCast(buffer.buffer.items.len));
 
     return 1;
 }
@@ -354,7 +354,7 @@ export fn BufferLen(ctx: *api.NativeCtx) c_int {
 export fn BufferCursor(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
-    ctx.vm.bz_pushInteger(@intCast(i32, buffer.cursor));
+    ctx.vm.bz_pushInteger(@intCast(buffer.cursor));
 
     return 1;
 }
@@ -362,7 +362,7 @@ export fn BufferCursor(ctx: *api.NativeCtx) c_int {
 export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
-    if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @ptrCast([*]const u8, buffer.buffer.items) else null, buffer.buffer.items.len)) |objstring| {
+    if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as([*]const u8, @ptrCast(buffer.buffer.items)) else null, buffer.buffer.items.len)) |objstring| {
         ctx.vm.bz_pushString(objstring);
     } else {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
@@ -377,7 +377,7 @@ export fn BufferAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const number = ctx.vm.bz_peek(0).integer();
 
-    ctx.vm.bz_pushInteger(buffer.at(@intCast(usize, number)));
+    ctx.vm.bz_pushInteger(buffer.at(@intCast(number)));
 
     return 1;
 }

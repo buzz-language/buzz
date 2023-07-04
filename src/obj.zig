@@ -230,7 +230,7 @@ pub const ObjFiber = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @ptrFromInt(*anyopaque, @intFromPtr(unativeFn)),
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(unativeFn))),
                 },
             );
 
@@ -323,11 +323,11 @@ pub const ObjPattern = struct {
         const rc = pcre.pcre_exec(
             self.pattern, // the compiled pattern
             null, // no extra data - we didn't study the pattern
-            @ptrCast([*c]const u8, subject.?), // the subject string
-            @intCast(c_int, len), // the length of the subject
-            @intCast(c_int, offset.*), // start offset
+            @as([*c]const u8, @ptrCast(subject.?)), // the subject string
+            @as(c_int, @intCast(len)), // the length of the subject
+            @as(c_int, @intCast(offset.*)), // start offset
             0, // default options
-            @ptrCast([*c]c_int, &output_vector), // output vector for substring information
+            @as([*c]c_int, @ptrCast(&output_vector)), // output vector for substring information
             output_vector.len, // number of elements in the output vector
         );
 
@@ -336,7 +336,7 @@ pub const ObjPattern = struct {
             // TODO: handle ouptut_vector too small
             0 => unreachable,
             else => {
-                offset.* = @intCast(usize, output_vector[1]);
+                offset.* = @as(usize, @intCast(output_vector[1]));
 
                 results = try vm.gc.allocateObject(
                     ObjList,
@@ -357,7 +357,7 @@ pub const ObjPattern = struct {
                 while (i < rc) : (i += 1) {
                     try results.?.items.append(
                         (try vm.gc.copyString(
-                            subject.?[@intCast(usize, output_vector[2 * i])..@intCast(usize, output_vector[2 * i + 1])],
+                            subject.?[@as(usize, @intCast(output_vector[2 * i]))..@as(usize, @intCast(output_vector[2 * i + 1]))],
                         )).toValue(),
                     );
                 }
@@ -423,7 +423,7 @@ pub const ObjPattern = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
                 },
             );
 
@@ -524,16 +524,16 @@ pub const ObjString = struct {
 
     pub fn next(self: *Self, vm: *VM, str_index: ?i32) !?i32 {
         if (str_index) |index| {
-            if (index < 0 or index >= @intCast(i32, self.string.len)) {
+            if (index < 0 or index >= @as(i32, @intCast(self.string.len))) {
                 try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to str")).toValue());
             }
 
-            return if (index + 1 >= @intCast(i32, self.string.len))
+            return if (index + 1 >= @as(i32, @intCast(self.string.len)))
                 null
             else
                 index + 1;
         } else {
-            return if (self.string.len > 0) @intCast(i32, 0) else null;
+            return if (self.string.len > 0) @as(i32, 0) else null;
         }
     }
 
@@ -568,7 +568,7 @@ pub const ObjString = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
                 },
             );
 
@@ -1315,7 +1315,7 @@ pub const ObjList = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
                 },
             );
 
@@ -1345,16 +1345,16 @@ pub const ObjList = struct {
     // Used also by the VM
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?i32) !?i32 {
         if (list_index) |index| {
-            if (index < 0 or index >= @intCast(i32, self.items.items.len)) {
+            if (index < 0 or index >= @as(i32, @intCast(self.items.items.len))) {
                 try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to list")).toValue());
             }
 
-            return if (index + 1 >= @intCast(i32, self.items.items.len))
+            return if (index + 1 >= @as(i32, @intCast(self.items.items.len)))
                 null
             else
                 index + 1;
         } else {
-            return if (self.items.items.len > 0) @intCast(i32, 0) else null;
+            return if (self.items.items.len > 0) @as(i32, 0) else null;
         }
     }
 
@@ -2127,7 +2127,7 @@ pub const ObjMap = struct {
                 ObjNative,
                 .{
                     // Complains about const qualifier discard otherwise
-                    .native = @ptrFromInt(*anyopaque, @intFromPtr(nativeFn)),
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
                 },
             );
 
@@ -2412,7 +2412,7 @@ pub const ObjEnum = struct {
 
             return try vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = self,
-                .case = @intCast(u8, case.case + 1),
+                .case = @as(u8, @intCast(case.case + 1)),
             });
         } else {
             return try vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{

@@ -14,7 +14,7 @@ pub fn match(ctx: *NativeCtx) c_int {
     var offset: usize = 0;
     if (self.rawMatch(
         ctx.vm,
-        if (subject.len > 0) @ptrCast([*]const u8, subject) else null,
+        if (subject.len > 0) @as([*]const u8, @ptrCast(subject)) else null,
         subject.len,
         &offset,
     ) catch {
@@ -37,7 +37,7 @@ pub fn matchAll(ctx: *NativeCtx) c_int {
 
     if (self.rawMatchAll(
         ctx.vm,
-        if (subject.len > 0) @ptrCast([*]const u8, subject) else null,
+        if (subject.len > 0) @as([*]const u8, @ptrCast(subject)) else null,
         subject.len,
     ) catch {
         var err: ?*ObjString = ctx.vm.gc.copyString("Could not match") catch null;

@@ -21,7 +21,7 @@ export fn toInt(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (value.isFloat())
-                @intFromFloat(i32, value.float())
+                @as(i32, @intFromFloat(value.float()))
             else
                 value.integer(),
         ),
@@ -36,7 +36,7 @@ export fn toFloat(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromFloat(
             if (value.isInteger())
-                @floatFromInt(f64, value.integer())
+                @as(f64, @floatFromInt(value.integer()))
             else
                 value.float(),
         ),
@@ -106,7 +106,7 @@ export fn char(ctx: *api.NativeCtx) c_int {
         byte = 0;
     }
 
-    const str = [_]u8{@intCast(u8, byte)};
+    const str = [_]u8{@as(u8, @intCast(byte))};
 
     if (api.ObjString.bz_string(ctx.vm, str[0..], 1)) |obj_string| {
         ctx.vm.bz_push(obj_string.bz_objStringToValue());

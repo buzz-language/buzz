@@ -309,7 +309,7 @@ pub const Scanner = struct {
     }
 
     fn string(self: *Self, multiline: bool) !Token {
-        const delimiter = if (multiline) @intCast(u8, '`') else @intCast(u8, '"');
+        const delimiter: u8 = if (multiline) '`' else '"';
         var in_interp: bool = false;
         var interp_depth: usize = 0;
         while ((self.peek() != delimiter or in_interp) and !self.isEOF()) {

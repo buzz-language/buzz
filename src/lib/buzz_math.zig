@@ -36,7 +36,7 @@ export fn atan(ctx: *api.NativeCtx) c_int {
 export fn bzceil(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
-    ctx.vm.bz_pushInteger(@intFromFloat(i32, std.math.ceil(n_f)));
+    ctx.vm.bz_pushInteger(@intFromFloat(std.math.ceil(n_f)));
 
     return 1;
 }
@@ -60,7 +60,7 @@ export fn bzexp(ctx: *api.NativeCtx) c_int {
 export fn bzfloor(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
-    ctx.vm.bz_pushInteger(@intFromFloat(i32, std.math.floor(n_f)));
+    ctx.vm.bz_pushInteger(@intFromFloat(std.math.floor(n_f)));
 
     return 1;
 }
@@ -134,11 +134,11 @@ export fn pow(ctx: *api.NativeCtx) c_int {
 
     if (p_f) |pf| {
         ctx.vm.bz_pushFloat(
-            std.math.pow(f64, n_f orelse @floatFromInt(f64, n_i.?), pf),
+            std.math.pow(f64, n_f orelse @as(f64, @floatFromInt(n_i.?)), pf),
         );
     } else if (n_f) |nf| {
         ctx.vm.bz_pushFloat(
-            std.math.pow(f64, nf, p_f orelse @floatFromInt(f64, p_i.?)),
+            std.math.pow(f64, nf, p_f orelse @as(f64, @floatFromInt(p_i.?))),
         );
     } else {
         ctx.vm.bz_pushInteger(

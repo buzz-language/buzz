@@ -144,11 +144,11 @@ pub const Value = packed struct {
     }
 
     pub inline fn fromInteger(val: i32) Value {
-        return .{ .val = IntegerMask | @bitCast(u32, val) };
+        return .{ .val = IntegerMask | @as(u32, @bitCast(val)) };
     }
 
     pub inline fn fromFloat(val: f64) Value {
-        return .{ .val = @bitCast(u64, val) };
+        return .{ .val = @as(u64, @bitCast(val)) };
     }
 
     pub inline fn fromObj(val: *anyopaque) Value {
@@ -156,7 +156,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn getTag(self: Value) u3 {
-        return @intCast(Tag, @intCast(u32, self.val >> 32) & TagMask);
+        return @intCast(@as(u32, @intCast(self.val >> 32)) & TagMask);
     }
 
     pub inline fn isBool(self: Value) bool {
@@ -196,15 +196,15 @@ pub const Value = packed struct {
     }
 
     pub inline fn integer(self: Value) i32 {
-        return @bitCast(i32, @intCast(u32, self.val & 0xffffffff));
+        return @bitCast(@as(u32, @intCast(self.val & 0xffffffff)));
     }
 
     pub inline fn float(self: Value) f64 {
-        return @bitCast(f64, self.val);
+        return @bitCast(self.val);
     }
 
     pub inline fn obj(self: Value) *anyopaque {
-        return @ptrFromInt(*anyopaque, self.val & ~PointerMask);
+        return @ptrFromInt(self.val & ~PointerMask);
     }
 
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;

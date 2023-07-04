@@ -3,7 +3,7 @@ const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
 export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_push(api.Value.fromFloat(@floatFromInt(f64, std.time.milliTimestamp())));
+    ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
 
     return 1;
 }
@@ -32,7 +32,7 @@ export fn env(ctx: *api.NativeCtx) c_int {
     }
 
     if (std.os.getenvZ(key_slice.?)) |value| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @ptrCast([*]const u8, value) else null, value.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
             ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
             return -1;
@@ -56,7 +56,7 @@ fn sysTempDir() []const u8 {
 export fn tmpDir(ctx: *api.NativeCtx) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @ptrCast([*]const u8, tmp_dir) else null, tmp_dir.len) orelse {
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null, tmp_dir.len) orelse {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
@@ -99,7 +99,7 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @ptrCast([*]const u8, final.items) else null, final.items.len) orelse {
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @as([*]const u8, @ptrCast(final.items)) else null, final.items.len) orelse {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
@@ -112,7 +112,7 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 export fn buzzExit(ctx: *api.NativeCtx) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
-    std.os.exit(@intCast(u8, exitCode));
+    std.os.exit(@intCast(exitCode));
 
     return 0;
 }
@@ -182,7 +182,7 @@ export fn execute(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, (child_process.wait() catch |err| {
+    ctx.vm.bz_pushInteger(@intCast((child_process.wait() catch |err| {
         handleSpawnError(ctx, err);
 
         return -1;
@@ -280,13 +280,13 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
 
     switch (protocol) {
         0 => {
-            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
+            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @as(u16, @intCast(port.?))) catch |err| {
                 handleConnectError(ctx, err);
 
                 return -1;
             };
 
-            ctx.vm.bz_pushInteger(@intCast(i32, stream.handle));
+            ctx.vm.bz_pushInteger(@intCast(stream.handle));
 
             return 1;
         },
@@ -307,7 +307,6 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
 
 export fn SocketClose(ctx: *api.NativeCtx) c_int {
     const socket: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -353,14 +352,13 @@ export fn SocketRead(ctx: *api.NativeCtx) c_int {
     }
 
     const handle: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(1).integer(),
     );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
+    var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
@@ -378,7 +376,7 @@ export fn SocketRead(ctx: *api.NativeCtx) c_int {
     if (read == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
             ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
             return -1;
@@ -415,7 +413,6 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -432,7 +429,7 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     if (buffer.len == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @as([*]const u8, @ptrCast(buffer)) else null, buffer.len) orelse {
             ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
             return -1;
@@ -444,7 +441,6 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
 
 export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -461,7 +457,7 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     if (buffer.len == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @ptrCast([*]const u8, buffer) else null, buffer.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @as([*]const u8, @ptrCast(buffer)) else null, buffer.len) orelse {
             ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
             return -1;
@@ -473,7 +469,6 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
 
 export fn SocketWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(1).integer(),
     );
 
@@ -530,7 +525,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         .reuse_port = reuse_port,
     });
 
-    const list = std.net.getAddressList(api.VM.allocator, address, @intCast(u16, port.?)) catch |err| {
+    const list = std.net.getAddressList(api.VM.allocator, address, @as(u16, @intCast(port.?))) catch |err| {
         switch (err) {
             error.ServiceUnavailable => ctx.vm.pushErrorEnum("lib.errors.SocketError", "ServiceUnavailable"),
             error.UnknownHostName => ctx.vm.pushErrorEnum("lib.errors.SocketError", "UnknownHostName"),
@@ -637,14 +632,13 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, server.sockfd.?));
+    ctx.vm.bz_pushInteger(@intCast(server.sockfd.?));
 
     return 1;
 }
 
 export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
     const server_socket: std.os.socket_t = @intCast(
-        std.os.socket_t,
         ctx.vm.bz_peek(2).integer(),
     );
     const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
@@ -678,7 +672,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, connection.stream.handle));
+    ctx.vm.bz_pushInteger(@intCast(connection.stream.handle));
 
     return 1;
 }

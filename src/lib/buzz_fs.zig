@@ -293,7 +293,7 @@ export fn list(ctx: *api.NativeCtx) c_int {
     }) |element| {
         ctx.vm.bz_pushString(api.ObjString.bz_string(
             ctx.vm,
-            if (element.name.len > 0) @ptrCast([*]const u8, element.name) else null,
+            if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
             element.name.len,
         ) orelse {
             _ = ctx.vm.bz_pop(); // Pop list

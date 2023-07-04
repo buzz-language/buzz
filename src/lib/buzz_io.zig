@@ -2,19 +2,19 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 
 export fn getStdIn(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdIn().handle));
+    ctx.vm.bz_pushInteger(@intCast(std.io.getStdIn().handle));
 
     return 1;
 }
 
 export fn getStdOut(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdOut().handle));
+    ctx.vm.bz_pushInteger(@intCast(std.io.getStdOut().handle));
 
     return 1;
 }
 
 export fn getStdErr(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(i32, std.io.getStdErr().handle));
+    ctx.vm.bz_pushInteger(@intCast(std.io.getStdErr().handle));
 
     return 1;
 }
@@ -50,7 +50,7 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 export fn FileOpen(ctx: *api.NativeCtx) c_int {
-    const mode: u8 = @intCast(u8, ctx.vm.bz_peek(0).integer());
+    const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
@@ -81,14 +81,13 @@ export fn FileOpen(ctx: *api.NativeCtx) c_int {
         },
     };
 
-    ctx.vm.bz_pushInteger(@intCast(i32, file.handle));
+    ctx.vm.bz_pushInteger(@intCast(file.handle));
 
     return 1;
 }
 
 export fn FileClose(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        std.fs.File.Handle,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -123,7 +122,6 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        std.fs.File.Handle,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -141,7 +139,7 @@ export fn FileReadAll(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (content.len > 0) @ptrCast([*]const u8, content) else null, content.len) orelse {
+    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null, content.len) orelse {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
@@ -175,7 +173,6 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        std.fs.File.Handle,
         ctx.vm.bz_peek(0).integer(),
     );
 
@@ -192,7 +189,7 @@ export fn FileReadLine(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_pushString(
             api.ObjString.bz_string(
                 ctx.vm,
-                if (ubuffer.len > 0) @ptrCast([*]const u8, ubuffer) else null,
+                if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
                 ubuffer.len,
             ) orelse {
                 ctx.vm.pushError("lib.errors.OutOfMemoryError");
@@ -237,14 +234,13 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
     }
 
     const handle: std.fs.File.Handle = @intCast(
-        std.fs.File.Handle,
         ctx.vm.bz_peek(1).integer(),
     );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = api.VM.allocator.alloc(u8, @intCast(usize, n)) catch {
+    var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
         ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
         return -1;
@@ -262,7 +258,7 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
     if (read == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @ptrCast([*]const u8, buffer[0..read]) else null, read) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
             ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
             return -1;
@@ -275,7 +271,6 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
 // extern fun File_write(int fd, [int] bytes) > void;
 export fn FileWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        std.fs.File.Handle,
         ctx.vm.bz_peek(1).integer(),
     );
 
@@ -354,9 +349,9 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
 
     // Compile
     var function = vm.bz_compile(
-        if (source.len > 0) @ptrCast([*]const u8, source) else null,
+        if (source.len > 0) @as([*]const u8, @ptrCast(source)) else null,
         source.len,
-        if (filename.len > 0) @ptrCast([*]const u8, filename) else null,
+        if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,
         filename.len,
     ) orelse {
         ctx.vm.pushError("lib.errors.CompileError");

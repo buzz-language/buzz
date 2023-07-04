@@ -42,10 +42,10 @@ pub fn insert(ctx: *NativeCtx) c_int {
     if (index < 0 or list.items.items.len == 0) {
         index = 0;
     } else if (index >= list.items.items.len) {
-        index = @intCast(i32, list.items.items.len) - 1;
+        index = @as(i32, @intCast(list.items.items.len)) - 1;
     }
 
-    list.rawInsert(ctx.vm.gc, @intCast(usize, index), value) catch {
+    list.rawInsert(ctx.vm.gc, @as(usize, @intCast(index)), value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
             std.debug.print("Could not insert into list", .{});
             std.os.exit(1);
@@ -63,7 +63,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
 pub fn len(ctx: *NativeCtx) c_int {
     var list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@intCast(i32, list.items.items.len)));
+    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(list.items.items.len))));
 
     return 1;
 }
@@ -91,7 +91,7 @@ pub fn remove(ctx: *NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.push(list.items.orderedRemove(@intCast(usize, list_index.?)));
+    ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index.?))));
     ctx.vm.gc.markObjDirty(&list.obj) catch {
         std.debug.print("Could not remove from list", .{});
         std.os.exit(1);
@@ -116,8 +116,8 @@ fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
     buzz_api.bz_call(
         context.ctx.vm,
         context.sort_closure,
-        @ptrCast([*]const *const Value, args.items),
-        @intCast(u8, args.items.len),
+        @as([*]const *const Value, @ptrCast(args.items)),
+        @as(u8, @intCast(args.items.len)),
         null,
     );
 
@@ -159,7 +159,7 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
         i += 1;
     }
 
-    ctx.vm.push(if (index) |uindex| Value.fromInteger(@intCast(i32, uindex)) else Value.Null);
+    ctx.vm.push(if (index) |uindex| Value.fromInteger(@as(i32, @intCast(uindex))) else Value.Null);
 
     return 1;
 }
@@ -207,7 +207,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var upto: ?i32 = if (upto_value.isInteger())
         upto_value.integer()
     else if (upto_value.isFloat())
-        @intFromFloat(i32, upto_value.float())
+        @as(i32, @intFromFloat(upto_value.float()))
     else
         null;
 
@@ -225,11 +225,11 @@ pub fn sub(ctx: *NativeCtx) c_int {
         return -1;
     }
 
-    const limit: usize = if (upto != null and @intCast(usize, start.? + upto.?) < self.items.items.len)
-        @intCast(usize, start.? + upto.?)
+    const limit: usize = if (upto != null and @as(usize, @intCast(start.? + upto.?)) < self.items.items.len)
+        @as(usize, @intCast(start.? + upto.?))
     else
         self.items.items.len;
-    var substr: []Value = self.items.items[@intCast(usize, start.?)..limit];
+    var substr: []Value = self.items.items[@as(usize, @intCast(start.?))..limit];
 
     var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
         .type_def = self.type_def,
@@ -284,15 +284,15 @@ pub fn forEach(ctx: *NativeCtx) c_int {
         defer args.deinit();
 
         // TODO: handle error
-        const index_value = Value.fromInteger(@intCast(i32, index));
+        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
         args.append(&index_value) catch unreachable;
         args.append(&item) catch unreachable;
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast([*]const *const Value, args.items),
-            @intCast(u8, args.items.len),
+            @as([*]const *const Value, @ptrCast(args.items)),
+            @as(u8, @intCast(args.items.len)),
             null,
         );
     }
@@ -310,7 +310,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
         defer args.deinit();
 
         // TODO: handle error
-        const index_value = Value.fromInteger(@intCast(i32, index));
+        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
         args.append(&index_value) catch unreachable;
         args.append(&item) catch unreachable;
         args.append(&accumulator) catch unreachable;
@@ -318,8 +318,8 @@ pub fn reduce(ctx: *NativeCtx) c_int {
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast([*]const *const Value, args.items),
-            @intCast(u8, args.items.len),
+            @as([*]const *const Value, @ptrCast(args.items)),
+            @as(u8, @intCast(args.items.len)),
             null,
         );
 
@@ -348,15 +348,15 @@ pub fn filter(ctx: *NativeCtx) c_int {
         defer args.deinit();
 
         // TODO: handle error
-        const index_value = Value.fromInteger(@intCast(i32, index));
+        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
         args.append(&index_value) catch unreachable;
         args.append(&item) catch unreachable;
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast([*]const *const Value, args.items),
-            @intCast(u8, args.items.len),
+            @as([*]const *const Value, @ptrCast(args.items)),
+            @as(u8, @intCast(args.items.len)),
             null,
         );
 
@@ -389,15 +389,15 @@ pub fn map(ctx: *NativeCtx) c_int {
         defer args.deinit();
 
         // TODO: handle error
-        const index_value = Value.fromInteger(@intCast(i32, index));
+        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
         args.append(&index_value) catch unreachable;
         args.append(&item) catch unreachable;
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast([*]const *const Value, args.items),
-            @intCast(u8, args.items.len),
+            @as([*]const *const Value, @ptrCast(args.items)),
+            @as(u8, @intCast(args.items.len)),
             null,
         );
 

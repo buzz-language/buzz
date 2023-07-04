@@ -71,7 +71,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         };
 
         ctx.vm.bz_pushString(
-            api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @ptrCast([*]const u8, out.items) else null, out.items.len) orelse {
+            api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @as([*]const u8, @ptrCast(out.items)) else null, out.items.len) orelse {
                 ctx.vm.pushError("lib.errors.OutOfMemoryError");
 
                 return -1;

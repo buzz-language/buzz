@@ -3116,9 +3116,9 @@ pub const Parser = struct {
         // defer self.gc.allocator.free(err);
         var err_offset: c_int = undefined;
         const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
-            @ptrCast([*c]const u8, source), // pattern
+            @as([*c]const u8, @ptrCast(source)), // pattern
             0, // options
-            @ptrCast([*c][*c]const u8, &err), // error message buffer
+            @as([*c][*c]const u8, @ptrCast(&err)), // error message buffer
             &err_offset, // offset at which error occured
             null, // extra ?
         );
@@ -3928,7 +3928,7 @@ pub const Parser = struct {
         const rule: ParseRule = getRule(operator);
 
         const right: *ParseNode = try self.parsePrecedence(
-            @enumFromInt(Precedence, @intFromEnum(rule.precedence) + 1),
+            @enumFromInt(@intFromEnum(rule.precedence) + 1),
             false,
         );
 
@@ -5083,7 +5083,7 @@ pub const Parser = struct {
             // assert(!self.globals.items[self.globals.items.len - 1].initialized);
             self.globals.items[self.globals.items.len - 1].initialized = true;
         } else {
-            self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(i32, self.current.?.scope_depth);
+            self.current.?.locals[self.current.?.local_count - 1].depth = @as(i32, @intCast(self.current.?.scope_depth));
         }
     }
 
@@ -5314,7 +5314,7 @@ pub const Parser = struct {
         }
 
         frame.upvalues[upvalue_count].is_local = is_local;
-        frame.upvalues[upvalue_count].index = @intCast(u8, index);
+        frame.upvalues[upvalue_count].index = @as(u8, @intCast(index));
         frame.upvalue_count += 1;
 
         return frame.upvalue_count - 1;

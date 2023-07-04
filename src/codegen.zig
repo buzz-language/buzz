@@ -91,21 +91,27 @@ pub const CodeGen = struct {
     }
 
     pub fn emitTwo(self: *Self, location: Token, a: u8, b: u24) !void {
-        try self.emit(location, (@intCast(u32, a) << 24) | @intCast(u32, b));
+        try self.emit(location, (@as(u32, @intCast(a)) << 24) | @as(u32, @intCast(b)));
     }
 
     // OP_ | arg
     pub fn emitCodeArg(self: *Self, location: Token, code: OpCode, arg: u24) !void {
-        try self.emit(location, (@intCast(u32, @intFromEnum(code)) << 24) | @intCast(u32, arg));
+        try self.emit(
+            location,
+            (@as(u32, @intCast(@intFromEnum(code))) << 24) | @as(u32, @intCast(arg)),
+        );
     }
 
     // OP_ | a | b
     pub fn emitCodeArgs(self: *Self, location: Token, code: OpCode, a: u8, b: u16) !void {
-        try self.emit(location, (@intCast(u32, @intFromEnum(code)) << 24) | (@intCast(u32, a) << 16) | (@intCast(u32, b)));
+        try self.emit(
+            location,
+            (@as(u32, @intCast(@intFromEnum(code))) << 24) | (@as(u32, @intCast(a)) << 16) | (@as(u32, @intCast(b))),
+        );
     }
 
     pub fn emitOpCode(self: *Self, location: Token, code: OpCode) !void {
-        try self.emit(location, @intCast(u32, @intCast(u32, @intFromEnum(code)) << 24));
+        try self.emit(location, @as(u32, @intCast(@intFromEnum(code))) << 24);
     }
 
     pub fn emitLoop(self: *Self, location: Token, loop_start: usize) !void {
@@ -114,7 +120,7 @@ pub const CodeGen = struct {
             try self.reportError("Loop body too large.");
         }
 
-        try self.emitCodeArg(location, .OP_LOOP, @intCast(u24, offset));
+        try self.emitCodeArg(location, .OP_LOOP, @as(u24, @intCast(offset)));
     }
 
     pub fn emitJump(self: *Self, location: Token, instruction: OpCode) !usize {
@@ -125,8 +131,8 @@ pub const CodeGen = struct {
 
     pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-        const instruction: u8 = @intCast(u8, original >> 24);
-        const code: OpCode = @enumFromInt(OpCode, instruction);
+        const instruction: u8 = @intCast(original >> 24);
+        const code: OpCode = @enumFromInt(instruction);
 
         if (code == .OP_LOOP) { // Patching a continue statement
             assert(loop_start != null);
@@ -136,7 +142,7 @@ pub const CodeGen = struct {
             }
 
             self.current.?.function.?.chunk.code.items[offset] =
-                (@intCast(u32, instruction) << 24) | @intCast(u32, loop_offset);
+                (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(loop_offset));
         } else { // Patching a break statement
             try self.patchJump(offset);
         }
@@ -152,10 +158,10 @@ pub const CodeGen = struct {
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-        const instruction: u8 = @intCast(u8, original >> 24);
+        const instruction: u8 = @intCast(original >> 24);
 
         self.current.?.function.?.chunk.code.items[offset] =
-            (@intCast(u32, instruction) << 24) | @intCast(u32, jump);
+            (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
     }
 
     pub fn patchTry(self: *Self, offset: usize) !void {
@@ -168,10 +174,10 @@ pub const CodeGen = struct {
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-        const instruction: u8 = @intCast(u8, original >> 24);
+        const instruction: u8 = @intCast(original >> 24);
 
         self.current.?.function.?.chunk.code.items[offset] =
-            (@intCast(u32, instruction) << 24) | @intCast(u32, jump);
+            (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
     }
 
     pub fn emitList(
@@ -185,10 +191,10 @@ pub const CodeGen = struct {
 
     pub fn patchList(self: *Self, offset: usize, constant: u24) !void {
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-        const instruction: u8 = @intCast(u8, original >> 24);
+        const instruction: u8 = @intCast(original >> 24);
 
         self.current.?.function.?.chunk.code.items[offset] =
-            (@intCast(u32, instruction) << 24) | @intCast(u32, constant);
+            (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(constant));
     }
 
     pub fn emitMap(self: *Self, location: Token) !usize {
@@ -199,10 +205,10 @@ pub const CodeGen = struct {
 
     pub fn patchMap(self: *Self, offset: usize, map_type_constant: u24) !void {
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-        const instruction: u8 = @intCast(u8, original >> 24);
+        const instruction: u8 = @intCast(original >> 24);
 
         self.current.?.function.?.chunk.code.items[offset] =
-            (@intCast(u32, instruction) << 24) | @intCast(u32, map_type_constant);
+            (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(map_type_constant));
     }
 
     pub fn emitReturn(self: *Self, location: Token) !void {

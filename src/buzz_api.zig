@@ -121,7 +121,7 @@ export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
 
     len.* = string.len;
 
-    return if (string.len > 0) @ptrCast([*]const u8, string) else null;
+    return if (string.len > 0) @as([*]const u8, @ptrCast(string)) else null;
 }
 
 fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), depth: usize) void {
@@ -318,7 +318,7 @@ export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
 export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8 {
     len.* = obj_string.string.len;
 
-    return if (obj_string.string.len > 0) @ptrCast([*]const u8, obj_string.string) else null;
+    return if (obj_string.string.len > 0) @as([*]const u8, @ptrCast(obj_string.string)) else null;
 }
 
 /// ObjString -> Value
@@ -346,7 +346,7 @@ export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) 
         return Value.Error;
     }
 
-    const str_index: usize = @intCast(usize, index);
+    const str_index: usize = @intCast(index);
 
     if (str_index < str.string.len) {
         return (vm.gc.copyString(&([_]u8{str.string[str_index]})) catch unreachable).toValue();
@@ -758,7 +758,7 @@ export fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Val
         ObjEnumInstance,
         ObjEnumInstance{
             .enum_ref = self,
-            .case = @intCast(u8, case_index),
+            .case = @intCast(case_index),
         },
     ) catch @panic("Could not create enum case")).toValue();
 }
@@ -776,7 +776,7 @@ export fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value)
         if (valueEql(case, case_value)) {
             var enum_case: *ObjEnumInstance = vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = enum_,
-                .case = @intCast(u8, index),
+                .case = @intCast(index),
             }) catch @panic("Could not create enum instance");
 
             return Value.fromObj(enum_case.toObj());
@@ -1060,7 +1060,7 @@ export fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value {
     ) catch @panic("Could not get next string index")) |new_index| {
         index.* = Value.fromInteger(new_index);
 
-        return (vm.gc.copyString(&[_]u8{string.string[@intCast(usize, new_index)]}) catch @panic("Could not iterate on string")).toValue();
+        return (vm.gc.copyString(&[_]u8{string.string[@as(usize, @intCast(new_index))]}) catch @panic("Could not iterate on string")).toValue();
     }
 
     index.* = Value.Null;
@@ -1075,7 +1075,7 @@ export fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value {
         if (index.isNull()) null else index.integer(),
     ) catch @panic("Could not get next list index")) |new_index| {
         index.* = Value.fromInteger(new_index);
-        return list.items.items[@intCast(usize, new_index)];
+        return list.items.items[@as(usize, @intCast(new_index))];
     }
 
     index.* = Value.Null;

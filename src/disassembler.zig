@@ -22,9 +22,9 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
 }
 
 fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
-    const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
-    const arg_count: u8 = @intCast(u8, chunk.code.items[offset + 1] >> 24);
-    const catch_count: u24 = @intCast(u8, 0x00ffffff & chunk.code.items[offset + 1]);
+    const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
+    const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
+    const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
     var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
@@ -46,14 +46,14 @@ fn simpleInstruction(code: OpCode, offset: usize) usize {
 }
 
 fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
-    const slot: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const slot: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     print("{}\t{}", .{ code, slot });
     return offset + 1;
 }
 
 fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
-    const a: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
-    const b: u24 = @intCast(u24, chunk.code.items[offset + 1]);
+    const a: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
+    const b: u24 = @intCast(chunk.code.items[offset + 1]);
 
     print("{}\t{} {}", .{ code, a, b });
     return offset + 2;
@@ -62,15 +62,15 @@ fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const full_instruction: u32 = chunk.code.items[offset];
 
-    const a: u8 = @intCast(u8, (0x00ffffff & full_instruction) >> 16);
-    const b: u16 = @intCast(u16, 0x0000ffff & full_instruction);
+    const a: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
+    const b: u16 = @intCast(0x0000ffff & full_instruction);
 
     print("{}\t{} {}", .{ code, a, b });
     return offset + 1;
 }
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
-    const constant: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
 
@@ -84,7 +84,7 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 }
 
 fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) !usize {
-    const jump: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
     if (direction) {
         print("{}\t{} -> {}", .{ code, offset, offset + 1 + 1 * jump });
@@ -96,7 +96,7 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
 }
 
 fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
-    const jump: u24 = @intCast(u24, 0x00ffffff & chunk.code.items[offset]);
+    const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
     print("{}\t{} -> {}", .{ code, offset, jump });
 
@@ -107,7 +107,7 @@ pub fn dumpStack(vm: *VM) void {
     print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
-    var value = @ptrCast([*]_value.Value, vm.current_fiber.stack[0..]);
+    var value: [*]_value.Value = @ptrCast(vm.current_fiber.stack[0..]);
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top)) {
         var value_str = _value.valueToStringAlloc(std.heap.c_allocator, value[0]) catch unreachable;
         defer value_str.deinit();
@@ -136,8 +136,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
-    const instruction: OpCode = @enumFromInt(OpCode, @intCast(u8, full_instruction >> 24));
-    const arg: u24 = @intCast(u24, 0x00ffffff & full_instruction);
+    const instruction: OpCode = @enumFromInt(@as(u8, @intCast(full_instruction >> 24)));
+    const arg: u24 = @intCast(0x00ffffff & full_instruction);
     return switch (instruction) {
         .OP_NULL,
         .OP_VOID,
@@ -262,7 +262,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             while (i < function.upvalue_count) : (i += 1) {
                 var is_local: bool = chunk.code.items[off_offset] == 1;
                 off_offset += 1;
-                var index: u8 = @intCast(u8, chunk.code.items[off_offset]);
+                var index: u8 = @intCast(chunk.code.items[off_offset]);
                 off_offset += 1;
                 print("\n{:0>3} |                         \t{s} {}\n", .{ off_offset - 2, if (is_local) "local  " else "upvalue", index });
             }

@@ -124,7 +124,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     );
     defer raw_qualified_name.deinit();
 
-    const module = m.MIR_new_module(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
+    const module = m.MIR_new_module(self.ctx, @ptrCast(qualified_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
 
     try self.modules.append(module);
@@ -180,15 +180,15 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     };
 
     // Export generated function so it can be linked
-    _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, raw_qualified_name.items.ptr));
-    _ = m.MIR_new_export(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(raw_qualified_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(qualified_name.items.ptr));
 
     if (BuildOptions.debug_jit) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/gen/{s}.mod.mir\u{0}", .{qualified_name.items}) catch unreachable;
 
-        const debug_file = std.c.fopen(@ptrCast([*:0]const u8, debug_path.items.ptr), "w").?;
+        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
         defer _ = std.c.fclose(debug_file);
 
         m.MIR_output_module(self.ctx, debug_file, module);
@@ -197,7 +197,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
 
 pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
     const function = closure.function;
-    const function_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), function.node));
+    const function_node: *n.FunctionNode = @ptrCast(@alignCast(function.node));
 
     // Remember we need to set this functions fields
     try self.objclosures_queue.put(closure, {});
@@ -215,7 +215,7 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
             var it2 = self.objclosures_queue.iterator();
             var sub_closure: ?*o.ObjClosure = null;
             while (it2.next()) |kv2| {
-                if (kv2.key_ptr.*.function.node == @ptrCast(*anyopaque, node)) {
+                if (kv2.key_ptr.*.function.node == @as(*anyopaque, @ptrCast(node))) {
                     sub_closure = kv2.key_ptr.*;
                     break;
                 }
@@ -264,7 +264,7 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
         while (it3.next()) |kv2| {
-            if (kv2.key_ptr.*.function.node == @ptrCast(*anyopaque, node)) {
+            if (kv2.key_ptr.*.function.node == @as(*anyopaque, @ptrCast(node))) {
                 kv2.key_ptr.*.function.native = native;
                 kv2.key_ptr.*.function.native_raw = native_raw;
                 break;
@@ -585,7 +585,7 @@ fn buildPeek(self: *Self, distance: u32, dest: m.MIR_op_t) !void {
     const top = m.MIR_new_mem_op(
         self.ctx,
         m.MIR_T_P,
-        (-1 - @intCast(i32, distance)) * @sizeOf(u64),
+        (-1 - @as(i32, @intCast(distance))) * @sizeOf(u64),
         stack_top_base,
         index,
         1,
@@ -1166,8 +1166,7 @@ fn generateNamedVariable(self: *Self, named_variable_node: *n.NamedVariableNode)
                     // Remember that we need to compile this function later
                     try self.functions_queue.put(
                         @ptrCast(
-                            *n.FunctionNode,
-                            @alignCast(@alignOf(n.FunctionNode), closure.function.node),
+                            @alignCast(closure.function.node),
                         ),
                         null,
                     );
@@ -3499,7 +3498,7 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
 }
 
 fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op_t {
-    const root_node = @ptrCast(*n.FunctionNode, @alignCast(@alignOf(n.FunctionNode), self.state.?.function_node));
+    const root_node: *n.FunctionNode = @ptrCast(@alignCast(self.state.?.function_node));
 
     const function_def = function_node.node.type_def.?.resolved_type.?.Function;
     const function_type = function_def.function_type;
@@ -3522,15 +3521,14 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         // Remember that we need to compile this function later
         try self.functions_queue.put(
             @ptrCast(
-                *n.FunctionNode,
-                @alignCast(@alignOf(n.FunctionNode), function_node),
+                @alignCast(function_node),
             ),
             null,
         );
 
         // For now declare it
-        const native_raw = m.MIR_new_import(self.ctx, @ptrCast([*:0]u8, qualified_name.items.ptr));
-        const native = m.MIR_new_import(self.ctx, @ptrCast([*:0]u8, nativefn_qualified_name.items.ptr));
+        const native_raw = m.MIR_new_import(self.ctx, @ptrCast(qualified_name.items.ptr));
+        const native = m.MIR_new_import(self.ctx, @ptrCast(nativefn_qualified_name.items.ptr));
 
         // Call bz_closure
         const dest = m.MIR_new_reg_op(
@@ -3560,14 +3558,14 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     defer ctx_name.deinit();
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast([*:0]u8, qualified_name.items.ptr),
+        @ptrCast(qualified_name.items.ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         1,
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
+                .name = @ptrCast(ctx_name.items.ptr),
                 .size = undefined,
             },
         },
@@ -3639,14 +3637,14 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     defer ctx_name.deinit();
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast([*:0]u8, nativefn_qualified_name.items.ptr),
+        @ptrCast(nativefn_qualified_name.items.ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_I64},
         1,
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = @ptrCast([*:0]u8, ctx_name.items.ptr),
+                .name = @ptrCast(ctx_name.items.ptr),
                 .size = undefined,
             },
         },
@@ -4505,7 +4503,7 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
         self.ctx,
         self.state.?.function.?.u.func,
         reg_type,
-        @ptrCast([*:0]u8, actual_name.items.ptr),
+        @ptrCast(actual_name.items.ptr),
     );
 
     try self.state.?.registers.put(name, count + 1);
@@ -5181,56 +5179,58 @@ pub const ExternApi = enum {
 
     pub fn ptr(self: ExternApi) *anyopaque {
         return switch (self) {
-            .bz_toString => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjString.bz_toString)),
-            .bz_objStringConcat => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjString.bz_objStringConcat)),
-            .bz_objStringSubscript => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjString.bz_objStringSubscript)),
-            .bz_stringNext => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjString.bz_stringNext)),
-            .bz_newList => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_newList)),
-            .bz_listAppend => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_listAppend)),
-            .bz_listGet => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_listGet)),
-            .bz_listSet => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_listSet)),
-            .bz_listConcat => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_listConcat)),
-            .bz_listNext => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_listNext)),
-            .bz_newMap => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_newMap)),
-            .bz_mapGet => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_mapGet)),
-            .bz_mapSet => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_mapSet)),
-            .bz_mapNext => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_mapNext)),
-            .bz_mapConcat => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_mapConcat)),
-            .bz_valueEqual => @ptrFromInt(*anyopaque, @intFromPtr(&api.Value.bz_valueEqual)),
-            .bz_valueIs => @ptrFromInt(*anyopaque, @intFromPtr(&api.Value.bz_valueIs)),
-            .bz_closure => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_closure)),
-            .bz_context => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_context)),
-            .bz_instance => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjObject.bz_instance)),
-            .bz_setInstanceField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjObject.bz_setInstanceField)),
-            .bz_getInstanceField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjObject.bz_getInstanceField)),
-            .bz_rethrow => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_rethrow)),
-            .bz_throw => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_throw)),
-            .bz_bindMethod => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_bindMethod)),
-            .bz_getUpValue => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_getUpValue)),
-            .bz_setUpValue => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_setUpValue)),
-            .bz_closeUpValues => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_closeUpValues)),
-            .bz_clone => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_clone)),
-            .bz_dumpStack => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_dumpStack)),
-            .bz_getEnumCaseFromValue => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjEnum.bz_getEnumCaseFromValue)),
-            .bz_getEnumCase => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjEnum.bz_getEnumCase)),
-            .bz_enumNext => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjEnum.bz_enumNext)),
-            .bz_getEnumCaseValue => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjEnumInstance.bz_getEnumCaseValue)),
-            .bz_setObjectField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjObject.bz_setObjectField)),
-            .bz_getObjectField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjObject.bz_getObjectField)),
-            .bz_getListField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjList.bz_getListField)),
-            .bz_getMapField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjMap.bz_getMapField)),
-            .bz_getStringField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjString.bz_getStringField)),
-            .bz_getPatternField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjPattern.bz_getPatternField)),
-            .bz_getFiberField => @ptrFromInt(*anyopaque, @intFromPtr(&api.ObjFiber.bz_getFiberField)),
-            .bz_setTryCtx => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_setTryCtx)),
-            .bz_popTryCtx => @ptrFromInt(*anyopaque, @intFromPtr(&api.VM.bz_popTryCtx)),
-            .setjmp => @ptrFromInt(
+            .bz_toString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_toString))),
+            .bz_objStringConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_objStringConcat))),
+            .bz_objStringSubscript => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_objStringSubscript))),
+            .bz_stringNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_stringNext))),
+            .bz_newList => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_newList))),
+            .bz_listAppend => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listAppend))),
+            .bz_listGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listGet))),
+            .bz_listSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listSet))),
+            .bz_listConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listConcat))),
+            .bz_listNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listNext))),
+            .bz_newMap => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_newMap))),
+            .bz_mapGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapGet))),
+            .bz_mapSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapSet))),
+            .bz_mapNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapNext))),
+            .bz_mapConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapConcat))),
+            .bz_valueEqual => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueEqual))),
+            .bz_valueIs => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueIs))),
+            .bz_closure => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_closure))),
+            .bz_context => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_context))),
+            .bz_instance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_instance))),
+            .bz_setInstanceField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_setInstanceField))),
+            .bz_getInstanceField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getInstanceField))),
+            .bz_rethrow => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_rethrow))),
+            .bz_throw => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_throw))),
+            .bz_bindMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_bindMethod))),
+            .bz_getUpValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getUpValue))),
+            .bz_setUpValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_setUpValue))),
+            .bz_closeUpValues => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_closeUpValues))),
+            .bz_clone => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_clone))),
+            .bz_dumpStack => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_dumpStack))),
+            .bz_getEnumCaseFromValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_getEnumCaseFromValue))),
+            .bz_getEnumCase => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_getEnumCase))),
+            .bz_enumNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_enumNext))),
+            .bz_getEnumCaseValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnumInstance.bz_getEnumCaseValue))),
+            .bz_setObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_setObjectField))),
+            .bz_getObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getObjectField))),
+            .bz_getListField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_getListField))),
+            .bz_getMapField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_getMapField))),
+            .bz_getStringField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_getStringField))),
+            .bz_getPatternField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjPattern.bz_getPatternField))),
+            .bz_getFiberField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjFiber.bz_getFiberField))),
+            .bz_setTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_setTryCtx))),
+            .bz_popTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_popTryCtx))),
+            .setjmp => @as(
                 *anyopaque,
-                @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux) jmp._setjmp else jmp.setjmp)),
+                @ptrFromInt(
+                    @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux) jmp._setjmp else jmp.setjmp)),
+                ),
             ),
-            .exit => @ptrFromInt(*anyopaque, @intFromPtr(&exit)),
+            .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&exit))),
 
-            .dumpInt => @ptrFromInt(*anyopaque, @intFromPtr(&api.dumpInt)),
+            .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
             else => {
                 std.debug.print("{s}\n", .{self.name()});
                 unreachable;

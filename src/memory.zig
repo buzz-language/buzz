@@ -580,7 +580,7 @@ pub const GarbageCollector = struct {
             if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING STACK OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
-            var i = @ptrCast([*]Value, fiber.stack);
+            var i: [*]Value = @ptrCast(fiber.stack);
             while (@intFromPtr(i) < @intFromPtr(fiber.stack_top)) : (i += 1) {
                 try self.markValue(i[0]);
             }

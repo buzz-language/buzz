@@ -17,7 +17,7 @@ const valueToString = _value.valueToString;
 pub fn size(ctx: *NativeCtx) c_int {
     var map: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@intCast(i32, map.map.count())));
+    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(map.map.count()))));
 
     return 1;
 }
