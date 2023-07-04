@@ -313,6 +313,10 @@ foreach (int value in fibonnaciFib) {
 foreach (str char in aString) {
     | ...
 }
+
+foreach (int i in 0..n) {
+    | ...
+}
 ```
 
 ### Objects
