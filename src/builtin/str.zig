@@ -397,3 +397,65 @@ pub fn lower(ctx: *NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn hex(ctx: *NativeCtx) c_int {
+    const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+
+    if (str.string.len == 0) {
+        ctx.vm.push(str.toValue());
+
+        return 1;
+    }
+
+    var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+    defer result.deinit();
+    var writer = result.writer();
+
+    for (str.string) |char| {
+        writer.print("{x:0>2}", .{char}) catch @panic("Could not convert string to hex");
+    }
+
+    var obj_string = ctx.vm.gc.copyString(result.items) catch @panic("Could not convert string to hex");
+
+    ctx.vm.push(obj_string.toValue());
+
+    return 1;
+}
+
+pub fn bin(ctx: *NativeCtx) c_int {
+    const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+
+    if (str.string.len == 0) {
+        ctx.vm.push(str.toValue());
+
+        return 1;
+    }
+
+    var result = ctx.vm.gc.allocator.alloc(u8, str.string.len / 2) catch {
+        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
+        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+
+        return -1;
+    };
+    defer ctx.vm.gc.allocator.free(result);
+
+    for (0..result.len) |i| {
+        result[i] = std.fmt.parseInt(u8, str.string[(i * 2)..(i * 2 + 2)], 16) catch {
+            var err: ?*ObjString = ctx.vm.gc.copyString("String does not contain valid hex values") catch null;
+            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+
+            return -1;
+        };
+    }
+
+    var obj_string = ctx.vm.gc.copyString(result) catch {
+        var err: ?*ObjString = ctx.vm.gc.copyString("Could not convert string to hex") catch null;
+        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+
+        return -1;
+    };
+
+    ctx.vm.push(obj_string.toValue());
+
+    return 1;
+}

@@ -86,6 +86,16 @@ Base64 decode the string
 
 **Returns:** Decoded string
 
+### `fun hex() > str`
+Converts binary string to hexadecimal representation
+
+**Returns:** Hex string
+
+### `fun bin() > str`
+Converts hexadecimal string to binary string
+
+**Returns:** Binary string
+
 ## Lists
 
 ### `fun append(T value) > T`

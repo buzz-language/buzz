@@ -37,3 +37,7 @@ test "upper/lower" {
     assert("hello world!".upper() == "HELLO WORLD!", message: "upper");
     assert("HellO WorlD!".lower() == "hello world!", message: "lower");
 }
+
+test "hex/bin" {
+    assert("c3fcd3d76192e4007dfb496cca67e13b".bin().hex() == "c3fcd3d76192e4007dfb496cca67e13b", message: "hex/bin");
+}

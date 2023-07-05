@@ -12,6 +12,7 @@
 - [fs](#fs)
 - [io](#io)
 - [json](#json)
+- [crypto](#crypto)
 ## debug
 
 ### `extern fun dump(<T>, generic type #66-0 value) > void `
@@ -224,3 +225,12 @@ Run a buzz file
 
 ### `object lib.json.Json `
 Utility object to manage data from a JSON string
+
+## crypto
+
+### `extern fun hash(HashAlgorithm algo, str data) > str`
+Returns hash of data using given algorithm
+- **`algo`:** Hash algorithm to use
+- **`data`:** Data to hash
+
+**Returns:** Hash of data has hex string

@@ -554,6 +554,8 @@ pub const ObjString = struct {
             .{ "decodeBase64", buzz_builtin.str.decodeBase64 },
             .{ "upper", buzz_builtin.str.upper },
             .{ "lower", buzz_builtin.str.lower },
+            .{ "hex", buzz_builtin.str.hex },
+            .{ "bin", buzz_builtin.str.bin },
         },
     );
 
@@ -668,6 +670,18 @@ pub const ObjString = struct {
             const native_type = try parser.parseTypeDefFrom("extern Function lower() > str");
 
             try parser.gc.objstring_memberDefs.put("lower", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "hex")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function hex() > str");
+
+            try parser.gc.objstring_memberDefs.put("hex", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "bin")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function bin() > str");
+
+            try parser.gc.objstring_memberDefs.put("bin", native_type);
 
             return native_type;
         }
