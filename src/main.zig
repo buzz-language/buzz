@@ -79,15 +79,70 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         parsing_time = timer.read();
         timer.reset();
 
-        if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
-            codegen_time = timer.read();
-            timer.reset();
+        if (flavor == .Run or flavor == .Test) {
+            if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+                codegen_time = timer.read();
+                timer.reset();
 
+                switch (flavor) {
+                    .Run, .Test => try vm.interpret(
+                        function,
+                        args,
+                    ),
+                    .Fmt => {
+                        var formatted = std.ArrayList(u8).init(allocator);
+                        defer formatted.deinit();
+
+                        try function_node.render(function_node, &formatted.writer(), 0);
+
+                        std.debug.print("{s}", .{formatted.items});
+                    },
+                    .Ast => {
+                        var json = std.ArrayList(u8).init(allocator);
+                        defer json.deinit();
+
+                        try function_node.toJson(function_node, &json.writer());
+
+                        var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
+                        defer allocator.free(without_nl);
+
+                        _ = try std.io.getStdOut().write(without_nl);
+                    },
+                    else => {},
+                }
+
+                running_time = timer.read();
+            } else {
+                return CompileError.Recoverable;
+            }
+
+            if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
+                const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
+                const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
+                const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
+                const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
+                const jit_ms: f64 = if (vm.mir_jit) |jit|
+                    @as(f64, @floatFromInt(jit.jit_time)) / 1000000
+                else
+                    0;
+                std.debug.print(
+                    "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\nJIT: {d} ms\n\u{001b}[0m",
+                    .{
+                        parsing_ms,
+                        codegen_ms,
+                        running_ms,
+                        parsing_ms + codegen_ms + running_ms,
+                        gc_ms,
+                        gc.full_collection_count,
+                        gc.light_collection_count,
+                        gc.max_allocated,
+                        jit_ms,
+                    },
+                );
+            }
+        } else {
             switch (flavor) {
-                .Run, .Test => try vm.interpret(
-                    function,
-                    args,
-                ),
+                .Run, .Test => unreachable,
                 .Fmt => {
                     var formatted = std.ArrayList(u8).init(allocator);
                     defer formatted.deinit();
@@ -109,35 +164,6 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                 },
                 else => {},
             }
-
-            running_time = timer.read();
-        } else {
-            return CompileError.Recoverable;
-        }
-
-        if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-            const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
-            const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
-            const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
-            const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-            const jit_ms: f64 = if (vm.mir_jit) |jit|
-                @as(f64, @floatFromInt(jit.jit_time)) / 1000000
-            else
-                0;
-            std.debug.print(
-                "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\nJIT: {d} ms\n\u{001b}[0m",
-                .{
-                    parsing_ms,
-                    codegen_ms,
-                    running_ms,
-                    parsing_ms + codegen_ms + running_ms,
-                    gc_ms,
-                    gc.full_collection_count,
-                    gc.light_collection_count,
-                    gc.max_allocated,
-                    jit_ms,
-                },
-            );
         }
     } else {
         return CompileError.Recoverable;

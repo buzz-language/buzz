@@ -200,7 +200,7 @@ pub const ParseNode = struct {
         );
 
         if (self.docblock != null) {
-            var escaped = try escapeNewLines(std.heap.c_allocator, self.docblock.?.literal_string.?);
+            var escaped = try escape(std.heap.c_allocator, self.docblock.?.literal_string.?);
             defer escaped.deinit();
             try out.print(", \"docblock\": \"{s}\"", .{escaped.items});
         }
@@ -951,7 +951,7 @@ pub const StringLiteralNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        var escaped = try escapeNewLines(std.heap.c_allocator, self.constant.string);
+        var escaped = try escape(std.heap.c_allocator, self.constant.string);
         defer escaped.deinit();
         try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"{s}\", ", .{escaped.items});
 
@@ -1032,7 +1032,7 @@ pub const PatternNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        var escaped = try escapeNewLines(std.heap.c_allocator, self.constant.source);
+        var escaped = try escape(std.heap.c_allocator, self.constant.source);
         defer escaped.deinit();
         try out.print("{{\"node\": \"Pattern\", \"constant\": \"{s}\", ", .{escaped.items});
 
@@ -6908,7 +6908,7 @@ pub const ObjectDeclarationNode = struct {
             try out.print("\"", .{});
 
             if (self.docblocks.get(kv.key_ptr.*).?) |docblock| {
-                var escaped = try escapeNewLines(std.heap.c_allocator, docblock.literal_string orelse "");
+                var escaped = try escape(std.heap.c_allocator, docblock.literal_string orelse "");
                 defer escaped.deinit();
                 try out.print(", \"docblock\": \"{s}\"}}", .{escaped.items});
             } else {
@@ -7301,25 +7301,110 @@ pub const ImportNode = struct {
     }
 };
 
-fn escapeNewLines(allocator: Allocator, from: []const u8) !std.ArrayList(u8) {
-    var string = try std.ArrayList(u8).initCapacity(
+fn escape(allocator: Allocator, from: []const u8) !std.ArrayList(u8) {
+    // Escape \
+    var backslash = try std.ArrayList(u8).initCapacity(
         allocator,
         std.mem.replacementSize(
             u8,
             from,
-            "\n",
-            "\\n",
+            "\\",
+            "\\\\",
         ),
     );
-    string.expandToCapacity();
+    defer backslash.deinit();
+    backslash.expandToCapacity();
 
     _ = std.mem.replace(
         u8,
         from,
-        "\n",
-        "\\n",
-        string.items,
+        "\\",
+        "\\\\",
+        backslash.items,
     );
 
-    return string;
+    // Escape new lines
+    var newlines = try std.ArrayList(u8).initCapacity(
+        allocator,
+        std.mem.replacementSize(
+            u8,
+            backslash.items,
+            "\n",
+            "\\n",
+        ),
+    );
+    defer newlines.deinit();
+    newlines.expandToCapacity();
+
+    _ = std.mem.replace(
+        u8,
+        backslash.items,
+        "\n",
+        "\\n",
+        newlines.items,
+    );
+
+    // Escape "
+    var quotes = try std.ArrayList(u8).initCapacity(
+        allocator,
+        std.mem.replacementSize(
+            u8,
+            newlines.items,
+            "\"",
+            "\\\"",
+        ),
+    );
+    defer quotes.deinit();
+    quotes.expandToCapacity();
+
+    _ = std.mem.replace(
+        u8,
+        newlines.items,
+        "\"",
+        "\\\"",
+        quotes.items,
+    );
+
+    // Escape \r
+    var r = try std.ArrayList(u8).initCapacity(
+        allocator,
+        std.mem.replacementSize(
+            u8,
+            quotes.items,
+            "\r",
+            "\\r",
+        ),
+    );
+    defer r.deinit();
+    r.expandToCapacity();
+
+    _ = std.mem.replace(
+        u8,
+        quotes.items,
+        "\r",
+        "\\r",
+        r.items,
+    );
+
+    // Escape \t
+    var t = try std.ArrayList(u8).initCapacity(
+        allocator,
+        std.mem.replacementSize(
+            u8,
+            r.items,
+            "\t",
+            "\\t",
+        ),
+    );
+    t.expandToCapacity();
+
+    _ = std.mem.replace(
+        u8,
+        r.items,
+        "\t",
+        "\\t",
+        t.items,
+    );
+
+    return t;
 }
