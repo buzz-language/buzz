@@ -32,7 +32,12 @@ export fn ast(ctx: *api.NativeCtx) c_int {
     var strings = std.StringHashMap(*ObjString).init(api.VM.allocator);
     var imports = std.StringHashMap(Parser.ScriptImport).init(api.VM.allocator);
 
-    var parser = Parser.init(&gc, &imports, false);
+    var parser = Parser.init(
+        &gc,
+        &imports,
+        false,
+        false,
+    );
 
     defer {
         parser.deinit();

@@ -183,17 +183,17 @@ pub fn split(ctx: *NativeCtx) c_int {
     ctx.vm.push(list.toValue());
 
     if (separator.string.len > 0) {
-        var it = std.mem.split(u8, self.string, separator.string);
+        var it = std.mem.splitSequence(u8, self.string, separator.string);
         while (it.next()) |fragment| {
-            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(fragment) catch @panic("Could not create string");
+            const fragment_str = ctx.vm.gc.copyString(fragment) catch @panic("Could not create string");
 
-            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch @panic("Could not create string");
+            list.rawAppend(ctx.vm.gc, fragment_str.toValue()) catch @panic("Could not create string");
         }
     } else {
         for (self.string) |char| {
-            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(&([_]u8{char})) catch @panic("Could not create string");
+            const fragment_str = ctx.vm.gc.copyString(&([_]u8{char})) catch @panic("Could not create string");
 
-            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch @panic("Could not create string");
+            list.rawAppend(ctx.vm.gc, fragment_str.toValue()) catch @panic("Could not create string");
         }
     }
 

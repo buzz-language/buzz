@@ -540,7 +540,12 @@ export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_na
 
     var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
-    var parser = Parser.init(self.gc, &imports, false);
+    var parser = Parser.init(
+        self.gc,
+        &imports,
+        false,
+        true,
+    );
     var codegen = CodeGen.init(self.gc, &parser, false);
     defer {
         codegen.deinit();

@@ -179,6 +179,7 @@ fun main([str] args) > void
     {str, str} markdownDoc = {<str, str>};
     foreach (int i, str file in list("src/lib")) {
         if (file.endsWith(".buzz")) {
+            print("Generating doc for {file}...");
             [Declaration] declarations = getDeclarations("src/lib/{file}");
 
             if (declarations.len() > 0) {

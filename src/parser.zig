@@ -356,17 +356,19 @@ pub const Parser = struct {
     current: ?*Frame = null,
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
+    resolve_imports: bool,
 
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
-    pub fn init(gc: *GarbageCollector, imports: *std.StringHashMap(ScriptImport), imported: bool) Self {
+    pub fn init(gc: *GarbageCollector, imports: *std.StringHashMap(ScriptImport), imported: bool, resolve_imports: bool) Self {
         return .{
             .gc = gc,
             .parser = ParserState.init(gc.allocator),
             .imports = imports,
             .imported = imported,
             .globals = std.ArrayList(Global).init(gc.allocator),
+            .resolve_imports = resolve_imports,
         };
     }
 
@@ -4457,12 +4459,14 @@ pub const Parser = struct {
         }
 
         if (function_type == .Extern) {
-            // Search for a dylib/so/dll with the same name as the current script
-            if (try self.importLibSymbol(
-                self.script_name,
-                function_node.node.type_def.?.resolved_type.?.Function.name.string,
-            )) |native| {
-                function_node.native = native;
+            if (self.resolve_imports) {
+                // Search for a dylib/so/dll with the same name as the current script
+                if (try self.importLibSymbol(
+                    self.script_name,
+                    function_node.node.type_def.?.resolved_type.?.Function.name.string,
+                )) |native| {
+                    function_node.native = native;
+                }
             }
         } else {
             // Bind upvalues
@@ -4607,7 +4611,7 @@ pub const Parser = struct {
 
             _ = try file.?.readAll(source);
 
-            var parser = Parser.init(self.gc, self.imports, true);
+            var parser = Parser.init(self.gc, self.imports, true, self.resolve_imports);
             defer parser.deinit();
 
             if (try parser.parse(source, file_name)) |import_node| {
