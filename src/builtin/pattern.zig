@@ -2,20 +2,118 @@ const std = @import("std");
 const _obj = @import("../obj.zig");
 const ObjPattern = _obj.ObjPattern;
 const ObjString = _obj.ObjString;
+const ObjList = _obj.ObjList;
+const ObjTypeDef = _obj.ObjTypeDef;
 const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
 const _value = @import("../value.zig");
 const Value = _value.Value;
 
+pub const pcre = @import("../pcre.zig").pcre;
+
+fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*ObjList {
+    if (subject.string.len == 0) {
+        return null;
+    }
+
+    var results: ?*ObjList = null;
+
+    var output_vector: [3000]c_int = undefined;
+
+    const rc = pcre.pcre_exec(
+        self.pattern, // the compiled pattern
+        null, // no extra data - we didn't study the pattern
+        @as([*c]const u8, @ptrCast(subject.string)), // the subject string
+        @as(c_int, @intCast(subject.string.len)), // the length of the subject
+        @as(c_int, @intCast(offset.*)), // start offset
+        0, // default options
+        @as([*c]c_int, @ptrCast(&output_vector)), // output vector for substring information
+        output_vector.len, // number of elements in the output vector
+    );
+
+    switch (rc) {
+        pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => return null,
+        // TODO: handle ouptut_vector too small
+        0 => unreachable,
+        else => {
+            offset.* = @as(usize, @intCast(output_vector[1]));
+
+            results = try vm.gc.allocateObject(
+                ObjList,
+                ObjList.init(
+                    vm.gc.allocator,
+                    try vm.gc.type_registry.getTypeDef(
+                        ObjTypeDef{
+                            .def_type = .String,
+                        },
+                    ),
+                ),
+            );
+
+            // Prevent gc collection
+            vm.push(results.?.toValue());
+
+            var i: usize = 0;
+            while (i < rc) : (i += 1) {
+                try results.?.items.append(
+                    (try vm.gc.copyString(
+                        subject.string[@as(usize, @intCast(output_vector[2 * i]))..@as(usize, @intCast(output_vector[2 * i + 1]))],
+                    )).toValue(),
+                );
+            }
+
+            _ = vm.pop();
+        },
+    }
+
+    return results;
+}
+
+fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
+    if (subject.string.len == 0) {
+        return null;
+    }
+
+    var results: ?*ObjList = null;
+    var offset: usize = 0;
+    while (true) {
+        if (try rawMatch(self, vm, subject, &offset)) |matches| {
+            var was_null = results == null;
+            results = results orelse try vm.gc.allocateObject(
+                ObjList,
+                ObjList.init(vm.gc.allocator, matches.type_def),
+            );
+
+            if (was_null) {
+                vm.push(results.?.toValue());
+            }
+
+            try results.?.items.append(matches.toValue());
+        } else {
+            if (results != null) {
+                _ = vm.pop();
+            }
+
+            return results;
+        }
+    }
+
+    if (results != null) {
+        _ = vm.pop();
+    }
+
+    return results;
+}
+
 pub fn match(ctx: *NativeCtx) c_int {
     const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = ObjString.cast(ctx.vm.peek(0).obj()).?.string;
+    const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     var offset: usize = 0;
-    if (self.rawMatch(
+    if (rawMatch(
+        self,
         ctx.vm,
-        if (subject.len > 0) @as([*]const u8, @ptrCast(subject)) else null,
-        subject.len,
+        subject,
         &offset,
     ) catch {
         var err: ?*ObjString = ctx.vm.gc.copyString("Could not match") catch null;
@@ -32,13 +130,13 @@ pub fn match(ctx: *NativeCtx) c_int {
 }
 
 pub fn matchAll(ctx: *NativeCtx) c_int {
-    var self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    var subject = ObjString.cast(ctx.vm.peek(0).obj()).?.string;
+    const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
+    const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    if (self.rawMatchAll(
+    if (rawMatchAll(
+        self,
         ctx.vm,
-        if (subject.len > 0) @as([*]const u8, @ptrCast(subject)) else null,
-        subject.len,
+        subject,
     ) catch {
         var err: ?*ObjString = ctx.vm.gc.copyString("Could not match") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
