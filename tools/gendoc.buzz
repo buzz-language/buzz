@@ -31,12 +31,12 @@ object Declaration {
         const pat atPattern = _@([^@ ]+)(\s+[^\n@]+)?_;
         {str, str} out = {<str, str>};
 
-        foreach (int i, str line in docblock.split("\n")) {
+        foreach (int i, str line in docblock.split("\\n")) {
             if (atPattern.match(line) -> at) {
                 if (at.len() > 2) {
-                    out[at[1]] = at[2];
+                    out[at[1].trim()] = at[2];
                 } else {
-                    out[at[1]] = "";
+                    out[at[1].trim()] = "";
                 }
             } else {
                 out["unspecified"] = (out["unspecified"] ?? "") + line;

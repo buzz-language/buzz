@@ -1,3 +1,4 @@
+|| Hash algorithms
 enum HashAlgorithm {
     Md5,
     Sha1,

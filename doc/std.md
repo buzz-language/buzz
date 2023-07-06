@@ -8,14 +8,13 @@
 - [math](#math)
 - [buffer](#buffer)
 - [os](#os)
+- [crypto](#crypto)
 - [errors](#errors)
 - [fs](#fs)
 - [io](#io)
-- [json](#json)
-- [crypto](#crypto)
 ## debug
 
-### `extern fun dump(<T>, generic type #66-0 value) > void `
+### `extern fun dump(<T>, generic type #19-0 value) > void `
 Dump any value to stdout
 ### `extern fun ast(str source, str scriptName) > str !> lib.errors.CompileError `
 Parse `source` and return the abstract syntax tree in JSON
@@ -25,17 +24,17 @@ Parse `source` and return the abstract syntax tree in JSON
 **Returns:**  AST as JSON
 ## gc
 
-### `object lib.gc.CollectError `
+### `object src.lib.gc.CollectError `
 Error occured while collecting
 ### `extern fun allocated() > int `
 Returns the number of allocated bytes
 
 **Returns:**  allocated bytes
-### `extern fun collect() > void !> lib.gc.CollectError `
+### `extern fun collect() > void !> src.lib.gc.CollectError `
 Triggers a GC sweep
 ## std
 
-### `fun assert(bool condition, str message) > void `
+### `extern fun assert(bool condition, str message) > void `
 If condition is false print message and exit program
 - **`message`:** message printed if `condition` is false
 
@@ -143,7 +142,7 @@ Convert degree to radian
 **Returns:**  `x`^`y`
 ## buffer
 
-### `object lib.buffer.Buffer `
+### `object src.lib.buffer.Buffer `
 Read and write data to a string buffer
 ## os
 
@@ -175,12 +174,22 @@ Execute command and return its exit code
 
 
 **Returns:**  exit code of the command
-### `enum lib.os.SocketProtocol `
+### `enum src.lib.os.SocketProtocol `
 Protocols supported over a socket
-### `object lib.os.Socket `
+### `object src.lib.os.Socket `
 A socket
-### `object lib.os.TcpServer `
+### `object src.lib.os.TcpServer `
 A TCP Server
+## crypto
+
+### `enum src.lib.crypto.HashAlgorithm `
+Hash algorithms
+### `extern fun hash(src.lib.crypto.HashAlgorithm algo, str data) > str `
+Returns hash of data using given algorithm
+- **`data`:** Data to hash
+
+
+**Returns:**  Hash of data has hex string
 ## errors
 
 ## fs
@@ -207,30 +216,16 @@ List files under path
 
 ## io
 
-### `enum lib.io.FileMode `
+### `enum src.lib.io.FileMode `
 File mode with which you can open a file
-### `object lib.io.File `
+### `object src.lib.io.File `
 Object to manipulate an opened file
-### `lib.io.File stdin`
+### `src.lib.io.File stdin`
 stdin
-### `lib.io.File stdout`
+### `src.lib.io.File stdout`
 stdout
-### `lib.io.File stderr`
+### `src.lib.io.File stderr`
 stderr
 ### `extern fun runFile(str filename) > void !> lib.errors.CompileError, lib.errors.InterpretError, lib.errors.FileSystemError, lib.errors.ReadWriteError `
 Run a buzz file
 - **`filename`:** path to buzz file
-
-## json
-
-### `object lib.json.Json `
-Utility object to manage data from a JSON string
-
-## crypto
-
-### `extern fun hash(HashAlgorithm algo, str data) > str`
-Returns hash of data using given algorithm
-- **`algo`:** Hash algorithm to use
-- **`data`:** Data to hash
-
-**Returns:** Hash of data has hex string
