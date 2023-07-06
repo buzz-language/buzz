@@ -17,12 +17,7 @@ pub fn trim(ctx: *NativeCtx) c_int {
     trimmed = std.mem.trim(u8, trimmed, "\r");
     trimmed = std.mem.trim(u8, trimmed, "\n");
 
-    ctx.vm.push((ctx.vm.gc.copyString(trimmed) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not trim string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }).toValue());
+    ctx.vm.push((ctx.vm.gc.copyString(trimmed) catch @panic("Could not create string")).toValue());
 
     return 1;
 }
@@ -44,20 +39,10 @@ pub fn repeat(ctx: *NativeCtx) c_int {
         var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(ctx.vm.gc.allocator);
         var i: usize = 0;
         while (i < ni) : (i += 1) {
-            new_string.appendSlice(str.string) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("Could not repeat string") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-                return -1;
-            };
+            new_string.appendSlice(str.string) catch @panic("Could not create string");
         }
 
-        const new_objstring = ctx.vm.gc.copyString(new_string.items) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not repeat string") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
-        };
+        const new_objstring = ctx.vm.gc.copyString(new_string.items) catch @panic("Could not create string");
 
         ctx.vm.push(new_objstring.toValue());
 
@@ -121,20 +106,10 @@ pub fn replace(ctx: *NativeCtx) c_int {
     var needle: *ObjString = ObjString.cast(ctx.vm.peek(1).obj()).?;
     var replacement: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    const new_string = std.mem.replaceOwned(u8, ctx.vm.gc.allocator, self.string, needle.string, replacement.string) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not replace string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    const new_string = std.mem.replaceOwned(u8, ctx.vm.gc.allocator, self.string, needle.string, replacement.string) catch @panic("Could not create string");
 
     ctx.vm.push(
-        (ctx.vm.gc.copyString(new_string) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not replace string") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
-        }).toValue(),
+        (ctx.vm.gc.copyString(new_string) catch @panic("Could not create string")).toValue(),
     );
 
     return 1;
@@ -170,12 +145,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     var substr: []const u8 = self.string[@as(usize, @intCast(start.?))..limit];
 
     ctx.vm.push(
-        (ctx.vm.gc.copyString(substr) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub string") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
-        }).toValue(),
+        (ctx.vm.gc.copyString(substr) catch @panic("Could not create string")).toValue(),
     );
 
     return 1;
@@ -190,12 +160,7 @@ pub fn split(ctx: *NativeCtx) c_int {
         ctx.vm.gc.allocator,
         ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
             .def_type = .String,
-        }) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
-        },
+        }) catch @panic("Could not create string"),
     );
 
     var list_def_union: ObjTypeDef.TypeUnion = .{
@@ -207,22 +172,12 @@ pub fn split(ctx: *NativeCtx) c_int {
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
-    }) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    }) catch @panic("Could not create string");
 
     var list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
-    ) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    ) catch @panic("Could not create string");
 
     // Prevent gc & is result
     ctx.vm.push(list.toValue());
@@ -230,35 +185,15 @@ pub fn split(ctx: *NativeCtx) c_int {
     if (separator.string.len > 0) {
         var it = std.mem.split(u8, self.string, separator.string);
         while (it.next()) |fragment| {
-            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(fragment) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(fragment) catch @panic("Could not create string");
 
-                return -1;
-            };
-
-            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-                return -1;
-            };
+            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch @panic("Could not create string");
         }
     } else {
         for (self.string) |char| {
-            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(&([_]u8{char})) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+            var fragment_str: ?*ObjString = ctx.vm.gc.copyString(&([_]u8{char})) catch @panic("Could not create string");
 
-                return -1;
-            };
-
-            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("Could not split string") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-                return -1;
-            };
+            list.rawAppend(ctx.vm.gc, fragment_str.?.toValue()) catch @panic("Could not create string");
         }
     }
 
@@ -268,22 +203,12 @@ pub fn split(ctx: *NativeCtx) c_int {
 pub fn encodeBase64(ctx: *NativeCtx) c_int {
     var str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var encoded = ctx.vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not encode string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var encoded = ctx.vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(encoded);
 
     var new_string = ctx.vm.gc.copyString(
         std.base64.standard.Encoder.encode(encoded, str.string),
-    ) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not encode string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    ) catch @panic("Could not create string");
 
     ctx.vm.push(new_string.toValue());
 
@@ -299,12 +224,7 @@ pub fn decodeBase64(ctx: *NativeCtx) c_int {
 
         return -1;
     };
-    var decoded = ctx.vm.gc.allocator.alloc(u8, size) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var decoded = ctx.vm.gc.allocator.alloc(u8, size) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(decoded);
 
     std.base64.standard.Decoder.decode(decoded, str.string) catch {
@@ -314,12 +234,7 @@ pub fn decodeBase64(ctx: *NativeCtx) c_int {
         return -1;
     };
 
-    var new_string = ctx.vm.gc.copyString(decoded) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var new_string = ctx.vm.gc.copyString(decoded) catch @panic("Could not create string");
 
     ctx.vm.push(new_string.toValue());
 
@@ -335,12 +250,7 @@ pub fn upper(ctx: *NativeCtx) c_int {
         return 1;
     }
 
-    var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(new_str);
 
     for (str.string, 0..) |char, index| {
@@ -350,12 +260,7 @@ pub fn upper(ctx: *NativeCtx) c_int {
         }
     }
 
-    var obj_string = ctx.vm.gc.copyString(new_str) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var obj_string = ctx.vm.gc.copyString(new_str) catch @panic("Could not create string");
 
     ctx.vm.push(obj_string.toValue());
 
@@ -371,12 +276,7 @@ pub fn lower(ctx: *NativeCtx) c_int {
         return 1;
     }
 
-    var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var new_str = ctx.vm.gc.allocator.alloc(u8, str.string.len) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(new_str);
 
     for (str.string, 0..) |char, index| {
@@ -386,12 +286,7 @@ pub fn lower(ctx: *NativeCtx) c_int {
         }
     }
 
-    var obj_string = ctx.vm.gc.copyString(new_str) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var obj_string = ctx.vm.gc.copyString(new_str) catch @panic("Could not create string");
 
     ctx.vm.push(obj_string.toValue());
 
@@ -412,10 +307,10 @@ pub fn hex(ctx: *NativeCtx) c_int {
     var writer = result.writer();
 
     for (str.string) |char| {
-        writer.print("{x:0>2}", .{char}) catch @panic("Could not convert string to hex");
+        writer.print("{x:0>2}", .{char}) catch @panic("Could not create string");
     }
 
-    var obj_string = ctx.vm.gc.copyString(result.items) catch @panic("Could not convert string to hex");
+    var obj_string = ctx.vm.gc.copyString(result.items) catch @panic("Could not create string");
 
     ctx.vm.push(obj_string.toValue());
 
@@ -431,12 +326,7 @@ pub fn bin(ctx: *NativeCtx) c_int {
         return 1;
     }
 
-    var result = ctx.vm.gc.allocator.alloc(u8, str.string.len / 2) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get uppercased string") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var result = ctx.vm.gc.allocator.alloc(u8, str.string.len / 2) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(result);
 
     for (0..result.len) |i| {
@@ -448,12 +338,7 @@ pub fn bin(ctx: *NativeCtx) c_int {
         };
     }
 
-    var obj_string = ctx.vm.gc.copyString(result) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not convert string to hex") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    var obj_string = ctx.vm.gc.copyString(result) catch @panic("Could not create string");
 
     ctx.vm.push(obj_string.toValue());
 
