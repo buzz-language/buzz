@@ -25,3 +25,15 @@ test "Escaped pattern delimiter" {
 
     assert("{pattern}" == "hello _ world", message: "delimiter was properly escaped");
 }
+
+test "replace" {
+    assert(
+        _world_.replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
+        message: "replace"
+    );
+
+    assert(
+        _alright_.replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
+        message: "replaceAll"
+    );
+}

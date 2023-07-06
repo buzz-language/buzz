@@ -316,6 +316,8 @@ pub const ObjPattern = struct {
         .{
             .{ "match", buzz_builtin.pattern.match },
             .{ "matchAll", buzz_builtin.pattern.matchAll },
+            .{ "replace", buzz_builtin.pattern.replace },
+            .{ "replaceAll", buzz_builtin.pattern.replaceAll },
         },
     );
 
@@ -356,6 +358,19 @@ pub const ObjPattern = struct {
             const native_type = try parser.parseTypeDefFrom("extern Function matchAll(str subject) > [[str]]?");
 
             try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
+
+            return native_type;
+        }
+        if (mem.eql(u8, method, "replace")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function replace(str subject, str with) > str");
+
+            try parser.gc.objpattern_memberDefs.put("replace", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "replaceAll")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function replaceAll(str subject, str with) > str");
+
+            try parser.gc.objpattern_memberDefs.put("replaceAll", native_type);
 
             return native_type;
         }
