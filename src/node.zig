@@ -5615,9 +5615,12 @@ pub const ForNode = struct {
 
         try out.writeAll(", \"post_loop\": [");
 
-        for (self.post_loop.items) |expression| {
+        for (self.post_loop.items, 0..) |expression, i| {
             try expression.toJson(expression, out);
-            try out.writeAll(", ");
+
+            if (i < self.post_loop.items.len - 1) {
+                try out.writeAll(", ");
+            }
         }
 
         try out.writeAll("], \"body\": ");

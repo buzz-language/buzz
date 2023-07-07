@@ -182,8 +182,18 @@ object JsonParser {
         Buffer string = Buffer.init();
         
         while (char != null and char != "\"") {
-            if (char == "\\" and this.match("\"")) {
-                string.write("\"");
+            if (char == "\\") {
+                if (this.match("\"")) {
+                    string.write("\"");
+                } else if (this.match("\\")) {
+                    string.write("\\");
+                } else if (this.match("n")) {
+                    string.write("\n");
+                } else if (this.match("t")) {
+                    string.write("\t");
+                } else if (this.match("r")) {
+                    string.write("\r");
+                }
             } else {
                 string.write(char!);
             }
