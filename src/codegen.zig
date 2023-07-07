@@ -87,7 +87,7 @@ pub const CodeGen = struct {
     }
 
     pub fn emit(self: *Self, location: Token, code: u32) !void {
-        try self.current.?.function.?.chunk.write(code, location.line);
+        try self.current.?.function.?.chunk.write(code, location);
     }
 
     pub fn emitTwo(self: *Self, location: Token, a: u8, b: u24) !void {

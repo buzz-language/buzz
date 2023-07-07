@@ -8,6 +8,7 @@ const dumpStack = @import("./disassembler.zig").dumpStack;
 const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const assert = std.debug.assert;
+const Token = @import("./token.zig").Token;
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -134,6 +135,9 @@ pub const GarbageCollector = struct {
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
 
+    debugger: ?GarbageCollectorDebugger,
+    where: ?Token = null,
+
     // Types we generaly don't wan't to ever be collected
     objfiber_members: std.AutoHashMap(*ObjString, *ObjNative),
     objfiber_memberDefs: std.StringHashMap(*ObjTypeDef),
@@ -155,6 +159,7 @@ pub const GarbageCollector = struct {
             .type_registry = undefined,
             .gray_stack = std.ArrayList(*Obj).init(allocator),
             .active_vms = std.AutoHashMap(*VM, void).init(allocator),
+            .debugger = if (BuildOptions.gc_debug_access) GarbageCollectorDebugger.init(allocator) else null,
 
             .objfiber_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objfiber_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
@@ -177,6 +182,9 @@ pub const GarbageCollector = struct {
         self.gray_stack.deinit();
         self.strings.deinit();
         self.active_vms.deinit();
+        if (self.debugger) |debugger| {
+            debugger.deinit();
+        }
 
         self.objfiber_members.deinit();
         self.objfiber_memberDefs.deinit();
@@ -260,6 +268,32 @@ pub const GarbageCollector = struct {
         // Add new object at start of vm.objects linked list
         try self.addObject(object);
 
+        if (BuildOptions.gc_debug_access) {
+            self.debugger.?.allocated(
+                object,
+                self.where,
+                switch (T) {
+                    ObjString => .String,
+                    ObjTypeDef => .Type,
+                    ObjUpValue => .UpValue,
+                    ObjClosure => .Closure,
+                    ObjFunction => .Function,
+                    ObjObjectInstance => .ObjectInstance,
+                    ObjObject => .Object,
+                    ObjList => .List,
+                    ObjMap => .Map,
+                    ObjEnum => .Enum,
+                    ObjEnumInstance => .EnumInstance,
+                    ObjBoundMethod => .Bound,
+                    ObjNative => .Native,
+                    ObjUserData => .UserData,
+                    ObjPattern => .Pattern,
+                    ObjFiber => .Fiber,
+                    else => {},
+                },
+            );
+        }
+
         return obj;
     }
 
@@ -312,7 +346,7 @@ pub const GarbageCollector = struct {
 
         if (BuildOptions.gc_debug) {
             std.debug.print(
-                "(from {}), freed {}, {} allocated\n",
+                "(from {}), collected {}, {} allocated\n",
                 .{ self.bytes_allocated + @sizeOf(T), @sizeOf(T), self.bytes_allocated },
             );
         }
@@ -333,7 +367,7 @@ pub const GarbageCollector = struct {
 
         if (BuildOptions.gc_debug) {
             std.debug.print(
-                "(from {}), freed {}, {} allocated\n",
+                "(from {}), collected {}, {} allocated\n",
                 .{
                     self.bytes_allocated + n,
                     n,
@@ -451,6 +485,10 @@ pub const GarbageCollector = struct {
     fn freeObj(self: *Self, obj: *Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
         if (BuildOptions.gc_debug) {
             std.debug.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.obj_type });
+        }
+
+        if (BuildOptions.gc_debug_access) {
+            self.debugger.?.collected(obj, self.where.?);
         }
 
         self.allocator.destroy(obj.node.?);
@@ -812,5 +850,130 @@ pub const GarbageCollector = struct {
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
 
         self.gc_time += timer.read();
+    }
+};
+
+pub const GarbageCollectorDebugger = struct {
+    const Self = @This();
+
+    pub const Ptr = struct {
+        what: _obj.ObjType,
+        allocated_at: ?Token,
+        collected_at: ?Token = null,
+    };
+
+    allocator: std.mem.Allocator,
+    tracker: std.AutoHashMap(*Obj, Ptr),
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .allocator = allocator,
+            .tracker = std.AutoHashMap(*Obj, Ptr).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.tracker.deinit();
+    }
+
+    pub fn allocated(self: *Self, ptr: *Obj, at: ?Token, what: _obj.ObjType) void {
+        assert(self.tracker.get(ptr) == null);
+        self.tracker.put(
+            ptr,
+            Ptr{
+                .what = what,
+                .allocated_at = at,
+            },
+        ) catch unreachable;
+    }
+
+    pub fn collected(self: *Self, ptr: *Obj, at: Token) void {
+        if (self.tracker.getPtr(ptr)) |tracked| {
+            tracked.collected_at = at;
+        } else {
+            unreachable;
+        }
+    }
+
+    pub fn accessed(self: *Self, ptr: *Obj, at: ?Token) void {
+        if (self.tracker.getPtr(ptr)) |tracked| {
+            if (tracked.collected_at) |collected_at| {
+                std.debug.print(
+                    "Access to already collected {}:",
+                    .{
+                        tracked.what,
+                    },
+                );
+
+                if (tracked.allocated_at) |allocated_at| {
+                    std.debug.print(
+                        "\nAllocated at {s}:{d}:{d}:",
+                        .{
+                            allocated_at.script_name,
+                            allocated_at.line + 1,
+                            allocated_at.column,
+                        },
+                    );
+                    self.printTokenContext(allocated_at);
+                } else {
+                    std.debug.print("\n\nProbably allocated during compilation\n", .{});
+                }
+
+                std.debug.print(
+                    "\nCollected at {s}:{d}:{d}:",
+                    .{
+                        collected_at.script_name,
+                        collected_at.line + 1,
+                        collected_at.column,
+                    },
+                );
+                self.printTokenContext(collected_at);
+
+                if (at) |accessed_at| {
+                    std.debug.print(
+                        "\nBad access at {s}:{d}:{d}:",
+                        .{
+                            accessed_at.script_name,
+                            accessed_at.line + 1,
+                            accessed_at.column,
+                        },
+                    );
+                    self.printTokenContext(accessed_at);
+                } else {
+                    std.debug.print("\nProbably accessed at VM start up\n", .{});
+                }
+            }
+        } else {
+            unreachable;
+        }
+    }
+
+    fn printTokenContext(self: *Self, token: Token) void {
+        const lines: std.ArrayList([]const u8) = token.getLines(self.allocator, 3) catch unreachable;
+        defer lines.deinit();
+        var report_line = std.ArrayList(u8).init(self.allocator);
+        defer report_line.deinit();
+        var writer = report_line.writer();
+
+        writer.print("\n", .{}) catch unreachable;
+        var l: usize = if (token.line > 0) token.line - 1 else 0;
+        for (lines.items) |line| {
+            if (l != token.line) {
+                writer.print("\u{001b}[2m", .{}) catch unreachable;
+            }
+
+            var prefix_len: usize = report_line.items.len;
+            writer.print(" {: >5} |", .{l + 1}) catch unreachable;
+            prefix_len = report_line.items.len - prefix_len;
+            writer.print(" {s}\n\u{001b}[0m", .{line}) catch unreachable;
+
+            if (l == token.line) {
+                writer.writeByteNTimes(' ', (if (token.column > 0) token.column - 1 else 0) + prefix_len) catch unreachable;
+                writer.print("\u{001b}[31m^\u{001b}[0m\n", .{}) catch unreachable;
+            }
+
+            l += 1;
+        }
+        std.debug.print("{s}", .{report_line.items});
     }
 };

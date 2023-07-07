@@ -12,6 +12,7 @@ const _memory = @import("./memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 const MIRJIT = @import("mirjit.zig");
+const Token = @import("./token.zig").Token;
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -63,7 +64,7 @@ pub const CallFrame = struct {
     error_value: ?Value = null,
 
     // Line in source code where the call occured
-    call_site: ?usize,
+    call_site: ?Token,
 
     // Offset at which error can be handled (means we're in a try block)
     try_ip: ?usize = null,
@@ -520,7 +521,11 @@ pub const VM = struct {
     }
 
     inline fn readString(self: *Self, arg: u24) *ObjString {
-        return ObjString.cast(self.readConstant(arg).obj()).?;
+        return self.readConstant(arg).obj().access(
+            ObjString,
+            .String,
+            self.gc,
+        ).?;
     }
 
     const OpFn = *const fn (*Self, *CallFrame, u32, OpCode, u24) void;
@@ -671,6 +676,10 @@ pub const VM = struct {
             // As soon as we step into catch clauses, we're not in a try-catch block anymore
             current_frame.try_ip = null;
             current_frame.try_top = null;
+        }
+
+        if (BuildOptions.gc_debug_access) {
+            self.gc.where = current_frame.closure.function.chunk.lines.items[current_frame.ip - 1];
         }
 
         // Tail call
@@ -1028,7 +1037,7 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var function: *ObjFunction = ObjFunction.cast(self.readConstant(arg).obj()).?;
+        var function: *ObjFunction = self.readConstant(arg).obj().access(ObjFunction, .Function, self.gc).?;
         var closure: *ObjClosure = self.gc.allocateObject(
             ObjClosure,
             ObjClosure.init(self.gc.allocator, self, function) catch |e| {
@@ -1123,7 +1132,7 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = ObjTypeDef.cast(self.pop().obj()).?;
+        const type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
 
         // Put new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
@@ -1180,7 +1189,7 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = ObjTypeDef.cast(self.pop().obj()).?;
+        const type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
 
         // Push new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
@@ -1208,7 +1217,7 @@ pub const VM = struct {
     }
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const obj_fiber = ObjFiber.cast(self.pop().obj()).?;
+        const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.resume_(self) catch |e| {
             panic(e);
             unreachable;
@@ -1229,7 +1238,7 @@ pub const VM = struct {
     }
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const obj_fiber = ObjFiber.cast(self.pop().obj()).?;
+        const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.resolve_(self) catch |e| {
             panic(e);
             unreachable;
@@ -1304,7 +1313,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(arg_count).obj()).?;
+        const instance: *ObjObjectInstance = self.peek(arg_count).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         assert(instance.object != null);
 
@@ -1441,7 +1450,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const list = ObjList.cast(self.peek(arg_count).obj()).?;
+        const list = self.peek(arg_count).obj().access(ObjList, .List, self.gc).?;
         const member = (list.member(self, method) catch |e| {
             panic(e);
             unreachable;
@@ -1475,7 +1484,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const map = ObjMap.cast(self.peek(arg_count).obj()).?;
+        const map = self.peek(arg_count).obj().access(ObjMap, .Map, self.gc).?;
         const member = (map.member(self, method) catch |e| {
             panic(e);
             unreachable;
@@ -1565,8 +1574,8 @@ pub const VM = struct {
     }
 
     fn OP_IMPORT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const fullpath = ObjString.cast(self.peek(1).obj()).?;
-        const closure = ObjClosure.cast(self.peek(0).obj()).?;
+        const fullpath = self.peek(1).obj().access(ObjString, .String, self.gc).?;
+        const closure = self.peek(0).obj().access(ObjClosure, .Closure, self.gc).?;
 
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
@@ -1700,7 +1709,7 @@ pub const VM = struct {
     fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var list: *ObjList = self.gc.allocateObject(
             ObjList,
-            ObjList.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).obj()).?),
+            ObjList.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
         ) catch |e| {
             panic(e);
             unreachable;
@@ -1770,7 +1779,7 @@ pub const VM = struct {
     }
 
     fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = ObjList.cast(self.peek(1).obj()).?;
+        var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
         var list_value: Value = self.peek(0);
 
         list.rawAppend(self.gc, list_value) catch |e| {
@@ -1797,7 +1806,7 @@ pub const VM = struct {
     fn OP_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var map: *ObjMap = self.gc.allocateObject(ObjMap, ObjMap.init(
             self.gc.allocator,
-            ObjTypeDef.cast(self.readConstant(arg).obj()).?,
+            self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?,
         )) catch |e| {
             panic(e);
             unreachable;
@@ -1820,7 +1829,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(2).obj()).?;
+        var map: *ObjMap = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
         var key: Value = self.peek(1);
         var value: Value = self.peek(0);
 
@@ -1847,7 +1856,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = ObjList.cast(self.peek(1).obj()).?;
+        var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
@@ -1898,7 +1907,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(1).obj()).?;
+        var map: *ObjMap = self.peek(1).obj().access(ObjMap, .Map, self.gc).?;
         var index: Value = floatToInteger(self.peek(0));
 
         // Pop map and key
@@ -1927,7 +1936,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var str = ObjString.cast(self.peek(1).obj()).?;
+        var str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
@@ -1979,7 +1988,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list = ObjList.cast(self.peek(2).obj()).?;
+        var list = self.peek(2).obj().access(ObjList, .List, self.gc).?;
         const index = self.peek(1);
         const value = self.peek(0);
 
@@ -2033,7 +2042,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = ObjMap.cast(self.peek(2).obj()).?;
+        var map: *ObjMap = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
         const index = self.peek(1);
         const value = self.peek(0);
 
@@ -2067,7 +2076,7 @@ pub const VM = struct {
     fn OP_ENUM(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var enum_: *ObjEnum = self.gc.allocateObject(
             ObjEnum,
-            ObjEnum.init(self.gc.allocator, ObjTypeDef.cast(self.readConstant(arg).obj()).?),
+            ObjEnum.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
         ) catch |e| {
             panic(e);
             unreachable;
@@ -2090,7 +2099,7 @@ pub const VM = struct {
     }
 
     fn OP_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(1).obj()).?;
+        var enum_: *ObjEnum = self.peek(1).obj().access(ObjEnum, .Enum, self.gc).?;
         var enum_value: Value = self.peek(0);
 
         enum_.cases.append(enum_value) catch |e| {
@@ -2119,7 +2128,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).obj()).?;
+        var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         _ = self.pop();
 
@@ -2148,7 +2157,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_case: *ObjEnumInstance = ObjEnumInstance.cast(self.peek(0).obj()).?;
+        var enum_case: *ObjEnumInstance = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
 
         _ = self.pop();
         self.push(enum_case.enum_ref.cases.items[enum_case.case]);
@@ -2169,7 +2178,7 @@ pub const VM = struct {
 
     fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var case_value = self.pop();
-        var enum_: *ObjEnum = ObjEnum.cast(self.pop().obj()).?;
+        var enum_: *ObjEnum = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
 
         var found = false;
         for (enum_.cases.items, 0..) |case, index| {
@@ -2212,8 +2221,8 @@ pub const VM = struct {
             ObjObject,
             ObjObject.init(
                 self.gc.allocator,
-                ObjString.cast(self.readConstant(arg).obj()).?,
-                ObjTypeDef.cast(self.readConstant(@as(u24, @intCast(self.readInstruction()))).obj()).?,
+                self.readConstant(arg).obj().access(ObjString, .String, self.gc).?,
+                self.readConstant(@as(u24, @intCast(self.readInstruction()))).obj().access(ObjTypeDef, .Type, self.gc).?,
             ),
         ) catch |e| {
             panic(e);
@@ -2242,8 +2251,8 @@ pub const VM = struct {
             ObjObjectInstance,
             ObjObjectInstance.init(
                 self.gc.allocator,
-                ObjObject.cast(object_or_type),
-                ObjTypeDef.cast(object_or_type),
+                object_or_type.access(ObjObject, .Object, self.gc),
+                object_or_type.access(ObjTypeDef, .Type, self.gc),
             ),
         ) catch |e| {
             panic(e);
@@ -2251,7 +2260,7 @@ pub const VM = struct {
         };
 
         // If not anonymous, set default fields
-        if (ObjObject.cast(object_or_type)) |object| {
+        if (object_or_type.access(ObjObject, .Object, self.gc)) |object| {
             // Set instance fields with default values
             var it = object.fields.iterator();
             while (it.next()) |kv| {
@@ -2288,9 +2297,12 @@ pub const VM = struct {
     fn OP_METHOD(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
         var method: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
+        var object: *ObjObject = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
 
-        object.methods.put(name, ObjClosure.cast(method.obj()).?) catch |e| {
+        object.methods.put(
+            name,
+            method.obj().access(ObjClosure, .Closure, self.gc).?,
+        ) catch |e| {
             panic(e);
             unreachable;
         };
@@ -2314,7 +2326,7 @@ pub const VM = struct {
     fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
         var property: Value = self.peek(0);
-        var object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
+        var object: *ObjObject = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
             object.setField(self.gc, name, property) catch |e| {
@@ -2346,7 +2358,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const object: *ObjObject = ObjObject.cast(self.peek(0).obj()).?;
+        const object: *ObjObject = self.peek(0).obj().access(ObjObject, .Object, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         _ = self.pop(); // Pop instance
@@ -2367,7 +2379,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(0).obj()).?;
+        const instance: *ObjObjectInstance = self.peek(0).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         if (instance.fields.get(name)) |field| {
@@ -2399,7 +2411,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const list = ObjList.cast(self.peek(0).obj()).?;
+        const list = self.peek(0).obj().access(ObjList, .List, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         if (list.member(self, name) catch |e| {
@@ -2428,7 +2440,7 @@ pub const VM = struct {
         );
     }
     fn OP_GET_MAP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const map = ObjMap.cast(self.peek(0).obj()).?;
+        const map = self.peek(0).obj().access(ObjMap, .Map, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         if (map.member(self, name) catch |e| {
@@ -2543,7 +2555,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const object: *ObjObject = ObjObject.cast(self.peek(1).obj()).?;
+        const object: *ObjObject = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         // Set new value
@@ -2572,7 +2584,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = ObjObjectInstance.cast(self.peek(1).obj()).?;
+        const instance: *ObjObjectInstance = self.peek(1).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
         const name: *ObjString = self.readString(arg);
 
         // Set new value
@@ -2711,8 +2723,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjString = ObjString.cast(self.pop().obj()).?;
-        const left: *ObjString = ObjString.cast(self.pop().obj()).?;
+        const right: *ObjString = self.pop().obj().access(ObjString, .String, self.gc).?;
+        const left: *ObjString = self.pop().obj().access(ObjString, .String, self.gc).?;
 
         self.push(Value.fromObj((left.concat(self, right) catch |e| {
             panic(e);
@@ -2734,8 +2746,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjList = ObjList.cast(self.pop().obj()).?;
-        const left: *ObjList = ObjList.cast(self.pop().obj()).?;
+        const right: *ObjList = self.pop().obj().access(ObjList, .List, self.gc).?;
+        const left: *ObjList = self.pop().obj().access(ObjList, .List, self.gc).?;
 
         var new_list = std.ArrayList(Value).init(self.gc.allocator);
         new_list.appendSlice(left.items.items) catch |e| {
@@ -2773,8 +2785,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: *ObjMap = ObjMap.cast(self.pop().obj()).?;
-        const left: *ObjMap = ObjMap.cast(self.pop().obj()).?;
+        const right: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
+        const left: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
 
         var new_map = left.map.clone() catch |e| {
             panic(e);
@@ -3216,7 +3228,7 @@ pub const VM = struct {
     fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        const str: *ObjString = ObjString.cast(self.peek(0).obj()).?;
+        const str: *ObjString = self.peek(0).obj().access(ObjString, .String, self.gc).?;
 
         key_slot.* = if (str.next(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
             panic(e);
@@ -3251,7 +3263,7 @@ pub const VM = struct {
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var list: *ObjList = ObjList.cast(self.peek(0).obj()).?;
+        var list: *ObjList = self.peek(0).obj().access(ObjList, .List, self.gc).?;
 
         // Get next index
         key_slot.* = if (list.rawNext(
@@ -3286,8 +3298,11 @@ pub const VM = struct {
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull()) null else ObjEnumInstance.cast(value_slot.obj()).?;
-        var enum_: *ObjEnum = ObjEnum.cast(self.peek(0).obj()).?;
+        var enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull())
+            null
+        else
+            value_slot.obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
+        var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         // Get next enum case
         var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
@@ -3313,7 +3328,7 @@ pub const VM = struct {
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var map: *ObjMap = ObjMap.cast(self.peek(0).obj()).?;
+        var map: *ObjMap = self.peek(0).obj().access(ObjMap, .Map, self.gc).?;
         var current_key: ?Value = if (!key_slot.*.isNull()) key_slot.* else null;
 
         var next_key: ?Value = map.rawNext(current_key);
@@ -3339,7 +3354,7 @@ pub const VM = struct {
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var fiber = ObjFiber.cast(self.peek(0).obj()).?;
+        var fiber = self.peek(0).obj().access(ObjFiber, .Fiber, self.gc).?;
 
         if (fiber.fiber.status == .Over) {
             value_slot.* = Value.Null;
@@ -3406,6 +3421,13 @@ pub const VM = struct {
             );
         }
 
+        if (BuildOptions.gc_debug) {
+            self.gc.where = if (self.currentFrame()) |current_frame|
+                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
+            else
+                null;
+        }
+
         op_table[@intFromEnum(next_instruction)](
             self,
             next_current_frame,
@@ -3420,7 +3442,7 @@ pub const VM = struct {
         defer stack.deinit();
 
         const error_site = if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.chunk.lines.items[current_frame.ip - 1] + 1
+            current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
         else
             null;
 
@@ -3458,7 +3480,7 @@ pub const VM = struct {
                 // If object instance, does it have a str `message` field ?
                 var processed_payload = payload;
                 if (payload.isObj()) {
-                    if (ObjObjectInstance.cast(payload.obj())) |instance| {
+                    if (payload.obj().access(ObjObjectInstance, .ObjectInstance, self.gc)) |instance| {
                         processed_payload = instance.fields.get(try self.gc.copyString("message")) orelse payload;
                     }
                 }
@@ -3469,10 +3491,11 @@ pub const VM = struct {
 
                 if (error_site) |site| {
                     std.debug.print(
-                        "\tat {s}:{d}\n",
+                        "\tat {s}:{d}:{d}\n",
                         .{
                             error_file.?,
-                            site,
+                            site.line,
+                            site.column,
                         },
                     );
                 }
@@ -3486,7 +3509,7 @@ pub const VM = struct {
                         },
                     );
                     if (stack_frame.call_site) |call_site| {
-                        std.debug.print(":{}\n", .{call_site + 1});
+                        std.debug.print(":{d}:{d}\n", .{ call_site.line, call_site.column });
                     } else {
                         std.debug.print("\n", .{});
                     }
@@ -3697,7 +3720,7 @@ pub const VM = struct {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
-                var bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
+                const bound = obj.access(ObjBoundMethod, .Bound, self.gc).?;
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
@@ -3719,7 +3742,7 @@ pub const VM = struct {
             },
             .Closure => {
                 return try self.call(
-                    ObjClosure.cast(obj).?,
+                    obj.access(ObjClosure, .Closure, self.gc).?,
                     arg_count,
                     catch_value,
                     in_fiber,
@@ -3728,7 +3751,7 @@ pub const VM = struct {
             .Native => {
                 return try self.callNative(
                     null,
-                    @ptrCast(@alignCast(ObjNative.cast(obj).?.native)),
+                    @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
                     arg_count,
                     catch_value,
                 );
@@ -3754,7 +3777,7 @@ pub const VM = struct {
         var obj: *Obj = receiver.obj();
         switch (obj.obj_type) {
             .ObjectInstance => {
-                var instance: *ObjObjectInstance = ObjObjectInstance.cast(obj).?;
+                const instance = obj.access(ObjObjectInstance, .ObjectInstance, self.gc).?;
 
                 assert(instance.object != null);
 
@@ -3797,7 +3820,7 @@ pub const VM = struct {
                 unreachable;
             },
             .List => {
-                var list: *ObjList = ObjList.cast(obj).?;
+                const list = obj.access(ObjList, .List, self.gc).?;
 
                 if (try list.member(self, name)) |member| {
                     var member_value: Value = member.toValue();
@@ -3809,7 +3832,7 @@ pub const VM = struct {
                 unreachable;
             },
             .Map => {
-                var map: *ObjMap = ObjMap.cast(obj).?;
+                const map = obj.access(ObjMap, .Map, self.gc).?;
 
                 if (try map.member(self, name)) |member| {
                     var member_value: Value = member.toValue();

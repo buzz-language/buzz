@@ -4,6 +4,7 @@ const _value = @import("./value.zig");
 const _vm = @import("./vm.zig");
 const VM = _vm.VM;
 const Value = _value.Value;
+const Token = @import("./token.zig").Token;
 
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
@@ -129,7 +130,7 @@ pub const Chunk = struct {
     /// List of opcodes to execute
     code: std.ArrayList(u32),
     /// List of lines
-    lines: std.ArrayList(usize),
+    lines: std.ArrayList(Token),
     /// List of constants defined in this chunk
     constants: std.ArrayList(Value),
 
@@ -137,7 +138,7 @@ pub const Chunk = struct {
         return Self{
             .code = std.ArrayList(u32).init(allocator),
             .constants = std.ArrayList(Value).init(allocator),
-            .lines = std.ArrayList(usize).init(allocator),
+            .lines = std.ArrayList(Token).init(allocator),
         };
     }
 
@@ -147,9 +148,9 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn write(self: *Self, code: u32, line: usize) !void {
+    pub fn write(self: *Self, code: u32, where: Token) !void {
         _ = try self.code.append(code);
-        _ = try self.lines.append(line);
+        _ = try self.lines.append(where);
     }
 
     pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {

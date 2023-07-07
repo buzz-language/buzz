@@ -59,6 +59,22 @@ pub const Obj = struct {
     is_dirty: bool = false,
     node: ?*std.TailQueue(*Obj).Node = null,
 
+    pub inline fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
+        if (obj.obj_type != obj_type) {
+            return null;
+        }
+
+        return @fieldParentPtr(T, "obj", obj);
+    }
+
+    pub inline fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GarbageCollector) ?*T {
+        if (BuildOptions.gc_debug_access) {
+            gc.debugger.?.accessed(obj, gc.where);
+        }
+
+        return obj.cast(T, obj_type);
+    }
+
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
@@ -205,11 +221,7 @@ pub const ObjFiber = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Fiber) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Fiber);
     }
 
     const members = std.ComptimeStringMap(
@@ -304,11 +316,7 @@ pub const ObjPattern = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Pattern) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Pattern);
     }
 
     const members = std.ComptimeStringMap(
@@ -400,11 +408,7 @@ pub const ObjUserData = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .UserData) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .UserData);
     }
 };
 
@@ -428,11 +432,7 @@ pub const ObjString = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .String) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .String);
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
@@ -642,11 +642,7 @@ pub const ObjUpValue = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .UpValue) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .UpValue);
     }
 };
 
@@ -695,11 +691,7 @@ pub const ObjClosure = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Closure) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Closure);
     }
 };
 
@@ -742,11 +734,7 @@ pub const ObjNative = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Native) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Native);
     }
 };
 
@@ -820,11 +808,7 @@ pub const ObjFunction = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Function) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Function);
     }
 
     pub const FunctionDef = struct {
@@ -938,11 +922,7 @@ pub const ObjObjectInstance = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .ObjectInstance) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .ObjectInstance);
     }
 
     fn is(self: *Self, instance_type: ?*ObjTypeDef, type_def: *ObjTypeDef) bool {
@@ -1037,11 +1017,7 @@ pub const ObjObject = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Object) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Object);
     }
 
     pub const ProtocolDef = struct {
@@ -1212,11 +1188,7 @@ pub const ObjList = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .List) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .List);
     }
 
     const members = std.ComptimeStringMap(
@@ -2120,11 +2092,7 @@ pub const ObjMap = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Map) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Map);
     }
 
     pub const MapDef = struct {
@@ -2370,11 +2338,7 @@ pub const ObjEnum = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Enum) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Enum);
     }
 
     pub const EnumDef = struct {
@@ -2428,11 +2392,7 @@ pub const ObjEnumInstance = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .EnumInstance) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .EnumInstance);
     }
 
     pub fn value(self: *Self) Value {
@@ -2469,11 +2429,7 @@ pub const ObjBoundMethod = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Bound) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Bound);
     }
 };
 
@@ -3232,11 +3188,7 @@ pub const ObjTypeDef = struct {
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
-        if (obj.obj_type != .Type) {
-            return null;
-        }
-
-        return @fieldParentPtr(Self, "obj", obj);
+        return obj.cast(Self, .Type);
     }
 
     // Compare two type definitions

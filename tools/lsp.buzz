@@ -1117,7 +1117,7 @@ test "documentSymbol" {
     };
 
     {str, Json} request = Json.decode(
-        "\{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/documentSymbol\",\"params\":\{\"textDocument\":\{\"uri\":\"file:///Users/giann/git/buzz/lib/json.buzz\"}}}"
+        "\{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/documentSymbol\",\"params\":\{\"textDocument\":\{\"uri\":\"file:///Users/giann/git/buzz/tools/lsp.buzz\"}}}"
     ).mapValue();
 
     print(handlers["textDocument/documentSymbol"]!(state, request: request).encode());

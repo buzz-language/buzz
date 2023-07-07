@@ -37,6 +37,7 @@ const BuzzJITOptions = struct {
 const BuzzGCOptions = struct {
     debug: bool,
     debug_light: bool,
+    debug_access: bool,
     off: bool,
     initial_gc: usize,
     next_gc_ratio: usize,
@@ -45,6 +46,7 @@ const BuzzGCOptions = struct {
     pub fn step(self: BuzzGCOptions, options: *std.build.OptionsStep) void {
         options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
         options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
+        options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
         options.addOption(@TypeOf(self.off), "gc_off", self.off);
         options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
         options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
@@ -175,6 +177,11 @@ pub fn build(b: *Build) !void {
                 bool,
                 "gc_debug_light",
                 "Show lighter debug information for the garbage collector",
+            ) orelse false,
+            .debug_access = b.option(
+                bool,
+                "gc_debug_access",
+                "Track objects access",
             ) orelse false,
             .off = b.option(
                 bool,

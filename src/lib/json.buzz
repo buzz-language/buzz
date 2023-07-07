@@ -67,7 +67,7 @@ object JsonParser {
             throw JsonParseError{ message = "Could not parse JSON: end of string" };
         }
 
-        const str char = this.advance() ?? "\00";
+        const str char = this.advance() ?? "";
         const int byte = char.byte(0);
         if (char == "[") {
             return Json{ list = this.array() };
