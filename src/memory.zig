@@ -632,6 +632,12 @@ pub const GarbageCollector = struct {
             }
             for (fiber.frames.items) |frame| {
                 try self.markObj(frame.closure.toObj());
+                if (frame.error_value) |error_value| {
+                    try self.markValue(error_value);
+                }
+                if (frame.native_call_error_value) |error_value| {
+                    try self.markValue(error_value);
+                }
             }
             if (BuildOptions.gc_debug) {
                 std.debug.print("DONE MARKING FRAMES OF FIBER @{}\n", .{@intFromPtr(ufiber)});

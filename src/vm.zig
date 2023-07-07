@@ -74,6 +74,7 @@ pub const CallFrame = struct {
     // True if a native function is being called, we need this because a native function can also
     // call buzz code and we need to know how to stop interpreting once we get back to native code
     in_native_call: bool = false,
+    native_call_error_value: ?Value = null,
 };
 
 pub const TryCtx = extern struct {
@@ -3622,6 +3623,7 @@ pub const VM = struct {
 
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         self.currentFrame().?.in_native_call = true;
+        self.currentFrame().?.native_call_error_value = catch_value;
 
         var result: Value = Value.Null;
         var ctx = NativeCtx{
@@ -3634,6 +3636,7 @@ pub const VM = struct {
         const native_return = native(&ctx);
 
         self.currentFrame().?.in_native_call = false;
+        self.currentFrame().?.native_call_error_value = null;
 
         if (native_return == 1 or native_return == 0) {
             if (native_return == 1) {
@@ -3669,6 +3672,7 @@ pub const VM = struct {
     fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;
+            frame.native_call_error_value = catch_value;
         }
 
         var ctx = NativeCtx{
@@ -3682,6 +3686,7 @@ pub const VM = struct {
 
         if (self.currentFrame()) |frame| {
             frame.in_native_call = false;
+            frame.native_call_error_value = null;
         }
 
         if (native_return == -1) {
