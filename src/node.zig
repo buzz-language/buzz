@@ -3416,6 +3416,20 @@ pub const FunctionNode = struct {
             try out.writeAll(", ");
         }
 
+        const function_def = node.type_def.?.resolved_type.?.Function;
+        if (function_def.error_types != null and function_def.error_types.?.len > 0) {
+            try out.writeAll("\"error_types\":[");
+            for (function_def.error_types.?, 0..) |error_type, i| {
+                try out.writeAll("\"");
+                try error_type.toString(out);
+                try out.writeAll("\"");
+                if (i < function_def.error_types.?.len - 1) {
+                    try out.writeAll(",");
+                }
+            }
+            try out.writeAll("],");
+        }
+
         try ParseNode.stringify(node, out);
 
         try out.writeAll("}");

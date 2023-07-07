@@ -140,10 +140,13 @@ fun withinNode(Json node, str uri, int line, int column) > bool {
     const int endColumn = node.q(["location", "end_column"]).integer ?? -1;
 
     const bool result = uri.endsWith(script)
-        and line >= startLine and line <= endLine
+        and line >= startLine
+        and line <= endLine
+        and (line != startLine or (column - 1) >= startColumn)
+        and (line != endLine or (column - 1) >= endColumn)
         and (endLine != startLine or ((column - 1) >= startColumn and (column - 1) <= endColumn));
 
-    stderr.write("is {uri}:{line}:{column} within {node.q(["node"]).stringValue()} {script}:{startLine}:{startColumn} - {endLine}:{endColumn} -> {result}\n") catch void;
+    stderr.write("is {uri}:{line + 1}:{column} within {node.q(["node"]).stringValue()} {script}:{startLine + 1}:{startColumn} - {endLine + 1}:{endColumn} -> {result}\n") catch void;
 
     return result;
 }
@@ -550,7 +553,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     if (node == "If") {
         const Json condition = root.q(["condition"]);
         const Json body = root.q(["body"]);
-        const Json? elseBranch = root.mapValue()["elseBranch"];
+        const Json? elseBranch = root.mapValue()["else"];
         
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -729,6 +732,10 @@ fun findSymbolInScope([Json] statements, str symbol) > Json? {
             if (symbol == statement.q(["function", "name"]).stringValue()) {
                 return statement;
             }
+        } else if (statementType == "ObjectDeclaration") {
+            if (statement.q(["type_def"]).stringValue().endsWith(symbol)) {
+                return statement;
+            }
         }
     }
 
@@ -783,6 +790,8 @@ fun findDeclaration([Json] trail) > Json? !> LSPError {
             } else {
                 return findSymbol(trail.sub(0, len: trail.len() - 1), symbol: symbol);
             }
+        } else if (leafType == "Function") {
+            
         } else if (leafType == "Dot") {
             stderr.write("TODO Dot\n");
         } else {
@@ -1044,6 +1053,7 @@ fun stop(LspState state, {str, Json} request) > Json {
     return Json{};
 }
 
+| Possible commands: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#languageFeatures
 const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     "exit": stop,
     "shutdown": stop,
@@ -1117,8 +1127,8 @@ test "documentSymbol" {
     };
 
     {str, Json} request = Json.decode(
-        "\{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/documentSymbol\",\"params\":\{\"textDocument\":\{\"uri\":\"file:///Users/giann/git/buzz/tools/lsp.buzz\"}}}"
+        `\{"jsonrpc":"2.0","id":163,"method":"textDocument/definition","params":\{"textDocument":\{"uri":"file:///Users/giann/git/buzz/src/lib/json.buzz"},"position":\{"line":307,"character":64}}}`
     ).mapValue();
 
-    print(handlers["textDocument/documentSymbol"]!(state, request: request).encode());
+    print(handlers["textDocument/definition"]!(state, request: request).encode());
 }
