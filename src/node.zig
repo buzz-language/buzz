@@ -14,6 +14,7 @@ const disassembler = @import("./disassembler.zig");
 const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
+const global_allocator = @import("./buzz_api.zig").allocator;
 
 const disassembleChunk = disassembler.disassembleChunk;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -200,7 +201,7 @@ pub const ParseNode = struct {
         );
 
         if (self.docblock != null) {
-            var escaped = try escape(std.heap.c_allocator, self.docblock.?.literal_string.?);
+            var escaped = try escape(global_allocator, self.docblock.?.literal_string.?);
             defer escaped.deinit();
             try out.print(", \"docblock\": \"{s}\"", .{escaped.items});
         }
@@ -951,7 +952,7 @@ pub const StringLiteralNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        var escaped = try escape(std.heap.c_allocator, self.constant.string);
+        var escaped = try escape(global_allocator, self.constant.string);
         defer escaped.deinit();
         try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"{s}\", ", .{escaped.items});
 
@@ -1032,7 +1033,7 @@ pub const PatternNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        var escaped = try escape(std.heap.c_allocator, self.constant.source);
+        var escaped = try escape(global_allocator, self.constant.source);
         defer escaped.deinit();
         try out.print("{{\"node\": \"Pattern\", \"constant\": \"{s}\", ", .{escaped.items});
 
@@ -6925,7 +6926,7 @@ pub const ObjectDeclarationNode = struct {
             try out.print("\"", .{});
 
             if (self.docblocks.get(kv.key_ptr.*).?) |docblock| {
-                var escaped = try escape(std.heap.c_allocator, docblock.literal_string orelse "");
+                var escaped = try escape(global_allocator, docblock.literal_string orelse "");
                 defer escaped.deinit();
                 try out.print(", \"docblock\": \"{s}\"}}", .{escaped.items});
             } else {
