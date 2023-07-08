@@ -106,8 +106,9 @@ var _buzz_path_buffer: [4096]u8 = undefined;
 /// the returned string can be used only until next call to this function
 pub fn get_buzz_path() []const u8 {
     if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
-    const path = std.fs.selfExeDirPath(&_buzz_path_buffer) catch return ".";
-    return std.fs.path.dirname(path) orelse ".";
+    const path = std.fs.selfExePath(&_buzz_path_buffer) catch return ".";
+    const path1 = std.fs.path.dirname(path) orelse ".";
+    return std.fs.path.dirname(path1) orelse ".";
 }
 
 pub const CompileError = error{
