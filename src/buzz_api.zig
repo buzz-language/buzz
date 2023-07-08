@@ -41,7 +41,6 @@ const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
 const GarbageCollector = memory.GarbageCollector;
 
-
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
 }){};

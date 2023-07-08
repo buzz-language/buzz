@@ -4511,7 +4511,9 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
     return reg;
 }
 
-extern fn exit(c_int) void;
+export fn bz_exit(code: c_int) noreturn {
+    std.os.exit(@truncate(@as(c_uint, @bitCast(code))));
+}
 
 pub const ExternApi = enum {
     nativefn,
@@ -5228,7 +5230,7 @@ pub const ExternApi = enum {
                     @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux) jmp._setjmp else jmp.setjmp)),
                 ),
             ),
-            .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&exit))),
+            .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
 
             .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
             else => {
@@ -5287,7 +5289,7 @@ pub const ExternApi = enum {
             .bz_clone => "bz_clone",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
-            .exit => "exit",
+            .exit => "bz_exit",
 
             .bz_dumpStack => "bz_dumpStack",
 

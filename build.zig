@@ -61,8 +61,9 @@ const BuzzBuildOptions = struct {
     debug: BuzzDebugOptions,
     gc: BuzzGCOptions,
     jit: BuzzJITOptions,
+    target: std.zig.CrossTarget,
 
-    pub fn step(self: BuzzBuildOptions, b: *Build) *std.build.OptionsStep {
+    pub fn step(self: @This(), b: *Build) *std.build.OptionsStep {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
@@ -74,6 +75,17 @@ const BuzzBuildOptions = struct {
 
         return options;
     }
+
+    pub fn needLibC(self: @This()) bool {
+        // FIXME: remove libc if possible
+        // mir can be built with musl libc
+        // mimalloc can be built with musl libc
+        // longjmp/setjmp need to be removed
+        if (self.target.isLinux()) {
+            return true;
+        }
+        return self.use_mimalloc;
+    }
 };
 
 pub fn build(b: *Build) !void {
@@ -84,6 +96,9 @@ pub fn build(b: *Build) !void {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
 
+    const build_mode = b.standardOptimizeOption(.{});
+    const target = b.standardTargetOptions(.{});
+
     // Make sure dist exists
     std.fs.cwd().makeDir("dist") catch {};
     std.fs.cwd().makeDir("dist/lib") catch {};
@@ -91,6 +106,7 @@ pub fn build(b: *Build) !void {
     try std.fs.cwd().access("dist/lib", .{});
 
     var build_options = BuzzBuildOptions{
+        .target = target,
         // Version is latest tag or empty string
         .version = std.mem.trim(
             u8,
@@ -228,9 +244,6 @@ pub fn build(b: *Build) !void {
         },
     };
 
-    const build_mode = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
-
     var sys_libs = std.ArrayList([]const u8).init(std.heap.page_allocator);
     defer sys_libs.deinit();
     var includes = std.ArrayList([]const u8).init(std.heap.page_allocator);
@@ -280,10 +293,11 @@ pub fn build(b: *Build) !void {
         exe.addLibraryPath(lib);
     }
     for (sys_libs.items) |slib| {
-        // todo: if mir is linked as static library (libmir.a), here also need to link libc
+        // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
+        // it's better to built it with Zig's build system
         exe.linkSystemLibrary(slib);
     }
-    if (!build_options.use_mimalloc) {
+    if (build_options.needLibC()) {
         exe.linkLibC();
     }
     exe.setMainPkgPath(".");
@@ -307,7 +321,7 @@ pub fn build(b: *Build) !void {
     for (sys_libs.items) |slib| {
         lib.linkSystemLibrary(slib);
     }
-    if (!build_options.use_mimalloc) {
+    if (build_options.needLibC()) {
         lib.linkLibC();
     }
     lib.setMainPkgPath("src");
@@ -377,7 +391,7 @@ pub fn build(b: *Build) !void {
         for (sys_libs.items) |slib| {
             std_lib.linkSystemLibrary(slib);
         }
-        if (!build_options.use_mimalloc) {
+        if (build_options.needLibC()) {
             std_lib.linkLibC();
         }
         std_lib.setMainPkgPath("src");
@@ -444,11 +458,13 @@ pub fn build(b: *Build) !void {
     for (sys_libs.items) |slib| {
         unit_tests.linkSystemLibrary(slib);
     }
-    if (!build_options.use_mimalloc) {
+    if (build_options.needLibC()) {
         unit_tests.linkLibC();
     }
     unit_tests.addOptions("build_options", build_options.step(b));
     b.installArtifact(unit_tests);
 
-    test_step.dependOn(&b.addRunArtifact(unit_tests).step);
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    test_step.dependOn(&run_unit_tests.step);
 }
