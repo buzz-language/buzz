@@ -99,19 +99,13 @@ pub fn build(b: *Build) !void {
     const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    // Make sure dist exists
-    std.fs.cwd().makeDir("dist") catch {};
-    std.fs.cwd().makeDir("dist/lib") catch {};
-
-    try std.fs.cwd().access("dist/lib", .{});
-
     var build_options = BuzzBuildOptions{
         .target = target,
         // Version is latest tag or empty string
         .version = std.mem.trim(
             u8,
             (std.ChildProcess.exec(.{
-                .allocator = std.heap.page_allocator,
+                .allocator = b.allocator,
                 .argv = &.{
                     "git",
                     "describe",
@@ -131,7 +125,7 @@ pub fn build(b: *Build) !void {
             std.os.getenv("GITHUB_SHA") orelse std.mem.trim(
             u8,
             (std.ChildProcess.exec(.{
-                .allocator = std.heap.page_allocator,
+                .allocator = b.allocator,
                 .argv = &.{
                     "git",
                     "rev-parse",
@@ -244,11 +238,11 @@ pub fn build(b: *Build) !void {
         },
     };
 
-    var sys_libs = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var sys_libs = std.ArrayList([]const u8).init(b.allocator);
     defer sys_libs.deinit();
-    var includes = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var includes = std.ArrayList([]const u8).init(b.allocator);
     defer includes.deinit();
-    var llibs = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var llibs = std.ArrayList([]const u8).init(b.allocator);
     defer llibs.deinit();
 
     sys_libs.appendSlice(
@@ -284,7 +278,6 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = build_mode,
     });
-    // exe.setOutputDir("dist");
     b.installArtifact(exe);
     for (includes.items) |include| {
         exe.addIncludePath(include);
@@ -310,7 +303,6 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = build_mode,
     });
-    // lib.setOutputDir("dist/lib");
     b.installArtifact(lib);
     for (includes.items) |include| {
         lib.addIncludePath(include);
@@ -380,7 +372,6 @@ pub fn build(b: *Build) !void {
             .target = target,
             .optimize = build_mode,
         });
-        // std_lib.setOutputDir("dist/lib");
         b.installArtifact(std_lib);
         for (includes.items) |include| {
             std_lib.addIncludePath(include);
@@ -399,16 +390,13 @@ pub fn build(b: *Build) !void {
         std_lib.addOptions("build_options", build_options.step(b));
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
-        var buzz_path = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer buzz_path.deinit();
-        buzz_path.writer().print(
+        std_lib.addRPath(b.fmt(
             "{s}{s}lib",
             .{
-                std.os.getenv("BUZZ_PATH") orelse std.fs.cwd().realpathAlloc(std.heap.page_allocator, ".") catch unreachable,
+                std.os.getenv("BUZZ_PATH") orelse std.fs.cwd().realpathAlloc(b.allocator, ".") catch unreachable,
                 std.fs.path.sep_str,
             },
-        ) catch unreachable;
-        std_lib.addRPath(buzz_path.items);
+        ));
         std_lib.addRPath("/usr/local/lib/buzz");
 
         b.default_step.dependOn(&std_lib.step);
@@ -424,31 +412,19 @@ pub fn build(b: *Build) !void {
     // debug <- std
     libs[6].linkLibrary(libs[0]);
 
-    // FIXME: maybe should use b.installFile or something?
-    // Copy {lib}.buzz files to dist/lib
+    const install_step = b.getInstallStep();
     for (all_lib_names) |name| {
-        var lib_name = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer lib_name.deinit();
-        lib_name.writer().print("src/lib/{s}.buzz", .{name}) catch unreachable;
-
-        var target_lib_name = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer target_lib_name.deinit();
-        target_lib_name.writer().print("lib/{s}.buzz", .{name}) catch unreachable;
-
-        std.fs.cwd().copyFile(
-            lib_name.items,
-            std.fs.cwd().openDir("dist", .{}) catch unreachable,
-            target_lib_name.items,
-            .{},
-        ) catch unreachable;
+        const step = b.addInstallLibFile(std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})), b.fmt("{s}.buzz", .{name}));
+        install_step.dependOn(&step.step);
     }
-
-    const test_step = b.step("test", "Run all the tests");
 
     const unit_tests = b.addTest(.{
         .root_source_file = Build.FileSource.relative("src/main.zig"),
         .target = target,
+        .optimize = build_mode,
     });
+    b.installArtifact(unit_tests);
+
     for (includes.items) |include| {
         unit_tests.addIncludePath(include);
     }
@@ -462,9 +438,11 @@ pub fn build(b: *Build) !void {
         unit_tests.linkLibC();
     }
     unit_tests.addOptions("build_options", build_options.step(b));
-    b.installArtifact(unit_tests);
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-
+    const test_step = b.step("test", "Run all the tests");
+    const run_unit_tests = std.build.Step.Run.create(b, "run test");
+    // run_unit_tests.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.lib_dir).?);
     test_step.dependOn(&run_unit_tests.step);
+    run_unit_tests.addArg(b.fmt("{s}{s}{s}", .{ b.exe_dir, std.fs.path.sep_str, "test" }));
+    run_unit_tests.step.dependOn(install_step);
 }
