@@ -48,13 +48,8 @@ I'm not far from completing [milestone 0.1.0](https://github.com/buzz-language/b
 cd mir
 make
 ```
-4. Add to your shell rc:
-```bash
-export BUZZ_PATH="/path/to/buzz/dist"
-export PATH="$BUZZ_PATH/bin:$PATH"
-```
-5. Build it: `zig build -Doptimize=ReleaseSafe -p dist`
-6. Have fun: `buzz <myscript.buzz>`
+4. Build it: `zig build`
+5. Have fun: `zig-out/bin/buzz <myscript.buzz>`
 
 Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
