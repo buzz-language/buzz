@@ -102,6 +102,14 @@ const TypeRegistry = _obj.TypeRegistry;
 
 extern fn dlerror() [*:0]u8;
 
+var _buzz_path_buffer: [4096]u8 = undefined;
+/// the returned string can be used only until next call to this function
+pub fn get_buzz_path() []const u8 {
+    if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
+    const path = std.fs.selfExeDirPath(&_buzz_path_buffer) catch return ".";
+    return std.fs.path.dirname(path) orelse ".";
+}
+
 pub const CompileError = error{
     Unrecoverable,
     Recoverable,
@@ -4544,13 +4552,11 @@ pub const Parser = struct {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
-            const buzz_path: []const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
-
             var lib_path = std.ArrayList(u8).init(self.gc.allocator);
             defer lib_path.deinit();
             _ = try lib_path.writer().print(
                 "{s}{s}{s}.buzz",
-                .{ buzz_path, std.fs.path.sep_str, file_name },
+                .{ get_buzz_path(), std.fs.path.sep_str, file_name },
             );
 
             var dir_path = std.ArrayList(u8).init(self.gc.allocator);
@@ -4675,8 +4681,6 @@ pub const Parser = struct {
 
     // TODO: when to close the lib?
     fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) !?*ObjNative {
-        const buzz_path: []const u8 = std.os.getenv("BUZZ_PATH") orelse ".";
-
         // Remove .buzz extension, this occurs if this is the script being run or if the script was imported like so `import lib/std.buzz`
         // We consider that any other extension is silly from the part of the user
         const file_name =
@@ -4690,7 +4694,7 @@ pub const Parser = struct {
         try lib_path.writer().print(
             "{s}{s}{s}lib{s}.{s}",
             .{
-                buzz_path,
+                get_buzz_path(),
                 std.fs.path.sep_str,
                 file_name[0 .. last_sep + 1],
                 file_name[last_sep + 1 ..],
