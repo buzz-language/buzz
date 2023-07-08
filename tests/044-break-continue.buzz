@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "break properly jumps and closes scope" {
     [int] list = [1, 2, 3, 4, 5];

@@ -1,4 +1,4 @@
-import "lib/errors";
+import "errors";
 
 || @return absolute value of n
 extern fun abs(float n) > float;

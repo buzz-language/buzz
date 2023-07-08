@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "Binary operators" {
     assert(12 == 12, message: "equality (number)");

@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun hey(str name = "Joe", int age = 12, str? father, int fourth = 1) > str
     -> "Hello {name} you're {age} {father} {fourth}";

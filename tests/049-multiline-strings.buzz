@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/json";
+import "std";
+import "json";
 
 test "Multiline strings" {
     str multi = `\{

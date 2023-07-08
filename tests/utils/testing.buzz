@@ -1,4 +1,4 @@
-import "lib/std" as std;
+import "std" as std;
 
 int unexported = 42;
 

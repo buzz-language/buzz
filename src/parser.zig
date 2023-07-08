@@ -103,12 +103,20 @@ const TypeRegistry = _obj.TypeRegistry;
 extern fn dlerror() [*:0]u8;
 
 var _buzz_path_buffer: [4096]u8 = undefined;
-/// the returned string can be used only until next call to this function
-pub fn get_buzz_path() []const u8 {
+pub fn buzz_prefix() []const u8 {
     if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
     const path = std.fs.selfExePath(&_buzz_path_buffer) catch return ".";
     const path1 = std.fs.path.dirname(path) orelse ".";
-    return std.fs.path.dirname(path1) orelse ".";
+    const path2 = std.fs.path.dirname(path1) orelse ".";
+    return path2;
+}
+
+var _buzz_path_buffer2: [4096]u8 = undefined;
+/// the returned string can be used only until next call to this function
+pub fn buzz_lib_path() []const u8 {
+    const path2 = buzz_prefix();
+    const sep = std.fs.path.sep_str;
+    return std.fmt.bufPrint(&_buzz_path_buffer2, "{s}" ++ sep ++ "lib" ++ sep ++ "buzz", .{path2}) catch unreachable;
 }
 
 pub const CompileError = error{
@@ -4556,9 +4564,10 @@ pub const Parser = struct {
             var lib_path = std.ArrayList(u8).init(self.gc.allocator);
             defer lib_path.deinit();
             _ = try lib_path.writer().print(
-                "{s}{s}{s}.buzz",
-                .{ get_buzz_path(), std.fs.path.sep_str, file_name },
+                "{s}" ++ std.fs.path.sep_str ++ "{s}.buzz",
+                .{ buzz_lib_path(), file_name },
             );
+            std.debug.print("search path {s}\n", .{lib_path.items});
 
             var dir_path = std.ArrayList(u8).init(self.gc.allocator);
             defer dir_path.deinit();
@@ -4693,11 +4702,9 @@ pub const Parser = struct {
         var lib_path = std.ArrayList(u8).init(self.gc.allocator);
         defer lib_path.deinit();
         try lib_path.writer().print(
-            "{s}{s}{s}lib{s}.{s}",
+            "{s}" ++ std.fs.path.sep_str ++ "lib{s}.{s}",
             .{
-                get_buzz_path(),
-                std.fs.path.sep_str,
-                file_name[0 .. last_sep + 1],
+                buzz_lib_path(),
                 file_name[last_sep + 1 ..],
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",

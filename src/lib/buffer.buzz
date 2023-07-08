@@ -1,4 +1,4 @@
-import "lib/errors";
+import "errors";
 
 object WriteWhileReadingError {}
 object OutOfBoundError {}

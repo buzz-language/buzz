@@ -1,6 +1,6 @@
-import "lib/std";
-import "lib/buffer";
-import "lib/errors";
+import "std";
+import "buffer";
+import "errors";
 
 object JsonParseError {
     str? message = null,

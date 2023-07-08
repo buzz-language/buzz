@@ -1,6 +1,6 @@
-import "lib/std";
-import "lib/os";
-import "lib/http";
+import "std";
+import "os";
+import "http";
 
 test "Opening a socket" {
     TcpServer server = TcpServer.init(

@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "Bitwise" {
     assert(15 << 3 == 120, message: "<<");

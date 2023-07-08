@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 object A {
     [A] list,

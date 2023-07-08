@@ -1,6 +1,6 @@
-import "lib/std";
-import "lib/math";
-import "lib/buffer";
+import "std";
+import "math";
+import "buffer";
 
 const float IM = 139968.0;
 const float IA = 3877.0;

@@ -1,4 +1,4 @@
-import "lib/errors";
+import "errors";
 
 || @private
 extern fun FileOpen(str filename, int mode) > int !> FileSystemError, UnexpectedError;

@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/math" as math;
+import "std";
+import "math" as math;
 
 fun A(float i, float j) > float {
     float ij = i + j - 1.0;

@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "parseInt/Float" {
     assert(parseInt("12") == 12, message: "Could parse int");

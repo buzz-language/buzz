@@ -1,5 +1,5 @@
 | Bad function yield type
-import "lib/std";
+import "std";
 
 fun one() > void > str? {
     yield "hello";

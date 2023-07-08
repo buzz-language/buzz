@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "foreach on list" {
     [int] list = [1, 2, 3];

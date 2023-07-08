@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/buffer";
+import "std";
+import "buffer";
 
 test "Reading and writing in a buffer" {
     Buffer buffer = Buffer.init();

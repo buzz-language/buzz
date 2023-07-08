@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/fs" as fs;
+import "std";
+import "fs" as fs;
 
 test "fs.cwd" {
     assert(fs.currentDirectory() != "", message: "Could get cwd");

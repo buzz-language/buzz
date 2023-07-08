@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/math" as math;
+import "std";
+import "math" as math;
 
 const float pi = 3.141592653589793;
 const float solarMass = 4.0 * pi * pi;

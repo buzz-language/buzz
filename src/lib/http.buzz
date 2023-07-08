@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/os";
+import "std";
+import "os";
 
 object HttpParseError {
     str? message = null,

@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun count(<T>, [T] list) > int {
     return list.len();

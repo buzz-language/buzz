@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "str subscript" {
     assert("hello world"[1] == "e", message: "str subscript");

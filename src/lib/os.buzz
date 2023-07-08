@@ -1,4 +1,4 @@
-import "lib/errors";
+import "errors";
 
 || @return epoch time in ms
 extern fun time() > float;

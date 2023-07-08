@@ -1,5 +1,5 @@
-import "lib/os" as os;
-import "lib/errors";
+import "os" as os;
+import "errors";
 
 || Returns current directory absolute path
 || @return current directory

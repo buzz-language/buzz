@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "break statement" {
     int i = 0;

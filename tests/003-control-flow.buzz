@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "if statement" {
     if (2 > 1) {

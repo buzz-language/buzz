@@ -1,4 +1,4 @@
-import "lib/os" as os;
+import "os" as os;
 
 test "os.exit" {
     os.exit(12);

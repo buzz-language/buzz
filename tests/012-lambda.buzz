@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "Lambda/Anonymous functions" {
     Function(int n) > int mul = fun (int n) > int -> n * 2;

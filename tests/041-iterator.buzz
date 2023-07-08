@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun fibonnaci(int n) > void > int? {
     int n1 = 0;

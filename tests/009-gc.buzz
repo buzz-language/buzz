@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/gc" as gc;
+import "std";
+import "gc" as gc;
 
 object Kill {
     int yo = -1

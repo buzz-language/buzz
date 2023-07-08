@@ -364,6 +364,8 @@ pub fn build(b: *Build) !void {
         "errors",
     };
 
+    const install_step = b.getInstallStep();
+
     var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
     for (lib_paths, 0..) |lib_path, index| {
         var std_lib = b.addSharedLibrary(.{
@@ -372,7 +374,10 @@ pub fn build(b: *Build) !void {
             .target = target,
             .optimize = build_mode,
         });
-        b.installArtifact(std_lib);
+        const artifact = b.addInstallArtifact(std_lib);
+        install_step.dependOn(&artifact.step);
+        artifact.dest_dir = .{ .custom = "lib/buzz" };
+
         for (includes.items) |include| {
             std_lib.addIncludePath(include);
         }
@@ -412,37 +417,33 @@ pub fn build(b: *Build) !void {
     // debug <- std
     libs[6].linkLibrary(libs[0]);
 
-    const install_step = b.getInstallStep();
     for (all_lib_names) |name| {
-        const step = b.addInstallLibFile(std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})), b.fmt("{s}.buzz", .{name}));
+        const step = b.addInstallLibFile(std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})), b.fmt("buzz/{s}.buzz", .{name}));
         install_step.dependOn(&step.step);
     }
 
-    const unit_tests = b.addTest(.{
+    const tests = b.addTest(.{
         .root_source_file = Build.FileSource.relative("src/main.zig"),
         .target = target,
         .optimize = build_mode,
     });
-    b.installArtifact(unit_tests);
-
     for (includes.items) |include| {
-        unit_tests.addIncludePath(include);
+        tests.addIncludePath(include);
     }
     for (llibs.items) |llib| {
-        unit_tests.addLibraryPath(llib);
+        tests.addLibraryPath(llib);
     }
     for (sys_libs.items) |slib| {
-        unit_tests.linkSystemLibrary(slib);
+        tests.linkSystemLibrary(slib);
     }
     if (build_options.needLibC()) {
-        unit_tests.linkLibC();
+        tests.linkLibC();
     }
-    unit_tests.addOptions("build_options", build_options.step(b));
+    tests.addOptions("build_options", build_options.step(b));
 
     const test_step = b.step("test", "Run all the tests");
-    const run_unit_tests = std.build.Step.Run.create(b, "run test");
-    // run_unit_tests.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.lib_dir).?);
-    test_step.dependOn(&run_unit_tests.step);
-    run_unit_tests.addArg(b.fmt("{s}{s}{s}", .{ b.exe_dir, std.fs.path.sep_str, "test" }));
-    run_unit_tests.step.dependOn(install_step);
+    const run_tests = b.addRunArtifact(tests);
+    run_tests.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.exe_dir).?);
+    run_tests.step.dependOn(install_step); // wait for libraries to be installed
+    test_step.dependOn(&run_tests.step);
 }

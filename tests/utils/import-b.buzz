@@ -1,5 +1,5 @@
 import "tests/utils/import-a";
-import "lib/std";
+import "std";
 
 Hello hello = Hello{ message = "hello world" };
 

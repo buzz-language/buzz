@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun upvals() > Function() {
     int upvalue = 12;

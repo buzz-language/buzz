@@ -1,10 +1,10 @@
-import "lib/std";
-import "lib/debug";
-import "lib/json";
-import "lib/io";
-import "lib/fs";
-import "lib/errors";
-import "lib/buffer";
+import "std";
+import "debug";
+import "json";
+import "io";
+import "fs";
+import "errors";
+import "buffer";
 
 object Declaration {
     str declarationType,

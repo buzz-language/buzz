@@ -461,7 +461,7 @@ throw SomeObject{ number = 12 }          | -> Error: object instance 0x1feb12 `S
 | hello.buzz
 
 | Import std lib
-import "lib/std";
+import "std";
 
 fun sayHello() > void {
     print("Hello world!");

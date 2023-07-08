@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun getInfo() > obj{ str name, int age } {
     return .{

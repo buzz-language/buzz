@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "Optional force unwrapping with `!`" {
     | Note: trying to force unwrap a null value raises an uncatchable error

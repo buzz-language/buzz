@@ -1,5 +1,5 @@
 | Invalid assignment target.
-import "lib/std";
+import "std";
 
 test "`const` variable" {
     const str yo = "yo";

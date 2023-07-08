@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/io";
+import "std";
+import "io";
 
 test "Read stdin" {
     for (str? line = ""; line != null; line = stdin.readLine()) {

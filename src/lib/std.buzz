@@ -1,4 +1,4 @@
-import "lib/errors";
+import "errors";
 
 || If condition is false print message and exit program
 || @param condition assert condition

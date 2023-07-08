@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/errors";
+import "std";
+import "errors";
 
 || Dump any value to stdout
 extern fun dump(<T>, T value) > void;

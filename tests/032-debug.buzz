@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/debug" as debug;
+import "std";
+import "debug" as debug;
 import Json from "lib/json";
 
 test "Get AST" {

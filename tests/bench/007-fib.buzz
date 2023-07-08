@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun fibonnacci(int n) > int {
     if (n < 2) {

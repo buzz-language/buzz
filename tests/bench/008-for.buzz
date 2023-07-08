@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 fun main([str] args) > void {
     [int] list = [<int>];

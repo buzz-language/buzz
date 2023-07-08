@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 import "tests/utils/import-b";
 import "tests/utils/import-a";
 

@@ -1,4 +1,4 @@
-import "lib/std";
+import "std";
 
 test "pattern.match" {
     pat pattern = _hello ([a-z]+)_;

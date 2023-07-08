@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/http";
+import "std";
+import "http";
 
 test "Request parsing" {
     str raw = "GET /?hello=1 HTTP/1.1\n"

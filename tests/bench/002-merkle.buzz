@@ -1,6 +1,6 @@
-import "lib/std";
-import "lib/math" as math;
-import "lib/errors";
+import "std";
+import "math" as math;
+import "errors";
 
 object Node {
     Node? left = null,

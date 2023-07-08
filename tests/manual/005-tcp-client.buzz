@@ -1,5 +1,5 @@
-import "lib/std";
-import "lib/os";
+import "std";
+import "os";
 
 test "Opening a socket" {
     Socket socket = Socket.connect(

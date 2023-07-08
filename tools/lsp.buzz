@@ -1,12 +1,12 @@
 #!/usr/bin/env buzz
 
-import "lib/std";
-import "lib/io";
-import "lib/json";
-import "lib/os" as os;
-import "lib/debug" as debug;
-import "lib/errors";
-import "lib/buffer";
+import "std";
+import "io";
+import "json";
+import "os" as os;
+import "debug" as debug;
+import "errors";
+import "buffer";
 
 object LspState {
     | TODO: Maybe bad to keep this in memory

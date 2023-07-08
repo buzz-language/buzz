@@ -1,6 +1,6 @@
-import "lib/std";
-import "lib/io" as io;
-import "lib/errors";
+import "std";
+import "io" as io;
+import "errors";
 
 fun readSequence() > str !> ReadWriteError, FileSystemError, UnexpectedError {
     bool skippedIgnoredSequences = false;
