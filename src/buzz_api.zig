@@ -41,14 +41,15 @@ const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
 const GarbageCollector = memory.GarbageCollector;
 
+
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = true,
 }){};
 
-var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
     gpa.allocator()
 else if (BuildOptions.use_mimalloc)
-    @import("./mimalloc.zig").mim_allocator
+    @import("mimalloc.zig").mim_allocator
 else
     std.heap.c_allocator;
 

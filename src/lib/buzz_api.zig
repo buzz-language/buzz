@@ -7,10 +7,6 @@ const jmp = @import("../jmp.zig").jmp;
 // FIXME: some should only be available to the JIT compiler
 // FIXME: naming is not consistant
 
-var gpa = std.heap.GeneralPurposeAllocator(.{
-    .safety = true,
-}){};
-
 pub const GarbageCollector = opaque {};
 
 pub const ObjUpValue = opaque {};
@@ -37,6 +33,8 @@ pub const TryCtx = extern struct {
 };
 
 pub const VM = opaque {
+    pub const allocator = @import("../buzz_api.zig").allocator;
+
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
     pub extern fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction;
@@ -87,13 +85,6 @@ pub const VM = opaque {
     pub extern fn bz_clone(vm: *VM, value: Value) Value;
 
     pub extern fn bz_dumpStack(vm: *VM) void;
-
-    pub var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
-        gpa.allocator()
-    else if (BuildOptions.use_mimalloc)
-        @import("../mimalloc.zig").mim_allocator
-    else
-        std.heap.c_allocator;
 };
 
 pub const FunctionNode = opaque {};

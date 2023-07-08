@@ -4,6 +4,7 @@ const _chunk = @import("./chunk.zig");
 const _value = @import("./value.zig");
 const _obj = @import("./obj.zig");
 const _vm = @import("./vm.zig");
+const global_allocator = @import("./buzz_api.zig").allocator;
 
 const VM = _vm.VM;
 const Chunk = _chunk.Chunk;
@@ -26,7 +27,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
-    var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
+    var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
 
     print("{}\t{s}({} args, {} catches)", .{
@@ -71,7 +72,7 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
-    var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
+    var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
 
     print("{}\t{} {s}", .{
@@ -109,7 +110,7 @@ pub fn dumpStack(vm: *VM) void {
 
     var value: [*]_value.Value = @ptrCast(vm.current_fiber.stack[0..]);
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top)) {
-        var value_str = _value.valueToStringAlloc(std.heap.c_allocator, value[0]) catch unreachable;
+        var value_str = _value.valueToStringAlloc(global_allocator, value[0]) catch unreachable;
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
@@ -252,7 +253,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             var constant: u24 = arg;
             var off_offset: usize = offset + 1;
 
-            var value_str = try _value.valueToStringAlloc(std.heap.c_allocator, chunk.constants.items[constant]);
+            var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
             defer value_str.deinit();
 
             print("{}\t{} {s}", .{ instruction, constant, value_str.items[0..@min(value_str.items.len, 100)] });

@@ -280,6 +280,7 @@ pub fn build(b: *Build) !void {
         exe.addLibraryPath(lib);
     }
     for (sys_libs.items) |slib| {
+        // todo: if mir is linked as static library (libmir.a), here also need to link libc
         exe.linkSystemLibrary(slib);
     }
     if (!build_options.use_mimalloc) {
