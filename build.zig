@@ -279,6 +279,14 @@ pub fn build(b: *Build) !void {
         .optimize = build_mode,
     });
     b.installArtifact(exe);
+
+    const run_exe = b.addRunArtifact(exe);
+    run_exe.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.exe_dir).?);
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
+    b.step("run", "run buzz").dependOn(&run_exe.step);
+
     for (includes.items) |include| {
         exe.addIncludePath(include);
     }
