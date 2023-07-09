@@ -22,16 +22,12 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - name: Build
-        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
-      - name: Run tests
-        run: BUZZ_PATH=./dist ./dist/bin/test
+      - name: Run Tests
+        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
-      - name: Build with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
       - name: Run tests with JIT always on
-        run: BUZZ_PATH=./dist ./dist/bin/test
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
   test-linux:
@@ -47,16 +43,12 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - name: Build
-        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
       - name: Run tests
-        run: BUZZ_PATH=./dist ./dist/bin/test
+        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
-      - name: Build with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist
       - name: Run tests with JIT always on
-        run: BUZZ_PATH=./dist ./dist/bin/test
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
   lint:
