@@ -60,6 +60,9 @@ export PATH="$BUZZ_PATH/bin:$PATH"
 # direct install
 zig build -Doptimize=ReleaseSafe install -p ~/.local # insall locally
 sudo zig build -Doptimize=ReleaseSafe install -p /usr/local # install globally
+
+# usage after install
+buzz <myscript.bizz>
 ```
 
 Additionally, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.

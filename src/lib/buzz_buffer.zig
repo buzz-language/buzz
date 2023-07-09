@@ -6,12 +6,12 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
     const capacity = ctx.vm.bz_peek(0).integer();
 
     var buffer = api.VM.allocator.create(Buffer) catch {
-        ctx.vm.pushError("lib.errors.OutOfMemoryError");
+        ctx.vm.pushError("errors.OutOfMemoryError");
 
         return -1;
     };
     buffer.* = Buffer.init(api.VM.allocator, @intCast(capacity)) catch {
-        ctx.vm.pushError("lib.errors.OutOfMemoryError");
+        ctx.vm.pushError("errors.OutOfMemoryError");
 
         return -1;
     };
@@ -21,7 +21,7 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
 
         return 1;
     } else {
-        ctx.vm.pushError("lib.errors.OutOfMemoryError");
+        ctx.vm.pushError("errors.OutOfMemoryError");
 
         return -1;
     }
@@ -208,7 +208,7 @@ export fn BufferWrite(ctx: *api.NativeCtx) c_int {
     buffer.write(bytes.?[0..len]) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
-            error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+            error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -252,7 +252,7 @@ export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
     buffer.writeBool(value) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
-            error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+            error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -310,7 +310,7 @@ export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
     buffer.writeInteger(number.integer()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
-            error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+            error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -326,7 +326,7 @@ export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
     buffer.writeFloat(number.float()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("lib.buffer.WriteWhileReadingError"),
-            error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+            error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -365,7 +365,7 @@ export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as([*]const u8, @ptrCast(buffer.buffer.items)) else null, buffer.buffer.items.len)) |objstring| {
         ctx.vm.bz_pushString(objstring);
     } else {
-        ctx.vm.pushError("lib.errors.OutOfMemoryError");
+        ctx.vm.pushError("errors.OutOfMemoryError");
 
         return -1;
     }

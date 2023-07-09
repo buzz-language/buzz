@@ -16,7 +16,7 @@
 
 ### `extern fun dump(<T>, generic type #19-0 value) > void `
 Dump any value to stdout
-### `extern fun ast(str source, str scriptName) > str !> lib.errors.CompileError `
+### `extern fun ast(str source, str scriptName) > str !> errors.CompileError `
 Parse `source` and return the abstract syntax tree in JSON
 - **`script`:** name (used to fetch eventual extern functions)
 
@@ -136,7 +136,7 @@ Convert degree to radian
 
 
 **Returns:**  tan of n
-### `extern fun pow(float x, float y) > float !> lib.errors.OverflowError, lib.errors.UnderflowError `
+### `extern fun pow(float x, float y) > float !> errors.OverflowError, errors.UnderflowError `
 
 
 **Returns:**  `x`^`y`
@@ -150,7 +150,7 @@ Read and write data to a string buffer
 
 
 **Returns:**  epoch time in ms
-### `extern fun env(str key) > str? !> lib.errors.InvalidArgumentError `
+### `extern fun env(str key) > str? !> errors.InvalidArgumentError `
 Returns environment variable under `key`
 - **`key`:** environment variable name
 
@@ -168,7 +168,7 @@ Returns environment variable under `key`
 Exit program with `exitCode`
 - **`exitCode`:** exit code
 
-### `extern fun execute([str] command) > int !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
+### `extern fun execute([str] command) > int !> errors.FileSystemError, errors.UnexpectedError `
 Execute command and return its exit code
 - **`command`:** command to execute
 
@@ -194,23 +194,23 @@ Returns hash of data using given algorithm
 
 ## fs
 
-### `fun currentDirectory() > str !> lib.errors.FileSystemError, lib.errors.InvalidArgumentError `
+### `fun currentDirectory() > str !> errors.FileSystemError, errors.InvalidArgumentError `
 Returns current directory absolute path
 
 **Returns:**  current directory
-### `extern fun makeDirectory(str path) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
+### `extern fun makeDirectory(str path) > void !> errors.FileSystemError, errors.UnexpectedError `
 Creates directory path
 - **`path`:** directory to create
 
-### `extern fun delete(str path) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
+### `extern fun delete(str path) > void !> errors.FileSystemError, errors.UnexpectedError `
 Deletes directory or file at path
 - **`path`:** direcotry/file to delete
 
-### `extern fun move(str source, str destination) > void !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
+### `extern fun move(str source, str destination) > void !> errors.FileSystemError, errors.UnexpectedError `
 Moves/renames file
 - **`destination`:** where to move it
 
-### `extern fun list(str path) > [str] !> lib.errors.FileSystemError, lib.errors.UnexpectedError `
+### `extern fun list(str path) > [str] !> errors.FileSystemError, errors.UnexpectedError `
 List files under path
 - **`path`:** directory to list
 
@@ -226,6 +226,6 @@ stdin
 stdout
 ### `src.lib.io.File stderr`
 stderr
-### `extern fun runFile(str filename) > void !> lib.errors.CompileError, lib.errors.InterpretError, lib.errors.FileSystemError, lib.errors.ReadWriteError `
+### `extern fun runFile(str filename) > void !> errors.CompileError, errors.InterpretError, errors.FileSystemError, errors.ReadWriteError `
 Run a buzz file
 - **`filename`:** path to buzz file

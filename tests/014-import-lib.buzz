@@ -1,4 +1,4 @@
-import print, assert from "lib/std";
+import print, assert from "std";
 
 test "Using a function coming from a library" {
     assert(true, message: "yeah!");

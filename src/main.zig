@@ -341,6 +341,7 @@ test "Testing behavior" {
                 defer allocator.free(first_line);
                 const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{_parser.buzz_prefix()}) catch unreachable;
                 defer allocator.free(arg0);
+                std.debug.print("buzz bin: {s}\n", .{arg0});
 
                 const result = try std.ChildProcess.exec(
                     .{

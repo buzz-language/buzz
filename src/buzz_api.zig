@@ -657,7 +657,7 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Va
         }
     }
 
-    unreachable;
+    std.debug.panic("bz_getQualified no name: {s}", .{qualified_name[0..len]});
 }
 
 export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value {

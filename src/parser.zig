@@ -4723,18 +4723,14 @@ pub const Parser = struct {
 
         // search in files installed with buzz
         // e.g. $PREFIX/lib/buzz/lib*.so
-        const dll_path_vendor = try std.fmt.allocPrint(allocator,
-            "{s}" ++ std.fs.path.sep_str ++ "{s}",
-            .{ buzz_lib_path(), dll_basename });
+        const dll_path_vendor = try std.fmt.allocPrint(allocator, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ buzz_lib_path(), dll_basename });
         defer allocator.free(dll_path_vendor);
 
         // search in local directory
-        const dll_path_relative = try std.fmt.allocPrint(allocator,
-            "{s}" ++ std.fs.path.sep_str ++ "{s}",
-            .{
-                file_dirname orelse ".",
-                dll_basename,
-            });
+        const dll_path_relative = try std.fmt.allocPrint(allocator, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{
+            file_dirname orelse ".",
+            dll_basename,
+        });
         defer allocator.free(dll_path_relative);
 
         // POSIX dlopen uses LD_LIBRARY_PATH to find such library

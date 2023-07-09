@@ -287,7 +287,6 @@ pub fn build(b: *Build) !void {
 
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
-    run_exe.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     if (b.args) |args| {
         run_exe.addArgs(args);
     }
@@ -454,6 +453,7 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
+    run_tests.cwd = ".";
     run_tests.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);

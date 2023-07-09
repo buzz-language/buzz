@@ -1,10 +1,10 @@
 import "std";
 import "debug" as debug;
-import Json from "lib/json";
+import Json from "json";
 
 test "Get AST" {
     str source = debug.ast(`
-        import \"lib/std\";
+        import \"std\";
         
         fun main([str] args) > void -> print(\"hello world\");
     `, scriptName: "test");

@@ -56,7 +56,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             error.Overflow,
             error.InvalidCharacter,
             error.NoSpaceLeft,
-            => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+            => ctx.vm.pushError("errors.OutOfMemoryError"),
         }
 
         return -1;
@@ -69,7 +69,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
             switch (err) {
                 error.OutOfMemory,
                 error.NoSpaceLeft,
-                => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+                => ctx.vm.pushError("errors.OutOfMemoryError"),
             }
 
             return -1;
@@ -77,7 +77,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
 
         ctx.vm.bz_pushString(
             api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @as([*]const u8, @ptrCast(out.items)) else null, out.items.len) orelse {
-                ctx.vm.pushError("lib.errors.OutOfMemoryError");
+                ctx.vm.pushError("errors.OutOfMemoryError");
 
                 return -1;
             },
@@ -86,7 +86,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.pushError("lib.errors.CompileError");
+    ctx.vm.pushError("errors.CompileError");
 
     return -1;
 }

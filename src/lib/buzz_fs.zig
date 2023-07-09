@@ -17,9 +17,9 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemResources,
         error.FileNotFound,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
     }
 }
 
@@ -56,12 +56,12 @@ fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.ReadOnlyFileSystem,
         error.SymLinkLoop,
         error.SystemResources,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
         // Zig doesn't let me use those even though it lists them as being raised
-        // error.FileNotFound => ctx.vm.pushError("lib.errors.FileNotFoundError"),
-        // error.CannotDeleteRootDirectory => ctx.vm.pushError("lib.errors.CannotDeleteRootDirectoryError"),
+        // error.FileNotFound => ctx.vm.pushError("errors.FileNotFoundError"),
+        // error.CannotDeleteRootDirectory => ctx.vm.pushError("errors.CannotDeleteRootDirectoryError"),
         else => unreachable,
     }
 }
@@ -110,9 +110,9 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemResources,
         error.FileNotFound,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
     }
 }
 
@@ -142,10 +142,10 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.FileNotFound,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
-        error.OutOfMemory => ctx.vm.pushError("lib.errors.OutOfMemoryError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
     }
 }
 
@@ -227,9 +227,9 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.WouldBlock,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
     }
 }
 
@@ -248,9 +248,9 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.FileNotFound,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
     }
 }
 
@@ -258,9 +258,9 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
         error.SystemResources,
-        => ctx.vm.pushErrorEnum("lib.errors.FileSystemError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("lib.errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
     }
 }
 
@@ -297,7 +297,7 @@ export fn list(ctx: *api.NativeCtx) c_int {
             element.name.len,
         ) orelse {
             _ = ctx.vm.bz_pop(); // Pop list
-            ctx.vm.pushError("lib.errors.OutOfMemoryError");
+            ctx.vm.pushError("errors.OutOfMemoryError");
 
             return -1;
         });
