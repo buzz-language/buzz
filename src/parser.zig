@@ -4488,6 +4488,8 @@ pub const Parser = struct {
                     function_node.node.type_def.?.resolved_type.?.Function.name.string,
                 )) |native| {
                     function_node.native = native;
+                } else {
+                    return error.BuzzNoDll;
                 }
             }
         } else {
@@ -4688,7 +4690,8 @@ pub const Parser = struct {
                 try self.globals.append(global.*);
             }
         } else {
-            try self.reportError("Could not compile import.");
+            // TODO: when it cannot load dynamic library, the error is the same
+            try self.reportError("Could not compile import or import external dynamic library.");
         }
 
         return import;
@@ -4702,47 +4705,47 @@ pub const Parser = struct {
             if (std.mem.endsWith(u8, full_file_name, ".buzz")) full_file_name[0..(full_file_name.len - 5)] else full_file_name;
 
         // We have to insert `lib` prefix
-        const last_sep = std.mem.lastIndexOf(u8, file_name, std.fs.path.sep_str) orelse 0;
+        const file_basename = std.fs.path.basename(file_name);
+        const file_dirname = std.fs.path.dirname(file_name);
 
-        var lib_path = std.ArrayList(u8).init(self.gc.allocator);
-        defer lib_path.deinit();
-        try lib_path.writer().print(
-            "{s}" ++ std.fs.path.sep_str ++ "lib{s}.{s}",
-            .{
-                buzz_lib_path(),
-                file_name[last_sep + 1 ..],
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
-                },
+        const allocator = self.gc.allocator;
+
+        const dll_basename = try std.fmt.allocPrint(allocator, "lib{s}.{s}", .{
+            file_basename,
+            switch (builtin.os.tag) {
+                .linux, .freebsd, .openbsd => "so",
+                .windows => "dll",
+                .macos, .tvos, .watchos, .ios => "dylib",
+                else => unreachable,
             },
-        );
+        });
+        defer allocator.free(dll_basename);
 
-        var dir_path = std.ArrayList(u8).init(self.gc.allocator);
-        defer dir_path.deinit();
-        try dir_path.writer().print(
-            ".{s}{s}lib{s}.{s}",
+        // search in files installed with buzz
+        // e.g. $PREFIX/lib/buzz/lib*.so
+        const dll_path_vendor = try std.fmt.allocPrint(allocator,
+            "{s}" ++ std.fs.path.sep_str ++ "{s}",
+            .{ buzz_lib_path(), dll_basename });
+        defer allocator.free(dll_path_vendor);
+
+        // search in local directory
+        const dll_path_relative = try std.fmt.allocPrint(allocator,
+            "{s}" ++ std.fs.path.sep_str ++ "{s}",
             .{
-                std.fs.path.sep_str,
-                file_name[0 .. last_sep + 1],
-                file_name[last_sep + 1 ..],
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
-                },
-            },
-        );
+                file_dirname orelse ".",
+                dll_basename,
+            });
+        defer allocator.free(dll_path_relative);
 
-        var lib: ?std.DynLib = std.DynLib.open(lib_path.items) catch std.DynLib.open(dir_path.items) catch null;
+        // POSIX dlopen uses LD_LIBRARY_PATH to find such library
+        const dll_path_system = dll_basename;
+
+        var lib: ?std.DynLib = std.DynLib.open(dll_path_vendor) catch std.DynLib.open(dll_path_relative) catch std.DynLib.open(dll_path_system) catch null;
 
         if (lib) |*dlib| {
             // Convert symbol names to zig slices
-            const ssymbol = try self.gc.allocator.dupeZ(u8, symbol);
-            defer self.gc.allocator.free(ssymbol);
+            const ssymbol = try allocator.dupeZ(u8, symbol);
+            defer allocator.free(ssymbol);
 
             // Lookup symbol NativeFn
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);

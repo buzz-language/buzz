@@ -77,7 +77,7 @@ const BuzzBuildOptions = struct {
     }
 
     pub fn needLibC(self: @This()) bool {
-        // FIXME: remove libc if possible
+        // TODO: remove libc if possible
         // mir can be built with musl libc
         // mimalloc can be built with musl libc
         // longjmp/setjmp need to be removed
@@ -87,6 +87,10 @@ const BuzzBuildOptions = struct {
         return self.use_mimalloc;
     }
 };
+
+fn get_buzz_prefix(b: *Build) []const u8 {
+    return std.os.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
+}
 
 pub fn build(b: *Build) !void {
     // Check minimum zig version
@@ -98,6 +102,7 @@ pub fn build(b: *Build) !void {
 
     const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
+    const install_step = b.getInstallStep();
 
     var build_options = BuzzBuildOptions{
         .target = target,
@@ -281,7 +286,8 @@ pub fn build(b: *Build) !void {
     b.installArtifact(exe);
 
     const run_exe = b.addRunArtifact(exe);
-    run_exe.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.exe_dir).?);
+    run_exe.step.dependOn(install_step);
+    run_exe.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     if (b.args) |args| {
         run_exe.addArgs(args);
     }
@@ -372,7 +378,7 @@ pub fn build(b: *Build) !void {
         "errors",
     };
 
-    const install_step = b.getInstallStep();
+    // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries
 
     var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
     for (lib_paths, 0..) |lib_path, index| {
@@ -404,11 +410,8 @@ pub fn build(b: *Build) !void {
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
         std_lib.addRPath(b.fmt(
-            "{s}{s}lib",
-            .{
-                std.os.getenv("BUZZ_PATH") orelse std.fs.cwd().realpathAlloc(b.allocator, ".") catch unreachable,
-                std.fs.path.sep_str,
-            },
+            "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
+            .{get_buzz_prefix(b)},
         ));
         std_lib.addRPath("/usr/local/lib/buzz");
 
@@ -451,7 +454,7 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
-    run_tests.setEnvironmentVariable("BUZZ_PATH", std.fs.path.dirname(b.exe_dir).?);
+    run_tests.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 }
