@@ -30,7 +30,22 @@ A small/lightweight statically typed scripting language written in Zig
 
 I'm not far from completing [milestone 0.1.0](https://github.com/buzz-language/buzz/milestone/1). As writing buzz code is the best way of finding bugs, I also implement a lot of features of the [next](https://github.com/buzz-language/buzz/milestone/2) [milestones](https://github.com/buzz-language/buzz/milestone/3) too.
 
-## How to build
+
+## How to install
+
+```bash
+# install locally at ~/.local
+zig build -Doptimize=ReleaseSafe install -p ~/.local
+
+# install globally at /usr/local
+sudo zig build -Doptimize=ReleaseSafe install -p /usr/local
+```
+
+Then, you can run buzz with `buzz <myscript.buzz>`. Remember to modify PATH to include the `bin` directory where it is installed. For example, `export PATH=PATH:/home/xxx/.local/bin`.
+
+Additionally, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
+
+## How to build/develop
 
 ### Requirements
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
@@ -49,23 +64,6 @@ cd mir
 make
 ```
 4. Have fun: `zig build run -- <myscript.buzz>`
-
-You can also install buzz locally.
-
-```
-# set PATH
-export BUZZ_PATH="path-to-this-repo/zig-out"
-export PATH="$BUZZ_PATH/bin:$PATH"
-
-# direct install
-zig build -Doptimize=ReleaseSafe install -p ~/.local # insall locally
-sudo zig build -Doptimize=ReleaseSafe install -p /usr/local # install globally
-
-# usage after install
-buzz <myscript.bizz>
-```
-
-Additionally, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
 ## Quick tour
 
