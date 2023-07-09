@@ -56,7 +56,7 @@ export PATH="$BUZZ_PATH/bin:$PATH"
 5. Build it: `zig build -Doptimize=ReleaseSafe -p dist`
 6. Have fun: `buzz <myscript.buzz>`
 
-Additionally, install the [VS Code extension](https://github.com/buzz-language/code) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
+Additionally, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
 
 ## Quick tour
 

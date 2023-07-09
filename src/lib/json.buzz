@@ -9,6 +9,8 @@ object JsonParseError {
 || Parse JSON string into a `Json` tree
 || @private
 object JsonParser {
+    | TODO: comform to https://datatracker.ietf.org/doc/html/rfc8259
+
     str source,
     int offset = 0,
 
