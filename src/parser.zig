@@ -102,12 +102,17 @@ const TypeRegistry = _obj.TypeRegistry;
 
 extern fn dlerror() [*:0]u8;
 
+pub fn default_buzz_prefix() []const u8 {
+    // todo: maybe it's better to have multiple search paths?
+    unreachable;
+}
+
 var _buzz_path_buffer: [4096]u8 = undefined;
 pub fn buzz_prefix() []const u8 {
     if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
-    const path = std.fs.selfExePath(&_buzz_path_buffer) catch return ".";
-    const path1 = std.fs.path.dirname(path) orelse ".";
-    const path2 = std.fs.path.dirname(path1) orelse ".";
+    const path = std.fs.selfExePath(&_buzz_path_buffer) catch return default_buzz_prefix();
+    const path1 = std.fs.path.dirname(path) orelse default_buzz_prefix();
+    const path2 = std.fs.path.dirname(path1) orelse default_buzz_prefix();
     return path2;
 }
 
@@ -4567,7 +4572,7 @@ pub const Parser = struct {
                 "{s}" ++ std.fs.path.sep_str ++ "{s}.buzz",
                 .{ buzz_lib_path(), file_name },
             );
-            std.debug.print("search path {s}\n", .{lib_path.items});
+            // std.debug.print("search path {s}\n", .{lib_path.items});
 
             var dir_path = std.ArrayList(u8).init(self.gc.allocator);
             defer dir_path.deinit();
