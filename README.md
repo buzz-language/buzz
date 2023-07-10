@@ -10,7 +10,9 @@ A small/lightweight statically typed scripting language written in Zig
     <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
-[Discord](https://discord.gg/VnMdNSdpNV)
+<p align="center">
+    <a href="https://buzz-lang.dev">Homepage</a> — <a href="https://discord.gg/VnMdNSdpNV">Discord</a>
+</p>
 
 ## Features
 
