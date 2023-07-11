@@ -5227,7 +5227,7 @@ pub const ExternApi = enum {
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
-                    @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux) jmp._setjmp else jmp.setjmp)),
+                    @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) jmp._setjmp else jmp.setjmp)),
                 ),
             ),
             .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
@@ -5288,7 +5288,7 @@ pub const ExternApi = enum {
             .bz_enumNext => "bz_enumNext",
             .bz_clone => "bz_clone",
 
-            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "_setjmp" else "setjmp",
+            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
 
             .bz_dumpStack => "bz_dumpStack",
@@ -5345,7 +5345,7 @@ pub const ExternApi = enum {
             .bz_enumNext => "p_bz_enumNext",
             .bz_clone => "p_bz_clone",
 
-            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux) "p__setjmp" else "p_setjmp",
+            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",
 
             .bz_dumpStack => "p_bz_dumpStack",
