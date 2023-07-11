@@ -47,17 +47,20 @@ object File {
     }
 
     || Reads file until `EOF`
+    || @return Read data
     fun readAll() > str !> ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadAll(this.fd);
     }
 
     || Reads next line, returns null if nothing to read
+    || @return Read data
     fun readLine() > str? !> ReadWriteError, FileSystemError, UnexpectedError {
         return FileReadLine(this.fd);
     }
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
+    || @return Read data
     fun read(int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
         return FileRead(this.fd, n: n);
     }
@@ -70,11 +73,11 @@ object File {
 }
 
 || stdin
-const File stdin = File { fd = getStdIn() };
+const File stdin = File{ fd = getStdIn() };
 || stdout
-const File stdout = File { fd = getStdOut() };
+const File stdout = File{ fd = getStdOut() };
 || stderr
-const File stderr = File { fd = getStdErr() };
+const File stderr = File{ fd = getStdErr() };
 
 || Run a buzz file
 || @param filename path to buzz file

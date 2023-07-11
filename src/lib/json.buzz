@@ -257,7 +257,7 @@ object Json {
     }
 
     || Encode to a JSON string
-    || @return str the JSON string
+    || @return the JSON string
     fun encode({Json, void}? seen) > str {
         seen = seen ?? {<Json, void>};
 
@@ -304,7 +304,7 @@ object Json {
         return "null";
     }
 
-    || Decode string to a Json instance
+    || Decode string into a Json instance
     || @param str json The JSON string
     || @return Json
     static fun decode(str json) > Json !> JsonParseError, WriteWhileReadingError {
