@@ -496,13 +496,6 @@ export fn bz_userDataToValue(userdata: *ObjUserData) Value {
     return userdata.toValue();
 }
 
-export fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void {
-    bz_pushString(vm, bz_string(vm, message.?, len) orelse {
-        _ = std.io.getStdErr().write((message.?)[0..len]) catch unreachable;
-        std.os.exit(1);
-    });
-}
-
 export fn bz_newVM(self: *VM) ?*VM {
     var vm = self.gc.allocator.create(VM) catch {
         return null;
@@ -527,10 +520,6 @@ export fn bz_newVM(self: *VM) ?*VM {
 
 export fn bz_deinitVM(_: *VM) void {
     // self.deinit();
-}
-
-export fn bz_getGC(vm: *VM) *memory.GarbageCollector {
-    return vm.gc;
 }
 
 export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction {
@@ -795,28 +784,12 @@ export fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void {
     vm.push(payload.toValue());
 }
 
-export fn bz_valueIsBuzzFn(value: Value) bool {
-    if (!value.isObj()) {
-        return false;
-    }
-
-    if (ObjClosure.cast(value.obj())) |closure| {
-        return closure.function.native == null;
-    }
-
-    return false;
-}
-
 export fn bz_valueToClosure(value: Value) *ObjClosure {
     return ObjClosure.cast(value.obj()).?;
 }
 
 export fn bz_toObjNative(value: Value) *ObjNative {
     return ObjNative.cast(value.obj()).?;
-}
-
-export fn bz_toObjNativeOpt(value: Value) ?*ObjNative {
-    return ObjNative.cast(value.obj());
 }
 
 export fn bz_valueEqual(self: Value, other: Value) Value {

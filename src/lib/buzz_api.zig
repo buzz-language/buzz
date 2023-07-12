@@ -7,13 +7,10 @@ const jmp = @import("../jmp.zig").jmp;
 // FIXME: some should only be available to the JIT compiler
 // FIXME: naming is not consistant
 
-pub const GarbageCollector = opaque {};
-
 pub const ObjUpValue = opaque {};
 
 pub const ObjNative = opaque {
     pub extern fn bz_toObjNative(value: Value) *ObjNative;
-    pub extern fn bz_toObjNativeOpt(value: Value) ?*ObjNative;
 };
 
 pub const ObjFunction = opaque {};
@@ -66,8 +63,6 @@ pub const VM = opaque {
 
     pub extern fn bz_throw(vm: *VM, value: Value) void;
     pub extern fn bz_rethrow(vm: *VM) void;
-    pub extern fn bz_throwString(vm: *VM, message: ?[*]const u8, len: usize) void;
-    pub extern fn bz_getGC(vm: *VM) *GarbageCollector;
     pub extern fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value;
 
     pub extern fn bz_allocated(self: *VM) usize;
@@ -202,7 +197,6 @@ pub const Value = packed struct {
     pub extern fn bz_valueToUserData(value: Value) *UserData;
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
 
-    pub extern fn bz_valueIsBuzzFn(value: Value) bool;
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
     pub extern fn bz_valueEqual(self: Value, other: Value) Value;
     pub extern fn bz_valueIs(self: Value, type_def: Value) Value;
