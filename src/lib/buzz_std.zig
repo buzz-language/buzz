@@ -1,6 +1,30 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
+// fun random(int? min = null, int? max = null) > int
+export fn random(ctx: *api.NativeCtx) c_int {
+    const min = ctx.vm.bz_peek(1);
+    const max = ctx.vm.bz_peek(0);
+
+    ctx.vm.bz_push(
+        api.Value.fromInteger(
+            std.crypto.random.intRangeAtMost(
+                i32,
+                if (min.isInteger())
+                    min.integer()
+                else
+                    0,
+                if (max.isInteger())
+                    max.integer()
+                else
+                    (if (min.isInteger()) min.integer() else 0) + 1,
+            ),
+        ),
+    );
+
+    return 1;
+}
+
 export fn print(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const string = ctx.vm.bz_peek(0).bz_valueToString(&len);

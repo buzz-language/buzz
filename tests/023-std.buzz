@@ -12,3 +12,8 @@ test "parseInt/Float" {
 test "char" {
     assert(char(65) == "A", message: "char");
 }
+
+test "random" {
+    assert(random(min: 5, max: 10) >= 5, message: "random range");
+    assert(random(max: 10) <= 10, message: "random range");
+}

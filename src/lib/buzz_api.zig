@@ -244,7 +244,6 @@ pub const UserData = anyopaque;
 
 pub const ObjUserData = opaque {
     pub extern fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData;
-    pub extern fn bz_getUserData(userdata: *ObjUserData) *UserData;
     pub extern fn bz_userDataToValue(userdata: *ObjUserData) Value;
 };
 

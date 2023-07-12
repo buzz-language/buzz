@@ -488,10 +488,6 @@ export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     };
 }
 
-export fn bz_getUserData(userdata: *ObjUserData) *UserData {
-    return userdata.userdata;
-}
-
 export fn bz_userDataToValue(userdata: *ObjUserData) Value {
     return userdata.toValue();
 }

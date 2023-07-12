@@ -32,6 +32,12 @@ extern fun toFloat(int n) > float;
 || Return ascii char for given byte
 extern fun char(int byte) > str;
 
+|| Return evenly distributed random number between `min` and `max`
+|| @param min Minimum value, if omitted `0`
+|| @param max Maximum value, if omitted `min + 1`
+|| @return Random value
+extern fun random(int? min = null, int? max = null) > int;
+
 export assert;
 export print;
 export parseInt;
@@ -39,3 +45,4 @@ export parseFloat;
 export toInt;
 export toFloat;
 export char;
+export random;
