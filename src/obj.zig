@@ -752,6 +752,22 @@ pub const ObjFunction = struct {
         Anonymous,
         Extern,
         Abstract, // for protocol method, so we don't parse a body
+
+        pub fn canHaveErrorSet(self: FunctionType) bool {
+            return self != .Script and self != .ScriptEntryPoint and self != .EntryPoint and self != .Test;
+        }
+
+        pub fn canYield(self: FunctionType) bool {
+            return self == .Method or self == .Function or self == .Anonymous or self == .Abstract;
+        }
+
+        pub fn canOmitReturn(self: FunctionType) bool {
+            return self != .Abstract and self != .Extern and self != .Script and self != .ScriptEntryPoint;
+        }
+
+        pub fn canOmitBody(self: FunctionType) bool {
+            return self == .Abstract or self == .Extern;
+        }
     };
 
     obj: Obj = .{ .obj_type = .Function },

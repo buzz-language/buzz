@@ -4411,12 +4411,10 @@ pub const Parser = struct {
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
             parsed_return_type = true;
-        } else if (function_type != .Anonymous and function_type != .Test) {
-            try self.reportError("Expected `>` after function argument list.");
         }
 
         // Parse yield type
-        if (parsed_return_type and (function_type == .Method or function_type == .Function) and (try self.match(.Greater))) {
+        if (parsed_return_type and function_type.canYield() and (try self.match(.Greater))) {
             const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             if (!yield_type.optional and yield_type.def_type != .Void) {
@@ -4429,9 +4427,9 @@ pub const Parser = struct {
         }
 
         // Error set
-        if (parsed_return_type and (function_type == .Method or function_type == .Function or function_type == .Anonymous or function_type == .EntryPoint or function_type == .Extern) and (try self.match(.BangGreater))) {
+        if (function_type.canHaveErrorSet() and (try self.match(.BangGreater))) {
             var error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
-            const end_token: TokenType = if (function_type == .Extern) .Semicolon else .LeftBrace;
+            const end_token: TokenType = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
             while (!self.check(end_token) and !self.check(.Eof)) {
                 const error_type = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
                 try error_types.append(error_type);
@@ -4466,10 +4464,9 @@ pub const Parser = struct {
                 function_node.node.type_def.?.resolved_type.?.Function.return_type = function_node.arrow_expr.?.type_def.?;
                 parsed_return_type = true;
             }
-        } else if (function_type != .Extern and function_type != .Abstract) {
-            if (!parsed_return_type) {
-                function_node.node.type_def.?.resolved_type.?.Function.return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
-                parsed_return_type = true;
+        } else if (!function_type.canOmitBody()) {
+            if (!parsed_return_type and !function_type.canOmitReturn()) {
+                try self.reportError("Expected `>` after function argument list.");
             }
 
             try self.consume(.LeftBrace, "Expected `{` before function body.");
