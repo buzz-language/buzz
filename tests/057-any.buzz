@@ -1,0 +1,21 @@
+import "std";
+
+test "any" {
+    any anything = "hello";
+
+    assert(anything is str, message: "can manipulate any typed value");
+
+    if (anything as str astring) {
+        assert(astring.len() == "hello".len(), message: "could cast any");
+    }
+}
+
+test "any placeholder" {
+    assert(placeholder is str, message: "can manipulate placeholder with any typed value");
+
+    if (placeholder as str astring) {
+        assert(astring.len() == "hello".len(), message: "could cast placeholder any");
+    }
+}
+
+any placeholder = "hello";

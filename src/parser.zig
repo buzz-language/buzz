@@ -358,6 +358,7 @@ pub const Parser = struct {
         .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
         .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Any
     };
 
     pub const ScriptImport = struct {
@@ -1183,9 +1184,16 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
-            else if (try self.match(.Type))
+                // else if (try self.match(.Type))
+                //     try self.varDeclaration(
+                //         try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                //         .Semicolon,
+                //         constant,
+                //         true,
+                //     )
+            else if (try self.match(.Any))
                 try self.varDeclaration(
-                    try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                    try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                     .Semicolon,
                     constant,
                     true,
@@ -1287,6 +1295,13 @@ pub const Parser = struct {
         } else if (try self.match(.Bool)) {
             return try self.varDeclaration(
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (try self.match(.Any)) {
+            return try self.varDeclaration(
+                try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                 .Semicolon,
                 constant,
                 true,
@@ -5017,8 +5032,10 @@ pub const Parser = struct {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float });
         } else if (try self.match(.Bool)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool });
-        } else if (try self.match(.Type)) {
-            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
+        } else if (try self.match(.Any)) {
+            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Any });
+            // } else if (try self.match(.Type)) {
+            //     return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.LeftBracket)) {
             return self.parseListType(generic_types);
         } else if (try self.match(.LeftBrace)) {

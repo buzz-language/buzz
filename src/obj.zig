@@ -2460,6 +2460,8 @@ pub const ObjTypeDef = struct {
         Float,
         String,
         Pattern,
+        Any,
+        // Types before ObjectInstance have no resolved_type
         ObjectInstance,
         Object,
         Protocol,
@@ -2496,6 +2498,7 @@ pub const ObjTypeDef = struct {
         Void: void,
         UserData: void,
         Fiber: ObjFiber.FiberDef,
+        Any: void,
 
         // For those we check that the value is an instance of, because those are user defined types
         ObjectInstance: *ObjTypeDef,
@@ -2589,6 +2592,7 @@ pub const ObjTypeDef = struct {
             .EnumInstance,
             .Protocol,
             .ProtocolInstance,
+            .Any,
             => self,
 
             .Generic => generic: {
@@ -2837,7 +2841,7 @@ pub const ObjTypeDef = struct {
 
     pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
         // If already optional return itself
-        if (self.optional and self.def_type != .Placeholder) {
+        if ((self.optional or self.def_type == .Any) and self.def_type != .Placeholder) {
             return self;
         }
 
@@ -2906,6 +2910,7 @@ pub const ObjTypeDef = struct {
             .Float => try writer.writeAll("float"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
+            .Any => try writer.writeAll("any"),
             .Fiber => {
                 try writer.writeAll("fib<");
                 try self.resolved_type.?.Fiber.return_type.toStringRaw(writer, qualified);
@@ -3222,6 +3227,7 @@ pub const ObjTypeDef = struct {
             .Pattern,
             .UserData,
             .Type,
+            .Any,
             => return true,
 
             .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
@@ -3289,13 +3295,14 @@ pub const ObjTypeDef = struct {
     // Compare two type definitions
     pub fn eql(expected: *Self, actual: *Self) bool {
         // zig fmt: off
-        const type_eql: bool = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
+        const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
             or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
         // FIXME: previous comment should be wrong now? we do share type_registries between fibers and this should be enough ?
         return expected == actual
             or (expected.optional and actual.def_type == .Void) // Void is equal to any optional type
+            or expected.def_type == .Any // Any is equal to any type
             or (
                 (type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder)
                 and (expected.optional or !actual.optional)

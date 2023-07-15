@@ -862,6 +862,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
         => self.buildValueToObj(value, dest),
         .Placeholder,
         .Generic,
+        .Any,
         => unreachable,
     };
 }
@@ -920,6 +921,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
         => self.buildValueFromObj(value, dest),
         .Placeholder,
         .Generic,
+        .Any,
         => unreachable,
     };
 }
