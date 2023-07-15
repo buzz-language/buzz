@@ -1,30 +1,87 @@
 import "std";
 import "os";
+import "buffer";
+import "io";
+
+| https://datatracker.ietf.org/doc/html/rfc2616
 
 object HttpParseError {
     str? message = null,
 }
 
 object Request {
-    str method,
-    {str, str} headers,
-    str path,
+    str method = "GET",
+    {str, str} headers = {<str, str>},
+    str path = "/",
     int contentLength = 0,
     str? body = null,
 
     fun toString() > str {
-        str result = "{this.method} {this.path} HTTP/1.1\r\n";
-        foreach (str key, str value in this.headers) {
-            result = result + "{key}: {value}\r\n";
+        try {
+            Buffer result = Buffer.init();
+
+            result.write("{this.method} {this.path} HTTP/1.1\r\n");
+            foreach (str key, str value in this.headers) {
+                result.write("{key}: {value}\r\n");
+            }
+
+            result.write("{this.body ?? ""}\r\n");
+
+            str strResult = result.toString();
+            result.deinit();
+
+            return strResult;
+        } catch {}
+
+        return "";
+    }
+
+    static fun read(File input) > Request !> HttpParseError, ReadWriteError, FileSystemError, UnexpectedError {
+        | Parse request line
+        [str] methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(input.readLine()) ?? [<str>];
+
+        if (methodAndUrl.len() == 0) {
+            throw HttpParseError{ message = "Could not parse request: bad request line" };
         }
 
-        result = result + "{this.body ?? ""}\r\n";
+        str method = methodAndUrl[1];
+        str path = methodAndUrl[2];
 
-        return result;
+        | Parse headers
+        {str, str} headers = {<str, str>};
+        int contentLength = 0;
+        int lineOffset = 0;
+        for (str? line = input.readLine(); line != null; line = input.readLine()) {
+            if (line == "\n" or line == "\r" or line == "") {
+                break;
+            }
+
+            [str] headerMatch = _^([^:]+): (.+)_.match(line) ?? [<str>];
+
+            if (headerMatch.len() == 0) {
+                throw HttpParseError{ message = "Could not parse request headers" };
+            }
+
+            headers[headerMatch[1].lower()] = headerMatch[2];
+
+            if (headerMatch[1].lower() == "content-length") {
+                contentLength = parseInt(headerMatch[2].trim()) ?? 0;
+            }
+        }
+
+        | Parse body
+        str? body = if (contentLength > 0) input.read(contentLength) else null;
+
+        return Request{
+            method = method,
+            path = path,
+            headers = headers,
+            contentLength = contentLength,
+            body = body,
+        };
     }
 
     static fun parse(str raw) > Request !> HttpParseError {
-        print(raw);
         [str] lines = raw.split("\n");
         [str]? methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(lines[0]);
 
@@ -38,7 +95,7 @@ object Request {
         {str, str} headers = {<str, str>};
         int contentLength = 0;
         int lineOffset = 0;
-        foreach (int i, str line in lines.sub(1)) {
+        foreach (str line in lines.sub(1)) {
             if (line == "\n" or line == "\r" or line == "") {
                 break;
             }
@@ -73,4 +130,102 @@ object Request {
     }
 }
 
+const {int, str} reasons = {
+    100: "Continue",
+    101: "Switching Protocols",
+    102: "Processing",
+
+    200: "OK",
+    201: "Created",
+    202: "Accepted",
+    203: "Non-authoritative Information",
+    204: "No Content",
+    205: "Reset Content",
+    206: "Partial Content",
+    207: "Multi-Status",
+    208: "Already Reported",
+    226: "IM Used",
+
+    300: "Multiple Choices",
+    301: "Moved Permanently",
+    302: "Found",
+    303: "See Other",
+    304: "Not Modified",
+    305: "Use Proxy",
+    307: "Temporary Redirect",
+    308: "Permanent Redirect",
+
+    400: "Bad Request",
+    401: "Unauthorized",
+    402: "Payment Required",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    406: "Not Acceptable",
+    407: "Proxy Authentication Required",
+    408: "Request Timeout",
+    409: "Conflict",
+    410: "Gone",
+    411: "Length Required",
+    412: "Precondition Failed",
+    413: "Payload Too Large",
+    414: "Request-URI Too Long",
+    415: "Unsupported Media Type",
+    416: "Requested Range Not Satisfiable",
+    417: "Expectation Failed",
+    418: "I'm a teapot",
+    421: "Misdirected Request",
+    422: "Unprocessable Entity",
+    423: "Locked",
+    424: "Failed Dependency",
+    426: "Upgrade Required",
+    428: "Precondition Required",
+    429: "Too Many Requests",
+    431: "Request Header Fields Too Large",
+    444: "Connection Closed Without Response",
+    451: "Unavailable For Legal Reasons",
+    499: "Client Closed Request",
+
+    500: "Internal Server Error",
+    501: "Not Implemented",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+    504: "Gateway Timeout",
+    505: "HTTP Version Not Supported",
+    506: "Variant Also Negotiates",
+    507: "Insufficient Storage",
+    508: "Loop Detected",
+    510: "Not Extended",
+    511: "Network Authentication Required",
+    599: "Network Connect Timeout Error",
+};
+
+object Response {
+    int status = 200,
+    {str, str} headers = {<str, str>},
+    str? body = null,
+
+    fun toString() > str {
+        try {
+            Buffer result = Buffer.init();
+
+            result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
+            foreach (str key, str value in this.headers) {
+                result.write("{key}: {value}\r\n");
+            }
+
+            result.write("{this.body ?? ""}\r\n");
+
+            str strResult = result.toString();
+            result.deinit();
+
+            return strResult;
+        } catch {}
+
+        return "HTTP/1.1 500 Internal Server Error";
+    }
+}
+
 export Request;
+export Response;
+export HttpParseError;
