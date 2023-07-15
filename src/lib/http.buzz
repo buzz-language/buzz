@@ -2,6 +2,7 @@ import "std";
 import "os";
 import "buffer";
 import "io";
+import "errors";
 
 | https://datatracker.ietf.org/doc/html/rfc2616
 
@@ -36,9 +37,9 @@ object Request {
         return "";
     }
 
-    static fun read(File input) > Request !> HttpParseError, ReadWriteError, FileSystemError, UnexpectedError {
+    static fun read(File input) > Request !> HttpParseError, ReadWriteError, FileSystemError, UnexpectedError, InvalidArgumentError {
         | Parse request line
-        [str] methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(input.readLine()) ?? [<str>];
+        [str] methodAndUrl = _^(GET|POST|PUT|OPTIONS|PATCH) (.+) HTTP/1\.1_.match(input.readLine() ?? "") ?? [<str>];
 
         if (methodAndUrl.len() == 0) {
             throw HttpParseError{ message = "Could not parse request: bad request line" };
@@ -56,7 +57,7 @@ object Request {
                 break;
             }
 
-            [str] headerMatch = _^([^:]+): (.+)_.match(line) ?? [<str>];
+            [str] headerMatch = _^([^:]+): (.+)_.match(line ?? "") ?? [<str>];
 
             if (headerMatch.len() == 0) {
                 throw HttpParseError{ message = "Could not parse request headers" };
@@ -205,6 +206,21 @@ object Response {
     {str, str} headers = {<str, str>},
     str? body = null,
 
+    fun write(File out) > void !> FileSystemError, ReadWriteError, UnexpectedError {
+        try {
+            out.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
+            foreach (str key, str value in this.headers) {
+                out.write("{key}: {value}\r\n");
+            }
+
+            out.write("\r\n{this.body ?? ""}\r\n");
+            
+            return;
+        } catch {}
+
+        out.write("HTTP/1.1 500 Internal Server Error");
+    }
+
     fun toString() > str {
         try {
             Buffer result = Buffer.init();
@@ -214,7 +230,7 @@ object Response {
                 result.write("{key}: {value}\r\n");
             }
 
-            result.write("{this.body ?? ""}\r\n");
+            result.write("\r\n{this.body ?? ""}\r\n");
 
             str strResult = result.toString();
             result.deinit();

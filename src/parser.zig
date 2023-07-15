@@ -922,6 +922,25 @@ pub const Parser = struct {
                             );
                         }
                     },
+                    .ProtocolInstance => {
+                        // We can't create a field access placeholder without a name
+                        assert(child_placeholder.name != null);
+
+                        const protocol_def = resolved_type.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
+
+                        // Search for a field matching the placeholder
+                        if (protocol_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                            try self.resolvePlaceholder(child, method_def, true);
+                        } else {
+                            try self.reportErrorFmt(
+                                "`{s}` has no method `{s}`",
+                                .{
+                                    protocol_def.name.string,
+                                    child_placeholder.name.?.string,
+                                },
+                            );
+                        }
+                    },
                     .Enum => {
                         // We can't create a field access placeholder without a name
                         assert(child_placeholder.name != null);
