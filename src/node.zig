@@ -4280,7 +4280,7 @@ pub const CallNode = struct {
                     try codegen.reportPlaceholder(catch_default.type_def.?.resolved_type.?.Placeholder);
                 } else {
                     // Expression
-                    if (!node.type_def.?.eql(catch_default.type_def.?)) {
+                    if (!node.type_def.?.eql(catch_default.type_def.?) and !(try node.type_def.?.cloneOptional(&codegen.gc.type_registry)).eql(catch_default.type_def.?)) {
                         try codegen.reportTypeCheckAt(
                             node.type_def.?,
                             catch_default.type_def.?,
