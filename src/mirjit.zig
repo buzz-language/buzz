@@ -1003,6 +1003,7 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         .Subscript => try self.generateSubscript(n.SubscriptNode.cast(node).?),
         .Map => try self.generateMap(n.MapNode.cast(node).?),
         .Is => try self.generateIs(n.IsNode.cast(node).?),
+        .As => try self.generateAs(n.AsNode.cast(node).?),
         .Try => try self.generateTry(n.TryNode.cast(node).?),
         .Throw => try self.generateThrow(n.ThrowNode.cast(node).?),
         .Unwrap => try self.generateUnwrap(n.UnwrapNode.cast(node).?),
@@ -2952,6 +2953,48 @@ fn generateIs(self: *Self, is_node: *n.IsNode) Error!?m.MIR_op_t {
     );
 
     return res;
+}
+
+fn generateAs(self: *Self, as_node: *n.AsNode) Error!?m.MIR_op_t {
+    const left = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("left", m.MIR_T_I64),
+    );
+    self.MOV(
+        left,
+        (try self.generateNode(as_node.left)).?,
+    );
+
+    const res = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("res", m.MIR_T_I64),
+    );
+
+    try self.buildExternApiCall(
+        .bz_valueIs,
+        res,
+        &[_]m.MIR_op_t{
+            left,
+            m.MIR_new_uint_op(self.ctx, as_node.constant.val),
+        },
+    );
+
+    const casted_label = m.MIR_new_label(self.ctx);
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, casted_label),
+        res,
+        m.MIR_new_uint_op(self.ctx, v.Value.True.val),
+    );
+
+    self.MOV(
+        left,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    self.append(casted_label);
+
+    return left;
 }
 
 fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {

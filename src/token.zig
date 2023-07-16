@@ -162,6 +162,7 @@ pub const TokenType = enum {
     Static, // static
     From, // from
     As, // as
+    AsBang, // as?
     Extern, // extern
     Eof, // EOF
     Error, // Error

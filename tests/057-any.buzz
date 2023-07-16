@@ -19,3 +19,11 @@ test "any placeholder" {
 }
 
 any placeholder = "hello";
+
+test "as?" {
+    any anything = 12;
+
+    assert((anything as? int) == 12, message: "as?");
+
+    assert((anything as? str) == null, message: "as?");
+}

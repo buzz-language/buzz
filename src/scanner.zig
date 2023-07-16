@@ -216,6 +216,10 @@ pub const Scanner = struct {
         const keywordOpt = tk.keywords.get(literal);
 
         if (keywordOpt) |keyword| {
+            if (keyword == .As and self.match('?')) {
+                return self.makeToken(.AsBang, null, null, null);
+            }
+
             return self.makeToken(keyword, literal, null, null);
         } else {
             return self.makeToken(.Identifier, literal, null, null);

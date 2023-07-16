@@ -88,6 +88,7 @@ const WhileNode = _node.WhileNode;
 const DoUntilNode = _node.DoUntilNode;
 const BlockNode = _node.BlockNode;
 const DotNode = _node.DotNode;
+const AsNode = _node.AsNode;
 const FunDeclarationNode = _node.FunDeclarationNode;
 const ObjectInitNode = _node.ObjectInitNode;
 const ObjectDeclarationNode = _node.ObjectDeclarationNode;
@@ -236,7 +237,7 @@ pub const Parser = struct {
     pub const Precedence = enum {
         None,
         Assignment, // =, -=, +=, *=, /=
-        Is, // is
+        IsAs, // is, as?
         Or, // or
         And, // and
         Equality, // ==, !=
@@ -325,7 +326,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Continue
         .{ .prefix = null, .infix = null, .precedence = .None }, // Default
         .{ .prefix = null, .infix = null, .precedence = .None }, // In
-        .{ .prefix = null, .infix = is, .precedence = .Is }, // Is
+        .{ .prefix = null, .infix = is, .precedence = .IsAs }, // Is
         .{ .prefix = integer, .infix = null, .precedence = .None }, // Integer
         .{ .prefix = float, .infix = null, .precedence = .None }, // FloatValue
         .{ .prefix = string, .infix = null, .precedence = .None }, // String
@@ -345,6 +346,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Static
         .{ .prefix = null, .infix = null, .precedence = .None }, // From
         .{ .prefix = null, .infix = null, .precedence = .None }, // As
+        .{ .prefix = null, .infix = as, .precedence = .IsAs }, // AsBang
         .{ .prefix = null, .infix = null, .precedence = .None }, // Extern
         .{ .prefix = null, .infix = null, .precedence = .None }, // Eof
         .{ .prefix = null, .infix = null, .precedence = .None }, // Error
@@ -3975,6 +3977,23 @@ pub const Parser = struct {
                 .def_type = .Bool,
             },
         );
+
+        return &node.node;
+    }
+
+    fn as(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
+        const start_location = left.location;
+
+        const constant = (try self.parseTypeDef(null)).toValue();
+
+        var node = try self.gc.allocator.create(AsNode);
+        node.* = AsNode{
+            .left = left,
+            .constant = constant,
+        };
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+        node.node.type_def = try ObjTypeDef.cast(constant.obj()).?.cloneOptional(&self.gc.type_registry);
 
         return &node.node;
     }

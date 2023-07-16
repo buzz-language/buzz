@@ -62,6 +62,7 @@ pub const ParseNodeType = enum(u8) {
     Unwrap,
     ForceUnwrap,
     Is,
+    As,
     Expression,
     Grouping,
     NamedVariable,
@@ -2025,6 +2026,122 @@ pub const IsNode = struct {
     pub fn cast(nodePtr: *anyopaque) ?*Self {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Is) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const AsNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .As,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = cnts,
+        .render = render,
+    },
+
+    left: *ParseNode,
+    constant: Value,
+
+    fn cnts(nodePtr: *anyopaque) bool {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        return self.left.isConstant(self.left);
+    }
+
+    fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+            const left = try self.left.toValue(self.left, gc);
+
+            if (_value.valueIs(self.constant, left)) {
+                return left;
+            }
+
+            return _value.Value.Null;
+        }
+
+        return GenError.NotConstant;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        var self = Self.cast(node).?;
+
+        assert(self.constant.isObj());
+        assert(self.constant.obj().obj_type == .Type);
+
+        if (ObjTypeDef.cast(self.constant.obj()).?.def_type == .Placeholder) {
+            try codegen.reportPlaceholder(ObjTypeDef.cast(self.constant.obj()).?.resolved_type.?.Placeholder);
+        }
+
+        _ = try self.left.toByteCode(self.left, codegen, breaks);
+
+        try codegen.emitOpCode(self.left.location, .OP_COPY);
+        try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
+        try codegen.emitOpCode(self.node.location, .OP_IS);
+        try codegen.emitOpCode(self.node.location, .OP_NOT);
+        const jump = try codegen.emitJump(self.node.location, .OP_JUMP_IF_FALSE);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
+        try codegen.emitOpCode(self.node.location, .OP_NULL);
+        const jump_over = try codegen.emitJump(self.node.location, .OP_JUMP);
+        try codegen.patchJump(jump);
+        try codegen.emitOpCode(self.node.location, .OP_POP);
+        try codegen.patchJump(jump_over);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        var self = Self.cast(node).?;
+
+        try out.writeAll("{\"node\": \"AsOpt\", \"left\": ");
+
+        try self.left.toJson(self.left, out);
+
+        try out.writeAll(", \"constant\": \"");
+        try valueToString(out, self.constant);
+        try out.writeAll("\", ");
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        try self.left.render(self.left, out, depth);
+        try out.writeAll(" as? ");
+        try ObjTypeDef.cast(self.constant.obj()).?.toStringUnqualified(out);
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        if (node.node_type != .As) {
             return null;
         }
 
