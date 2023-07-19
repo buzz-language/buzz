@@ -265,6 +265,32 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
+fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
+    switch (err) {
+        error.AddressFamilyNotSupported,
+        error.AddressInUse,
+        error.AddressNotAvailable,
+        error.ConnectionPending,
+        error.ConnectionRefused,
+        error.ConnectionResetByPeer,
+        error.ConnectionTimedOut,
+        error.PermissionDenied,
+        error.ProcessFdQuotaExceeded,
+        error.ProtocolFamilyNotAvailable,
+        error.ProtocolNotSupported,
+        error.SystemFdQuotaExceeded,
+        error.SystemResources,
+        error.SocketTypeNotSupported,
+        error.FileNotFound,
+        error.WouldBlock,
+        error.NetworkUnreachable,
+        error.NameTooLong,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+    }
+}
+
 export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
@@ -280,7 +306,11 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
 
     switch (protocol) {
         0 => {
-            const stream = std.net.tcpConnectToHost(api.VM.allocator, address, @as(u16, @intCast(port.?))) catch |err| {
+            const stream = std.net.tcpConnectToHost(
+                api.VM.allocator,
+                address,
+                @as(u16, @intCast(port.?)),
+            ) catch |err| {
                 handleConnectError(ctx, err);
 
                 return -1;
@@ -291,11 +321,21 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
             return 1;
         },
         1, // TODO: UDP
-        2, // TODO: IPC
         => {
             ctx.vm.pushError("errors.NotYetImplementedError");
 
             return -1;
+        },
+        2 => {
+            const stream = std.net.connectUnixSocket(address) catch |err| {
+                handleConnectUnixError(ctx, err);
+
+                return -1;
+            };
+
+            ctx.vm.bz_pushInteger(@intCast(stream.handle));
+
+            return 1;
         },
         else => {
             ctx.vm.pushError("errors.InvalidArgumentError");

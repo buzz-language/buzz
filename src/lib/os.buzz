@@ -64,7 +64,7 @@ object Socket {
     || @param port Port to which to connect
     || @param protocol Protocol to use
     || @return A new `Socket` opened and ready to use
-    static fun connect(str address, int port, SocketProtocol netProtocol) > Socket !> InvalidArgumentError, SocketError, NotYetImplementedError {
+    static fun connect(str address, int port = 0, SocketProtocol netProtocol) > Socket !> InvalidArgumentError, SocketError, NotYetImplementedError {
         return Socket{
             fd = SocketConnect(address, port: port, netProtocol: netProtocol.value),
         };
