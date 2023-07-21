@@ -2467,6 +2467,10 @@ pub const Parser = struct {
                     try self.reportError("`main` function signature must only have one `[str]` argument");
                 }
             }
+
+            if (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void) {
+                try self.reportError("`main` function must either return `int` or `void`");
+            }
         }
 
         const slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true, true);
