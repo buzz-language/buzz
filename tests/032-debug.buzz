@@ -60,11 +60,11 @@ test "dump" {
         },
     };
 
-    debug.dump(<[int]>, list);
-    debug.dump(<{str, int}>, map);
-    debug.dump(<MyObject>, instance);
-    debug.dump(<MyStringEnum>, MyStringEnum.One);
-    debug.dump(<MyEnum>, MyEnum.One);
-    debug.dump(<str>, "hello world");
-    debug.dump(<pat>, _hello .*_);
+    debug.dump(list);
+    debug.dump(map);
+    debug.dump(instance);
+    debug.dump(MyStringEnum.One);
+    debug.dump(MyEnum.One);
+    debug.dump("hello world");
+    debug.dump(_hello .*_);
 }

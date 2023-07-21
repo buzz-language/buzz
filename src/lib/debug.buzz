@@ -2,7 +2,7 @@ import "std";
 import "errors";
 
 || Dump any value to stdout
-extern fun dump(<T>, T value) > void;
+extern fun dump(any value) > void;
 
 || Parse `source` and return the abstract syntax tree in JSON
 || @param source the buzz source
