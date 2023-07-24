@@ -161,7 +161,15 @@ object Client {
         };
     }
 
-    fun send(Request request) > Request !> HttpError {
+    fun send(Request request) > Response > void !> HttpError, InvalidArgumentError, HttpParseError {
+        this.start(request);
+
+        yield void;
+
+        return request.wait();
+    }
+
+    fun start(Request request) > Request !> HttpError {
         ud requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,

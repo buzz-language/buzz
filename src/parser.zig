@@ -2492,12 +2492,12 @@ pub const Parser = struct {
 
     fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         try self.consume(.Less, "Expected `<` after `fib`");
-        const return_type = try self.parseTypeDef(generic_types);
+        const return_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
         try self.consume(.Comma, "Expected `,` after fiber return type");
-        const yield_type = try self.parseTypeDef(generic_types);
+        const yield_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
-            try self.reportError("Expected optional type");
+            try self.reportError("Expected optional type or void");
         }
 
         try self.consume(.Greater, "Expected `>` after fiber yield type");
@@ -3052,7 +3052,7 @@ pub const Parser = struct {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
                 // Resume returns null if nothing was yielded and/or fiber reached its return statement
-                assert(fiber.yield_type.optional);
+                assert(fiber.yield_type.optional or fiber.yield_type.def_type == .Void);
                 node.node.type_def = fiber.yield_type;
             }
         }

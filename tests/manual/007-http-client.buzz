@@ -15,7 +15,7 @@ test "Client" {
 
     dump(request);
 
-    Response response = client.send(request).wait();
+    Response response = client.send(request);
 
     dump(response);
 
