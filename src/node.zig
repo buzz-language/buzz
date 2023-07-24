@@ -5249,12 +5249,21 @@ pub const InlineIfNode = struct {
         }
 
         // Both should have same type
-        if (!self.body.type_def.?.eql(self.else_branch.type_def.?)) {
+        if (!node.type_def.?.eql(self.body.type_def.?)) {
             try codegen.reportTypeCheckAt(
+                node.type_def.?,
                 self.body.type_def.?,
-                self.else_branch.type_def.?,
-                "Types not matching",
+                "Inline if body type not matching",
                 self.body.location,
+            );
+        }
+
+        if (!node.type_def.?.eql(self.else_branch.type_def.?)) {
+            try codegen.reportTypeCheckAt(
+                node.type_def.?,
+                self.else_branch.type_def.?,
+                "Inline if else type not matching",
+                self.else_branch.location,
             );
         }
 

@@ -3414,7 +3414,17 @@ pub const Parser = struct {
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
-        node.node.type_def = body.type_def orelse else_branch.type_def;
+
+        if (body.type_def == null or body.type_def.?.def_type == .Void) {
+            node.node.type_def = else_branch.type_def;
+        } else {
+            node.node.type_def = body.type_def;
+        }
+
+        const is_optional = node.node.type_def.?.optional or body.type_def.?.optional or else_branch.type_def.?.optional or body.type_def.?.def_type == .Void or else_branch.type_def.?.def_type == .Void;
+        if (is_optional and !node.node.type_def.?.optional) {
+            node.node.type_def = try node.node.type_def.?.cloneOptional(&self.gc.type_registry);
+        }
 
         return &node.node;
     }
