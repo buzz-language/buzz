@@ -533,7 +533,7 @@ pub const Parser = struct {
         const name: []const u8 = switch (function_type) {
             .Method => "this",
             .EntryPoint => "$args",
-            .ScriptEntryPoint => "args",
+            .ScriptEntryPoint => "$args",
             else => "_",
         };
 
