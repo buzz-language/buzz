@@ -6048,9 +6048,10 @@ pub const ForEachNode = struct {
         if (!self.key_omitted) {
             try out.writeAll("\"key\": ");
             try self.key.node.toJson(&self.key.node, out);
+            try out.writeAll(", ");
         }
 
-        try out.writeAll(", \"value\": ");
+        try out.writeAll("\"value\": ");
 
         try self.value.node.toJson(&self.value.node, out);
 
