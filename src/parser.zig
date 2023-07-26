@@ -261,6 +261,36 @@ pub const Parser = struct {
         precedence: Precedence,
     };
 
+    const search_paths = [_][]const u8{
+        "./?.x",
+        "./?/main.x",
+        "./?/src/main.x",
+        "./?/src/?.x",
+        "/usr/share/buzz/x/?.x",
+        "/usr/share/buzz/x/?/main.x",
+        "/usr/share/buzz/x/?/src/main.x",
+        "/usr/local/share/buzz/x/?/src/?.x",
+        "/usr/local/share/buzz/x/?.x",
+        "/usr/local/share/buzz/x/?/main.x",
+        "/usr/local/share/buzz/x/?/src/main.x",
+        "/usr/local/share/buzz/x/?/src/?.x",
+        "$/?.x",
+        "$/?/main.x",
+        "$/?/src/?.x",
+        "$/?/src/main.x",
+    };
+
+    const lib_search_paths = [_][]const u8{
+        "./lib?.x",
+        "./?/src/lib?.x",
+        "/usr/share/buzz/x/lib?.x",
+        "/usr/share/buzz/x/?/src/lib?.x",
+        "/usr/share/local/buzz/x/lib?.x",
+        "/usr/share/local/buzz/x/?/src/lib?.x",
+        "$/lib?.x",
+        "$/?/src/lib?.x",
+    };
+
     const rules = [_]ParseRule{
         .{ .prefix = null, .infix = null, .precedence = .None }, // Pipe
         .{ .prefix = list, .infix = subscript, .precedence = .Call }, // LeftBracket
@@ -4628,63 +4658,102 @@ pub const Parser = struct {
         return node.toNode();
     }
 
+    fn searchPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+        var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+
+        for (search_paths) |path| {
+            const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
+            defer self.gc.allocator.free(filled);
+            const suffixed = try std.mem.replaceOwned(u8, self.gc.allocator, filled, "x", "buzz");
+            defer self.gc.allocator.free(suffixed);
+            const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzz_lib_path());
+
+            try paths.append(prefixed);
+        }
+
+        return paths;
+    }
+
+    fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+        var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+
+        for (lib_search_paths) |path| {
+            const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
+            defer self.gc.allocator.free(filled);
+            const suffixed = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                filled,
+                "x",
+                switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
+            );
+            defer self.gc.allocator.free(suffixed);
+            const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzz_lib_path());
+
+            try paths.append(prefixed);
+        }
+
+        return paths;
+    }
+
     fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!?ScriptImport {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
-            var lib_path = std.ArrayList(u8).init(self.gc.allocator);
-            defer lib_path.deinit();
-            _ = try lib_path.writer().print(
-                "{s}" ++ std.fs.path.sep_str ++ "{s}.buzz",
-                .{ buzz_lib_path(), file_name },
-            );
-            // std.debug.print("search path {s}\n", .{lib_path.items});
-
-            var dir_path = std.ArrayList(u8).init(self.gc.allocator);
-            defer dir_path.deinit();
-            _ = try dir_path.writer().print(
-                ".{s}{s}.buzz",
-                .{ std.fs.path.sep_str, file_name },
-            );
+            const paths = try self.searchPaths(file_name);
+            defer {
+                for (paths.items) |path| {
+                    self.gc.allocator.free(path);
+                }
+                paths.deinit();
+            }
 
             // Find and read file
-            // zig fmt: off
             var file: ?std.fs.File = null;
             var absolute_path: ?[]const u8 = null;
             var owned = false;
-
-            if (std.fs.path.isAbsolute(lib_path.items)) {
-                file = std.fs.openFileAbsolute(lib_path.items, .{}) catch null;
-                if (file != null) {
-                    absolute_path = lib_path.items;
-                }
-            } else {
-                file = std.fs.cwd().openFile(lib_path.items, .{}) catch null;
-                if (file != null) {
-                    absolute_path = try std.fs.cwd().realpathAlloc(self.gc.allocator, lib_path.items);
-                    owned = true;
+            for (paths.items) |path| {
+                if (std.fs.path.isAbsolute(path)) {
+                    file = std.fs.openFileAbsolute(path, .{}) catch null;
+                    if (file != null) {
+                        absolute_path = path;
+                        break;
+                    }
+                } else {
+                    file = std.fs.cwd().openFile(path, .{}) catch null;
+                    if (file != null) {
+                        absolute_path = try std.fs.cwd().realpathAlloc(self.gc.allocator, path);
+                        owned = true;
+                        break;
+                    }
                 }
             }
 
             if (file == null) {
-                if (std.fs.path.isAbsolute(dir_path.items)) {
-                    file = std.fs.openFileAbsolute(dir_path.items, .{}) catch {
-                        try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
-                        return null;
-                    };
+                var search_report = std.ArrayList(u8).init(self.gc.allocator);
+                defer search_report.deinit();
+                var writer = search_report.writer();
 
-                    absolute_path = dir_path.items;
-                } else {
-                    file = std.fs.cwd().openFile(dir_path.items, .{}) catch {
-                        try self.reportErrorFmt("Could not find buzz script `{s}`", .{file_name});
-                        return null;
-                    };
-
-                    absolute_path = try std.fs.cwd().realpathAlloc(self.gc.allocator, dir_path.items);
-                    owned = true;
+                for (paths.items) |path| {
+                    try writer.print("    no file `{s}`\n", .{path});
                 }
+
+                try self.reportErrorFmt(
+                    "buzz script `{s}` not found:\n{s}",
+                    .{
+                        file_name,
+                        search_report.items,
+                    },
+                );
+
+                return null;
             }
-            // zig fmt: on
+
             defer file.?.close();
             defer {
                 if (owned) {
@@ -4755,7 +4824,7 @@ pub const Parser = struct {
             }
         } else {
             // TODO: when it cannot load dynamic library, the error is the same
-            try self.reportError("Could not compile import or import external dynamic library.");
+            try self.reportErrorFmt("Could not compile import or import external dynamic library `{s}`", .{file_name});
         }
 
         return import;
@@ -4768,44 +4837,27 @@ pub const Parser = struct {
         const file_name =
             if (std.mem.endsWith(u8, full_file_name, ".buzz")) full_file_name[0..(full_file_name.len - 5)] else full_file_name;
 
-        // We have to insert `lib` prefix
         const file_basename = std.fs.path.basename(file_name);
-        const file_dirname = std.fs.path.dirname(file_name);
+        const paths = try self.searchLibPaths(file_basename);
+        defer {
+            for (paths.items) |path| {
+                self.gc.allocator.free(path);
+            }
+            paths.deinit();
+        }
 
-        const allocator = self.gc.allocator;
-
-        const dll_basename = try std.fmt.allocPrint(allocator, "lib{s}.{s}", .{
-            file_basename,
-            switch (builtin.os.tag) {
-                .linux, .freebsd, .openbsd => "so",
-                .windows => "dll",
-                .macos, .tvos, .watchos, .ios => "dylib",
-                else => unreachable,
-            },
-        });
-        defer allocator.free(dll_basename);
-
-        // search in files installed with buzz
-        // e.g. $PREFIX/lib/buzz/lib*.so
-        const dll_path_vendor = try std.fmt.allocPrint(allocator, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{ buzz_lib_path(), dll_basename });
-        defer allocator.free(dll_path_vendor);
-
-        // search in local directory
-        const dll_path_relative = try std.fmt.allocPrint(allocator, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{
-            file_dirname orelse ".",
-            dll_basename,
-        });
-        defer allocator.free(dll_path_relative);
-
-        // POSIX dlopen uses LD_LIBRARY_PATH to find such library
-        const dll_path_system = dll_basename;
-
-        var lib: ?std.DynLib = std.DynLib.open(dll_path_vendor) catch std.DynLib.open(dll_path_relative) catch std.DynLib.open(dll_path_system) catch null;
+        var lib: ?std.DynLib = null;
+        for (paths.items) |path| {
+            lib = std.DynLib.open(path) catch null;
+            if (lib != null) {
+                break;
+            }
+        }
 
         if (lib) |*dlib| {
             // Convert symbol names to zig slices
-            const ssymbol = try allocator.dupeZ(u8, symbol);
-            defer allocator.free(ssymbol);
+            const ssymbol = try self.gc.allocator.dupeZ(u8, symbol);
+            defer self.gc.allocator.free(ssymbol);
 
             // Lookup symbol NativeFn
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
@@ -4824,11 +4876,24 @@ pub const Parser = struct {
             );
         }
 
-        if (builtin.os.tag == .macos) {
-            try self.reportError(std.mem.sliceTo(dlerror(), 0));
-        } else {
-            try self.reportErrorFmt("Could not open lib `{s}`", .{file_name});
+        var search_report = std.ArrayList(u8).init(self.gc.allocator);
+        defer search_report.deinit();
+        var writer = search_report.writer();
+
+        for (paths.items) |path| {
+            try writer.print("    no file `{s}`\n", .{path});
         }
+
+        try self.reportErrorFmt(
+            "External library `{s}` not found: {s}\n",
+            .{
+                if (builtin.os.tag == .macos)
+                    std.mem.sliceTo(dlerror(), 0)
+                else
+                    "",
+                search_report.items,
+            },
+        );
 
         return null;
     }
