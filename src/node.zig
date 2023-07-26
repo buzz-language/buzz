@@ -7248,8 +7248,10 @@ pub const ExportNode = struct {
         .render = render,
     },
 
-    identifier: Token,
+    identifier: ?Token = null,
     alias: ?Token = null,
+
+    declaration: ?*ParseNode = null,
 
     fn constant(_: *anyopaque) bool {
         return false;
@@ -7259,9 +7261,14 @@ pub const ExportNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        if (self.declaration) |decl| {
+            _ = try decl.toByteCode(decl, codegen, breaks);
+        }
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -7273,10 +7280,22 @@ pub const ExportNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Export\", \"identifier\": \"{s}\", ", .{self.identifier.lexeme});
+        try out.print("{{\"node\": \"Export\", ", .{});
+
+        if (self.identifier) |identifier| {
+            try out.print("\"identifier\": \"{s}\", ", .{identifier.lexeme});
+        }
 
         if (self.alias) |alias| {
             try out.print("\"alias\": \"{s}\", ", .{alias.lexeme});
+        }
+
+        if (self.declaration) |decl| {
+            try out.print("\"declaration\": ", .{});
+
+            try decl.toJson(@ptrCast(decl), out);
+
+            try out.print(", ", .{});
         }
 
         try ParseNode.stringify(node, out);
@@ -7290,12 +7309,16 @@ pub const ExportNode = struct {
 
         try out.writeByteNTimes(' ', depth * 4);
 
-        try out.print("export {s}", .{self.identifier.lexeme});
-        if (self.alias) |alias| {
-            try out.print(" as {s}", .{alias.lexeme});
+        if (self.identifier) |identifier| {
+            try out.print("export {s}", .{identifier.lexeme});
+            if (self.alias) |alias| {
+                try out.print(" as {s}", .{alias.lexeme});
+            }
+            try out.writeAll(";\n");
+        } else {
+            try out.print("export ", .{});
+            try self.declaration.?.render(@ptrCast(self.declaration), out, depth);
         }
-
-        try out.writeAll(";\n");
     }
 
     pub fn toNode(self: *Self) *ParseNode {

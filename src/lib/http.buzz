@@ -6,7 +6,7 @@ import "errors";
 
 | https://datatracker.ietf.org/doc/html/rfc2616
 
-enum(str) Method {
+export enum(str) Method {
     GET,
     HEAD,
     POST,
@@ -99,7 +99,7 @@ const {int, str} reasons = {
     599: "Network Connect Timeout Error",
 };
 
-enum HttpError {
+export enum HttpError {
     CannotRedirect,
     CertificateBundleLoadFailure,
     CompressionInitializationFailed,
@@ -142,7 +142,7 @@ enum HttpError {
     UriMissingHost,
 }
 
-object HttpParseError{
+export object HttpParseError{
     str? message = null,
 }
 
@@ -151,7 +151,7 @@ object Connection {
     ud connection,
 }
 
-object Client {
+export object Client {
     || @private
     ud client,
 
@@ -187,7 +187,7 @@ object Client {
     }
 }
 
-object Request {
+export object Request {
     ud? request = null,
     Response? response = null,
     Method method,
@@ -230,7 +230,7 @@ object Request {
     }
 }
 
-object Response {
+export object Response {
     int status = 200,
     {str, str} headers = {<str, str>},
     str? body = null,
@@ -255,10 +255,3 @@ object Response {
         return "HTTP/1.1 500 Internal Server Error";
     }
 }
-
-export Client;
-export Request;
-export Response;
-export HttpParseError;
-export HttpError;
-export Method;

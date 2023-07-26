@@ -1,5 +1,5 @@
 || Hash algorithms
-enum HashAlgorithm {
+export enum HashAlgorithm {
     Md5,
     Sha1,
     Sha224,
@@ -18,7 +18,4 @@ enum HashAlgorithm {
 || @param algo Hash algorithm to use
 || @param data Data to hash
 || @return Hash of data has hex string
-extern fun hash(HashAlgorithm algo, str data) > str;
-
-export hash;
-export HashAlgorithm;
+export extern fun hash(HashAlgorithm algo, str data) > str;

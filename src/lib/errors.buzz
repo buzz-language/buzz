@@ -1,4 +1,4 @@
-enum FileSystemError {
+export enum FileSystemError {
     AccessDenied,
     BadPathName,
     DeviceBusy,
@@ -31,7 +31,7 @@ enum FileSystemError {
     WouldBlock,
 }
 
-enum ExecError {
+export enum ExecError {
     ChildExecFailed,
     CurrentWorkingDirectoryUnlinked,
     InvalidExe,
@@ -45,7 +45,7 @@ enum ExecError {
     WaitTimeOut,
 }
 
-enum SocketError {
+export enum SocketError {
     AddressFamilyNotSupported,
     AddressInUse,
     AddressNotAvailable,
@@ -88,7 +88,7 @@ enum SocketError {
     WouldBlock,
 }
 
-enum ReadWriteError {
+export enum ReadWriteError {
     BrokenPipe,
     ConnectionResetByPeer,
     ConnectionTimedOut,
@@ -100,40 +100,27 @@ enum ReadWriteError {
     StreamTooLong,
 }
 
-object CompileError {
+export object CompileError {
     str message = "CompileError",
 }
-object InterpretError {
+export object InterpretError {
     str message = "InterpretError",
 }
-object InvalidArgumentError {
+export object InvalidArgumentError {
     str message = "InvalidArgumentError",
 }
-object NotYetImplementedError {
+export object NotYetImplementedError {
     str message = "NotYetImplementedError",
 }
-object OutOfMemoryError {
+export object OutOfMemoryError {
     str message = "OutOfMemoryError",
 }
-object OverflowError {
+export object OverflowError {
     str message = "OverflowError",
 }
-object UnderflowError {
+export object UnderflowError {
     str message = "UnderflowError",
 }
-object UnexpectedError {
+export object UnexpectedError {
     str message = "UnexpectedError",
 }
-
-export CompileError;
-export ExecError;
-export FileSystemError;
-export InterpretError;
-export InvalidArgumentError;
-export NotYetImplementedError;
-export OutOfMemoryError;
-export OverflowError;
-export ReadWriteError;
-export SocketError;
-export UnderflowError;
-export UnexpectedError;

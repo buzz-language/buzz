@@ -17,7 +17,6 @@ const BuildOptions = @import("build_options");
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
 const ObjFunction = _obj.ObjFunction;
-const Global = _parser.Global;
 const Parser = _parser.Parser;
 const OpCode = _chunk.OpCode;
 const Value = _value.Value;

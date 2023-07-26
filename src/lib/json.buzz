@@ -2,7 +2,7 @@ import "std";
 import "buffer";
 import "errors";
 
-object JsonParseError {
+export object JsonParseError {
     str? message = null,
 }
 
@@ -212,7 +212,7 @@ object JsonParser {
 }
 
 || Utility object to manage data from a JSON string
-object Json {
+export object Json {
     || When wrapped data is a string
     str? string = null,
     || When wrapped data is a boolean
@@ -311,6 +311,3 @@ object Json {
         return JsonParser{ source = json }.next();
     }
 }
-
-export Json;
-export JsonParseError;

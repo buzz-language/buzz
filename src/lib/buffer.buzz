@@ -1,7 +1,7 @@
 import "errors";
 
-object WriteWhileReadingError {}
-object OutOfBoundError {}
+export object WriteWhileReadingError {}
+export object OutOfBoundError {}
 
 || @private
 extern fun BufferNew(int capacity) > ud;
@@ -37,7 +37,7 @@ extern fun BufferAt(ud userdata, int index) > int;
 extern fun BufferSetAt(ud userdata, int index, int value) > void;
 
 || Read and write data to a string buffer
-object Buffer {
+export object Buffer {
     || @private
     ud buffer,
 
@@ -144,7 +144,3 @@ object Buffer {
         throw OutOfBoundError{};
     }
 }
-
-export Buffer;
-export OutOfBoundError;
-export WriteWhileReadingError;

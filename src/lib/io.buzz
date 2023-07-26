@@ -20,14 +20,14 @@ extern fun getStdOut() > int;
 extern fun getStdErr() > int;
 
 || File mode with which you can open a file
-enum FileMode {
+export enum FileMode {
     read,
     write,
     update,
 }
 
 || Object to manipulate an opened file
-object File {
+export object File {
     || File descriptor
     int fd,
 
@@ -73,19 +73,12 @@ object File {
 }
 
 || stdin
-const File stdin = File{ fd = getStdIn() };
+export const File stdin = File{ fd = getStdIn() };
 || stdout
-const File stdout = File{ fd = getStdOut() };
+export const File stdout = File{ fd = getStdOut() };
 || stderr
-const File stderr = File{ fd = getStdErr() };
+export const File stderr = File{ fd = getStdErr() };
 
 || Run a buzz file
 || @param filename path to buzz file
-extern fun runFile(str filename) > void !> CompileError, InterpretError, FileSystemError, ReadWriteError;
-
-export FileMode;
-export File;
-export stdin;
-export stdout;
-export stderr;
-export runFile;
+export extern fun runFile(str filename) > void !> CompileError, InterpretError, FileSystemError, ReadWriteError;

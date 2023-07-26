@@ -1,34 +1,27 @@
 import "errors";
 
 || @return epoch time in ms
-extern fun time() > float;
+export extern fun time() > float;
 
 || Returns environment variable under `key`
 || @param key environment variable name
-extern fun env(str key) > str? !> InvalidArgumentError;
+export extern fun env(str key) > str? !> InvalidArgumentError;
 
 || @return path to system temp directory
-extern fun tmpDir() > str;
+export extern fun tmpDir() > str;
 
 || @param prefix prefix to the temp file name
 || @return a temporary file name in system tmp dir
-extern fun tmpFilename(str? prefix) > str;
+export extern fun tmpFilename(str? prefix) > str;
 
 || Exit program with `exitCode`
 || @param exitCode exit code
-extern fun buzzExit(int exitCode) > void;
+export extern fun buzzExit(int exitCode) > void;
 
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-extern fun execute([str] command) > int !> FileSystemError, UnexpectedError;
-
-export time;
-export env;
-export tmpDir;
-export tmpFilename;
-export buzzExit as exit;
-export execute;
+export extern fun execute([str] command) > int !> FileSystemError, UnexpectedError;
 
 || @private
 extern fun SocketConnect(str address, int port, int netProtocol) > int !> InvalidArgumentError, SocketError, NotYetImplementedError;
@@ -48,14 +41,14 @@ extern fun SocketReadLine(int fd) > str? !> FileSystemError, UnexpectedError, Re
 extern fun SocketReadAll(int fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 
 || Protocols supported over a socket
-enum SocketProtocol {
+export enum SocketProtocol {
     tcp,
     udp,
     ipc,
 }
 
 || A socket
-object Socket {
+export object Socket {
     || @private
     int fd,
 
@@ -102,7 +95,7 @@ object Socket {
 }
 
 || A TCP Server
-object TcpServer {
+export object TcpServer {
     || @private
     Socket serverSocket,
     || @private

@@ -405,6 +405,8 @@ pub const Parser = struct {
     script_name: []const u8 = undefined,
     // If true the script is being imported
     imported: bool = false,
+    // True when parsing a declaration inside an export statement
+    exporting: bool = false,
     // Cached imported functions
     imports: *std.StringHashMap(ScriptImport),
     test_count: u64 = 0,
@@ -457,7 +459,7 @@ pub const Parser = struct {
         try self.advance();
 
         while (!(try self.match(.Eof))) {
-            if (self.declarations() catch return null) |decl| {
+            if (self.declarationsOrExport(true) catch return null) |decl| {
                 try function_node.body.?.statements.append(decl);
             }
         }
@@ -1152,7 +1154,7 @@ pub const Parser = struct {
         }
     }
 
-    fn declarations(self: *Self) !?*ParseNode {
+    fn declarationsOrExport(self: *Self, with_export: bool) anyerror!?*ParseNode {
         var docblock: ?Token = null;
         if (self.current.?.scope_depth == 0 and try self.match(.Docblock)) {
             docblock = self.parser.previous_token.?;
@@ -1160,6 +1162,11 @@ pub const Parser = struct {
 
         if (try self.match(.Extern)) {
             var node = try self.funDeclaration();
+            node.docblock = docblock;
+
+            return node;
+        } else if (with_export and try self.match(.Export)) {
+            var node = try self.exportStatement();
             node.docblock = docblock;
 
             return node;
@@ -2407,41 +2414,63 @@ pub const Parser = struct {
     fn exportStatement(self: *Self) !*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        try self.consume(.Identifier, "Expected identifier after `export`.");
-        var identifier = self.parser.previous_token.?;
+        // zig fmt: off
+        if (self.check(.Identifier)
+            and (
+                try self.checkAhead(.Semicolon, 0)
+             or try self.checkAhead(.As, 0)
+             or try self.checkAhead(.Dot, 0))) {
+            // zig fmt: on
+            try self.consume(.Identifier, "Expected identifier after `export`.");
+            var identifier = self.parser.previous_token.?;
 
-        // Search for a global with that name
-        if (try self.resolveGlobal(null, identifier)) |slot| {
-            const global: *Global = &self.globals.items[slot];
-            var alias: ?Token = null;
+            // Search for a global with that name
+            if (try self.resolveGlobal(null, identifier)) |slot| {
+                const global: *Global = &self.globals.items[slot];
+                var alias: ?Token = null;
 
-            global.exported = true;
-            if (global.prefix != null or self.check(.As)) {
-                try self.consume(.As, "Expected `as` after prefixed global.");
-                try self.consume(.Identifier, "Expected identifier after `as`.");
+                global.exported = true;
+                if (global.prefix != null or self.check(.As)) {
+                    try self.consume(.As, "Expected `as` after prefixed global.");
+                    try self.consume(.Identifier, "Expected identifier after `as`.");
 
-                global.export_alias = self.parser.previous_token.?.lexeme;
-                alias = self.parser.previous_token.?;
+                    global.export_alias = self.parser.previous_token.?.lexeme;
+                    alias = self.parser.previous_token.?;
+                }
+
+                try self.consume(.Semicolon, "Expected `;` after export.");
+
+                var node = try self.gc.allocator.create(ExportNode);
+                node.* = ExportNode{
+                    .identifier = identifier,
+                    .alias = alias,
+                };
+                node.node.location = self.parser.previous_token.?;
+                node.node.type_def = global.type_def;
+
+                return &node.node;
             }
+        } else {
+            self.exporting = true;
+            if (try self.declarationsOrExport(false)) |decl| {
+                self.exporting = false;
+                var node = try self.gc.allocator.create(ExportNode);
+                node.* = ExportNode{
+                    .declaration = decl,
+                };
+                node.node.location = self.parser.previous_token.?;
+                node.node.type_def = decl.type_def;
 
-            try self.consume(.Semicolon, "Expected `;` after export.");
-
-            var node = try self.gc.allocator.create(ExportNode);
-            node.* = ExportNode{
-                .identifier = identifier,
-                .alias = alias,
-            };
-            node.node.location = self.parser.previous_token.?;
-
-            return &node.node;
+                return &node.node;
+            }
+            self.exporting = false;
         }
 
-        try self.reportError("Unknown global.");
+        try self.reportError("Expected identifier or declaration.");
 
         var node = try self.gc.allocator.create(ExportNode);
         node.* = ExportNode{
-            .identifier = identifier,
-            .alias = identifier,
+            .identifier = Token.identifier("error"),
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -5371,11 +5400,12 @@ pub const Parser = struct {
 
     fn addGlobal(self: *Self, name: Token, global_type: *ObjTypeDef, constant: bool) !usize {
         // Search for an existing placeholder global with the same name
-        for (self.globals.items, 0..) |global, index| {
+        for (self.globals.items, 0..) |*global, index| {
             if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.name.string)) {
                 if (global_type.def_type != .Placeholder) {
                     try self.resolvePlaceholder(global.type_def, global_type, constant);
                 }
+                global.exported = self.exporting;
 
                 return index;
             }
@@ -5392,6 +5422,7 @@ pub const Parser = struct {
                 .location = name,
                 .type_def = global_type,
                 .constant = constant,
+                .exported = self.exporting,
             },
         );
 
