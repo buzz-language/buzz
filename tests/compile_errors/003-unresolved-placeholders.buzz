@@ -1,4 +1,4 @@
-| `joe` is not defined
+| `print` is not defined
 import "std";
 import "tests/compile_errors/utils/bad-import";
 
