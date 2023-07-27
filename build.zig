@@ -421,14 +421,6 @@ pub fn build(b: *Build) !void {
         libs[index] = std_lib;
     }
 
-    // TODO: Do we need this?
-    // std <- os
-    libs[0].linkLibrary(libs[3]);
-    // fs <- os
-    libs[4].linkLibrary(libs[3]);
-    // debug <- std
-    libs[6].linkLibrary(libs[0]);
-
     for (all_lib_names) |name| {
         const step = b.addInstallLibFile(std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})), b.fmt("buzz/{s}.buzz", .{name}));
         install_step.dependOn(&step.step);
