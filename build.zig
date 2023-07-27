@@ -272,9 +272,18 @@ pub fn build(b: *Build) !void {
         "mir",
     }) catch unreachable;
 
+    // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
-        includes.append("/opt/homebrew/include") catch unreachable;
-        llibs.append("/opt/homebrew/lib") catch unreachable;
+        const prefix = std.os.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
+        
+        var include = std.ArrayList(u8).init(b.allocator);
+        include.writer().print("{s}{s}include", .{prefix, std.fs.path.sep_str}) catch unreachable;
+        
+        var lib = std.ArrayList(u8).init(b.allocator);
+        lib.writer().print("{s}{s}lib", .{prefix, std.fs.path.sep_str}) catch unreachable;
+
+        includes.append(include.items) catch unreachable;
+        llibs.append(lib.items) catch unreachable;
     }
 
     var exe = b.addExecutable(.{
