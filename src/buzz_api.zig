@@ -760,6 +760,26 @@ export fn bz_valueToObjectInstance(value: Value) *ObjObjectInstance {
     return ObjObjectInstance.cast(value.obj()).?;
 }
 
+export fn bz_valueToObjEnumInstance(value: Value) *ObjEnumInstance {
+    return ObjEnumInstance.cast(value.obj()).?;
+}
+
+export fn bz_valueToObjList(value: Value) *ObjList {
+    return ObjList.cast(value.obj()).?;
+}
+
+export fn bz_valueToObjMap(value: Value) *ObjMap {
+    return ObjMap.cast(value.obj()).?;
+}
+
+export fn bz_valueToObjFiber(value: Value) *ObjFiber {
+    return ObjFiber.cast(value.obj()).?;
+}
+
+export fn bz_valueToObjPattern(value: Value) *ObjPattern {
+    return ObjPattern.cast(value.obj()).?;
+}
+
 export fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void {
     vm.push(payload.toValue());
 }

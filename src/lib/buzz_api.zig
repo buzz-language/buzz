@@ -193,9 +193,17 @@ pub const Value = packed struct {
         return @ptrFromInt(self.val & ~PointerMask);
     }
 
+    pub extern fn bz_valueToObject(value: Value) *ObjObject;
+    pub extern fn bz_valueToObjectInstance(value: Value) *ObjObjectInstance;
+    pub extern fn bz_valueToObjEnumInstance(value: Value) *ObjEnumInstance;
+    pub extern fn bz_valueToObjFiber(value: Value) *ObjFiber;
+    pub extern fn bz_valueToObjList(value: Value) *ObjList;
+    pub extern fn bz_valueToObjMap(value: Value) *ObjMap;
+    pub extern fn bz_valueToObjPattern(value: Value) *ObjPattern;
+    pub extern fn bz_valueToObjString(value: Value) *ObjString;
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
-    pub extern fn bz_valueToObjectInstance(value: Value) *ObjObjectInstance;
+
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
 
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
@@ -212,7 +220,6 @@ pub const ObjTypeDef = opaque {
 
 pub const ObjString = opaque {
     pub extern fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString;
-    pub extern fn bz_valueToObjString(value: Value) *ObjString;
     pub extern fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8;
     pub extern fn bz_objStringToValue(obj_string: *ObjString) Value;
     pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
@@ -253,7 +260,6 @@ pub const ObjUserData = opaque {
 pub const ObjObjectInstance = opaque {};
 
 pub const ObjObject = opaque {
-    pub extern fn bz_valueToObject(value: Value) *ObjObject;
     pub extern fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value;
     pub extern fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value;
     pub extern fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void;

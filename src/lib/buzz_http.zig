@@ -54,7 +54,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const method: http.Method = @enumFromInt(api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).integer());
 
     var uri_len: usize = 0;
-    const uri = api.ObjString.bz_valueToObjString(ctx.vm.bz_peek(1)).bz_objStringToString(&uri_len);
+    const uri = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&uri_len);
     if (uri == null) {
         @panic("Out of memory");
     }
