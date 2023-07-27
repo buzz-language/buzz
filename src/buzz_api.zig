@@ -756,6 +756,10 @@ export fn bz_valueToObject(value: Value) *ObjObject {
     return ObjObject.cast(value.obj()).?;
 }
 
+export fn bz_valueToObjectInstance(value: Value) *ObjObjectInstance {
+    return ObjObjectInstance.cast(value.obj()).?;
+}
+
 export fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void {
     vm.push(payload.toValue());
 }

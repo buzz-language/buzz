@@ -195,6 +195,7 @@ pub const Value = packed struct {
 
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
+    pub extern fn bz_valueToObjectInstance(value: Value) *ObjObjectInstance;
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
 
     pub extern fn bz_valueToClosure(value: Value) *ObjClosure;
