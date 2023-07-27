@@ -1,5 +1,8 @@
 import "errors";
 
+|| Sleep for the given amount of ms
+export extern fun sleep(float ms) > void;
+
 || @return epoch time in ms
 export extern fun time() > float;
 

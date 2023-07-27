@@ -21,3 +21,7 @@ test "os.tmpFilename" {
 test "os.execute" {
     assert(os.execute(["/bin/ls", "-l"]) == 0, message: "Could execute a command");
 }
+
+test "os.sleep" {
+    os.sleep(500.0);
+}

@@ -2,6 +2,12 @@ const std = @import("std");
 const api = @import("./buzz_api.zig");
 const builtin = @import("builtin");
 
+export fn sleep(ctx: *api.NativeCtx) c_int {
+    std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).float())) * 1_000_000);
+
+    return 0;
+}
+
 export fn time(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
 
