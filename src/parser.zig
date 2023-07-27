@@ -4914,9 +4914,10 @@ pub const Parser = struct {
         }
 
         try self.reportErrorFmt(
-            "External library `{s}` not found: {s}\n",
+            "External library `{s}` not found: {s}{s}\n",
             .{
-                if (builtin.os.tag == .macos)
+                file_basename,
+                if (builtin.link_libc)
                     std.mem.sliceTo(dlerror(), 0)
                 else
                     "",
