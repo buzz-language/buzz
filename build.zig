@@ -81,10 +81,7 @@ const BuzzBuildOptions = struct {
         // mir can be built with musl libc
         // mimalloc can be built with musl libc
         // longjmp/setjmp need to be removed
-        if (self.target.isLinux()) {
-            return true;
-        }
-        return self.use_mimalloc;
+        return self.target.isLinux() or self.use_mimalloc;
     }
 };
 
@@ -274,13 +271,23 @@ pub fn build(b: *Build) !void {
 
     // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
-        const prefix = std.os.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
-        
+        const result: ?std.ChildProcess.ExecResult = std.ChildProcess.exec(
+            .{
+                .allocator = b.allocator,
+                .argv = &[_][]const u8{ "brew", "--prefix" },
+            },
+        ) catch null;
+
+        const prefix = if (result) |r|
+            std.mem.trim(u8, r.stdout, "\n")
+        else
+            std.os.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
+
         var include = std.ArrayList(u8).init(b.allocator);
-        include.writer().print("{s}{s}include", .{prefix, std.fs.path.sep_str}) catch unreachable;
-        
+        include.writer().print("{s}{s}include", .{ prefix, std.fs.path.sep_str }) catch unreachable;
+
         var lib = std.ArrayList(u8).init(b.allocator);
-        lib.writer().print("{s}{s}lib", .{prefix, std.fs.path.sep_str}) catch unreachable;
+        lib.writer().print("{s}{s}lib", .{ prefix, std.fs.path.sep_str }) catch unreachable;
 
         includes.append(include.items) catch unreachable;
         llibs.append(lib.items) catch unreachable;
