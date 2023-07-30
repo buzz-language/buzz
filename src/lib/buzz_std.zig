@@ -138,9 +138,7 @@ export fn char(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.pushError("errors.OutOfMemoryError");
-
-    return -1;
+    @panic("Out of memory");
 }
 
 export fn assert(ctx: *api.NativeCtx) c_int {

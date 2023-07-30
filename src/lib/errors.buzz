@@ -29,6 +29,7 @@ export enum FileSystemError {
     SystemFdQuotaExceeded,
     SystemResources,
     WouldBlock,
+    NetworkNotFound,
 }
 
 export enum ExecError {
@@ -111,9 +112,6 @@ export object InvalidArgumentError {
 }
 export object NotYetImplementedError {
     str message = "NotYetImplementedError",
-}
-export object OutOfMemoryError {
-    str message = "OutOfMemoryError",
 }
 export object OverflowError {
     str message = "OverflowError",

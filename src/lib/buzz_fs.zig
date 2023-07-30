@@ -17,6 +17,7 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemResources,
         error.FileNotFound,
+        error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
@@ -110,6 +111,7 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemResources,
         error.FileNotFound,
+        error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
@@ -142,10 +144,11 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.FileNotFound,
+        error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
-        error.OutOfMemory => ctx.vm.pushError("errors.OutOfMemoryError"),
+        error.OutOfMemory => @panic("Out of memory"),
     }
 }
 
@@ -227,6 +230,7 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.WouldBlock,
+        error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
@@ -248,6 +252,7 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.FileNotFound,
+        error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
@@ -299,10 +304,7 @@ export fn list(ctx: *api.NativeCtx) c_int {
             if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
             element.name.len,
         ) orelse {
-            _ = ctx.vm.bz_pop(); // Pop list
-            ctx.vm.pushError("errors.OutOfMemoryError");
-
-            return -1;
+            @panic("Out of memory");
         });
 
         api.ObjList.bz_listAppend(ctx.vm, file_list, ctx.vm.bz_pop());

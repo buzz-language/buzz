@@ -1,8 +1,9 @@
 import "std";
 import "http";
 import "debug";
+import "errors";
 
-test "Client" {
+fun main([str] args) > void !> HttpError, InvalidArgumentError, HttpParseError {
     Client client = Client.init();
 
     Request request = Request{

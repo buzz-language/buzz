@@ -2694,7 +2694,12 @@ pub const Parser = struct {
             },
         );
 
-        const slot: usize = try self.declareVariable(enum_type, enum_name, true, true);
+        const slot: usize = try self.declareVariable(
+            enum_type,
+            enum_name,
+            true,
+            true,
+        );
         self.markInitialized();
 
         try self.consume(.LeftBrace, "Expected `{` before enum body.");
