@@ -49,7 +49,7 @@ fun calHash(Node tree) > void {
     }
 }
 
-fun main([str] args) > void !> OverflowError, UnderflowError {
+fun main([str] args) > void !> any {
     int N = 6;
     if (args.len() > 0) {
         N = parseInt(args[0]) ?? 6;

@@ -4300,6 +4300,7 @@ pub const CallNode = struct {
             }
         } else if (error_types) |errors| {
             if (codegen.current.?.enclosing != null and codegen.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
+                var handles_any = false;
                 var not_handled = std.ArrayList(*ObjTypeDef).init(codegen.gc.allocator);
                 defer not_handled.deinit();
                 for (errors) |error_type| {
@@ -4315,6 +4316,11 @@ pub const CallNode = struct {
                                 handled = true;
                                 break;
                             }
+
+                            if (handled_type.def_type == .Any) {
+                                handles_any = true;
+                                break;
+                            }
                         }
                     }
 
@@ -4324,6 +4330,11 @@ pub const CallNode = struct {
                         } else {
                             try not_handled.append(error_type);
                         }
+                    }
+
+                    if (handles_any) {
+                        not_handled.clearAndFree();
+                        break;
                     }
                 }
 

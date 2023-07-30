@@ -3,7 +3,7 @@ import "http";
 import "debug";
 import "errors";
 
-fun main([str] args) > void !> HttpError, InvalidArgumentError, HttpParseError {
+fun main([str] args) > void !> any {
     Client client = Client.init();
 
     Request request = Request{

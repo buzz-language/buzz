@@ -5409,10 +5409,11 @@ pub const Parser = struct {
         // Search for an existing placeholder global with the same name
         for (self.globals.items, 0..) |*global, index| {
             if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.name.string)) {
+                global.exported = self.exporting;
+
                 if (global_type.def_type != .Placeholder) {
                     try self.resolvePlaceholder(global.type_def, global_type, constant);
                 }
-                global.exported = self.exporting;
 
                 return index;
             }

@@ -1081,7 +1081,7 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     "textDocument/documentSymbol": getSymbols,
 };
 
-fun main([str] args) > void !> LSPError, JsonParseError, str {
+fun main([str] args) > void !> any {
     LspState state = LspState{
         sources = {<str, str>},
         ast = {<str, Json>},
