@@ -3341,10 +3341,18 @@ pub const FunctionNode = struct {
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
         if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        // If function is a test block and we're not testing/checking/etc. don't waste time generating the node
+        if (codegen.flavor == .Run and function_type == .Test) {
+            std.debug.print("skipped a test at {s}:{}:{}\n", .{ node.location.script_name, node.location.line, node.location.column });
             return null;
         }
 
@@ -3402,8 +3410,6 @@ pub const FunctionNode = struct {
         );
 
         codegen.current.?.function = try codegen.gc.allocateObject(ObjFunction, function);
-
-        const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
         // Can't have both arrow expression and body
         assert((self.arrow_expr != null and self.body == null) or (self.arrow_expr == null and self.body != null));
