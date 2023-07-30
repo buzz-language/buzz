@@ -10,6 +10,7 @@ const _obj = @import("./obj.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");
 const _vm = @import("./vm.zig");
+const RunFlavor = _vm.RunFlavor;
 const _value = @import("./value.zig");
 const _scanner = @import("./scanner.zig");
 const _chunk = @import("./chunk.zig");
@@ -413,19 +414,19 @@ pub const Parser = struct {
     current: ?*Frame = null,
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
-    resolve_imports: bool,
+    flavor: RunFlavor,
 
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
-    pub fn init(gc: *GarbageCollector, imports: *std.StringHashMap(ScriptImport), imported: bool, resolve_imports: bool) Self {
+    pub fn init(gc: *GarbageCollector, imports: *std.StringHashMap(ScriptImport), imported: bool, flavor: RunFlavor) Self {
         return .{
             .gc = gc,
             .parser = ParserState.init(gc.allocator),
             .imports = imports,
             .imported = imported,
             .globals = std.ArrayList(Global).init(gc.allocator),
-            .resolve_imports = resolve_imports,
+            .flavor = flavor,
         };
     }
 
@@ -4604,7 +4605,7 @@ pub const Parser = struct {
         }
 
         if (function_type == .Extern) {
-            if (self.resolve_imports) {
+            if (self.flavor.resolveImports()) {
                 // Search for a dylib/so/dll with the same name as the current script
                 if (try self.importLibSymbol(
                     self.script_name,
@@ -4796,7 +4797,7 @@ pub const Parser = struct {
 
             _ = try file.?.readAll(source);
 
-            var parser = Parser.init(self.gc, self.imports, true, self.resolve_imports);
+            var parser = Parser.init(self.gc, self.imports, true, self.flavor);
             defer parser.deinit();
 
             if (try parser.parse(source, file_name)) |import_node| {

@@ -3422,13 +3422,13 @@ pub const FunctionNode = struct {
             if (function_type == .Script or function_type == .ScriptEntryPoint) {
                 // If top level, search `main` or `test` function(s) and call them
                 // Then put any exported globals on the stack
-                if (!codegen.testing and function_type == .ScriptEntryPoint) {
+                if (codegen.flavor != .Test and function_type == .ScriptEntryPoint) {
                     if (self.main_slot) |main_slot| {
                         try codegen.emitCodeArg(self.main_location.?, .OP_GET_GLOBAL, @intCast(main_slot));
                         try codegen.emitCodeArg(self.main_location.?, .OP_GET_LOCAL, 0); // cli args are always local 0
                         try codegen.emitCodeArgs(self.main_location.?, .OP_CALL, 1, 0);
                     }
-                } else if (codegen.testing and self.test_slots != null) {
+                } else if (codegen.flavor == .Test and self.test_slots != null) {
                     // Create an entry point wich runs all `test`
                     for (self.test_slots.?, 0..) |slot, index| {
                         try codegen.emitCodeArg(self.test_locations.?[index], .OP_GET_GLOBAL, @intCast(slot));

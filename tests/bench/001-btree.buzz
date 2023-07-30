@@ -21,8 +21,8 @@ fun bottomUpTree(int depth) > Node {
 }
 
 fun itemCheck(Node tree) > int {
-    if (tree.left != null) {
-        return 1 + itemCheck(tree.left!) + itemCheck(tree.right!);
+    if (tree.left -> left) {
+        return 1 + itemCheck(left) + itemCheck(tree.right!);
     } else {
         return 1;
     }
@@ -56,10 +56,7 @@ fun btree(int N) > void !> OverflowError, UnderflowError {
 }
 
 fun main([str] args) > void !> OverflowError, UnderflowError {
-    int N = 0;
-    if (args.len() > 0) {
-        N = parseInt(args[0]) ?? 0;
-    }
+    int N = if (args.len() > 0) parseInt(args[0]) ?? 0 else 0;
 
     btree(N);
 }

@@ -51,6 +51,18 @@ const jmp = @import("jmp.zig").jmp;
 
 pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
 
+pub const RunFlavor = enum {
+    Run,
+    Test,
+    Check,
+    Fmt,
+    Ast,
+
+    pub inline fn resolveImports(self: RunFlavor) bool {
+        return self == .Run or self == .Test;
+    }
+};
+
 pub const CallFrame = struct {
     const Self = @This();
 
@@ -320,15 +332,15 @@ pub const VM = struct {
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
     mir_jit: ?MIRJIT = null,
-    testing: bool,
+    flavor: RunFlavor,
 
-    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, testing: bool) !Self {
+    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         var self: Self = .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
             .current_fiber = try gc.allocator.create(Fiber),
-            .testing = testing,
+            .flavor = flavor,
         };
 
         return self;
@@ -1591,7 +1603,7 @@ pub const VM = struct {
                 unreachable;
             };
             // FIXME: give reference to JIT?
-            vm.* = VM.init(self.gc, self.import_registry, self.testing) catch |e| {
+            vm.* = VM.init(self.gc, self.import_registry, self.flavor) catch |e| {
                 panic(e);
                 unreachable;
             };

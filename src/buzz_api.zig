@@ -531,7 +531,7 @@ export fn bz_newVM(self: *VM) ?*VM {
     };
 
     // FIXME: give reference to JIT?
-    vm.* = VM.init(gc, self.import_registry, self.testing) catch {
+    vm.* = VM.init(gc, self.import_registry, self.flavor) catch {
         return null;
     };
 
@@ -553,9 +553,9 @@ export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_na
         self.gc,
         &imports,
         false,
-        true,
+        self.flavor,
     );
-    var codegen = CodeGen.init(self.gc, &parser, false);
+    var codegen = CodeGen.init(self.gc, &parser, self.flavor);
     defer {
         codegen.deinit();
         imports.deinit();

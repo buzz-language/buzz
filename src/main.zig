@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const _vm = @import("./vm.zig");
 const VM = _vm.VM;
+const RunFlavor = _vm.RunFlavor;
 const ImportRegistry = _vm.ImportRegistry;
 const _parser = @import("./parser.zig");
 const Parser = _parser.Parser;
@@ -21,14 +22,6 @@ fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
 }
 
-const RunFlavor = enum {
-    Run,
-    Test,
-    Check,
-    Fmt,
-    Ast,
-};
-
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
@@ -37,15 +30,15 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
-    var vm = try VM.init(&gc, &import_registry, flavor == .Test);
+    var vm = try VM.init(&gc, &import_registry, flavor);
     if (BuildOptions.jit) try vm.initJIT();
     var parser = Parser.init(
         &gc,
         &imports,
         false,
-        flavor == .Run or flavor == .Test,
+        flavor,
     );
-    var codegen = CodeGen.init(&gc, &parser, flavor == .Test);
+    var codegen = CodeGen.init(&gc, &parser, flavor);
     defer {
         codegen.deinit();
         vm.deinit();

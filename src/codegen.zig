@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const _chunk = @import("./chunk.zig");
 const _obj = @import("./obj.zig");
 const _vm = @import("./vm.zig");
+const RunFlavor = _vm.RunFlavor;
 const _value = @import("./value.zig");
 const _disassembler = @import("./disassembler.zig");
 const _parser = @import("./parser.zig");
@@ -41,7 +42,7 @@ pub const CodeGen = struct {
 
     current: ?*Frame = null,
     gc: *GarbageCollector,
-    testing: bool,
+    flavor: RunFlavor,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(usize) = null,
     had_error: bool = false,
@@ -52,12 +53,12 @@ pub const CodeGen = struct {
     pub fn init(
         gc: *GarbageCollector,
         parser: *Parser,
-        testing: bool,
+        flavor: RunFlavor,
     ) Self {
         return .{
             .gc = gc,
             .parser = parser,
-            .testing = testing,
+            .flavor = flavor,
         };
     }
 

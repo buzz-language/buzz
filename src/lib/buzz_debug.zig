@@ -6,6 +6,7 @@ const Parser = _parser.Parser;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const _memory = @import("../memory.zig");
+const RunFlavor = @import("../vm.zig").RunFlavor;
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 
@@ -36,7 +37,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         &gc,
         &imports,
         false,
-        false,
+        .Ast,
     );
 
     defer {

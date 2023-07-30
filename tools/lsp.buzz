@@ -1057,7 +1057,7 @@ fun stop(LspState state, {str, Json} request) > Json {
 const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
     "exit": stop,
     "shutdown": stop,
-    "initialize": fun (LspState state, {str, Json} request) > Json
+    "initialize": fun (LspState state, {str, Json} request)
         -> Json{
             map = {
                 "capabilities": Json{
