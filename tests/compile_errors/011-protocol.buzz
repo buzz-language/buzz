@@ -1,0 +1,14 @@
+| Object declared as conforming to protocol `Living` but doesn't implement method `live`
+protocol Living {
+    fun live() > void;
+}
+
+object(Living) Ant {
+    str name,
+}
+
+test "Unimplemented protocol method" {
+    Ant a = Ant{
+        name = "joe"
+    };
+}

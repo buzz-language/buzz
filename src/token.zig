@@ -54,19 +54,20 @@ pub const Token = struct {
     }
 
     // Return `n` lines around the token line in its source
-    pub fn getLines(self: Self, allocator: mem.Allocator, n: usize) !std.ArrayList([]const u8) {
+    pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usize) !std.ArrayList([]const u8) {
         var lines = std.ArrayList([]const u8).init(allocator);
-        const index = if (self.line > 0) self.line - 1 else 0;
+        const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
+        const after_index = if (self.line > 0) self.line + after else self.line;
 
         var it = std.mem.split(u8, self.source, "\n");
-        var count: usize = 0;
-        while (it.next()) |line| : (count += 1) {
-            if (count >= index and count < index + n) {
+        var current: usize = 0;
+        while (it.next()) |line| : (current += 1) {
+            if (current >= before_index and current <= after_index) {
                 try lines.append(line);
             }
 
-            if (count > index + n) {
-                break;
+            if (current > after_index) {
+                return lines;
             }
         }
 

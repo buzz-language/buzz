@@ -1,0 +1,11 @@
+| Bad value type: got type `int`, expected `str`
+test "bad named variable value" {
+    str hello = "hello";
+
+    hello = 12;
+
+    [int] list = [
+        true,
+        12,
+    ];
+}

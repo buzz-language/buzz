@@ -35,7 +35,7 @@ pub const Frame = struct {
     return_counts: bool = false,
     return_emitted: bool = false,
 
-    try_should_handle: ?std.AutoHashMap(*ObjTypeDef, void) = null,
+    try_should_handle: ?std.AutoHashMap(*ObjTypeDef, Token) = null,
 };
 
 pub const CodeGen = struct {
@@ -60,7 +60,10 @@ pub const CodeGen = struct {
             .gc = gc,
             .parser = parser,
             .flavor = flavor,
-            .reporter = Reporter{ .allocator = gc.allocator },
+            .reporter = Reporter{
+                .allocator = gc.allocator,
+                .error_prefix = "Compile",
+            },
         };
     }
 
@@ -119,7 +122,7 @@ pub const CodeGen = struct {
     pub fn emitLoop(self: *Self, location: Token, loop_start: usize) !void {
         const offset: usize = self.currentCode() - loop_start + 1;
         if (offset > 16777215) {
-            try self.reportError("Loop body too large.");
+            self.reportError("Loop body too large.");
         }
 
         try self.emitCodeArg(location, .OP_LOOP, @as(u24, @intCast(offset)));
@@ -140,23 +143,23 @@ pub const CodeGen = struct {
             assert(loop_start != null);
             const loop_offset: usize = offset - loop_start.? + 1;
             if (loop_offset > 16777215) {
-                try self.reportError("Loop body too large.");
+                self.reportError("Loop body too large.");
             }
 
             self.current.?.function.?.chunk.code.items[offset] =
                 (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(loop_offset));
         } else { // Patching a break statement
-            try self.patchJump(offset);
+            self.patchJump(offset);
         }
     }
 
-    pub fn patchJump(self: *Self, offset: usize) !void {
+    pub fn patchJump(self: *Self, offset: usize) void {
         assert(offset < self.currentCode());
 
         const jump: usize = self.currentCode() - offset - 1;
 
         if (jump > 16777215) {
-            try self.reportError("Jump too large.");
+            self.reportError("Jump too large.");
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
@@ -166,13 +169,13 @@ pub const CodeGen = struct {
             (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
     }
 
-    pub fn patchTry(self: *Self, offset: usize) !void {
+    pub fn patchTry(self: *Self, offset: usize) void {
         assert(offset < self.currentCode());
 
         const jump: usize = self.currentCode();
 
         if (jump > 16777215) {
-            try self.reportError("Try block too large.");
+            self.reportError("Try block too large.");
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
@@ -225,7 +228,7 @@ pub const CodeGen = struct {
     pub fn makeConstant(self: *Self, value: Value) !u24 {
         var constant: u24 = try self.current.?.function.?.chunk.addConstant(null, value);
         if (constant > Chunk.max_constants) {
-            try self.reportError("Too many constants in one chunk.");
+            self.reportError("Too many constants in one chunk.");
             return 0;
         }
 
@@ -239,15 +242,12 @@ pub const CodeGen = struct {
     }
 
     // Unlocated error, should not be used
-    fn reportError(self: *Self, message: []const u8) !void {
+    fn reportError(self: *Self, message: []const u8) void {
         if (self.reporter.panic_mode) {
             return;
         }
 
-        self.reporter.panic_mode = true;
-        self.reporter.had_error = true;
-
-        try self.reporter.report(
+        self.reporter.report(
             Token{
                 .token_type = .Error,
                 .source = "",

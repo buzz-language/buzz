@@ -1039,20 +1039,25 @@ pub const ObjObject = struct {
     pub const ProtocolDef = struct {
         const ProtocolDefSelf = @This();
 
+        location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
         methods: std.StringArrayHashMap(*ObjTypeDef),
+        methods_locations: std.StringArrayHashMap(Token),
 
-        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
+        pub fn init(allocator: Allocator, location: Token, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
+                .location = location,
                 .qualified_name = qualified_name,
                 .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .methods_locations = std.StringArrayHashMap(Token).init(allocator),
             };
         }
 
         pub fn deinit(self: *ProtocolDefSelf) void {
             self.methods.deinit();
+            self.methods_locations.deinit();
         }
 
         pub fn mark(self: *ProtocolDefSelf, gc: *GarbageCollector) !void {
@@ -1069,13 +1074,17 @@ pub const ObjObject = struct {
     pub const ObjectDef = struct {
         const ObjectDefSelf = @This();
 
+        location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
         // TODO: Do i need to have two maps ?
         fields: std.StringArrayHashMap(*ObjTypeDef),
+        fields_locations: std.StringArrayHashMap(Token),
         fields_defaults: std.StringArrayHashMap(void),
         static_fields: std.StringArrayHashMap(*ObjTypeDef),
+        static_fields_locations: std.StringArrayHashMap(Token),
         methods: std.StringArrayHashMap(*ObjTypeDef),
+        methods_locations: std.StringArrayHashMap(Token),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
         placeholders: std.StringHashMap(*ObjTypeDef),
@@ -1083,14 +1092,18 @@ pub const ObjObject = struct {
         anonymous: bool,
         conforms_to: std.AutoHashMap(*ObjTypeDef, void),
 
-        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, anonymous: bool) ObjectDefSelf {
+        pub fn init(allocator: Allocator, location: Token, name: *ObjString, qualified_name: *ObjString, anonymous: bool) ObjectDefSelf {
             return ObjectDefSelf{
                 .name = name,
+                .location = location,
                 .qualified_name = qualified_name,
                 .fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .fields_locations = std.StringArrayHashMap(Token).init(allocator),
                 .static_fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .static_fields_locations = std.StringArrayHashMap(Token).init(allocator),
                 .fields_defaults = std.StringArrayHashMap(void).init(allocator),
                 .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .methods_locations = std.StringArrayHashMap(Token).init(allocator),
                 .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .anonymous = anonymous,
@@ -1100,9 +1113,12 @@ pub const ObjObject = struct {
 
         pub fn deinit(self: *ObjectDefSelf) void {
             self.fields.deinit();
+            self.fields_locations.deinit();
             self.static_fields.deinit();
+            self.static_fields_locations.deinit();
             self.fields_defaults.deinit();
             self.methods.deinit();
+            self.methods_locations.deinit();
             self.placeholders.deinit();
             self.static_placeholders.deinit();
             self.conforms_to.deinit();
@@ -2636,6 +2652,7 @@ pub const ObjTypeDef = struct {
 
                 var resolved = ObjObject.ObjectDef.init(
                     type_registry.gc.allocator,
+                    old_object_def.location,
                     old_object_def.name,
                     old_object_def.qualified_name,
                     old_object_def.anonymous,

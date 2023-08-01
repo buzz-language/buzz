@@ -1,4 +1,4 @@
-| Bad value type: expected type `tests.compile_errors.005-bad-named-variable-value.buzz.Yo`, got `int`
+| Bad value type: got type `int`, expected `tests.compile_errors.005-bad-named-variable-value.buzz.Yo`
 object Yo {
     str name,
 }
