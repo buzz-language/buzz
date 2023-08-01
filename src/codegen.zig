@@ -14,6 +14,7 @@ const _parser = @import("./parser.zig");
 const _node = @import("./node.zig");
 const _token = @import("./token.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
+const Reporter = @import("./reporter.zig");
 const BuildOptions = @import("build_options");
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
@@ -45,10 +46,10 @@ pub const CodeGen = struct {
     flavor: RunFlavor,
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(usize) = null,
-    had_error: bool = false,
-    panic_mode: bool = false,
     // Used to generate error messages
     parser: *Parser,
+
+    reporter: Reporter,
 
     pub fn init(
         gc: *GarbageCollector,
@@ -59,6 +60,7 @@ pub const CodeGen = struct {
             .gc = gc,
             .parser = parser,
             .flavor = flavor,
+            .reporter = Reporter{ .allocator = gc.allocator },
         };
     }
 
@@ -69,8 +71,8 @@ pub const CodeGen = struct {
     }
 
     pub fn generate(self: *Self, root: *FunctionNode) anyerror!?*ObjFunction {
-        self.had_error = false;
-        self.panic_mode = false;
+        self.reporter.had_error = false;
+        self.reporter.panic_mode = false;
 
         if (BuildOptions.debug) {
             var out = std.ArrayList(u8).init(self.gc.allocator);
@@ -83,7 +85,7 @@ pub const CodeGen = struct {
 
         const function = try root.node.toByteCode(&root.node, self, null);
 
-        return if (self.had_error) null else function;
+        return if (self.reporter.had_error) null else function;
     }
 
     pub fn emit(self: *Self, location: Token, code: u32) !void {
@@ -236,55 +238,16 @@ pub const CodeGen = struct {
         );
     }
 
-    fn report(self: *Self, location: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try location.getLines(self.gc.allocator, 3);
-        defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.gc.allocator);
-        defer report_line.deinit();
-        var writer = report_line.writer();
-
-        try writer.print("", .{});
-        var l: usize = if (location.line > 0) location.line - 1 else 0;
-        for (lines.items) |line| {
-            if (l != location.line) {
-                try writer.print("\u{001b}[2m", .{});
-            }
-
-            var prefix_len: usize = report_line.items.len;
-            try writer.print(" {: >5} |", .{l + 1});
-            prefix_len = report_line.items.len - prefix_len;
-            try writer.print(" {s}\n\u{001b}[0m", .{line});
-
-            if (l == location.line) {
-                try writer.writeByteNTimes(' ', location.column + prefix_len);
-                try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
-            }
-
-            l += 1;
-        }
-        std.debug.print("{s}:{}:{}: \u{001b}[31mCompile error:\u{001b}[0m {s}\n{s}", .{
-            location.script_name,
-            location.line + 1,
-            location.column + 1,
-            message,
-            report_line.items,
-        });
-
-        if (BuildOptions.stop_on_report) {
-            unreachable;
-        }
-    }
-
     // Unlocated error, should not be used
     fn reportError(self: *Self, message: []const u8) !void {
-        if (self.panic_mode) {
+        if (self.reporter.panic_mode) {
             return;
         }
 
-        self.panic_mode = true;
-        self.had_error = true;
+        self.reporter.panic_mode = true;
+        self.reporter.had_error = true;
 
-        try self.report(
+        try self.reporter.report(
             Token{
                 .token_type = .Error,
                 .source = "",
@@ -295,52 +258,5 @@ pub const CodeGen = struct {
             },
             message,
         );
-    }
-
-    pub fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {
-        if (self.panic_mode) {
-            return;
-        }
-
-        self.panic_mode = true;
-        self.had_error = true;
-
-        try self.report(token, message);
-    }
-
-    pub fn reportErrorFmt(self: *Self, token: Token, comptime fmt: []const u8, args: anytype) !void {
-        var message = std.ArrayList(u8).init(self.gc.allocator);
-        defer message.deinit();
-
-        var writer = message.writer();
-        try writer.print(fmt, args);
-
-        try self.reportErrorAt(token, message.items);
-    }
-
-    pub fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var error_message = std.ArrayList(u8).init(self.gc.allocator);
-        var writer = &error_message.writer();
-
-        try writer.print("{s}: expected type `", .{message});
-        try expected_type.toString(writer);
-        try writer.writeAll("`, got `");
-        try actual_type.toString(writer);
-        try writer.writeAll("`");
-
-        try self.reportErrorAt(at, error_message.items);
-    }
-
-    // Got to the root placeholder and report it
-    pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) anyerror!void {
-        if (placeholder.parent) |parent| {
-            if (parent.def_type == .Placeholder) {
-                try self.reportPlaceholder(parent.resolved_type.?.Placeholder);
-            }
-        } else {
-            // Should be a root placeholder with a name
-            assert(placeholder.name != null);
-            try self.reportErrorFmt(placeholder.where, "`{s}` is not defined", .{placeholder.name.?.string});
-        }
     }
 };

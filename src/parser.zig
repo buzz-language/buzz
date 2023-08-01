@@ -17,6 +17,7 @@ const _chunk = @import("./chunk.zig");
 const BuildOptions = @import("build_options");
 const StringParser = @import("./string_parser.zig").StringParser;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
+const Reporter = @import("./reporter.zig");
 
 const Value = _value.Value;
 const ValueType = _value.ValueType;
@@ -140,9 +141,6 @@ pub const ParserState = struct {
     // Most of the time 1 token in advance is enough, but in some special cases we want to be able to look
     // some arbitrary number of token ahead
     ahead: std.ArrayList(Token),
-
-    had_error: bool = false,
-    panic_mode: bool = false,
 
     pub fn init(allocator: Allocator) Self {
         return .{
@@ -416,6 +414,8 @@ pub const Parser = struct {
     globals: std.ArrayList(Global),
     flavor: RunFlavor,
 
+    reporter: Reporter,
+
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
@@ -427,6 +427,9 @@ pub const Parser = struct {
             .imported = imported,
             .globals = std.ArrayList(Global).init(gc.allocator),
             .flavor = flavor,
+            .reporter = Reporter{
+                .allocator = gc.allocator,
+            },
         };
     }
 
@@ -454,8 +457,8 @@ pub const Parser = struct {
 
         try self.beginFrame(function_type, function_node, null);
 
-        self.parser.had_error = false;
-        self.parser.panic_mode = false;
+        self.reporter.had_error = false;
+        self.reporter.panic_mode = false;
 
         try self.advance();
 
@@ -513,7 +516,7 @@ pub const Parser = struct {
             }
         }
 
-        return if (self.parser.had_error) null else &self.endFrame().node;
+        return if (self.reporter.had_error) null else &self.endFrame().node;
     }
 
     fn beginFrame(self: *Self, function_type: FunctionType, function_node: *FunctionNode, this: ?*ObjTypeDef) !void {
@@ -675,93 +678,6 @@ pub const Parser = struct {
         return true;
     }
 
-    fn report(self: *Self, token: Token, message: []const u8) !void {
-        const lines: std.ArrayList([]const u8) = try token.getLines(self.gc.allocator, 3);
-        defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.gc.allocator);
-        defer report_line.deinit();
-        var writer = report_line.writer();
-
-        try writer.print("\n", .{});
-        var l: usize = if (token.line > 0) token.line - 1 else 0;
-        for (lines.items) |line| {
-            if (l != token.line) {
-                try writer.print("\u{001b}[2m", .{});
-            }
-
-            var prefix_len: usize = report_line.items.len;
-            try writer.print(" {: >5} |", .{l + 1});
-            prefix_len = report_line.items.len - prefix_len;
-            try writer.print(" {s}\n\u{001b}[0m", .{line});
-
-            if (l == token.line) {
-                try writer.writeByteNTimes(' ', (if (token.column > 0) token.column - 1 else 0) + prefix_len);
-                try writer.print("\u{001b}[31m^\u{001b}[0m\n", .{});
-            }
-
-            l += 1;
-        }
-        std.debug.print("{s}:{}:{}: \u{001b}[31mSyntax error:\u{001b}[0m {s}{s}", .{
-            token.script_name,
-            token.line + 1,
-            token.column + 1,
-            message,
-            report_line.items,
-        });
-
-        if (BuildOptions.stop_on_report) {
-            unreachable;
-        }
-    }
-
-    fn reportErrorAt(self: *Self, token: Token, message: []const u8) !void {
-        if (self.parser.panic_mode) {
-            return;
-        }
-
-        self.parser.panic_mode = true;
-        self.parser.had_error = true;
-
-        try self.report(token, message);
-    }
-
-    pub fn reportErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        var message = std.ArrayList(u8).init(self.gc.allocator);
-        defer message.deinit();
-
-        var writer = message.writer();
-        try writer.print(fmt, args);
-
-        try self.reportError(message.items);
-    }
-
-    pub fn reportError(self: *Self, message: []const u8) !void {
-        try self.reportErrorAt(self.parser.previous_token.?, message);
-    }
-
-    fn reportErrorAtCurrent(self: *Self, message: []const u8) !void {
-        try self.reportErrorAt(self.parser.current_token.?, message);
-    }
-
-    fn reportTypeCheckAt(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8, at: Token) !void {
-        var expected_str: []const u8 = try expected_type.toString(self.gc.allocator);
-        var actual_str: []const u8 = try actual_type.toString(self.gc.allocator);
-        var error_message: []u8 = try self.gc.allocator.alloc(u8, expected_str.len + actual_str.len + 200);
-        defer {
-            self.gc.allocator.free(error_message);
-            self.gc.allocator.free(expected_str);
-            self.gc.allocator.free(actual_str);
-        }
-
-        error_message = try std.fmt.bufPrint(error_message, "{s}: expected type `{s}`, got `{s}`", .{ message, expected_str, actual_str });
-
-        try self.reportErrorAt(at, error_message);
-    }
-
-    fn reportTypeCheck(self: *Self, expected_type: *ObjTypeDef, actual_type: *ObjTypeDef, message: []const u8) !void {
-        try self.reportTypeCheckAt(expected_type, actual_type, message, self.parser.previous_token.?);
-    }
-
     fn resolvePlaceholderWithRelation(
         self: *Self,
         child: *ObjTypeDef,
@@ -815,7 +731,7 @@ pub const Parser = struct {
             .Call => {
                 // Can we call the parent?
                 if (resolved_type.def_type != .Function) {
-                    try self.reportErrorAt(child_placeholder.where, "Can't be called");
+                    try self.reporter.reportErrorAt(child_placeholder.where, "Can't be called");
                     return;
                 }
 
@@ -836,7 +752,7 @@ pub const Parser = struct {
             .Yield => {
                 // Can we call the parent?
                 if (resolved_type.def_type != .Function) {
-                    try self.reportErrorAt(child_placeholder.where, "Can't be called");
+                    try self.reporter.reportErrorAt(child_placeholder.where, "Can't be called");
                     return;
                 }
 
@@ -862,7 +778,7 @@ pub const Parser = struct {
                 } else if (resolved_type.def_type == .String) {
                     try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .String }), false);
                 } else {
-                    try self.reportErrorAt(child_placeholder.where, "Can't be subscripted");
+                    try self.reporter.reportErrorAt(child_placeholder.where, "Can't be subscripted");
                     return;
                 }
             },
@@ -872,7 +788,7 @@ pub const Parser = struct {
                 } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
                     try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
                 } else {
-                    try self.reportErrorAt(child_placeholder.where, "Can't be a key");
+                    try self.reporter.reportErrorAt(child_placeholder.where, "Can't be a key");
                     return;
                 }
             },
@@ -1002,19 +918,19 @@ pub const Parser = struct {
                         if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
                             try self.resolvePlaceholder(child, resolved_type.resolved_type.?.EnumInstance, false);
                         } else {
-                            try self.reportErrorAt(child_placeholder.where, "Enum instance only has field `value`");
+                            try self.reporter.reportErrorAt(child_placeholder.where, "Enum instance only has field `value`");
                             return;
                         }
                     },
                     else => {
-                        try self.reportErrorAt(child_placeholder.where, "Doesn't support field access");
+                        try self.reporter.reportErrorAt(child_placeholder.where, "Doesn't support field access");
                         return;
                     },
                 }
             },
             .Assignment => {
                 if (constant) {
-                    try self.reportErrorAt(child_placeholder.where, "Is constant.");
+                    try self.reporter.reportErrorAt(child_placeholder.where, "Is constant.");
                     return;
                 }
 
@@ -1124,7 +1040,7 @@ pub const Parser = struct {
 
     // Skip tokens until we reach something that resembles a new statement
     fn synchronize(self: *Self) !void {
-        self.parser.panic_mode = false;
+        self.reporter.panic_mode = false;
 
         while (self.parser.current_token.?.token_type != .Eof) : (try self.advance()) {
             if (self.parser.previous_token.?.token_type == .Semicolon) {
@@ -1284,7 +1200,7 @@ pub const Parser = struct {
             return node;
         }
 
-        if (self.parser.panic_mode) {
+        if (self.reporter.panic_mode) {
             try self.synchronize();
         }
 
@@ -1666,7 +1582,7 @@ pub const Parser = struct {
                     default = try self.expression(false);
 
                     if (!default.?.isConstant(default.?)) {
-                        try self.reportErrorAt(default.?.location, "Default value must be constant");
+                        try self.reporter.reportErrorAt(default.?.location, "Default value must be constant");
                     }
                 }
 
@@ -3068,7 +2984,7 @@ pub const Parser = struct {
             node.node.type_def = return_placeholder;
         } else {
             if (fiber_type.?.def_type != .Fiber) {
-                try self.reportErrorAt(node.fiber.location, "Can't be resolveed");
+                try self.reporter.reportErrorAt(node.fiber.location, "Can't be resolveed");
             } else {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
@@ -3112,7 +3028,7 @@ pub const Parser = struct {
             node.node.type_def = yield_placeholder;
         } else {
             if (fiber_type.?.def_type != .Fiber) {
-                try self.reportErrorAt(node.fiber.location, "Can't be resumed");
+                try self.reporter.reportErrorAt(node.fiber.location, "Can't be resumed");
             } else {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
@@ -3140,7 +3056,7 @@ pub const Parser = struct {
 
         // Expression after `&` must either be a call or a dot call
         if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null)) {
-            try self.reportErrorAt(callable.location, "Expected function call after `async`");
+            try self.reporter.reportErrorAt(callable.location, "Expected function call after `async`");
 
             return &node.node;
         }
@@ -3197,7 +3113,7 @@ pub const Parser = struct {
             });
         } else {
             if (function_type.?.def_type != .Function) {
-                try self.reportErrorAt(call_node.callee.location, "Can't be called");
+                try self.reporter.reportErrorAt(call_node.callee.location, "Can't be called");
             } else {
                 const return_type = function_type.?.resolved_type.?.Function.return_type;
                 const yield_type = function_type.?.resolved_type.?.Function.yield_type;
@@ -3597,7 +3513,7 @@ pub const Parser = struct {
         // If null, create placeholder
         if (node.node.type_def == null) {
             if (callee.type_def == null or callee.type_def.?.def_type != .Placeholder) {
-                try self.reportErrorAt(callee.location, "Can't be called");
+                try self.reporter.reportErrorAt(callee.location, "Can't be called");
             } else {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
@@ -3986,7 +3902,7 @@ pub const Parser = struct {
                 }
             },
             else => {
-                try self.reportErrorAt(node.node.location, "Not field accessible");
+                try self.reporter.reportErrorAt(node.node.location, "Not field accessible");
             },
         }
 
@@ -5527,5 +5443,17 @@ pub const Parser = struct {
         }
 
         return null;
+    }
+
+    inline fn reportErrorAtCurrent(self: *Self, message: []const u8) !void {
+        try self.reporter.reportErrorAt(self.parser.current_token.?, message);
+    }
+
+    pub inline fn reportError(self: *Self, message: []const u8) !void {
+        try self.reporter.reportErrorAt(self.parser.previous_token.?, message);
+    }
+
+    inline fn reportErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+        try self.reporter.reportErrorFmt(self.parser.previous_token.?, fmt, args);
     }
 };
