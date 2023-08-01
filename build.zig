@@ -92,7 +92,7 @@ fn get_buzz_prefix(b: *Build) []const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.11.0-dev.4315+f5239677e") catch return;
+    const min_zig = std.SemanticVersion.parse("0.11.0-dev.4333+33e4cbb20") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -309,10 +309,10 @@ pub fn build(b: *Build) !void {
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
     for (includes.items) |include| {
-        exe.addIncludePath(include);
+        exe.addIncludePath(.{ .path = include });
     }
     for (llibs.items) |lib| {
-        exe.addLibraryPath(lib);
+        exe.addLibraryPath(.{ .path = lib });
     }
     for (sys_libs.items) |slib| {
         // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
@@ -322,7 +322,7 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         exe.linkLibC();
     }
-    exe.setMainPkgPath(".");
+    exe.main_pkg_path = .{ .path = "." };
 
     exe.addOptions("build_options", build_options.step(b));
 
@@ -334,10 +334,10 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(lib);
     for (includes.items) |include| {
-        lib.addIncludePath(include);
+        lib.addIncludePath(.{ .path = include });
     }
     for (llibs.items) |llib| {
-        lib.addLibraryPath(llib);
+        lib.addLibraryPath(.{ .path = llib });
     }
     for (sys_libs.items) |slib| {
         lib.linkSystemLibrary(slib);
@@ -345,7 +345,7 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         lib.linkLibC();
     }
-    lib.setMainPkgPath("src");
+    lib.main_pkg_path = .{ .path = "src" };
 
     lib.addOptions("build_options", build_options.step(b));
 
@@ -405,15 +405,15 @@ pub fn build(b: *Build) !void {
             .target = target,
             .optimize = build_mode,
         });
-        const artifact = b.addInstallArtifact(std_lib);
+        const artifact = b.addInstallArtifact(std_lib, .{});
         install_step.dependOn(&artifact.step);
         artifact.dest_dir = .{ .custom = "lib/buzz" };
 
         for (includes.items) |include| {
-            std_lib.addIncludePath(include);
+            std_lib.addIncludePath(.{ .path = include });
         }
         for (llibs.items) |llib| {
-            std_lib.addLibraryPath(llib);
+            std_lib.addLibraryPath(.{ .path = llib });
         }
         for (sys_libs.items) |slib| {
             std_lib.linkSystemLibrary(slib);
@@ -421,16 +421,20 @@ pub fn build(b: *Build) !void {
         if (build_options.needLibC()) {
             std_lib.linkLibC();
         }
-        std_lib.setMainPkgPath("src");
+        std_lib.main_pkg_path = .{ .path = "src" };
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
-        std_lib.addRPath(b.fmt(
-            "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
-            .{get_buzz_prefix(b)},
-        ));
-        std_lib.addRPath("/usr/local/lib/buzz");
+        std_lib.addRPath(
+            .{
+                .path = b.fmt(
+                    "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
+                    .{get_buzz_prefix(b)},
+                ),
+            },
+        );
+        std_lib.addRPath(.{ .path = "/usr/local/lib/buzz" });
 
         b.default_step.dependOn(&std_lib.step);
 
@@ -448,10 +452,10 @@ pub fn build(b: *Build) !void {
         .optimize = build_mode,
     });
     for (includes.items) |include| {
-        tests.addIncludePath(include);
+        tests.addIncludePath(.{ .path = include });
     }
     for (llibs.items) |llib| {
-        tests.addLibraryPath(llib);
+        tests.addLibraryPath(.{ .path = llib });
     }
     for (sys_libs.items) |slib| {
         tests.linkSystemLibrary(slib);
