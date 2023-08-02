@@ -4589,7 +4589,7 @@ pub const Parser = struct {
         };
 
         var test_id = std.ArrayList(u8).init(self.gc.allocator);
-        try test_id.writer().print("$test#{}", .{self.test_count});
+        try test_id.writer().print("$test#{} {s}", .{ self.test_count, self.parser.current_token.?.literal_string.? });
         // TODO: this string is never freed
 
         self.test_count += 1;

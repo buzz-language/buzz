@@ -13,6 +13,7 @@ const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 const MIRJIT = @import("mirjit.zig");
 const Token = @import("./token.zig").Token;
+const Reporter = @import("./reporter.zig");
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -333,6 +334,7 @@ pub const VM = struct {
     import_registry: *ImportRegistry,
     mir_jit: ?MIRJIT = null,
     flavor: RunFlavor,
+    reporter: Reporter,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         var self: Self = .{
@@ -341,6 +343,7 @@ pub const VM = struct {
             .globals = std.ArrayList(Value).init(gc.allocator),
             .current_fiber = try gc.allocator.create(Fiber),
             .flavor = flavor,
+            .reporter = Reporter{ .allocator = gc.allocator },
         };
 
         return self;
@@ -3463,11 +3466,14 @@ pub const VM = struct {
             current_frame.closure.function.type_def.resolved_type.?.Function.script_name.string
         else
             null;
+        _ = error_file;
 
         while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
             const frame = self.currentFrame();
             if (self.current_fiber.frame_count > 0) {
-                try stack.append(frame.?.*);
+                if (frame.?.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+                    try stack.append(frame.?.*);
+                }
 
                 // Are we in a try-catch?
                 if (frame.?.try_ip) |try_ip| {
@@ -3500,33 +3506,12 @@ pub const VM = struct {
 
                 const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
                 defer value_str.deinit();
-                std.debug.print("\n\u{001b}[31mError: {s}\u{001b}[0m\n", .{value_str.items});
 
-                if (error_site) |site| {
-                    std.debug.print(
-                        "\tat {s}:{d}:{d}\n",
-                        .{
-                            error_file.?,
-                            site.line + 1,
-                            site.column,
-                        },
-                    );
-                }
-
-                for (stack.items) |stack_frame| {
-                    std.debug.print(
-                        "\tat {s} in {s}",
-                        .{
-                            stack_frame.closure.function.name.string,
-                            stack_frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
-                        },
-                    );
-                    if (stack_frame.call_site) |call_site| {
-                        std.debug.print(":{d}:{d}\n", .{ call_site.line + 1, call_site.column });
-                    } else {
-                        std.debug.print("\n", .{});
-                    }
-                }
+                self.reportRuntimeError(
+                    value_str.items,
+                    error_site,
+                    stack.items,
+                );
 
                 std.os.exit(1);
             } else if (self.current_fiber.frame_count == 0) {
@@ -3549,6 +3534,86 @@ pub const VM = struct {
                 }
             }
         }
+    }
+
+    fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Token, stack: []const CallFrame) void {
+        var notes = std.ArrayList(Reporter.Note).init(self.gc.allocator);
+        defer {
+            for (notes.items) |note| {
+                self.gc.allocator.free(note.message);
+            }
+            notes.deinit();
+        }
+
+        for (stack, 0..) |frame, i| {
+            const next = if (i < stack.len - 1) stack[i + 1] else null;
+            var msg = std.ArrayList(u8).init(self.gc.allocator);
+            defer msg.shrinkAndFree(msg.items.len);
+            var writer = msg.writer();
+
+            if (next) |unext| {
+                writer.print(
+                    "\t{s} in \x1b[36m{s}\x1b[0m at {s}",
+                    .{
+                        if (i == 0)
+                            "╰─┬─"
+                        else if (i < stack.len - 1)
+                            "  ├─"
+                        else
+                            "  ╰─",
+                        if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
+                            unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
+                        else
+                            unext.closure.function.name.string,
+                        frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                    },
+                ) catch @panic("Could not report error");
+            } else {
+                writer.print(
+                    "\t{s} in {s}",
+                    .{
+                        if (i == 0)
+                            "╰─┬─"
+                        else if (i < stack.len - 1)
+                            "  ├─"
+                        else
+                            "  ╰─",
+                        frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                    },
+                ) catch @panic("Could not report error");
+            }
+
+            if (frame.call_site) |call_site| {
+                writer.print(
+                    ":{d}:{d}",
+                    .{
+                        call_site.line + 1,
+                        call_site.column,
+                    },
+                ) catch @panic("Could not report error");
+            }
+
+            notes.append(
+                Reporter.Note{
+                    .message = msg.items,
+                    .show_prefix = false,
+                },
+            ) catch @panic("Could not report error");
+        }
+
+        var err_report = Reporter.Report{
+            .message = message,
+            .items = &[_]Reporter.ReportItem{
+                .{
+                    .location = error_site orelse stack[0].call_site.?,
+                    .kind = .@"error",
+                    .message = message,
+                },
+            },
+            .notes = notes.items,
+        };
+
+        err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
     }
 
     // FIXME: catch_values should be on the stack like arguments

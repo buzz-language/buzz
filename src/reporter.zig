@@ -41,6 +41,7 @@ pub const ReportKind = enum {
 pub const Note = struct {
     kind: ReportKind = .hint,
     message: []const u8,
+    show_prefix: bool = true,
 };
 
 pub const ReportItem = struct {
@@ -265,10 +266,11 @@ pub const Report = struct {
         // Print notes
         for (self.notes) |note| {
             try out.print(
-                "\x1b[{d}m{s}:\x1b[0m {s}\n",
+                "\x1b[{d}m{s}{s}\x1b[0m {s}\n",
                 .{
                     note.kind.color(),
-                    note.kind.name(),
+                    if (note.show_prefix) note.kind.name() else "",
+                    if (note.show_prefix) ":" else "",
                     note.message,
                 },
             );

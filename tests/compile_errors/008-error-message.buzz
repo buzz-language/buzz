@@ -1,4 +1,12 @@
 | Hello world
-test "Throwing an object instance with a message field" {
+fun fail() > void !> obj{ str message } {
     throw .{ message = "Hello world" };
+}
+
+fun depth() > void !> obj{ str message } {
+    fail();
+}
+
+test "Throwing an object instance with a message field" {
+    depth();
 }
