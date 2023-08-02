@@ -27,3 +27,40 @@ test "as?" {
 
     assert((anything as? str) == null, message: "as?");
 }
+
+test "list of any" {
+    [any] list = [ 1, true, 12.4, "hello" ];
+
+    foreach (any element in list) {
+        print("{element}");
+    }
+}
+
+test "map of any" {
+    {str, any} map = {
+        "hello": true,
+        "world": "one",
+    };
+
+    foreach (str key, any element in map) {
+        print("{key}: {element}");
+    }
+
+    {any, str} map2 = {
+        "hello": "true",
+        true: "one",
+    };
+
+    foreach (any key, str element in map2) {
+        print("{key}: {element}");
+    }
+
+    {any, any} map3 = {
+        "hello": 1,
+        true: "one",
+    };
+
+    foreach (any key, any element in map3) {
+        print("{key}: {element}");
+    }
+}

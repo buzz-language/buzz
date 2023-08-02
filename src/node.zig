@@ -5966,7 +5966,7 @@ pub const ForEachNode = struct {
                         }
                     },
                     .Map => {
-                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.eql(self.key.type_def)) {
+                        if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.strictEql(self.key.type_def)) {
                             codegen.reporter.reportTypeCheck(
                                 self.iterable.location,
                                 self.iterable.type_def.?.resolved_type.?.Map.key_type,
@@ -5994,7 +5994,7 @@ pub const ForEachNode = struct {
 
             switch (self.iterable.type_def.?.def_type) {
                 .Map => {
-                    if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.eql(self.value.type_def)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
                             self.iterable.location,
                             self.iterable.type_def.?.resolved_type.?.Map.value_type,
@@ -6005,7 +6005,7 @@ pub const ForEachNode = struct {
                     }
                 },
                 .List => {
-                    if (!self.iterable.type_def.?.resolved_type.?.List.item_type.eql(self.value.type_def)) {
+                    if (!self.iterable.type_def.?.resolved_type.?.List.item_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
                             self.iterable.location,
                             self.iterable.type_def.?.resolved_type.?.List.item_type,
@@ -6022,7 +6022,7 @@ pub const ForEachNode = struct {
                 },
                 .Enum => {
                     const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry);
-                    if (!iterable_type.eql(self.value.type_def)) {
+                    if (!iterable_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
                             self.iterable.location,
                             iterable_type,
@@ -6037,7 +6037,7 @@ pub const ForEachNode = struct {
                         codegen.gc.allocator,
                         &codegen.gc.type_registry,
                     );
-                    if (!iterable_type.eql(self.value.type_def)) {
+                    if (!iterable_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
                             self.iterable.location,
                             iterable_type,

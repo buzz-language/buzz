@@ -3326,6 +3326,23 @@ pub const ObjTypeDef = struct {
             );
         // zig fmt: on
     }
+
+    // Strict compare two type definitions
+    pub fn strictEql(expected: *Self, actual: *Self) bool {
+        // zig fmt: off
+        const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
+            or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
+
+        // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
+        // FIXME: previous comment should be wrong now? we do share type_registries between fibers and this should be enough ?
+        return expected == actual
+            or (expected.optional and actual.def_type == .Void) // Void is equal to any optional type
+            or (
+                (type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder)
+                and (expected.optional or !actual.optional)
+            );
+        // zig fmt: on
+    }
 };
 
 pub fn cloneObject(obj: *Obj, vm: *VM) !Value {

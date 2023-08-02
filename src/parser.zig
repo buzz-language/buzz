@@ -4159,9 +4159,13 @@ pub const Parser = struct {
                     if (common_type == null) {
                         common_type = actual_item.type_def;
                     } else if (actual_item.type_def) |actual_type_def| {
-                        if (!common_type.?.eql(actual_type_def) and common_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
-                            common_type = common_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_type;
-                            common_type = try common_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        if (!common_type.?.eql(actual_type_def)) {
+                            if (common_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                                common_type = common_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_type;
+                                common_type = try common_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                            } else {
+                                common_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            }
                         }
                     }
                 }
@@ -4245,9 +4249,13 @@ pub const Parser = struct {
                     if (common_key_type == null) {
                         common_key_type = key.type_def;
                     } else if (key.type_def) |actual_type_def| {
-                        if (!common_key_type.?.eql(actual_type_def) and common_key_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
-                            common_key_type = common_key_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_key_type;
-                            common_key_type = try common_key_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        if (!common_key_type.?.eql(actual_type_def)) {
+                            if (common_key_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                                common_key_type = common_key_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_key_type;
+                                common_key_type = try common_key_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                            } else {
+                                common_key_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            }
                         }
                     }
                 }
@@ -4256,9 +4264,13 @@ pub const Parser = struct {
                     if (common_value_type == null) {
                         common_value_type = value.type_def;
                     } else if (value.type_def) |actual_type_def| {
-                        if (!common_value_type.?.eql(actual_type_def) and common_value_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
-                            common_value_type = common_value_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_value_type;
-                            common_value_type = try common_value_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                        if (!common_value_type.?.eql(actual_type_def)) {
+                            if (common_value_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                                common_value_type = common_value_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_value_type;
+                                common_value_type = try common_value_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
+                            } else {
+                                common_value_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            }
                         }
                     }
                 }
