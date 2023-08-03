@@ -188,7 +188,7 @@ pub const StringParser = struct {
         if (number) |unumber| {
             try self.current_chunk.append(unumber);
         } else {
-            self.parser.reportError("Raw char should be between 0 and 255.");
+            self.parser.reportError(.raw_char, "Raw char should be between 0 and 255.");
         }
     }
 };

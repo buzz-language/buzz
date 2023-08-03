@@ -106,7 +106,7 @@ pub const ParseNode = struct {
     const Self = @This();
 
     node_type: ParseNodeType,
-    // If null, either its a statement or its a reference to something unkown that should ultimately raise a compile error
+    // If null, either its a statement or its a reference to something unknown that should ultimately raise a compile error
     type_def: ?*ObjTypeDef = null,
     location: Token = undefined,
     end_location: Token = undefined,
@@ -471,6 +471,7 @@ pub const NamedVariableNode = struct {
 
             if (!node.type_def.?.eql(value.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .assignment_value_type,
                     node.location,
                     node.type_def.?,
                     value.location,
@@ -691,6 +692,7 @@ pub const RangeNode = struct {
 
         if (self.low.type_def.?.def_type != .Integer) {
             codegen.reporter.reportTypeCheck(
+                .range_type,
                 null,
                 try codegen.gc.type_registry.getTypeDef(.{
                     .def_type = .Integer,
@@ -703,6 +705,7 @@ pub const RangeNode = struct {
 
         if (self.hi.type_def.?.def_type != .Integer) {
             codegen.reporter.reportTypeCheck(
+                .range_type,
                 null,
                 try codegen.gc.type_registry.getTypeDef(.{
                     .def_type = .Integer,
@@ -1432,6 +1435,7 @@ pub const ListNode = struct {
                 codegen.reporter.reportPlaceholder(item.type_def.?.resolved_type.?.Placeholder);
             } else if (!item_type.eql(item.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .list_item_type,
                     node.location,
                     item_type,
                     item.location,
@@ -1624,6 +1628,7 @@ pub const MapNode = struct {
 
             if (!key_type.eql(key.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .map_key_type,
                     node.location,
                     key_type,
                     key.location,
@@ -1634,6 +1639,7 @@ pub const MapNode = struct {
 
             if (!value_type.eql(value.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .map_value_type,
                     node.location,
                     value_type,
                     value.location,
@@ -1787,7 +1793,11 @@ pub const UnwrapNode = struct {
         }
 
         if (!self.original_type.?.optional) {
-            codegen.reporter.reportErrorAt(self.unwrapped.location, "Not an optional.");
+            codegen.reporter.reportErrorAt(
+                .optional,
+                self.unwrapped.location,
+                "Not an optional.",
+            );
         }
 
         _ = try self.unwrapped.toByteCode(self.unwrapped, codegen, breaks);
@@ -1903,7 +1913,11 @@ pub const ForceUnwrapNode = struct {
         }
 
         if (!self.original_type.?.optional) {
-            codegen.reporter.reportErrorAt(self.unwrapped.location, "Not an optional.");
+            codegen.reporter.reportErrorAt(
+                .optional,
+                self.unwrapped.location,
+                "Not an optional.",
+            );
         }
 
         _ = try self.unwrapped.toByteCode(self.unwrapped, codegen, breaks);
@@ -2239,6 +2253,7 @@ pub const UnaryNode = struct {
             .Bnot => {
                 if (left_type.def_type != .Integer) {
                     codegen.reporter.reportErrorFmt(
+                        .bitwise_operand_type,
                         self.left.location,
                         "Expected type `int`, got `{s}`",
                         .{(try left_type.toStringAlloc(codegen.gc.allocator)).items},
@@ -2250,6 +2265,7 @@ pub const UnaryNode = struct {
             .Bang => {
                 if (left_type.def_type != .Bool) {
                     codegen.reporter.reportErrorFmt(
+                        .bitwise_operand_type,
                         self.left.location,
                         "Expected type `bool`, got `{s}`",
                         .{(try left_type.toStringAlloc(codegen.gc.allocator)).items},
@@ -2261,6 +2277,7 @@ pub const UnaryNode = struct {
             .Minus => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
                     codegen.reporter.reportErrorFmt(
+                        .arithmetic_operand_type,
                         self.left.location,
                         "Expected type `int` or `float`, got `{s}`",
                         .{(try left_type.toStringAlloc(codegen.gc.allocator)).items},
@@ -2613,6 +2630,7 @@ pub const BinaryNode = struct {
             => {
                 if (!left_type.eql(right_type)) {
                     codegen.reporter.reportTypeCheck(
+                        .binary_operand_type,
                         self.left.location,
                         left_type,
                         self.right.location,
@@ -2632,6 +2650,7 @@ pub const BinaryNode = struct {
                 // We allow comparison between float and int so raise error if type != and one operand is not a number
                 if (!left_type.eql(right_type) and ((left_type.def_type != .Integer and left_type.def_type != .Float) or (right_type.def_type != .Integer and right_type.def_type != .Float))) {
                     codegen.reporter.reportTypeCheck(
+                        .comparison_operand_type,
                         self.left.location,
                         left_type,
                         self.right.location,
@@ -2647,7 +2666,11 @@ pub const BinaryNode = struct {
         switch (self.operator) {
             .QuestionQuestion => {
                 if (!left_type.optional) {
-                    codegen.reporter.reportErrorAt(node.location, "Not an optional");
+                    codegen.reporter.reportErrorAt(
+                        .optional,
+                        node.location,
+                        "Not an optional",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2662,7 +2685,11 @@ pub const BinaryNode = struct {
             .Ampersand => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int`.");
+                    codegen.reporter.reportErrorAt(
+                        .bitwise_operand_type,
+                        self.left.location,
+                        "Expected `int`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2672,7 +2699,11 @@ pub const BinaryNode = struct {
             .Bor => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int`.");
+                    codegen.reporter.reportErrorAt(
+                        .bitwise_operand_type,
+                        self.left.location,
+                        "Expected `int`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2682,7 +2713,11 @@ pub const BinaryNode = struct {
             .Xor => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int`.");
+                    codegen.reporter.reportErrorAt(
+                        .bitwise_operand_type,
+                        self.left.location,
+                        "Expected `int`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2692,7 +2727,11 @@ pub const BinaryNode = struct {
             .ShiftLeft => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int`.");
+                    codegen.reporter.reportErrorAt(
+                        .bitwise_operand_type,
+                        self.left.location,
+                        "Expected `int`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2702,7 +2741,11 @@ pub const BinaryNode = struct {
             .ShiftRight => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int`.");
+                    codegen.reporter.reportErrorAt(
+                        .bitwise_operand_type,
+                        self.left.location,
+                        "Expected `int`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2712,7 +2755,11 @@ pub const BinaryNode = struct {
             .Greater => {
                 // Checking only left operand since we asserted earlier that both operand have the same type
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .comparison_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2721,7 +2768,11 @@ pub const BinaryNode = struct {
             },
             .Less => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .comparison_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2730,7 +2781,11 @@ pub const BinaryNode = struct {
             },
             .GreaterEqual => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .comparison_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2740,7 +2795,11 @@ pub const BinaryNode = struct {
             },
             .LessEqual => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .comparison_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2766,7 +2825,7 @@ pub const BinaryNode = struct {
                     and left_type.def_type != .String
                     and left_type.def_type != .List
                     and left_type.def_type != .Map) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected a `int`, `float`, `str`, list or map.");
+                    codegen.reporter.reportErrorAt(.arithmetic_operand_type,self.left.location, "Expected a `int`, `float`, `str`, list or map.",);
                 }
                 // zig fmt: on
 
@@ -2781,7 +2840,11 @@ pub const BinaryNode = struct {
             },
             .Minus => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .arithmetic_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2790,7 +2853,11 @@ pub const BinaryNode = struct {
             },
             .Star => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .arithmetic_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2799,7 +2866,11 @@ pub const BinaryNode = struct {
             },
             .Slash => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .arithmetic_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2808,7 +2879,11 @@ pub const BinaryNode = struct {
             },
             .Percent => {
                 if (left_type.def_type != .Integer and left_type.def_type != .Float) {
-                    codegen.reporter.reportErrorAt(self.left.location, "Expected `int` or `float`.");
+                    codegen.reporter.reportErrorAt(
+                        .arithmetic_operand_type,
+                        self.left.location,
+                        "Expected `int` or `float`.",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2817,7 +2892,11 @@ pub const BinaryNode = struct {
             },
             .And => {
                 if (left_type.def_type != .Bool) {
-                    codegen.reporter.reportErrorAt(node.location, "`and` expects operands to be `bool`");
+                    codegen.reporter.reportErrorAt(
+                        .logical_operand_type,
+                        node.location,
+                        "`and` expects operands to be `bool`",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -2831,7 +2910,11 @@ pub const BinaryNode = struct {
             },
             .Or => {
                 if (left_type.def_type != .Bool) {
-                    codegen.reporter.reportErrorAt(node.location, "`and` expects operands to be `bool`");
+                    codegen.reporter.reportErrorAt(
+                        .logical_operand_type,
+                        node.location,
+                        "`and` expects operands to be `bool`",
+                    );
                 }
 
                 _ = try self.left.toByteCode(self.left, codegen, breaks);
@@ -3026,7 +3109,11 @@ pub const SubscriptNode = struct {
         switch (self.subscripted.type_def.?.def_type) {
             .String => {
                 if (self.index.type_def.?.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.index.location, "Expected `int` index.");
+                    codegen.reporter.reportErrorAt(
+                        .subscript_key_type,
+                        self.index.location,
+                        "Expected `int` index.",
+                    );
                 }
 
                 get_code = .OP_GET_STRING_SUBSCRIPT;
@@ -3035,12 +3122,17 @@ pub const SubscriptNode = struct {
             },
             .List => {
                 if (self.index.type_def.?.def_type != .Integer) {
-                    codegen.reporter.reportErrorAt(self.index.location, "Expected `int` index.");
+                    codegen.reporter.reportErrorAt(
+                        .subscript_key_type,
+                        self.index.location,
+                        "Expected `int` index.",
+                    );
                 }
 
                 if (self.value) |value| {
                     if (!self.subscripted.type_def.?.resolved_type.?.List.item_type.eql(value.type_def.?)) {
                         codegen.reporter.reportTypeCheck(
+                            .subscript_value_type,
                             self.subscripted.location,
                             self.subscripted.type_def.?.resolved_type.?.List.item_type,
                             value.location,
@@ -3053,6 +3145,7 @@ pub const SubscriptNode = struct {
             .Map => {
                 if (!self.subscripted.type_def.?.resolved_type.?.Map.key_type.eql(self.index.type_def.?)) {
                     codegen.reporter.reportTypeCheck(
+                        .subscript_key_type,
                         self.subscripted.location,
                         self.subscripted.type_def.?.resolved_type.?.Map.key_type,
                         self.index.location,
@@ -3064,6 +3157,7 @@ pub const SubscriptNode = struct {
                 if (self.value) |value| {
                     if (!self.subscripted.type_def.?.resolved_type.?.Map.value_type.eql(value.type_def.?)) {
                         codegen.reporter.reportTypeCheck(
+                            .subscript_value_type,
                             self.subscripted.location,
                             self.subscripted.type_def.?.resolved_type.?.Map.value_type,
                             value.location,
@@ -3076,7 +3170,11 @@ pub const SubscriptNode = struct {
                 get_code = .OP_GET_MAP_SUBSCRIPT;
                 set_code = .OP_SET_MAP_SUBSCRIPT;
             },
-            else => codegen.reporter.reportErrorAt(node.location, "Not subscriptable."),
+            else => codegen.reporter.reportErrorAt(
+                .subscriptable,
+                node.location,
+                "Not subscriptable.",
+            ),
         }
 
         _ = try self.index.toByteCode(self.index, codegen, breaks);
@@ -3263,6 +3361,7 @@ pub const TryNode = struct {
                 defer err_str.deinit();
 
                 codegen.reporter.reportWithOrigin(
+                    .error_not_handled,
                     node.location,
                     kv.value_ptr.*,
                     "Error type `{s}` not handled",
@@ -3502,7 +3601,11 @@ pub const FunctionNode = struct {
                 // If we're being imported, put all globals on the stack
                 if (self.import_root) {
                     if (self.exported_count orelse 0 > 16777215) {
-                        codegen.reporter.reportErrorAt(node.location, "Can't export more than 16777215 values.");
+                        codegen.reporter.reportErrorAt(
+                            .export_count,
+                            node.location,
+                            "Can't export more than 16777215 values.",
+                        );
                     }
 
                     var index: usize = 0;
@@ -3520,7 +3623,11 @@ pub const FunctionNode = struct {
                 // TODO: detect if some branches of the function body miss a return statement
                 try codegen.emitReturn(node.location);
             } else if (!codegen.current.?.return_emitted) {
-                codegen.reporter.reportErrorAt(node.location, "Missing return statement");
+                codegen.reporter.reportErrorAt(
+                    .missing_return,
+                    node.location,
+                    "Missing return statement",
+                );
             }
         }
 
@@ -3747,16 +3854,17 @@ pub const YieldNode = struct {
             .EntryPoint,
             .Test,
             .Extern,
-            => codegen.reporter.reportErrorAt(node.location, "Can't yield here"),
+            => codegen.reporter.reportErrorAt(.yield_not_allowed, node.location, "Can't yield here"),
             else => {},
         }
 
         if (node.type_def == null) {
-            codegen.reporter.reportErrorAt(node.location, "Unknown type.");
+            codegen.reporter.reportErrorAt(.unknown, node.location, "Unknown type.");
         } else if (node.type_def.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
         } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.yield_type.eql(node.type_def.?)) {
             codegen.reporter.reportTypeCheck(
+                .yield_type,
                 codegen.current.?.function_node.node.location,
                 codegen.current.?.function.?.type_def.resolved_type.?.Function.yield_type,
                 node.location,
@@ -3851,7 +3959,7 @@ pub const ResolveNode = struct {
         }
 
         if (self.fiber.type_def.?.def_type != .Fiber) {
-            codegen.reporter.reportErrorAt(self.fiber.location, "Not a fiber");
+            codegen.reporter.reportErrorAt(.fiber, self.fiber.location, "Not a fiber");
         }
 
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
@@ -3940,7 +4048,7 @@ pub const ResumeNode = struct {
         }
 
         if (self.fiber.type_def.?.def_type != .Fiber) {
-            codegen.reporter.reportErrorAt(self.fiber.location, "Not a fiber");
+            codegen.reporter.reportErrorAt(.fiber, self.fiber.location, "Not a fiber");
         }
 
         _ = try self.fiber.toByteCode(self.fiber, codegen, breaks);
@@ -4120,17 +4228,33 @@ pub const CallNode = struct {
         // This is not a call but an Enum(value)
         if (self.callee.type_def.?.def_type == .Enum) {
             if (self.async_call) {
-                codegen.reporter.reportErrorAt(self.callee.end_location, "Can't be wrapped in a fiber");
+                codegen.reporter.reportErrorAt(
+                    .fiber_call_not_allowed,
+                    self.callee.end_location,
+                    "Can't be wrapped in a fiber",
+                );
             }
 
             if (self.catch_default != null) {
-                codegen.reporter.reportErrorAt(self.callee.end_location, "Doesn't raise any error");
+                codegen.reporter.reportErrorAt(
+                    .no_error,
+                    self.callee.end_location,
+                    "Doesn't raise any error",
+                );
             }
 
             if (self.arguments.count() > 1) {
-                codegen.reporter.reportErrorAt(self.callee.end_location, "Enum instanciation expect only value");
+                codegen.reporter.reportErrorAt(
+                    .enum_argument,
+                    self.callee.end_location,
+                    "Enum instanciation expect only value",
+                );
             } else if (self.arguments.count() == 0) {
-                codegen.reporter.reportErrorAt(self.callee.end_location, "Enum instanciation expect value");
+                codegen.reporter.reportErrorAt(
+                    .enum_argument,
+                    self.callee.end_location,
+                    "Enum instanciation expect value",
+                );
 
                 return null;
             }
@@ -4179,11 +4303,19 @@ pub const CallNode = struct {
             // We know nothing about the function being called, no need to go any further
             return null;
         } else if (callee_type.?.def_type != .Function) {
-            codegen.reporter.reportErrorAt(self.node.location, "Can't be called");
+            codegen.reporter.reportErrorAt(
+                .callable,
+                self.node.location,
+                "Can't be called",
+            );
 
             return null;
         } else if (callee_type.?.optional) {
-            codegen.reporter.reportErrorAt(self.node.location, "Function maybe null and can't be called");
+            codegen.reporter.reportErrorAt(
+                .callable,
+                self.node.location,
+                "Function maybe null and can't be called",
+            );
         }
 
         const function_type = try callee_type.?.populateGenerics(
@@ -4194,9 +4326,17 @@ pub const CallNode = struct {
         );
 
         if (function_type.resolved_type.?.Function.generic_types.count() > self.resolved_generics.len) {
-            codegen.reporter.reportErrorAt(node.location, "Missing generic types");
+            codegen.reporter.reportErrorAt(
+                .generic_type,
+                node.location,
+                "Missing generic types",
+            );
         } else if (function_type.resolved_type.?.Function.generic_types.count() < self.resolved_generics.len) {
-            codegen.reporter.reportErrorAt(node.location, "Too many generic types");
+            codegen.reporter.reportErrorAt(
+                .generic_type,
+                node.location,
+                "Too many generic types",
+            );
         }
 
         const yield_type = function_type.resolved_type.?.Function.yield_type;
@@ -4210,6 +4350,7 @@ pub const CallNode = struct {
             .Function, .Method, .Anonymous => {
                 if (!current_function_yield_type.eql(yield_type)) {
                     codegen.reporter.reportTypeCheck(
+                        .yield_type,
                         codegen.current.?.function_node.node.location,
                         current_function_yield_type,
                         node.location,
@@ -4234,7 +4375,11 @@ pub const CallNode = struct {
         }
 
         if (self.arguments.count() > args.count()) {
-            codegen.reporter.reportErrorAt(node.location, "Too many arguments.");
+            codegen.reporter.reportErrorAt(
+                .call_arguments,
+                node.location,
+                "Too many arguments.",
+            );
         }
 
         // First push on the stack arguments has they are parsed
@@ -4255,6 +4400,7 @@ pub const CallNode = struct {
                     codegen.reporter.reportPlaceholder(argument.type_def.?.resolved_type.?.Placeholder);
                 } else if (!arg_type.eql(argument.type_def.?)) {
                     codegen.reporter.reportTypeCheck(
+                        .call_argument_type,
                         self.callee.location,
                         arg_type,
                         argument.location,
@@ -4265,7 +4411,12 @@ pub const CallNode = struct {
 
                 _ = missing_arguments.orderedRemove(actual_arg_key);
             } else {
-                codegen.reporter.reportErrorFmt(argument.location, "Argument `{s}` does not exists.", .{arg_key.string});
+                codegen.reporter.reportErrorFmt(
+                    .call_arguments,
+                    argument.location,
+                    "Argument `{s}` does not exists.",
+                    .{arg_key.string},
+                );
             }
 
             _ = try argument.toByteCode(argument, codegen, breaks);
@@ -4301,7 +4452,12 @@ pub const CallNode = struct {
                 try missing_writer.print("{s}, ", .{key.string});
             }
             defer missing.deinit();
-            codegen.reporter.reportErrorFmt(node.location, "Missing argument(s): {s}", .{missing.items});
+            codegen.reporter.reportErrorFmt(
+                .call_arguments,
+                node.location,
+                "Missing argument(s): {s}",
+                .{missing.items},
+            );
         }
 
         // Reorder arguments
@@ -4340,7 +4496,11 @@ pub const CallNode = struct {
         const error_types = function_type.resolved_type.?.Function.error_types;
         if (self.catch_default) |catch_default| {
             if (error_types == null or error_types.?.len == 0) {
-                codegen.reporter.reportErrorAt(node.location, "Function doesn't raise any error");
+                codegen.reporter.reportErrorAt(
+                    .no_error,
+                    node.location,
+                    "Function doesn't raise any error",
+                );
             } else if (error_types != null) {
                 if (catch_default.type_def == null or catch_default.type_def.?.def_type == .Placeholder) {
                     codegen.reporter.reportPlaceholder(catch_default.type_def.?.resolved_type.?.Placeholder);
@@ -4348,6 +4508,7 @@ pub const CallNode = struct {
                     // Expression
                     if (!node.type_def.?.eql(catch_default.type_def.?) and !(try node.type_def.?.cloneOptional(&codegen.gc.type_registry)).eql(catch_default.type_def.?)) {
                         codegen.reporter.reportTypeCheck(
+                            .inline_catch_type,
                             self.callee.location,
                             node.type_def.?,
                             catch_default.location,
@@ -4403,7 +4564,12 @@ pub const CallNode = struct {
                     const error_str = try error_type.toStringAlloc(codegen.gc.allocator);
                     defer error_str.deinit();
 
-                    codegen.reporter.reportErrorFmt(node.location, "Error `{s}` is not handled", .{error_str.items});
+                    codegen.reporter.reportErrorFmt(
+                        .error_not_handled,
+                        node.location,
+                        "Error `{s}` is not handled",
+                        .{error_str.items},
+                    );
                 }
             }
         }
@@ -4768,6 +4934,7 @@ pub const VarDeclarationNode = struct {
                 codegen.reporter.reportPlaceholder(self.type_def.resolved_type.?.Placeholder);
             } else if (!(try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).eql(value.type_def.?) and !(try (try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)).cloneNonOptional(&codegen.gc.type_registry)).eql(value.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .assignment_value_type,
                     node.location,
                     try self.type_def.toInstance(codegen.gc.allocator, &codegen.gc.type_registry),
                     value.location,
@@ -4914,7 +5081,7 @@ pub const EnumNode = struct {
         switch (enum_type.def_type) {
             .String, .Integer, .Float => {},
             else => {
-                codegen.reporter.reportErrorAt(node.location, "Type not allowed as enum value");
+                codegen.reporter.reportErrorAt(.syntax, node.location, "Type not allowed as enum value");
                 return null;
             },
         }
@@ -4929,6 +5096,7 @@ pub const EnumNode = struct {
                 codegen.reporter.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
             } else if (!((try enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry))).eql(case.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .enum_case_type,
                     node.location,
                     (try enum_type.toInstance(codegen.gc.allocator, &codegen.gc.type_registry)),
                     case.location,
@@ -5086,7 +5254,12 @@ pub const ThrowNode = struct {
                         const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
                         defer error_str.deinit();
 
-                        codegen.reporter.reportErrorFmt(node.location, "Error type `{s}` not expected", .{error_str.items});
+                        codegen.reporter.reportErrorFmt(
+                            .unexpected_error_type,
+                            node.location,
+                            "Error type `{s}` not expected",
+                            .{error_str.items},
+                        );
                     }
                 }
             }
@@ -5331,6 +5504,7 @@ pub const InlineIfNode = struct {
         // Both should have same type
         if (!node.type_def.?.eql(self.body.type_def.?)) {
             codegen.reporter.reportTypeCheck(
+                .inline_if_body_type,
                 node.location,
                 node.type_def.?,
                 self.body.location,
@@ -5341,6 +5515,7 @@ pub const InlineIfNode = struct {
 
         if (!node.type_def.?.eql(self.else_branch.type_def.?)) {
             codegen.reporter.reportTypeCheck(
+                .inline_if_else_type,
                 node.location,
                 node.type_def.?,
                 self.else_branch.location,
@@ -5477,11 +5652,19 @@ pub const IfNode = struct {
 
         if (self.unwrapped_identifier != null) {
             if (!self.condition.type_def.?.optional) {
-                codegen.reporter.reportErrorAt(self.condition.location, "Expected optional");
+                codegen.reporter.reportErrorAt(
+                    .optional,
+                    self.condition.location,
+                    "Expected optional",
+                );
             }
         } else if (self.casted_type == null) {
             if (self.condition.type_def.?.def_type != .Bool) {
-                codegen.reporter.reportErrorAt(self.condition.location, "`if` condition must be bool");
+                codegen.reporter.reportErrorAt(
+                    .if_condition_type,
+                    self.condition.location,
+                    "`if` condition must be bool",
+                );
             }
         }
 
@@ -5652,11 +5835,16 @@ pub const ReturnNode = struct {
 
         if (self.value) |value| {
             if (value.type_def == null) {
-                codegen.reporter.reportErrorAt(value.location, "Unknown type.");
+                codegen.reporter.reportErrorAt(
+                    .undefined,
+                    value.location,
+                    "Unknown type.",
+                );
             } else if (value.type_def.?.def_type == .Placeholder) {
                 codegen.reporter.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (!codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.eql(value.type_def.?)) {
                 codegen.reporter.reportTypeCheck(
+                    .return_type,
                     codegen.current.?.function_node.node.location,
                     codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type,
                     value.location,
@@ -5771,7 +5959,11 @@ pub const ForNode = struct {
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
-            codegen.reporter.reportErrorAt(self.condition.location, "`for` condition must be bool");
+            codegen.reporter.reportErrorAt(
+                .for_condition_type,
+                self.condition.location,
+                "`for` condition must be bool",
+            );
         }
 
         _ = try self.condition.toByteCode(self.condition, codegen, _breaks);
@@ -5951,7 +6143,6 @@ pub const ForEachNode = struct {
 
         // Type checking
         if (self.iterable.type_def == null or self.iterable.type_def.?.def_type == .Placeholder) {
-            codegen.reporter.reportErrorAt(self.iterable.location, "Unknown type.");
             codegen.reporter.reportPlaceholder(self.iterable.type_def.?.resolved_type.?.Placeholder);
         } else {
             if (!self.key_omitted) {
@@ -5962,12 +6153,17 @@ pub const ForEachNode = struct {
                 switch (self.iterable.type_def.?.def_type) {
                     .String, .List => {
                         if (self.key.type_def.def_type != .Integer) {
-                            codegen.reporter.reportErrorAt(self.key.node.location, "Expected `int`.");
+                            codegen.reporter.reportErrorAt(
+                                .foreach_key_type,
+                                self.key.node.location,
+                                "Expected `int`.",
+                            );
                         }
                     },
                     .Map => {
                         if (!self.iterable.type_def.?.resolved_type.?.Map.key_type.strictEql(self.key.type_def)) {
                             codegen.reporter.reportTypeCheck(
+                                .foreach_key_type,
                                 self.iterable.location,
                                 self.iterable.type_def.?.resolved_type.?.Map.key_type,
                                 self.key.node.location,
@@ -5976,8 +6172,16 @@ pub const ForEachNode = struct {
                             );
                         }
                     },
-                    .Enum => codegen.reporter.reportErrorAt(self.key.node.location, "No key available when iterating over enum."),
-                    else => codegen.reporter.reportErrorAt(self.iterable.location, "Not iterable."),
+                    .Enum => codegen.reporter.reportErrorAt(
+                        .foreach_key_type,
+                        self.key.node.location,
+                        "No key available when iterating over enum.",
+                    ),
+                    else => codegen.reporter.reportErrorAt(
+                        .foreach_iterable,
+                        self.iterable.location,
+                        "Not iterable.",
+                    ),
                 }
             } else {
                 // Key was omitted, put the correct type in the key var declation to avoid raising errors
@@ -5996,6 +6200,7 @@ pub const ForEachNode = struct {
                 .Map => {
                     if (!self.iterable.type_def.?.resolved_type.?.Map.value_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
+                            .foreach_value_type,
                             self.iterable.location,
                             self.iterable.type_def.?.resolved_type.?.Map.value_type,
                             self.value.node.location,
@@ -6007,6 +6212,7 @@ pub const ForEachNode = struct {
                 .List => {
                     if (!self.iterable.type_def.?.resolved_type.?.List.item_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
+                            .foreach_value_type,
                             self.iterable.location,
                             self.iterable.type_def.?.resolved_type.?.List.item_type,
                             self.value.node.location,
@@ -6017,13 +6223,18 @@ pub const ForEachNode = struct {
                 },
                 .String => {
                     if (self.value.type_def.def_type != .String) {
-                        codegen.reporter.reportErrorAt(self.value.node.location, "Expected `str`.");
+                        codegen.reporter.reportErrorAt(
+                            .foreach_value_type,
+                            self.value.node.location,
+                            "Expected `str`.",
+                        );
                     }
                 },
                 .Enum => {
                     const iterable_type = try self.iterable.type_def.?.toInstance(codegen.gc.allocator, &codegen.gc.type_registry);
                     if (!iterable_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
+                            .foreach_value_type,
                             self.iterable.location,
                             iterable_type,
                             self.value.node.location,
@@ -6039,6 +6250,7 @@ pub const ForEachNode = struct {
                     );
                     if (!iterable_type.strictEql(self.value.type_def)) {
                         codegen.reporter.reportTypeCheck(
+                            .foreach_value_type,
                             self.iterable.location,
                             iterable_type,
                             self.value.node.location,
@@ -6047,7 +6259,11 @@ pub const ForEachNode = struct {
                         );
                     }
                 },
-                else => codegen.reporter.reportErrorAt(self.iterable.location, "Not iterable."),
+                else => codegen.reporter.reportErrorAt(
+                    .foreach_iterable,
+                    self.iterable.location,
+                    "Not iterable.",
+                ),
             }
         }
 
@@ -6252,7 +6468,11 @@ pub const WhileNode = struct {
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
-            codegen.reporter.reportErrorAt(self.condition.location, "`while` condition must be bool");
+            codegen.reporter.reportErrorAt(
+                .while_condition_type,
+                self.condition.location,
+                "`while` condition must be bool",
+            );
         }
 
         _ = try self.condition.toByteCode(self.condition, codegen, _breaks);
@@ -6376,11 +6596,15 @@ pub const DoUntilNode = struct {
         _ = try self.block.toByteCode(self.block, codegen, &breaks);
 
         if (self.condition.type_def == null or self.condition.type_def.?.def_type == .Placeholder) {
-            codegen.reporter.reportErrorAt(self.condition.location, "Unknown type.");
+            codegen.reporter.reportPlaceholder(self.condition.type_def.?.resolved_type.?.Placeholder);
         }
 
         if (self.condition.type_def.?.def_type != .Bool) {
-            codegen.reporter.reportErrorAt(self.condition.location, "`do` condition must be bool");
+            codegen.reporter.reportErrorAt(
+                .do_condition_type,
+                self.condition.location,
+                "`do` condition must be bool",
+            );
         }
 
         _ = try self.condition.toByteCode(self.condition, codegen, &breaks);
@@ -6616,12 +6840,16 @@ pub const DotNode = struct {
             and callee_type.def_type != .String
             and callee_type.def_type != .Pattern
             and callee_type.def_type != .Fiber) {
-            codegen.reporter.reportErrorAt(node.location, "Doesn't have field access");
+            codegen.reporter.reportErrorAt(.field_access, node.location, "Doesn't have field access",);
         }
         // zig fmt: on
 
         if (callee_type.optional) {
-            codegen.reporter.reportErrorAt(node.location, "Optional doesn't have field access");
+            codegen.reporter.reportErrorAt(
+                .field_access,
+                node.location,
+                "Optional doesn't have field access",
+            );
         }
 
         var get_code: ?OpCode = switch (callee_type.def_type) {
@@ -6642,7 +6870,11 @@ pub const DotNode = struct {
                     _ = try call_node.node.toByteCode(&call_node.node, codegen, breaks);
                 } else { // Expression
                     assert(self.value == null);
-                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        get_code.?,
+                        try codegen.identifierConstant(self.identifier.lexeme),
+                    );
                 }
             },
             .ObjectInstance, .Object => {
@@ -6781,7 +7013,12 @@ pub const ObjectInitNode = struct {
         while (it.next()) |kv| {
             // If ommitted in initialization and doesn't have default value
             if (init_properties.get(kv.key_ptr.*) == null and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
-                codegen.reporter.reportErrorFmt(self.node.location, "Property `{s}` was not initialized and has no default value", .{kv.key_ptr.*});
+                codegen.reporter.reportErrorFmt(
+                    .property_not_initialized,
+                    self.node.location,
+                    "Property `{s}` was not initialized and has no default value",
+                    .{kv.key_ptr.*},
+                );
             }
         }
     }
@@ -6820,7 +7057,11 @@ pub const ObjectInitNode = struct {
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
         } else if (node.type_def.?.def_type != .ObjectInstance) {
-            codegen.reporter.reportErrorAt(node.location, "Expected an object.");
+            codegen.reporter.reportErrorAt(
+                .expected_object,
+                node.location,
+                "Expected an object.",
+            );
         }
 
         const object_type = node.type_def.?.resolved_type.?.ObjectInstance;
@@ -6852,6 +7093,7 @@ pub const ObjectInitNode = struct {
                         );
                     }
                     codegen.reporter.reportTypeCheck(
+                        .property_type,
                         obj_def.fields_locations.get(property_name) orelse obj_def.location,
                         prop,
                         value.location,
@@ -6868,6 +7110,7 @@ pub const ObjectInitNode = struct {
                 try codegen.emitOpCode(self.node.location, .OP_POP); // Pop property value
             } else {
                 codegen.reporter.reportWithOrigin(
+                    .property_does_not_exists,
                     node.location,
                     obj_def.location,
                     "Property `{s}` does not exists",
@@ -7032,6 +7275,7 @@ pub const ObjectDeclarationNode = struct {
                             codegen.reporter.reportPlaceholder(method.type_def.?.resolved_type.?.Placeholder);
                         } else if (!mkv.value_ptr.*.eql(method.type_def.?)) {
                             codegen.reporter.reportTypeCheck(
+                                .protocol_conforming,
                                 protocol_def.location,
                                 mkv.value_ptr.*,
                                 method.location,
@@ -7041,6 +7285,7 @@ pub const ObjectDeclarationNode = struct {
                         }
                     } else {
                         codegen.reporter.reportWithOrigin(
+                            .protocol_conforming,
                             self.node.location,
                             protocol_def.methods_locations.get(mkv.value_ptr.*.resolved_type.?.Function.name.string).?,
                             "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
@@ -7100,6 +7345,7 @@ pub const ObjectDeclarationNode = struct {
                     codegen.reporter.reportPlaceholder(default.type_def.?.resolved_type.?.Placeholder);
                 } else if (!property_type.?.eql(default.type_def.?)) {
                     codegen.reporter.reportTypeCheck(
+                        .property_default_value,
                         object_def.location,
                         property_type.?,
                         default.location,

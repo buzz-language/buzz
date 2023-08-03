@@ -636,7 +636,10 @@ pub const Parser = struct {
                 break;
             }
 
-            self.reportErrorAtCurrent(self.parser.current_token.?.literal_string orelse "Unknown error.");
+            self.reportErrorAtCurrent(
+                .unknown,
+                self.parser.current_token.?.literal_string orelse "Unknown error.",
+            );
         }
     }
 
@@ -646,7 +649,7 @@ pub const Parser = struct {
             return;
         }
 
-        self.reportErrorAtCurrent(message);
+        self.reportErrorAtCurrent(.syntax, message);
     }
 
     fn check(self: *Self, token_type: TokenType) bool {
@@ -662,7 +665,7 @@ pub const Parser = struct {
                     break;
                 }
 
-                self.reportErrorAtCurrent(token.literal_string orelse "Unknown error.");
+                self.reportErrorAtCurrent(.syntax, token.literal_string orelse "Unknown error.");
             }
         }
 
@@ -732,7 +735,7 @@ pub const Parser = struct {
             .Call => {
                 // Can we call the parent?
                 if (resolved_type.def_type != .Function) {
-                    self.reporter.reportErrorAt(child_placeholder.where, "Can't be called");
+                    self.reporter.reportErrorAt(.callable, child_placeholder.where, "Can't be called");
                     return;
                 }
 
@@ -753,7 +756,7 @@ pub const Parser = struct {
             .Yield => {
                 // Can we call the parent?
                 if (resolved_type.def_type != .Function) {
-                    self.reporter.reportErrorAt(child_placeholder.where, "Can't be called");
+                    self.reporter.reportErrorAt(.callable, child_placeholder.where, "Can't be called");
                     return;
                 }
 
@@ -779,7 +782,7 @@ pub const Parser = struct {
                 } else if (resolved_type.def_type == .String) {
                     try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .String }), false);
                 } else {
-                    self.reporter.reportErrorAt(child_placeholder.where, "Can't be subscripted");
+                    self.reporter.reportErrorAt(.subscriptable, child_placeholder.where, "Can't be subscripted");
                     return;
                 }
             },
@@ -789,7 +792,7 @@ pub const Parser = struct {
                 } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
                     try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
                 } else {
-                    self.reporter.reportErrorAt(child_placeholder.where, "Can't be a key");
+                    self.reporter.reportErrorAt(.map_key_type, child_placeholder.where, "Can't be a key");
                     return;
                 }
             },
@@ -846,6 +849,7 @@ pub const Parser = struct {
                             try self.resolvePlaceholder(child, static_def, false);
                         } else {
                             self.reportErrorFmt(
+                                .property_does_not_exists,
                                 "`{s}` has no static field `{s}`",
                                 .{
                                     object_def.name.string,
@@ -867,6 +871,7 @@ pub const Parser = struct {
                             try self.resolvePlaceholder(child, method_def, true);
                         } else {
                             self.reportErrorFmt(
+                                .property_does_not_exists,
                                 "`{s}` has no field `{s}`",
                                 .{
                                     object_def.name.string,
@@ -886,6 +891,7 @@ pub const Parser = struct {
                             try self.resolvePlaceholder(child, method_def, true);
                         } else {
                             self.reportErrorFmt(
+                                .property_does_not_exists,
                                 "`{s}` has no method `{s}`",
                                 .{
                                     protocol_def.name.string,
@@ -919,19 +925,19 @@ pub const Parser = struct {
                         if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
                             try self.resolvePlaceholder(child, resolved_type.resolved_type.?.EnumInstance, false);
                         } else {
-                            self.reporter.reportErrorAt(child_placeholder.where, "Enum instance only has field `value`");
+                            self.reporter.reportErrorAt(.property_does_not_exists, child_placeholder.where, "Enum instance only has field `value`");
                             return;
                         }
                     },
                     else => {
-                        self.reporter.reportErrorAt(child_placeholder.where, "Doesn't support field access");
+                        self.reporter.reportErrorAt(.field_access, child_placeholder.where, "Doesn't support field access");
                         return;
                     },
                 }
             },
             .Assignment => {
                 if (constant) {
-                    self.reporter.reportErrorAt(child_placeholder.where, "Is constant.");
+                    self.reporter.reportErrorAt(.constant, child_placeholder.where, "Is constant.");
                     return;
                 }
 
@@ -1193,7 +1199,7 @@ pub const Parser = struct {
                 null;
 
             if (node == null) {
-                self.reportError("Expected declaration or import/export statement");
+                self.reportError(.syntax, "Expected declaration or import/export statement");
             } else if (docblock != null) {
                 node.?.docblock = docblock;
             }
@@ -1315,7 +1321,7 @@ pub const Parser = struct {
         }
 
         if (constant) {
-            self.reportError("`const` not allowed here.");
+            self.reportError(.syntax, "`const` not allowed here.");
         }
 
         return try self.statement(hanging, loop_scope);
@@ -1378,7 +1384,7 @@ pub const Parser = struct {
 
     fn objectDeclaration(self: *Self) !*ParseNode {
         if (self.current.?.scope_depth > 0) {
-            self.reportError("Object must be defined at top-level.");
+            self.reportError(.syntax, "Object must be defined at top-level.");
         }
 
         const start_location = self.parser.previous_token.?;
@@ -1389,7 +1395,7 @@ pub const Parser = struct {
         if (try self.match(.LeftParen)) {
             while (!self.check(.RightParen) and !self.check(.Eof)) : (protocol_count += 1) {
                 if (protocol_count > 255) {
-                    self.reportError("Can't conform to more than 255 protocols");
+                    self.reportError(.protocols_count, "Can't conform to more than 255 protocols");
                 }
 
                 try self.consume(.Identifier, "Expected protocol identifier");
@@ -1398,7 +1404,7 @@ pub const Parser = struct {
                 const protocol = self.globals.items[protocol_slot].type_def;
 
                 if (protocols.get(protocol) != null) {
-                    self.reportErrorFmt("Already conforming to `{s}`.", .{protocol.resolved_type.?.Protocol.name.string});
+                    self.reportErrorFmt(.already_conforming_protocol, "Already conforming to `{s}`.", .{protocol.resolved_type.?.Protocol.name.string});
                 }
 
                 try protocols.put(protocol, {});
@@ -1484,7 +1490,7 @@ pub const Parser = struct {
                 var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
                 if (fields.get(method_name) != null) {
-                    self.reportError("A member with that name already exists.");
+                    self.reportError(.property_already_exists, "A member with that name already exists.");
                 }
 
                 // Does a placeholder exists for this name ?
@@ -1547,7 +1553,7 @@ pub const Parser = struct {
                 const property_name = self.parser.previous_token.?.clone();
 
                 if (fields.get(property_name.lexeme) != null) {
-                    self.reportError("A member with that name already exists.");
+                    self.reportError(.property_already_exists, "A member with that name already exists.");
                 }
 
                 // Does a placeholder exists for this name ?
@@ -1589,7 +1595,7 @@ pub const Parser = struct {
                     default = try self.expression(false);
 
                     if (!default.?.isConstant(default.?)) {
-                        self.reporter.reportErrorAt(default.?.location, "Default value must be constant");
+                        self.reporter.reportErrorAt(.constant_default, default.?.location, "Default value must be constant");
                     }
                 }
 
@@ -1675,7 +1681,7 @@ pub const Parser = struct {
 
     fn protocolDeclaration(self: *Self) !*ParseNode {
         if (self.current.?.scope_depth > 0) {
-            self.reportError("Protocol must be defined at top-level.");
+            self.reportError(.syntax, "Protocol must be defined at top-level.");
         }
 
         const start_location = self.parser.previous_token.?;
@@ -1735,7 +1741,7 @@ pub const Parser = struct {
             var method_name: []const u8 = method_node.type_def.?.resolved_type.?.Function.name.string;
 
             if (fields.get(method_name) != null) {
-                self.reportError("A method with that name already exists.");
+                self.reportError(.property_already_exists, "A method with that name already exists.");
             }
 
             try protocol_type.resolved_type.?.Protocol.methods.put(
@@ -1795,7 +1801,7 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         if (loop_scope == null) {
-            self.reportError("break is not allowed here.");
+            self.reportError(.syntax, "break is not allowed here.");
         }
 
         try self.consume(.Semicolon, "Expected `;` after `break`.");
@@ -1813,7 +1819,7 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         if (loop_scope == null) {
-            self.reportError("continue is not allowed here.");
+            self.reportError(.syntax, "continue is not allowed here.");
         }
 
         try self.consume(.Semicolon, "Expected `;` after `continue`.");
@@ -2101,7 +2107,7 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         if (self.current.?.scope_depth == 0) {
-            self.reportError("Can't use `return` at top-level.");
+            self.reportError(.syntax, "Can't use `return` at top-level.");
         }
 
         var value: ?*ParseNode = null;
@@ -2126,7 +2132,7 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         if (self.current.?.in_try) {
-            self.reportError("Nested `try` statement are not allowed");
+            self.reportError(.nested_try, "Nested `try` statement are not allowed");
         }
 
         self.current.?.in_try = true;
@@ -2143,7 +2149,7 @@ pub const Parser = struct {
         while (try self.match(.Catch)) {
             if (try self.match(.LeftParen)) {
                 if (unconditional_clause != null) {
-                    self.reportError("Catch clause not allowed after unconditional catch");
+                    self.reportError(.syntax, "Catch clause not allowed after unconditional catch");
                 }
 
                 self.beginScope();
@@ -2172,7 +2178,7 @@ pub const Parser = struct {
                 unconditional_clause = try self.block(null);
                 unconditional_clause.?.ends_scope = try self.endScope();
             } else {
-                self.reportError("Expected `(` after `catch`");
+                self.reportError(.syntax, "Expected `(` after `catch`");
             }
         }
 
@@ -2327,7 +2333,7 @@ pub const Parser = struct {
         if (imported_symbols.count() > 0) {
             var it = imported_symbols.iterator();
             while (it.next()) |kv| {
-                self.reportErrorFmt("Unknown import `{s}`.", .{kv.key_ptr.*});
+                self.reportErrorFmt(.unknown_import, "Unknown import `{s}`.", .{kv.key_ptr.*});
             }
         }
 
@@ -2399,7 +2405,7 @@ pub const Parser = struct {
             self.exporting = false;
         }
 
-        self.reportError("Expected identifier or declaration.");
+        self.reportError(.syntax, "Expected identifier or declaration.");
 
         var node = try self.gc.allocator.create(ExportNode);
         node.* = ExportNode{
@@ -2429,7 +2435,7 @@ pub const Parser = struct {
 
         if (is_main) {
             if (function_type == .Extern) {
-                self.reportError("`main` can't be `extern`.");
+                self.reportError(.extern_main, "`main` can't be `extern`.");
             }
 
             function_type = .EntryPoint;
@@ -2450,18 +2456,18 @@ pub const Parser = struct {
             const fun_def = function_node.type_def.?.resolved_type.?.Function;
 
             if (fun_def.parameters.count() != 1) {
-                self.reportError("`main` function signature must only have one `[str]` argument");
+                self.reportError(.main_signature, "`main` function signature must only have one `[str]` argument");
             } else {
                 const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
                 if (first_param == null or
                     !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
                 {
-                    self.reportError("`main` function signature must only have one `[str]` argument");
+                    self.reportError(.main_signature, "`main` function signature must only have one `[str]` argument");
                 }
             }
 
             if (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void) {
-                self.reportError("`main` function must either return `int` or `void`");
+                self.reportError(.main_signature, "`main` function must either return `int` or `void`");
             }
         }
 
@@ -2489,7 +2495,7 @@ pub const Parser = struct {
         const yield_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
-            self.reportError("Expected optional type or void");
+            self.reportError(.yield_type, "Expected optional type or void");
         }
 
         try self.consume(.Greater, "Expected `>` after fiber yield type");
@@ -2584,7 +2590,7 @@ pub const Parser = struct {
         const start_location = self.parser.previous_token.?;
 
         if (self.current.?.scope_depth > 0) {
-            self.reportError("Enum must be defined at top-level.");
+            self.reportError(.syntax, "Enum must be defined at top-level.");
         }
 
         var enum_case_type: *ObjTypeDef = undefined;
@@ -2641,7 +2647,7 @@ pub const Parser = struct {
         var case_index: i32 = 0;
         while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
             if (case_index > 255) {
-                self.reportError("Too many enum cases.");
+                self.reportError(.enum_cases_count, "Too many enum cases.");
             }
 
             try self.consume(.Identifier, "Expected case name.");
@@ -2689,7 +2695,7 @@ pub const Parser = struct {
         try self.consume(.RightBrace, "Expected `}` after enum body.");
 
         if (case_index == 0) {
-            self.reportError("Enum must have at least one case.");
+            self.reportError(.enum_cases_count, "Enum must have at least one case.");
         }
 
         var node = try self.gc.allocator.create(EnumNode);
@@ -2747,7 +2753,7 @@ pub const Parser = struct {
             const property_name: []const u8 = self.parser.previous_token.?.lexeme;
 
             if (fields.get(property_name) != null) {
-                self.reportError("A property with that name already exists.");
+                self.reportError(.property_already_exists, "A property with that name already exists.");
             }
 
             try self.consume(.Equal, "Expected `=` after property name.");
@@ -2861,7 +2867,7 @@ pub const Parser = struct {
 
         var prefixRule: ?ParseFn = getRule(self.parser.previous_token.?.token_type).prefix;
         if (prefixRule == null) {
-            self.reportError("Expected expression.");
+            self.reportError(.syntax, "Expected expression.");
 
             // TODO: find a way to continue or catch that error
             return CompileError.Unrecoverable;
@@ -2906,7 +2912,7 @@ pub const Parser = struct {
         }
 
         if (canAssign and (try self.match(.Equal))) {
-            self.reportError("Invalid assignment target.");
+            self.reportError(.assignable, "Invalid assignment target.");
         }
 
         self.opt_jumps = previous_opt_jumps;
@@ -3001,7 +3007,7 @@ pub const Parser = struct {
             node.node.type_def = return_placeholder;
         } else {
             if (fiber_type.?.def_type != .Fiber) {
-                self.reporter.reportErrorAt(node.fiber.location, "Can't be resolveed");
+                self.reporter.reportErrorAt(.resolvable, node.fiber.location, "Can't be resolveed");
             } else {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
@@ -3045,7 +3051,7 @@ pub const Parser = struct {
             node.node.type_def = yield_placeholder;
         } else {
             if (fiber_type.?.def_type != .Fiber) {
-                self.reporter.reportErrorAt(node.fiber.location, "Can't be resumed");
+                self.reporter.reportErrorAt(.resumable, node.fiber.location, "Can't be resumed");
             } else {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
@@ -3073,7 +3079,7 @@ pub const Parser = struct {
 
         // Expression after `&` must either be a call or a dot call
         if (callable.node_type != .Call and (callable.node_type != .Dot or DotNode.cast(callable).?.call == null)) {
-            self.reporter.reportErrorAt(callable.location, "Expected function call after `async`");
+            self.reporter.reportErrorAt(.syntax, callable.location, "Expected function call after `async`");
 
             return &node.node;
         }
@@ -3130,7 +3136,7 @@ pub const Parser = struct {
             });
         } else {
             if (function_type.?.def_type != .Function) {
-                self.reporter.reportErrorAt(call_node.callee.location, "Can't be called");
+                self.reporter.reportErrorAt(.callable, call_node.callee.location, "Can't be called");
             } else {
                 const return_type = function_type.?.resolved_type.?.Function.return_type;
                 const yield_type = function_type.?.resolved_type.?.Function.yield_type;
@@ -3186,7 +3192,7 @@ pub const Parser = struct {
         );
 
         if (reg == null) {
-            self.reportErrorFmt("Could not compile pattern, error at {}: {s}", .{ err_offset, err });
+            self.reportErrorFmt(.pattern, "Could not compile pattern, error at {}: {s}", .{ err_offset, err });
             return CompileError.Unrecoverable;
         }
 
@@ -3440,7 +3446,7 @@ pub const Parser = struct {
             }
 
             if (arg_count != 0 and arg_name == null) {
-                self.reportError("Expected argument name.");
+                self.reportError(.syntax, "Expected argument name.");
                 break;
             }
 
@@ -3463,7 +3469,7 @@ pub const Parser = struct {
             );
 
             if (arg_count == 255) {
-                self.reportError("Can't have more than 255 arguments.");
+                self.reportError(.arguments_count, "Can't have more than 255 arguments.");
 
                 return arguments;
             }
@@ -3530,7 +3536,7 @@ pub const Parser = struct {
         // If null, create placeholder
         if (node.node.type_def == null) {
             if (callee.type_def == null or callee.type_def.?.def_type != .Placeholder) {
-                self.reporter.reportErrorAt(callee.location, "Can't be called");
+                self.reporter.reportErrorAt(.callable, callee.location, "Can't be called");
             } else {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
@@ -3638,7 +3644,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
                     }
                 } else {
-                    self.reportError("String property doesn't exist.");
+                    self.reportError(.property_does_not_exists, "String property doesn't exist.");
                 }
             },
             .Pattern => {
@@ -3657,7 +3663,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
                     }
                 } else {
-                    self.reportError("Pattern property doesn't exist.");
+                    self.reportError(.property_does_not_exists, "Pattern property doesn't exist.");
                 }
             },
             .Fiber => {
@@ -3676,7 +3682,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
                     }
                 } else {
-                    self.reportError("Fiber property doesn't exist.");
+                    self.reportError(.property_does_not_exists, "Fiber property doesn't exist.");
                 }
             },
             .Object => {
@@ -3711,7 +3717,7 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    self.reportErrorFmt("Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
+                    self.reportErrorFmt(.property_does_not_exists, "Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
                 }
 
                 // Do we assign it ?
@@ -3769,7 +3775,7 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    self.reportErrorFmt("Property `{s}` does not exists in object `{s}`", .{ member_name, obj_def.name.string });
+                    self.reportErrorFmt(.property_does_not_exists, "Property `{s}` does not exists in object `{s}`", .{ member_name, obj_def.name.string });
                 }
 
                 // If its a field or placeholder, we can assign to it
@@ -3799,7 +3805,14 @@ pub const Parser = struct {
 
                 // Else create placeholder
                 if (method_type == null) {
-                    self.reportErrorFmt("Method `{s}` does not exists in protocol `{s}`", .{ member_name, protocol_def.name.string });
+                    self.reportErrorFmt(
+                        .property_does_not_exists,
+                        "Method `{s}` does not exists in protocol `{s}`",
+                        .{
+                            member_name,
+                            protocol_def.name.string,
+                        },
+                    );
                 }
 
                 // Only call is allowed
@@ -3838,13 +3851,13 @@ pub const Parser = struct {
                 }
 
                 if (node.node.type_def == null) {
-                    self.reportError("Enum case doesn't exists.");
+                    self.reportError(.enum_case, "Enum case doesn't exists.");
                 }
             },
             .EnumInstance => {
                 // Only available field is `.value` to get associated value
                 if (!mem.eql(u8, member_name, "value")) {
-                    self.reportError("Enum provides only field `value`.");
+                    self.reportError(.property_does_not_exists, "Enum provides only field `value`.");
                 }
 
                 node.node.type_def = callee.type_def.?.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
@@ -3864,7 +3877,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
                     }
                 } else {
-                    self.reportError("List property doesn't exist.");
+                    self.reportError(.property_does_not_exists, "List property doesn't exist.");
                 }
             },
             .Map => {
@@ -3882,7 +3895,7 @@ pub const Parser = struct {
                         node.node.type_def = member;
                     }
                 } else {
-                    self.reportError("Map property doesn't exist.");
+                    self.reportError(.property_does_not_exists, "Map property doesn't exist.");
                 }
             },
             .Placeholder => {
@@ -3919,7 +3932,7 @@ pub const Parser = struct {
                 }
             },
             else => {
-                self.reporter.reportErrorAt(node.node.location, "Not field accessible");
+                self.reporter.reportErrorAt(.field_access, node.node.location, "Not field accessible");
             },
         }
 
@@ -4103,10 +4116,14 @@ pub const Parser = struct {
                     .String => subscripted_type_def = type_def,
                     .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
                     .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
-                    else => self.reportErrorFmt("Type `{s}` is not subscriptable", .{(try type_def.toStringAlloc(self.gc.allocator)).items}),
+                    else => self.reportErrorFmt(
+                        .subscriptable,
+                        "Type `{s}` is not subscriptable",
+                        .{(try type_def.toStringAlloc(self.gc.allocator)).items},
+                    ),
                 }
             } else {
-                self.reportError("Optional type is not subscriptable");
+                self.reportError(.subscriptable, "Optional type is not subscriptable");
             }
         }
 
@@ -4185,7 +4202,7 @@ pub const Parser = struct {
 
         // Either item type was specified with `<type>` or the list is not empty and we could infer it
         if (item_type == null) {
-            self.reportError("List item type can't be infered");
+            self.reportError(.list_item_type, "List item type can't be infered");
 
             item_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
         }
@@ -4290,7 +4307,7 @@ pub const Parser = struct {
         }
 
         if (key_type == null and value_type == null) {
-            self.reportError("Map key and value type can't be infered");
+            self.reportError(.map_key_type, "Unknown map key and value type");
 
             key_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
             value_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
@@ -4399,7 +4416,11 @@ pub const Parser = struct {
                             ),
                         );
                     } else {
-                        self.reportErrorFmt("Generic type `{s}` already defined", .{self.parser.previous_token.?.lexeme});
+                        self.reportErrorFmt(
+                            .generic_type,
+                            "Generic type `{s}` already defined",
+                            .{self.parser.previous_token.?.lexeme},
+                        );
                     }
 
                     if (!self.check(.Greater)) {
@@ -4408,7 +4429,10 @@ pub const Parser = struct {
                 }
 
                 if (function_node.node.type_def.?.resolved_type.?.Function.generic_types.count() == 0) {
-                    self.reportError("Expected at least one generic type");
+                    self.reportError(
+                        .generic_type,
+                        "Expected at least one generic type",
+                    );
                 }
 
                 try self.consume(.Greater, "Expected `>` after generic types list");
@@ -4424,7 +4448,10 @@ pub const Parser = struct {
                 while (true) {
                     arity += 1;
                     if (arity > 255) {
-                        self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                        self.reportErrorAtCurrent(
+                            .arguments_count,
+                            "Can't have more than 255 arguments.",
+                        );
                     }
 
                     var param_type: *ObjTypeDef = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
@@ -4458,7 +4485,7 @@ pub const Parser = struct {
                             }
 
                             if (!expr.isConstant(expr)) {
-                                self.reportError("Default parameters must be constant values.");
+                                self.reportError(.constant_default, "Default parameters must be constant values.");
                             }
 
                             try function_node.node.type_def.?.resolved_type.?.Function.defaults.put(
@@ -4495,7 +4522,7 @@ pub const Parser = struct {
             const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
 
             if (!yield_type.optional and yield_type.def_type != .Void) {
-                self.reportError("Expected optional type");
+                self.reportError(.yield_type, "Expected optional type or void");
             }
 
             function_node.node.type_def.?.resolved_type.?.Function.yield_type = try yield_type.toInstance(self.gc.allocator, &self.gc.type_registry);
@@ -4512,7 +4539,7 @@ pub const Parser = struct {
                 try error_types.append(error_type);
 
                 if (error_type.optional) {
-                    self.reportError("Error type can't be optional");
+                    self.reportError(.error_type, "Error type can't be optional");
                 }
 
                 if (!self.check(end_token)) {
@@ -4543,7 +4570,7 @@ pub const Parser = struct {
             }
         } else if (!function_type.canOmitBody()) {
             if (!parsed_return_type and !function_type.canOmitReturn()) {
-                self.reportError("Expected `>` after function argument list.");
+                self.reportError(.syntax, "Expected `>` after function argument list.");
             }
 
             try self.consume(.LeftBrace, "Expected `{` before function body.");
@@ -4724,6 +4751,7 @@ pub const Parser = struct {
                 }
 
                 self.reportErrorFmt(
+                    .script_not_found,
                     "buzz script `{s}` not found:\n{s}",
                     .{
                         file_name,
@@ -4792,7 +4820,7 @@ pub const Parser = struct {
 
                     // Search for name collision
                     if ((try self.resolveGlobal(prefix, Token.identifier(global.name.string))) != null) {
-                        self.reportErrorFmt("Shadowed global `{s}`", .{global.name.string});
+                        self.reportErrorFmt(.shadowed_global, "Shadowed global `{s}`", .{global.name.string});
                     }
 
                     global.*.prefix = prefix;
@@ -4804,7 +4832,7 @@ pub const Parser = struct {
             }
         } else {
             // TODO: when it cannot load dynamic library, the error is the same
-            self.reportErrorFmt("Could not compile import or import external dynamic library `{s}`", .{file_name});
+            self.reportErrorFmt(.compile, "Could not compile import or import external dynamic library `{s}`", .{file_name});
         }
 
         return import;
@@ -4843,7 +4871,7 @@ pub const Parser = struct {
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
 
             if (opaque_symbol_method == null) {
-                self.reportErrorFmt("Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
+                self.reportErrorFmt(.symbol_not_found, "Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
                 return null;
             }
 
@@ -4865,6 +4893,7 @@ pub const Parser = struct {
         }
 
         self.reportErrorFmt(
+            .library_not_found,
             "External library `{s}` not found: {s}{s}\n",
             .{
                 file_basename,
@@ -4933,7 +4962,11 @@ pub const Parser = struct {
                         type_def,
                     );
                 } else {
-                    self.reportErrorFmt("Generic type `{s}` already defined", .{self.parser.previous_token.?.lexeme});
+                    self.reportErrorFmt(
+                        .generic_type,
+                        "Generic type `{s}` already defined",
+                        .{self.parser.previous_token.?.lexeme},
+                    );
                 }
 
                 if (!self.check(.Greater)) {
@@ -4942,7 +4975,7 @@ pub const Parser = struct {
             }
 
             if (generic_types.count() == 0) {
-                self.reportError("Expected at least one generic type");
+                self.reportError(.generic_type, "Expected at least one generic type");
             }
 
             try self.consume(.Greater, "Expected `>` after generic types list");
@@ -4958,7 +4991,7 @@ pub const Parser = struct {
             while (true) {
                 arity += 1;
                 if (arity > 255) {
-                    self.reportErrorAtCurrent("Can't have more than 255 parameters.");
+                    self.reportErrorAtCurrent(.arguments_count, "Can't have more than 255 arguments.");
                 }
 
                 var param_type: *ObjTypeDef = try (try self.parseTypeDef(merged_generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
@@ -4976,7 +5009,10 @@ pub const Parser = struct {
                     }
 
                     if (!expr.isConstant(expr)) {
-                        self.reportError("Default parameters must be constant values.");
+                        self.reportError(
+                            .constant_default,
+                            "Default parameters must be constant values.",
+                        );
                     }
 
                     try defaults.put(arg_name, try expr.toValue(expr, self.gc));
@@ -5008,7 +5044,7 @@ pub const Parser = struct {
                 try error_types.?.append(error_type);
 
                 if (error_type.optional) {
-                    self.reportError("Error type can't be optional");
+                    self.reportError(.error_type, "Error type can't be optional");
                 }
 
                 if (!self.check(.Comma)) {
@@ -5149,7 +5185,7 @@ pub const Parser = struct {
 
             return user_type.?;
         } else {
-            self.reportErrorAtCurrent("Expected type definition.");
+            self.reportErrorAtCurrent(.syntax, "Expected type definition.");
 
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Void });
         }
@@ -5192,7 +5228,7 @@ pub const Parser = struct {
             const property_name = self.parser.previous_token.?.clone();
 
             if (fields.get(property_name.lexeme) != null) {
-                self.reportError("A property with that name already exists.");
+                self.reportError(.property_already_exists, "A property with that name already exists.");
             }
 
             if (!self.check(.RightBrace) or self.check(.Comma)) {
@@ -5274,7 +5310,7 @@ pub const Parser = struct {
                 }
 
                 if (mem.eql(u8, name.lexeme, local.name.string)) {
-                    self.reportError("A variable with the same name already exists in this scope.");
+                    self.reportError(.variable_already_exists, "A variable with the same name already exists in this scope.");
                 }
 
                 if (i == 0) break;
@@ -5308,7 +5344,7 @@ pub const Parser = struct {
 
                             return index;
                         } else if (global.prefix == null) {
-                            self.reportError("A global with the same name already exists.");
+                            self.reportError(.variable_already_exists, "A global with the same name already exists.");
                         }
                     }
                 }
@@ -5320,7 +5356,7 @@ pub const Parser = struct {
 
     fn addLocal(self: *Self, name: Token, local_type: *ObjTypeDef, constant: bool) !usize {
         if (self.current.?.local_count == 255) {
-            self.reportError("Too many local variables in scope.");
+            self.reportError(.locals_count, "Too many local variables in scope.");
             return 0;
         }
 
@@ -5368,7 +5404,7 @@ pub const Parser = struct {
         }
 
         if (self.globals.items.len == std.math.maxInt(u24)) {
-            self.reportError("Too many global variables.");
+            self.reportError(.globals_count, "Too many global variables.");
             return 0;
         }
 
@@ -5395,7 +5431,7 @@ pub const Parser = struct {
             var local: *Local = &frame.locals[i];
             if (mem.eql(u8, name.lexeme, local.name.string)) {
                 if (local.depth == -1) {
-                    self.reportError("Can't read local variable in its own initializer.");
+                    self.reportError(.local_initializer, "Can't read local variable in its own initializer.");
                 }
 
                 return i;
@@ -5418,7 +5454,11 @@ pub const Parser = struct {
             var global: *Global = &self.globals.items[i];
             if (((prefix == null and global.prefix == null) or (prefix != null and global.prefix != null and mem.eql(u8, prefix.?, global.prefix.?))) and mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                 if (!global.initialized) {
-                    self.reportErrorFmt("Can't read global `{s}` variable in its own initializer.", .{global.name.string});
+                    self.reportErrorFmt(
+                        .global_initializer,
+                        "Can't read global `{s}` variable in its own initializer.",
+                        .{global.name.string},
+                    );
                 }
 
                 return i;
@@ -5447,7 +5487,7 @@ pub const Parser = struct {
         }
 
         if (upvalue_count == 255) {
-            self.reportError("Too many closure variables in function.");
+            self.reportError(.closures_count, "Too many closure variables in function.");
             return 0;
         }
 
@@ -5477,15 +5517,15 @@ pub const Parser = struct {
         return null;
     }
 
-    inline fn reportErrorAtCurrent(self: *Self, message: []const u8) void {
-        self.reporter.reportErrorAt(self.parser.current_token.?, message);
+    inline fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+        self.reporter.reportErrorAt(error_type, self.parser.current_token.?, message);
     }
 
-    pub inline fn reportError(self: *Self, message: []const u8) void {
-        self.reporter.reportErrorAt(self.parser.previous_token.?, message);
+    pub inline fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+        self.reporter.reportErrorAt(error_type, self.parser.previous_token.?, message);
     }
 
-    inline fn reportErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        self.reporter.reportErrorFmt(self.parser.previous_token.?, fmt, args);
+    inline fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
+        self.reporter.reportErrorFmt(error_type, self.parser.previous_token.?, fmt, args);
     }
 };

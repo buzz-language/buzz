@@ -7,6 +7,93 @@ const PlaceholderDef = o.PlaceholderDef;
 
 const Self = @This();
 
+// Do not reorder whitout updating documentation, values are explicit so they can be retrieved easily
+pub const Error = enum(u8) {
+    already_conforming_protocol = 0,
+    arguments_count = 1,
+    arithmetic_operand_type = 2,
+    assignable = 3,
+    assignment_value_type = 4,
+    binary_operand_type = 5,
+    bitwise_operand_type = 6,
+    block_too_large = 7,
+    call_argument_type = 8,
+    call_arguments = 9,
+    callable = 10,
+    closures_count = 11,
+    comparison_operand_type = 12,
+    compile = 13,
+    constant_default = 14,
+    constant = 15,
+    do_condition_type = 16,
+    enum_argument = 17,
+    enum_case_type = 18,
+    enum_case = 19,
+    enum_cases_count = 20,
+    error_not_handled = 21,
+    error_type = 22,
+    expected_object = 23,
+    export_count = 24,
+    extern_main = 25,
+    fiber_call_not_allowed = 26,
+    fiber = 27,
+    field_access = 28,
+    for_condition_type = 29,
+    foreach_iterable = 30,
+    foreach_key_type = 31,
+    foreach_value_type = 32,
+    generic_type = 33,
+    global_initializer = 34,
+    globals_count = 35,
+    if_condition_type = 36,
+    inline_catch_type = 37,
+    inline_if_body_type = 38,
+    inline_if_else_type = 39,
+    jump_too_large = 40,
+    library_not_found = 41,
+    list_item_type = 42,
+    local_initializer = 43,
+    locals_count = 44,
+    logical_operand_type = 45,
+    loop_body_too_large = 46,
+    main_signature = 47,
+    map_key_type = 48,
+    map_value_type = 49,
+    missing_return = 50,
+    nested_try = 51,
+    no_error = 52,
+    optional = 53,
+    pattern = 54,
+    property_already_exists = 55,
+    property_default_value = 56,
+    property_does_not_exists = 57,
+    property_not_initialized = 58,
+    property_type = 59,
+    protocol_conforming = 60,
+    protocols_count = 61,
+    range_type = 62,
+    raw_char = 63,
+    resolvable = 64,
+    resumable = 65,
+    return_type = 66,
+    runtime = 67,
+    script_not_found = 68,
+    shadowed_global = 69,
+    subscript_key_type = 70,
+    subscript_value_type = 71,
+    subscriptable = 72,
+    symbol_not_found = 73,
+    syntax = 74,
+    undefined = 75,
+    unexpected_error_type = 76,
+    unknown_import = 77,
+    unknown = 78,
+    variable_already_exists = 79,
+    while_condition_type = 80,
+    yield_not_allowed = 81,
+    yield_type = 82,
+};
+
 // Inspired by https://github.com/zesterer/ariadne
 pub const ReportKind = enum {
     @"error",
@@ -63,6 +150,7 @@ pub const ReportOptions = struct {
 
 pub const Report = struct {
     message: []const u8,
+    error_type: Error,
     items: []const ReportItem,
     notes: []const Note = &[_]Note{},
     options: ReportOptions = .{},
@@ -78,12 +166,13 @@ pub const Report = struct {
         const main_item = self.items[0];
 
         try out.print(
-            "\n{s}:{}:{}: \x1b[{d}m{s}{s}:\x1b[0m {s}\n",
+            "\n{s}:{}:{}: \x1b[{d}m[E{d}] {s}{s}:\x1b[0m {s}\n",
             .{
                 main_item.location.script_name,
                 main_item.location.line + 1,
                 main_item.location.column,
                 main_item.kind.color(),
+                @intFromEnum(self.error_type),
                 if (reporter.error_prefix) |prefix|
                     prefix
                 else
@@ -287,12 +376,13 @@ panic_mode: bool = false,
 had_error: bool = false,
 error_prefix: ?[]const u8 = null,
 
-pub fn report(self: *Self, token: Token, message: []const u8) void {
+pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8) void {
     self.panic_mode = true;
     self.had_error = true;
 
     var error_report = Report{
         .message = message,
+        .error_type = error_type,
         .items = &[_]ReportItem{
             ReportItem{
                 .location = token,
@@ -305,25 +395,25 @@ pub fn report(self: *Self, token: Token, message: []const u8) void {
     error_report.reportStderr(self) catch @panic("Unable to report error");
 }
 
-pub fn reportErrorAt(self: *Self, token: Token, message: []const u8) void {
+pub fn reportErrorAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
     if (self.panic_mode) {
         return;
     }
 
-    self.report(token, message);
+    self.report(error_type, token, message);
 }
 
-pub fn reportErrorFmt(self: *Self, token: Token, comptime fmt: []const u8, args: anytype) void {
+pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
 
-    self.reportErrorAt(token, message.items);
+    self.reportErrorAt(error_type, token, message.items);
 }
 
-pub fn reportWithOrigin(self: *Self, at: Token, decl_location: Token, comptime fmt: []const u8, args: anytype, declared_message: ?[]const u8) void {
+pub fn reportWithOrigin(self: *Self, error_type: Error, at: Token, decl_location: Token, comptime fmt: []const u8, args: anytype, declared_message: ?[]const u8) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
 
@@ -332,6 +422,7 @@ pub fn reportWithOrigin(self: *Self, at: Token, decl_location: Token, comptime f
 
     var decl_report = Report{
         .message = message.items,
+        .error_type = error_type,
         .items = &[_]ReportItem{
             .{
                 .location = at,
@@ -354,6 +445,7 @@ pub fn reportWithOrigin(self: *Self, at: Token, decl_location: Token, comptime f
 
 pub fn reportTypeCheck(
     self: *Self,
+    error_type: Error,
     expected_location: ?Token,
     expected_type: *ObjTypeDef,
     actual_location: Token,
@@ -393,6 +485,7 @@ pub fn reportTypeCheck(
     var check_report = if (expected_location) |location|
         Report{
             .message = full_message.items,
+            .error_type = error_type,
             .items = &[_]ReportItem{
                 .{
                     .location = actual_location,
@@ -409,6 +502,7 @@ pub fn reportTypeCheck(
     else
         Report{
             .message = full_message.items,
+            .error_type = error_type,
             .items = &[_]ReportItem{
                 .{
                     .location = actual_location,
@@ -433,7 +527,12 @@ pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) void {
     } else {
         // Should be a root placeholder with a name
         assert(placeholder.name != null);
-        self.reportErrorFmt(placeholder.where, "`{s}` is not defined", .{placeholder.name.?.string});
+        self.reportErrorFmt(
+            .undefined,
+            placeholder.where,
+            "`{s}` is not defined",
+            .{placeholder.name.?.string},
+        );
     }
 }
 
@@ -465,6 +564,7 @@ test "multiple error on one line" {
 
     var bad = Report{
         .message = "This could have been avoided if you were not a moron",
+        .error_type = .runtime,
         .notes = &[_]Note{
             .{ .message = "This could have been avoided if you were not a moron" },
         },

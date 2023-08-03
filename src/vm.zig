@@ -3603,6 +3603,7 @@ pub const VM = struct {
 
         var err_report = Reporter.Report{
             .message = message,
+            .error_type = .runtime,
             .items = &[_]Reporter.ReportItem{
                 .{
                     .location = error_site orelse stack[0].call_site.?,

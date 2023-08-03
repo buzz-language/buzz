@@ -122,7 +122,7 @@ pub const CodeGen = struct {
     pub fn emitLoop(self: *Self, location: Token, loop_start: usize) !void {
         const offset: usize = self.currentCode() - loop_start + 1;
         if (offset > 16777215) {
-            self.reportError("Loop body too large.");
+            self.reportError(.loop_body_too_large, "Loop body too large.");
         }
 
         try self.emitCodeArg(location, .OP_LOOP, @as(u24, @intCast(offset)));
@@ -143,7 +143,7 @@ pub const CodeGen = struct {
             assert(loop_start != null);
             const loop_offset: usize = offset - loop_start.? + 1;
             if (loop_offset > 16777215) {
-                self.reportError("Loop body too large.");
+                self.reportError(.loop_body_too_large, "Loop body too large.");
             }
 
             self.current.?.function.?.chunk.code.items[offset] =
@@ -159,7 +159,7 @@ pub const CodeGen = struct {
         const jump: usize = self.currentCode() - offset - 1;
 
         if (jump > 16777215) {
-            self.reportError("Jump too large.");
+            self.reportError(.jump_too_large, "Jump too large.");
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
@@ -175,7 +175,10 @@ pub const CodeGen = struct {
         const jump: usize = self.currentCode();
 
         if (jump > 16777215) {
-            self.reportError("Try block too large.");
+            self.reportError(
+                .block_too_large,
+                "Try block too large.",
+            );
         }
 
         const original: u32 = self.current.?.function.?.chunk.code.items[offset];
@@ -242,12 +245,13 @@ pub const CodeGen = struct {
     }
 
     // Unlocated error, should not be used
-    fn reportError(self: *Self, message: []const u8) void {
+    fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
         if (self.reporter.panic_mode) {
             return;
         }
 
         self.reporter.report(
+            error_type,
             Token{
                 .token_type = .Error,
                 .source = "",
