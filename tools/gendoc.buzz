@@ -81,11 +81,11 @@ object Declaration {
     }
 }
 
-fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
+fun extractDeclarations([Boxed] statements) > [Declaration] !> JsonParseError {
     [Declaration] declarations = [<Declaration>];
 
-    foreach (Json statement in statements) {
-        {str, Json} statementMap = statement.mapValue();
+    foreach (Boxed statement in statements) {
+        {str, Boxed} statementMap = statement.mapValue();
         str nodeType = statement.q(["node"]).stringValue();
 
         if (
@@ -106,8 +106,8 @@ fun extractDeclarations([Json] statements) > [Declaration] !> JsonParseError {
             }
 
             if (nodeType == "ObjectDeclaration") {
-                {str, Json} props = statement.q(["members"]).mapValue();
-                foreach (str name, Json member in props) {
+                {str, Boxed} props = statement.q(["members"]).mapValue();
+                foreach (str name, Boxed member in props) {
                     str typeDef = member.q(["type_def"]).stringValue();
                     str displayName = "{typeDef} {name}";
                     if (typeDef.indexOf("fun") == 0) {
@@ -145,10 +145,10 @@ fun getDeclarations(str path) > [Declaration]
     );
     file.close();
 
-    Json? root = null;
+    Boxed? root = null;
 
     try {
-        root = Json.decode(source);
+        root = decode(source);
     } catch (JsonParseError error) {
         print("Could not decode ast of for {path}");
 
@@ -158,7 +158,7 @@ fun getDeclarations(str path) > [Declaration]
     | Root must be a function
     assert(root?.q(["node"]).string ?? "" == "Function", message: "Expected root node to be a function");
 
-    return extractDeclarations(root?.q(["body", "statements"]).listValue() ?? [<Json>]);
+    return extractDeclarations(root?.q(["body", "statements"]).listValue() ?? [<Boxed>]);
 }
 
 fun genMarkdownDoc([Declaration] declarations, Buffer out) > void !> WriteWhileReadingError {

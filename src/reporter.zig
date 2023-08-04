@@ -413,7 +413,15 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt
     self.reportErrorAt(error_type, token, message.items);
 }
 
-pub fn reportWithOrigin(self: *Self, error_type: Error, at: Token, decl_location: Token, comptime fmt: []const u8, args: anytype, declared_message: ?[]const u8) void {
+pub fn reportWithOrigin(
+    self: *Self,
+    error_type: Error,
+    at: Token,
+    decl_location: Token,
+    comptime fmt: []const u8,
+    args: anytype,
+    declared_message: ?[]const u8,
+) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
 

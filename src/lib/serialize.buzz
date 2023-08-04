@@ -1,0 +1,47 @@
+import "std";
+
+|| Utility object to manage deserialized data from, for example, decoded JSON
+export object Boxed {
+    || When wrapped data is a string
+    str? string = null,
+    || When wrapped data is a boolean
+    bool? boolean = null,
+    || When wrapped data is a int
+    int? integer = null,
+    || When wrapped data is a float
+    float? floating = null,
+    || When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
+    {str, Boxed}? map = null,
+    || When wrapped data is a list, list elements are themselves warpped in a `Boxed`
+    [Boxed]? list = null,
+
+    || @return wrapped data string value or empty string if not a string
+    fun stringValue() > str -> this.string ?? ""
+    || @return wrapped data boolean value or `false` if not a boolean
+    fun booleanValue() > bool -> this.boolean ?? false
+    || @return wrapped data number value or `0` if not an integer
+    fun integerValue() > int -> this.integer ?? 0
+    || @return wrapped data number value or `0` if not a float
+    fun floatingValue() > float -> this.floating ?? 0.0
+    || @return wrapped data map value or empty map if not a map
+    fun mapValue() > {str, Boxed} -> this.map ?? {<str, Boxed>}
+    || @return wrapped data list value or empty list if not a list
+    fun listValue() > [Boxed] -> this.list ?? [<Boxed>]
+
+    || Query the json element at `path`, if nothing matches return `Boxed{}`
+    || @param path Path to query
+    || @return Found `Boxed` or `Boxed{}` (which is `null`)
+    fun q([str] path) > Boxed {
+        if (this.map != null) {
+            if (path.len() > 1) {
+                return (this.map![path[0]] ?? Boxed{}).q(path.sub(1));
+            } else if (path.len() > 0) {
+                return this.map![path[0]] ?? Boxed{};
+            } else {
+                return this;
+            }
+        }
+
+        return Boxed{};
+    }
+}

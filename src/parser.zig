@@ -3775,7 +3775,11 @@ pub const Parser = struct {
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    self.reportErrorFmt(.property_does_not_exists, "Property `{s}` does not exists in object `{s}`", .{ member_name, obj_def.name.string });
+                    self.reportErrorFmt(
+                        .property_does_not_exists,
+                        "Property `{s}` does not exists in object `{s}`",
+                        .{ member_name, obj_def.name.string },
+                    );
                 }
 
                 // If its a field or placeholder, we can assign to it

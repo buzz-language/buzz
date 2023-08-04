@@ -11,7 +11,7 @@ import "buffer";
 object LspState {
     | TODO: Maybe bad to keep this in memory
     {str, str} sources,
-    {str, Json} ast,
+    {str, Boxed} ast,
 }
 
 enum(int) SymbolKind {
@@ -112,18 +112,18 @@ fun readContentLength() > int? !> LSPError {
     return null;
 }
 
-fun respond(str? strId, int? numId, Json result) > void !> LSPError
+fun respond(str? strId, int? numId, Boxed result) > void !> LSPError
  {
     try {
-        const Json response = Json{
+        const Boxed response = Boxed{
             map = {
-                "jsonrpc": Json{ string = "2.0" },
-                "id": Json{ string = strId, integer = numId },
+                "jsonrpc": Boxed{ string = "2.0" },
+                "id": Boxed{ string = strId, integer = numId },
                 "result": result
             }
         };
 
-        const str stringResponse = response.encode();
+        const str stringResponse = encode(response);
 
         stderr.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
         stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
@@ -132,7 +132,7 @@ fun respond(str? strId, int? numId, Json result) > void !> LSPError
     }
 }
 
-fun withinNode(Json node, str uri, int line, int column) > bool {
+fun withinNode(Boxed node, str uri, int line, int column) > bool {
     const str script = node.q(["location", "script"]).stringValue();
     const int startLine = node.q(["location", "start_line"]).integer ?? -1;
     const int startColumn = node.q(["location", "start_column"]).integer ?? -1;
@@ -152,7 +152,7 @@ fun withinNode(Json node, str uri, int line, int column) > bool {
 }
 
 | Go down the ast tree to find the smallest node under `line`:`column`
-fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void {
+fun findNodeUnder([Boxed] trail, Boxed root, str uri, int line, int column) > void {
     if (!withinNode(root, uri: uri, line: line, column: column)) {
         return;
     }
@@ -162,7 +162,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     const str node = root.q(["node"]).string ?? "-";
 
     if (node == "Function") {
-        const Json body = root.q(["body"]);
+        const Boxed body = root.q(["body"]);
 
         if (withinNode(body, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: body, uri: uri, line: line, column: column);
@@ -174,9 +174,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Enum") {
-        const [Json] cases = root.q(["cases"]).listValue();
+        const [Boxed] cases = root.q(["cases"]).listValue();
 
-        foreach (int i, Json case in cases) {
+        foreach (int i, Boxed case in cases) {
             if (withinNode(case, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: case, uri: uri, line: line, column: column);
 
@@ -188,7 +188,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "VarDeclaration") {
-        const Json value = root.q(["value"]);
+        const Boxed value = root.q(["value"]);
 
         if (withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -200,7 +200,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "FunDeclaration") {
-        const Json function = root.q(["function"]);
+        const Boxed function = root.q(["function"]);
 
         if (withinNode(function, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: function, uri: uri, line: line, column: column);
@@ -212,10 +212,10 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "ObjectDeclaration") {
-        const {str, Json} methods = root.q(["methods"]).mapValue();
-        const {str, Json} members = root.q(["members"]).mapValue();
+        const {str, Boxed} methods = root.q(["methods"]).mapValue();
+        const {str, Boxed} members = root.q(["members"]).mapValue();
 
-        foreach (str name, Json method in methods) {
+        foreach (str name, Boxed method in methods) {
             if (withinNode(method, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: method, uri: uri, line: line, column: column);
 
@@ -223,7 +223,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
             }   
         }
 
-        foreach (str name, Json member in members) {
+        foreach (str name, Boxed member in members) {
             if (withinNode(member, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: member, uri: uri, line: line, column: column);
 
@@ -235,8 +235,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Binary") {
-        const Json left = root.q(["left"]);
-        const Json right = root.q(["right"]);
+        const Boxed left = root.q(["left"]);
+        const Boxed right = root.q(["right"]);
 
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -254,7 +254,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Unary") {
-        const Json left = root.q(["left"]);
+        const Boxed left = root.q(["left"]);
         
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -266,9 +266,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Subscript") {
-        const Json subscripted = root.q(["subscripted"]);
-        const Json index = root.q(["index"]);
-        const Json value = root.q(["value"]);
+        const Boxed subscripted = root.q(["subscripted"]);
+        const Boxed index = root.q(["index"]);
+        const Boxed value = root.q(["value"]);
 
         if (withinNode(subscripted, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: subscripted, uri: uri, line: line, column: column);
@@ -292,7 +292,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Unwrap") {
-        const Json unwrapped = root.q(["unwrapped"]);
+        const Boxed unwrapped = root.q(["unwrapped"]);
 
         if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: unwrapped, uri: uri, line: line, column: column);
@@ -304,7 +304,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "ForceUnwrap") {
-        const Json unwrapped = root.q(["unwrapped"]);
+        const Boxed unwrapped = root.q(["unwrapped"]);
 
         if (withinNode(unwrapped, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: unwrapped, uri: uri, line: line, column: column);
@@ -316,7 +316,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Is") {
-        const Json left = root.q(["left"]);
+        const Boxed left = root.q(["left"]);
         
         if (withinNode(left, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: left, uri: uri, line: line, column: column);
@@ -328,7 +328,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Expression") {
-        const Json expression = root.q(["expression"]);
+        const Boxed expression = root.q(["expression"]);
 
         if (withinNode(expression, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: expression, uri: uri, line: line, column: column);
@@ -340,7 +340,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "NamedVariable") {
-        const Json value = root.q(["value"]);
+        const Boxed value = root.q(["value"]);
 
         if (value.map != null and withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -356,9 +356,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "String") {
-        const [Json] elements = root.q(["elements"]).listValue();
+        const [Boxed] elements = root.q(["elements"]).listValue();
 
-        foreach (int i, Json element in elements) {
+        foreach (int i, Boxed element in elements) {
             if (withinNode(element, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: element, uri: uri, line: line, column: column);
 
@@ -386,9 +386,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "List") {
-        const [Json] items = root.q(["items"]).listValue();
+        const [Boxed] items = root.q(["items"]).listValue();
 
-        foreach (int i, Json item in items) {
+        foreach (int i, Boxed item in items) {
             if (withinNode(item, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: item, uri: uri, line: line, column: column);
 
@@ -400,9 +400,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Map") {
-        const {str, Json} map = root.q(["items"]).mapValue();
+        const {str, Boxed} map = root.q(["items"]).mapValue();
 
-        foreach (str key, Json value in map) {
+        foreach (str key, Boxed value in map) {
             if (withinNode(value, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
 
@@ -414,9 +414,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Dot") {
-        const Json callee = root.q(["callee"]);
-        const Json? value = root.mapValue()["value"];
-        const Json? call = root.mapValue()["call"];
+        const Boxed callee = root.q(["callee"]);
+        const Boxed? value = root.mapValue()["value"];
+        const Boxed? call = root.mapValue()["call"];
 
         if (withinNode(callee, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: callee, uri: uri, line: line, column: column);
@@ -440,8 +440,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "ObjectInit") {
-        const Json objectRef = root.q(["object"]);
-        const [Json] properties = root.q(["properties"]).listValue();
+        const Boxed objectRef = root.q(["object"]);
+        const [Boxed] properties = root.q(["properties"]).listValue();
 
         if (withinNode(objectRef, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: objectRef, root: objectRef, uri: uri, line: line, column: column);
@@ -449,7 +449,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
             return;
         }
         
-        foreach (int i, Json property in properties) {
+        foreach (int i, Boxed property in properties) {
             if (withinNode(property, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: property, uri: uri, line: line, column: column);
 
@@ -461,7 +461,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Throw") {
-        const Json errorValue = root.q(["error_value"]);
+        const Boxed errorValue = root.q(["error_value"]);
         
         if (withinNode(errorValue, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: errorValue, uri: uri, line: line, column: column);
@@ -481,8 +481,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Call") {
-        const Json? callee = root.mapValue()["callee"];
-        const [Json] arguments = root.q(["arguments"]).listValue();
+        const Boxed? callee = root.mapValue()["callee"];
+        const [Boxed] arguments = root.q(["arguments"]).listValue();
 
         if (callee != null and withinNode(callee!, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: callee!, uri: uri, line: line, column: column);
@@ -490,8 +490,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
             return;
         }
 
-        foreach (int i, Json argument in arguments) {
-            const Json argNode = argument.q(["value"]);
+        foreach (int i, Boxed argument in arguments) {
+            const Boxed argNode = argument.q(["value"]);
             if (withinNode(argNode, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: argNode, uri: uri, line: line, column: column);
 
@@ -503,7 +503,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "AsyncCall") {
-        const Json call = root.q(["call"]);
+        const Boxed call = root.q(["call"]);
 
         if (withinNode(call, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: call, uri: uri, line: line, column: column);
@@ -515,7 +515,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Resume") {
-        const Json fiber = root.q(["fiber"]);
+        const Boxed fiber = root.q(["fiber"]);
 
         if (withinNode(fiber, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: fiber, uri: uri, line: line, column: column);
@@ -527,7 +527,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Resolve") {
-        const Json fiber = root.q(["fiber"]);
+        const Boxed fiber = root.q(["fiber"]);
 
         if (withinNode(fiber, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: fiber, uri: uri, line: line, column: column);
@@ -539,7 +539,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Yield") {
-        const Json expression = root.q(["expression"]);
+        const Boxed expression = root.q(["expression"]);
 
         if (withinNode(expression, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: expression, uri: uri, line: line, column: column);
@@ -551,9 +551,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "If") {
-        const Json condition = root.q(["condition"]);
-        const Json body = root.q(["body"]);
-        const Json? elseBranch = root.mapValue()["else"];
+        const Boxed condition = root.q(["condition"]);
+        const Boxed body = root.q(["body"]);
+        const Boxed? elseBranch = root.mapValue()["else"];
         
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -577,9 +577,9 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Block") {
-        const [Json] statements = root.q(["statements"]).listValue();
+        const [Boxed] statements = root.q(["statements"]).listValue();
 
-        foreach (int i, Json statement in statements) {
+        foreach (int i, Boxed statement in statements) {
             if (withinNode(statement, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: statement, uri: uri, line: line, column: column);
 
@@ -591,7 +591,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "Return") {
-        const Json value = root.q(["value"]);
+        const Boxed value = root.q(["value"]);
 
         if (withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
@@ -603,10 +603,10 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "For") {
-        const [Json] initDeclarations = root.q(["init_declarations"]).listValue();
-        const Json condition = root.q(["condition"]);
-        const [Json] postLoops = root.q(["postLoop"]).listValue();
-        const Json body = root.q(["body"]);
+        const [Boxed] initDeclarations = root.q(["init_declarations"]).listValue();
+        const Boxed condition = root.q(["condition"]);
+        const [Boxed] postLoops = root.q(["postLoop"]).listValue();
+        const Boxed body = root.q(["body"]);
 
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -614,7 +614,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
             return;
         }
 
-        foreach (int i, Json initDeclaration in initDeclarations) {
+        foreach (int i, Boxed initDeclaration in initDeclarations) {
             if (withinNode(initDeclaration, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: initDeclaration, uri: uri, line: line, column: column);
 
@@ -622,7 +622,7 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
             }
         }
 
-        foreach (int i, Json postLoop in postLoops) {
+        foreach (int i, Boxed postLoop in postLoops) {
             if (withinNode(postLoop, uri: uri, line: line, column: column)) {
                 findNodeUnder(trail, root: postLoop, uri: uri, line: line, column: column);
 
@@ -640,10 +640,10 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "ForEach") {
-        const Json? key = root.mapValue()["key"];
-        const Json value = root.q(["value"]);
-        const Json iterable = root.q(["iterable"]);
-        const Json block = root.q(["block"]);
+        const Boxed? key = root.mapValue()["key"];
+        const Boxed value = root.q(["value"]);
+        const Boxed iterable = root.q(["iterable"]);
+        const Boxed block = root.q(["block"]);
 
         if (key != null and withinNode(key!, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: key!, uri: uri, line: line, column: column);
@@ -673,8 +673,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "DoUntil") {
-        const Json condition = root.q(["condition"]);
-        const Json block = root.q(["block"]);
+        const Boxed condition = root.q(["condition"]);
+        const Boxed block = root.q(["block"]);
 
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -692,8 +692,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
     }
     
     if (node == "While") {
-        const Json condition = root.q(["condition"]);
-        const Json block = root.q(["block"]);
+        const Boxed condition = root.q(["condition"]);
+        const Boxed block = root.q(["block"]);
         
         if (withinNode(condition, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: condition, uri: uri, line: line, column: column);
@@ -720,8 +720,8 @@ fun findNodeUnder([Json] trail, Json root, str uri, int line, int column) > void
 }
 
 | Search symbol with a list of statements without going into a deeper scope
-fun findSymbolInScope([Json] statements, str symbol) > Json? {
-    foreach (int i, Json statement in statements) {
+fun findSymbolInScope([Boxed] statements, str symbol) > Boxed? {
+    foreach (int i, Boxed statement in statements) {
         const str statementType = statement.q(["node"]).stringValue();
 
         if (statementType == "VarDeclaration") {
@@ -743,19 +743,19 @@ fun findSymbolInScope([Json] statements, str symbol) > Json? {
 }
 
 | Climp up ast tree from the leaf to find its declaration
-fun findSymbol([Json] trail, str symbol) > Json? {
+fun findSymbol([Boxed] trail, str symbol) > Boxed? {
     for (int i = trail.len() - 1; i >= 0; i = i - 1) {
-        Json node = trail[i];
+        Boxed node = trail[i];
         const str nodeType = node.q(["node"]).stringValue();
 
         if (nodeType == "Block") {
-            Json? declaration = findSymbolInScope(node.q(["statements"]).listValue(), symbol: symbol);
+            Boxed? declaration = findSymbolInScope(node.q(["statements"]).listValue(), symbol: symbol);
 
             if (declaration != null) {
                 return declaration;
             }
         } else if (nodeType == "Function") {
-            Json? declaration = findSymbolInScope(node.q(["body", "statements"]).listValue(), symbol: symbol);
+            Boxed? declaration = findSymbolInScope(node.q(["body", "statements"]).listValue(), symbol: symbol);
 
             if (declaration != null) {
                 return declaration;
@@ -767,17 +767,17 @@ fun findSymbol([Json] trail, str symbol) > Json? {
 }
 
 | Climp up ast tree from the leaf to find its declaration
-fun findDeclaration([Json] trail) > Json? !> LSPError {
+fun findDeclaration([Boxed] trail) > Boxed? !> LSPError {
     assert(trail.len() >= 2, message: "Trail should not be empty");
 
     try {
         stderr.write("Searching in trail: ");
-        foreach (int i, Json e in trail) {
+        foreach (int i, Boxed e in trail) {
             stderr.write("{e.q(["node"]).stringValue()} > ");
         }
         stderr.write("\n");
 
-        Json leaf = trail[trail.len() - 1];
+        Boxed leaf = trail[trail.len() - 1];
         str leafType = leaf.q(["node"]).stringValue();
 
         if (leafType == "NamedVariable") {
@@ -804,7 +804,7 @@ fun findDeclaration([Json] trail) > Json? !> LSPError {
     return null;
 }
 
-fun getAst(LspState state, str filename) > Json !> LSPError {
+fun getAst(LspState state, str filename) > Boxed !> LSPError {
     if (!filename.startsWith("file://")) {
         throw LSPError.init(LSPErrorType.ParseError);
     }
@@ -832,7 +832,7 @@ fun getAst(LspState state, str filename) > Json !> LSPError {
 
             str astString = debug.ast(source!, scriptName: filename);
 
-            state.ast[filename] = Json.decode(astString);
+            state.ast[filename] = decode(astString);
         } catch {
             throw LSPError.init(LSPErrorType.ParseError);
         }
@@ -841,7 +841,7 @@ fun getAst(LspState state, str filename) > Json !> LSPError {
     return state.ast[filename]!;
 }
 
-fun getSymbolsAt(Json node, [Json] declarations) > void {
+fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
     const str ndType = node.q(["node"]).stringValue();
 
     if (ndType == "Function") {
@@ -851,10 +851,10 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
     
     if (ndType == "Enum") {
-        declarations.append(Json{
+        declarations.append(Boxed{
             map = {
-                "name": Json{ string = node.q(["type_def"]).stringValue().sub(5) },
-                "kind": Json{ integer = SymbolKind.Enum.value },
+                "name": Boxed{ string = node.q(["type_def"]).stringValue().sub(5) },
+                "kind": Boxed{ integer = SymbolKind.Enum.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -864,10 +864,10 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
     
     if (ndType == "VarDeclaration") {
-        declarations.append(Json{
+        declarations.append(Boxed{
             map = {
-                "name": Json{ string = node.q(["name"]).stringValue() },
-                "kind": Json{ integer = SymbolKind.Variable.value },
+                "name": Boxed{ string = node.q(["name"]).stringValue() },
+                "kind": Boxed{ integer = SymbolKind.Variable.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -880,10 +880,10 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         pat namePattern = _fun (.+)\(_;
         str name = namePattern.match(node.q(["type_def"]).stringValue())![1];
 
-        declarations.append(Json{
+        declarations.append(Boxed{
             map = {
-                "name": Json{ string = name },
-                "kind": Json{ integer = SymbolKind.KFunction.value },
+                "name": Boxed{ string = name },
+                "kind": Boxed{ integer = SymbolKind.KFunction.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
@@ -898,31 +898,31 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
         SymbolKind kind = SymbolKind.Object;
         str name = match[2];
 
-        declarations.append(Json{
+        declarations.append(Boxed{
             map = {
-                "name": Json{ string = name },
-                "kind": Json{ integer = kind.value },
+                "name": Boxed{ string = name },
+                "kind": Boxed{ integer = kind.value },
                 "range": locationToRange(node.q(["location"])),
                 "selectionRange": locationToRange(node.q(["location"])),
             }
         });
 
-        foreach (str methodName, Json method in node.q(["methods"]).mapValue()) {
-            declarations.append(Json{
+        foreach (str methodName, Boxed method in node.q(["methods"]).mapValue()) {
+            declarations.append(Boxed{
                 map = {
-                    "name": Json{ string = methodName },
-                    "kind": Json{ integer = SymbolKind.Method.value },
+                    "name": Boxed{ string = methodName },
+                    "kind": Boxed{ integer = SymbolKind.Method.value },
                     "range": locationToRange(method.q(["location"])),
                     "selectionRange": locationToRange(method.q(["location"])),
                 }
             });
         }
 
-        foreach (str propertyName, Json def in node.q(["members"]).mapValue()) {
-            declarations.append(Json{
+        foreach (str propertyName, Boxed def in node.q(["members"]).mapValue()) {
+            declarations.append(Boxed{
                 map = {
-                    "name": Json{ string = propertyName },
-                    "kind": Json{ integer = SymbolKind.Property.value },
+                    "name": Boxed{ string = propertyName },
+                    "kind": Boxed{ integer = SymbolKind.Property.value },
                     | TODO: add property location
                     "range": locationToRange(node.q(["location"])),
                     "selectionRange": locationToRange(node.q(["location"])),
@@ -948,7 +948,7 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
     
     if (ndType == "Block") {
-        foreach (int i, Json statement in node.q(["statements"]).listValue()) {
+        foreach (int i, Boxed statement in node.q(["statements"]).listValue()) {
             getSymbolsAt(statement, declarations: declarations);
         }
     }
@@ -978,63 +978,63 @@ fun getSymbolsAt(Json node, [Json] declarations) > void {
     }
 }
 
-fun getSymbols(LspState state, {str, Json} request) > Json {
-    const Json ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "") catch Json{};
+fun getSymbols(LspState state, {str, Boxed} request) > Boxed {
+    const Boxed ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "") catch Boxed{};
 
-    [Json] declarations = [<Json>];
+    [Boxed] declarations = [<Boxed>];
     
     getSymbolsAt(ast, declarations: declarations);
 
-    return Json{ list = declarations };
+    return Boxed{ list = declarations };
 }
 
-fun locationToRange(Json location) > Json {
+fun locationToRange(Boxed location) > Boxed {
     const int startLine = location.q(["start_line"]).integer ?? -1;
     const int startColumn = location.q(["start_column"]).integer ?? -1;
     const int endLine = location.q(["end_line"]).integer ?? -1;
     const int endColumn = location.q(["end_column"]).integer ?? -1;
 
-    return Json{
+    return Boxed{
         map = {
-            "start": Json{
+            "start": Boxed{
                 map = {
-                    "line": Json{ integer = startLine },
-                    "character": Json{ integer = startColumn },
+                    "line": Boxed{ integer = startLine },
+                    "character": Boxed{ integer = startColumn },
                 }
             },
-            "end": Json{
+            "end": Boxed{
                 map = {
-                    "line": Json{ integer = endLine },
-                    "character": Json{ integer = endColumn },
+                    "line": Boxed{ integer = endLine },
+                    "character": Boxed{ integer = endColumn },
                 }
             }
         }
     };
 }
 
-fun gotoDefinition(LspState state, {str, Json} request) > Json !> LSPError {
-    const {str, Json} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Json>};
+fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError {
+    const {str, Boxed} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Boxed>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
-    const {str, Json} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Json>};
+    const {str, Boxed} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Boxed>};
     const int line = position["line"]?.integerValue() ?? 0;
     const int column = position["character"]?.integerValue() ?? 0;
 
-    Json ast = getAst(state, filename: uri);
+    Boxed ast = getAst(state, filename: uri);
 
     | Skip entry point
-    [Json] roots = ast.q(["body", "statements"]).list ?? [<Json>];
-    foreach (int i, Json root in roots) {
-        [Json] trail = [ast];
+    [Boxed] roots = ast.q(["body", "statements"]).list ?? [<Boxed>];
+    foreach (int i, Boxed root in roots) {
+        [Boxed] trail = [ast];
         
         findNodeUnder(trail, root: root, uri: uri, line: line, column: column);
         
         if (trail.len() > 1) {
-            Json? declaration = findDeclaration(trail);
+            Boxed? declaration = findDeclaration(trail);
 
             if (declaration != null) {
-                return Json{
+                return Boxed{
                     map = {
-                        "uri": Json{ string = uri },
+                        "uri": Boxed{ string = uri },
                         "range": locationToRange(declaration!.q(["location"])),
                     }
                 };
@@ -1044,33 +1044,33 @@ fun gotoDefinition(LspState state, {str, Json} request) > Json !> LSPError {
         }
     }
 
-    return Json{};
+    return Boxed{};
 }
 
-fun stop(LspState state, {str, Json} request) > Json {
+fun stop(LspState state, {str, Boxed} request) > Boxed {
     os.exit(0);
 
-    return Json{};
+    return Boxed{};
 }
 
 | Possible commands: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#languageFeatures
-const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
+const {str, Function(LspState state, {str, Boxed} request) > Boxed} handlers = {
     "exit": stop,
     "shutdown": stop,
-    "initialize": fun (LspState state, {str, Json} request)
-        -> Json{
+    "initialize": fun (LspState state, {str, Boxed} request)
+        -> Boxed{
             map = {
-                "capabilities": Json{
+                "capabilities": Boxed{
                     map = {
-                        "declarationProvider": Json{ boolean = true },
-                        "definitionProvider": Json{ boolean = true },
-                        "documentSymbolProvider": Json{ boolean = true },
+                        "declarationProvider": Boxed{ boolean = true },
+                        "definitionProvider": Boxed{ boolean = true },
+                        "documentSymbolProvider": Boxed{ boolean = true },
                     }
                 },
-                "serverInfo": Json{
+                "serverInfo": Boxed{
                     map = {
-                        "name": Json{ string = "buzz-lsp" },
-                        "version": Json{ string= "0.0.1" },
+                        "name": Boxed{ string = "buzz-lsp" },
+                        "version": Boxed{ string= "0.0.1" },
                     },
                 },
             },
@@ -1084,7 +1084,7 @@ const {str, Function(LspState state, {str, Json} request) > Json} handlers = {
 fun main([str] args) > void !> any {
     LspState state = LspState{
         sources = {<str, str>},
-        ast = {<str, Json>},
+        ast = {<str, Boxed>},
     };
 
     while (true) {
@@ -1102,12 +1102,12 @@ fun main([str] args) > void !> any {
             throw "Could not read request";
         }
 
-        {str, Json} request = (Json.decode(requestRaw!) catch Json{}).mapValue();
+        {str, Boxed} request = (decode(requestRaw!) catch Boxed{}).mapValue();
         const str? method = request["method"]?.string;
 
         stderr.write("Method is: `{method ?? "none"}`\n") catch void;
 
-        Json result = Json{};
+        Boxed result = Boxed{};
         if (method != null and handlers[method!] != null) {
             result = handlers[method!]!(state, request: request);
         }
@@ -1123,12 +1123,12 @@ fun main([str] args) > void !> any {
 test "documentSymbol" {
     LspState state = LspState{
         sources = {<str, str>},
-        ast = {<str, Json>},
+        ast = {<str, Boxed>},
     };
 
-    {str, Json} request = Json.decode(
+    {str, Boxed} request = decode(
         `\{"jsonrpc":"2.0","id":163,"method":"textDocument/definition","params":\{"textDocument":\{"uri":"file:///Users/giann/git/buzz/src/lib/json.buzz"},"position":\{"line":307,"character":64}}}`
     ).mapValue();
 
-    print(handlers["textDocument/definition"]!(state, request: request).encode());
+    print(encode(handlers["textDocument/definition"]!(state, request: request)));
 }

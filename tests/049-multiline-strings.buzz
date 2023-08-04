@@ -10,7 +10,7 @@ test "Multiline strings" {
         `}
     }`;
 
-    Json json = Json.decode(multi);
+    Boxed json = decode(multi);
 
     assert(json.q(["yes"]).integer == 15, message: "multiline string is valid");
     assert(json.q(["another"]).string == "one", message: "multiline string is valid");
