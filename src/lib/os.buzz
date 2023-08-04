@@ -19,7 +19,9 @@ export extern fun tmpFilename(str? prefix) > str;
 
 || Exit program with `exitCode`
 || @param exitCode exit code
-export extern fun buzzExit(int exitCode) > void;
+extern fun buzzExit(int exitCode) > void;
+
+export buzzExit as exit;
 
 || Execute command and return its exit code
 || @param command command to execute

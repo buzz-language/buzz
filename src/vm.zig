@@ -3551,7 +3551,7 @@ pub const VM = struct {
             defer msg.shrinkAndFree(msg.items.len);
             var writer = msg.writer();
 
-            if (next) |unext| {
+            if (next != null) {
                 writer.print(
                     "\t{s} in \x1b[36m{s}\x1b[0m at {s}",
                     .{
@@ -3561,11 +3561,19 @@ pub const VM = struct {
                             "  ├─"
                         else
                             "  ╰─",
-                        if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
-                            unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
+                        if (next) |unext|
+                            if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
+                                unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
+                            else
+                                unext.closure.function.name.string
+                        else if (frame.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
+                            frame.closure.function.name.string[(std.mem.indexOfScalar(u8, frame.closure.function.name.string, ' ').? + 1)..]
                         else
-                            unext.closure.function.name.string,
-                        frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                            frame.closure.function.name.string,
+                        if (frame.call_site) |call_site|
+                            call_site.script_name
+                        else
+                            frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
                 ) catch @panic("Could not report error");
             } else {
@@ -3578,7 +3586,10 @@ pub const VM = struct {
                             "  ├─"
                         else
                             "  ╰─",
-                        frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                        if (frame.call_site) |call_site|
+                            call_site.script_name
+                        else
+                            frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
                 ) catch @panic("Could not report error");
             }
