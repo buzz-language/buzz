@@ -3628,7 +3628,6 @@ pub const VM = struct {
         err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
     }
 
-    // FIXME: catch_values should be on the stack like arguments
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
         closure.function.call_count += 1;
 
@@ -3681,6 +3680,13 @@ pub const VM = struct {
             );
 
             return;
+        }
+
+        if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
+            std.debug.print(
+                "\x1b[33m▶ Test: {s}\x1b[0m\n",
+                .{@as(*FunctionNode, @ptrCast(@alignCast(closure.function.node))).test_message.?},
+            );
         }
 
         // TODO: check for stack overflow

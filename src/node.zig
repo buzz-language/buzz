@@ -3465,7 +3465,7 @@ pub const FunctionNode = struct {
     body: ?*BlockNode = null,
     arrow_expr: ?*ParseNode = null,
     native: ?*ObjNative = null,
-    test_message: ?*ParseNode = null,
+    test_message: ?[]const u8 = null,
     // If true this is the root of a script being imported
     import_root: bool = false,
     upvalue_binding: std.AutoArrayHashMap(u8, bool),
@@ -3698,10 +3698,7 @@ pub const FunctionNode = struct {
         }
 
         if (self.test_message) |test_message| {
-            try out.writeAll("\"test_message\": ");
-            try test_message.toJson(test_message, out);
-
-            try out.writeAll(", ");
+            try out.print("\"test_message\": \"{s}\", ", .{test_message});
         }
 
         const function_def = node.type_def.?.resolved_type.?.Function;
@@ -3773,8 +3770,7 @@ pub const FunctionNode = struct {
         const function_type = node.type_def.?.resolved_type.?.Function.function_type;
 
         if (self.test_message) |test_message| {
-            try out.writeAll("\ntest ");
-            try test_message.render(test_message, out, depth);
+            try out.print("\ntest \"{s}\"", .{test_message});
         } else if (self.arrow_expr == null and function_type != .ScriptEntryPoint) {
             // No need to print return type for arrow function
             try out.writeAll("\n");

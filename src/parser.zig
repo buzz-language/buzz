@@ -4393,7 +4393,7 @@ pub const Parser = struct {
         // Parse generic & argument list
         if (function_type == .Test) {
             try self.consume(.String, "Expected a string after `test`.");
-            function_node.test_message = try self.string(false);
+            function_node.test_message = self.parser.previous_token.?.literal_string;
         } else {
             try self.consume(.LeftParen, "Expected `(` after function name.");
 
