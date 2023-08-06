@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
 const jmp = @import("./jmp.zig").jmp;
 
+const ZigType = @import("./zigtypes.zig").Type;
 const r = @import("./vm.zig");
 const VM = r.VM;
 const m = @import("./mir.zig");
@@ -280,6 +281,275 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
 
     self.state.?.deinit();
     self.state = null;
+}
+
+pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
+    var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
+
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.symbol});
+
+    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.symbol) catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(dupped_symbol);
+
+    const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
+    defer m.MIR_finish_module(self.ctx);
+
+    if (BuildOptions.debug_jit) {
+        std.debug.print(
+            "Compiling zdef wrapper for `{s}` or type `{s}`\n",
+            .{
+                zdef.symbol,
+                zdef.node.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
+            },
+        );
+    }
+
+    // FIXME: Not everything applies to a zdef, maybe split the two states?
+    self.state = .{
+        .module = module,
+        .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
+        .function_node = undefined,
+        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .closure = undefined,
+    };
+    defer {
+        self.state.?.deinit();
+        self.state = null;
+    }
+
+    // Build wrapper
+    const wrapper_item = try self.buildZdefWrapper(zdef);
+
+    _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.items.ptr));
+
+    if (BuildOptions.debug_jit) {
+        var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
+        defer debug_path.deinit();
+        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{zdef.symbol}) catch unreachable;
+
+        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
+        defer _ = std.c.fclose(debug_file);
+
+        m.MIR_output_module(self.ctx, debug_file, module);
+    }
+
+    m.MIR_load_module(self.ctx, module);
+
+    // Load function we're wrapping
+    m.MIR_load_external(self.ctx, dupped_symbol, zdef.fn_ptr.?);
+
+    // Link everything together
+    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
+
+    m.MIR_gen_init(self.ctx, 1);
+    defer m.MIR_gen_finish(self.ctx);
+
+    var obj_native = try self.vm.gc.allocateObject(
+        o.ObjNative,
+        .{
+            .native = m.MIR_gen(self.ctx, 0, wrapper_item) orelse unreachable,
+        },
+    );
+
+    return obj_native;
+}
+
+fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
+    return switch (zig_type) {
+        .Int => if (zig_type.Int.signedness == .signed)
+            switch (zig_type.Int.bits) {
+                8 => m.MIR_T_I8,
+                16 => m.MIR_T_I16,
+                32 => m.MIR_T_I32,
+                else => unreachable,
+            }
+        else switch (zig_type.Int.bits) {
+            8 => m.MIR_T_U8,
+            16 => m.MIR_T_U16,
+            32 => m.MIR_T_U32,
+            else => unreachable,
+        },
+        .Float => switch (zig_type.Float.bits) {
+            32 => m.MIR_T_F,
+            64 => m.MIR_T_D,
+            else => unreachable,
+        },
+        .Bool => m.MIR_T_U8,
+        // TODO: pointer
+        // TODO: struct
+        else => unreachable,
+    };
+}
+
+fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
+    var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
+
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.symbol});
+
+    var wrapper_protocol_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer wrapper_protocol_name.deinit();
+
+    try wrapper_protocol_name.writer().print("p_zdef_{s}\x00", .{zdef.symbol});
+
+    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.symbol) catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(dupped_symbol);
+
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
+    defer ctx_name.deinit();
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(wrapper_name.items.ptr),
+        1,
+        &[_]m.MIR_type_t{m.MIR_T_U64},
+        1,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(ctx_name.items.ptr),
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+
+    // Build ref to ctx arg and vm
+    self.state.?.ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
+    self.state.?.vm_reg = m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_I64, "vm");
+
+    const function_def = zdef.node.type_def.?.resolved_type.?.Function;
+    const zig_function_def = zdef.zdef.zig_type;
+
+    // Get arguments from stack
+    var full_args = std.ArrayList(m.MIR_op_t).init(self.vm.gc.allocator);
+    defer full_args.deinit();
+
+    var arg_types = std.ArrayList(m.MIR_var_t).init(self.vm.gc.allocator);
+    defer arg_types.deinit();
+
+    for (zig_function_def.Fn.params) |param| {
+        try arg_types.append(
+            .{
+                .type = zigToMIRType(
+                    if (param.type) |param_type|
+                        param_type.*
+                    else
+                        .{ .Void = {} },
+                ),
+                .name = "param",
+                .size = undefined,
+            },
+        );
+    }
+
+    const zig_return_type = if (zig_function_def.Fn.return_type) |return_type|
+        return_type.*
+    else
+        ZigType{ .Void = {} };
+    const return_mir_type = zigToMIRType(zig_return_type);
+    const result = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "result",
+            return_mir_type,
+        ),
+    );
+    const result_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "result_value",
+            m.MIR_T_I64,
+        ),
+    );
+
+    // proto
+    try full_args.append(
+        m.MIR_new_ref_op(
+            self.ctx,
+            m.MIR_new_proto_arr(
+                self.ctx,
+                @ptrCast(wrapper_protocol_name.items.ptr),
+                1,
+                &[_]m.MIR_type_t{return_mir_type},
+                arg_types.items.len,
+                arg_types.items.ptr,
+            ),
+        ),
+    );
+    // import
+    try full_args.append(
+        m.MIR_new_ref_op(
+            self.ctx,
+            m.MIR_new_import(self.ctx, @ptrCast(dupped_symbol)),
+        ),
+    );
+    try full_args.append(result);
+    // actual args
+    var it = function_def.parameters.iterator();
+    var idx = function_def.parameters.count();
+    var zidx: usize = 0;
+    while (it.next() != null) : ({
+        idx -= 1;
+        zidx += 1;
+    }) {
+        const param_value = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("param_value", m.MIR_T_I64),
+        );
+        const param = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("param", zigToMIRType(zig_function_def.Fn.params[zidx].type.?.*)),
+        );
+
+        try self.buildPeek(@intCast(idx - 1), param_value);
+
+        switch (zig_function_def.Fn.params[idx - 1].type.?.*) {
+            .Int => self.buildValueToInteger(param_value, param),
+            .Float => self.buildValueToFloat(param_value, param),
+            .Bool => self.buildValueToBoolean(param_value, param),
+            else => unreachable,
+        }
+        try full_args.append(param);
+    }
+
+    // Make the call
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            m.MIR_CALL,
+            full_args.items.len,
+            full_args.items.ptr,
+        ),
+    );
+
+    // Push result on map
+    switch (zig_return_type) {
+        .Int => self.buildValueFromInteger(result, result_value),
+        .Float => self.buildValueFromFloat(result, result_value),
+        .Bool => self.buildValueFromBoolean(result, result_value),
+        .Void => self.MOV(result_value, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
+        else => unreachable,
+    }
+    try self.buildPush(result_value);
+
+    // Return -1/0/1
+    self.RET(
+        m.MIR_new_int_op(
+            self.ctx,
+            if (function_def.return_type.def_type != .Void)
+                1
+            else
+                0,
+        ),
+    );
+
+    m.MIR_finish_func(self.ctx);
+
+    return function;
 }
 
 fn closeScope(self: *Self, node: *n.ParseNode) !void {
@@ -808,42 +1078,76 @@ fn buildValueFromObj(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
+fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    // Allocate memory
+    const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
+    self.ALLOCA(addr, @sizeOf(u64));
+
+    // Put the value in it as double
+    self.DMOV(
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_D,
+            0,
+            addr,
+            0,
+            0,
+        ),
+        value,
+    );
+
+    // Take it out as u64
+    self.MOV(
+        dest,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_U64,
+            0,
+            addr,
+            0,
+            0,
+        ),
+    );
+}
+
+fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    // Allocate memory
+    const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
+    self.ALLOCA(addr, @sizeOf(u64));
+
+    // Put the value in it as u64
+    self.MOV(
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_U64,
+            0,
+            addr,
+            0,
+            0,
+        ),
+        value,
+    );
+
+    // Take it out as double
+    self.DMOV(
+        dest,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_D,
+            0,
+            addr,
+            0,
+            0,
+        ),
+    );
+}
+
 // Unwrap buzz value to its raw mir Value
 fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     return switch (def_type) {
         .Bool => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
-        .Float => {
-            // Allocate memory
-            const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
-            self.ALLOCA(addr, @sizeOf(u64));
-
-            // Put the value in it as u64
-            self.MOV(
-                m.MIR_new_mem_op(
-                    self.ctx,
-                    m.MIR_T_U64,
-                    0,
-                    addr,
-                    0,
-                    0,
-                ),
-                value,
-            );
-
-            // Take it out as double
-            self.DMOV(
-                dest,
-                m.MIR_new_mem_op(
-                    self.ctx,
-                    m.MIR_T_D,
-                    0,
-                    addr,
-                    0,
-                    0,
-                ),
-            );
-        },
+        .Float => self.buildValueToFloat(value, dest),
         .Void => self.MOV(dest, value),
         .String,
         .Pattern,
@@ -872,37 +1176,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
     return switch (def_type) {
         .Bool => self.buildValueFromBoolean(value, dest),
         .Integer => self.buildValueFromInteger(value, dest),
-        .Float => {
-            // Allocate memory
-            const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
-            self.ALLOCA(addr, @sizeOf(u64));
-
-            // Put the value in it as double
-            self.DMOV(
-                m.MIR_new_mem_op(
-                    self.ctx,
-                    m.MIR_T_D,
-                    0,
-                    addr,
-                    0,
-                    0,
-                ),
-                value,
-            );
-
-            // Take it out as u64
-            self.MOV(
-                dest,
-                m.MIR_new_mem_op(
-                    self.ctx,
-                    m.MIR_T_U64,
-                    0,
-                    addr,
-                    0,
-                    0,
-                ),
-            );
-        },
+        .Float => self.buildValueFromFloat(value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
         .String,
         .Pattern,
@@ -3597,7 +3871,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         return dest;
     }
 
-    // FIXME: FIME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
     var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
     defer ctx_name.deinit();

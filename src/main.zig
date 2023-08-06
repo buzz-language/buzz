@@ -17,6 +17,7 @@ const FunctionNode = @import("./node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
+const MIRJIT = @import("./mirjit.zig");
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -31,14 +32,28 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor);
-    if (BuildOptions.jit) try vm.initJIT();
+    vm.mir_jit = if (BuildOptions.jit)
+        MIRJIT.init(&vm)
+    else
+        null;
+    defer {
+        if (vm.mir_jit != null) {
+            vm.mir_jit.?.deinit();
+            vm.mir_jit = null;
+        }
+    }
     var parser = Parser.init(
         &gc,
         &imports,
         false,
         flavor,
     );
-    var codegen = CodeGen.init(&gc, &parser, flavor);
+    var codegen = CodeGen.init(
+        &gc,
+        &parser,
+        flavor,
+        if (vm.mir_jit) |*jit| jit else null,
+    );
     defer {
         codegen.deinit();
         vm.deinit();
@@ -52,7 +67,10 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    var file = (if (std.fs.path.isAbsolute(file_name)) std.fs.openFileAbsolute(file_name, .{}) else std.fs.cwd().openFile(file_name, .{})) catch {
+    var file = (if (std.fs.path.isAbsolute(file_name))
+        std.fs.openFileAbsolute(file_name, .{})
+    else
+        std.fs.cwd().openFile(file_name, .{})) catch {
         std.debug.print("File not found", .{});
         return;
     };

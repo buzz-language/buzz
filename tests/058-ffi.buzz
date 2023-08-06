@@ -1,0 +1,7 @@
+import "std";
+
+zdef("tests/utils/libforeign", "fn acos(value: f64) f64;");
+
+test "ffi" {
+    print("{acos(0.12)}");
+}

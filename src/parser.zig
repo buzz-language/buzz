@@ -18,6 +18,7 @@ const BuildOptions = @import("build_options");
 const StringParser = @import("./string_parser.zig").StringParser;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 const Reporter = @import("./reporter.zig");
+const FFI = @import("./ffi.zig");
 
 const Value = _value.Value;
 const ValueType = _value.ValueType;
@@ -99,6 +100,7 @@ const ExportNode = _node.ExportNode;
 const ImportNode = _node.ImportNode;
 const RangeNode = _node.RangeNode;
 const TryNode = _node.TryNode;
+const ZdefNode = _node.ZdefNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
 const TypeRegistry = _obj.TypeRegistry;
@@ -290,6 +292,12 @@ pub const Parser = struct {
         "$/?/src/lib?.x",
     };
 
+    const zdef_search_paths = [_][]const u8{
+        "./?.x",
+        "/usr/lib/?.x",
+        "/usr/local/lib/?.x",
+    };
+
     const rules = [_]ParseRule{
         .{ .prefix = null, .infix = null, .precedence = .None }, // Pipe
         .{ .prefix = list, .infix = subscript, .precedence = .Call }, // LeftBracket
@@ -390,6 +398,7 @@ pub const Parser = struct {
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
         .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
         .{ .prefix = null, .infix = null, .precedence = .None }, // Any
+        .{ .prefix = null, .infix = null, .precedence = .None }, // Zdf
     };
 
     pub const ScriptImport = struct {
@@ -413,7 +422,7 @@ pub const Parser = struct {
     current_object: ?ObjectCompiler = null,
     globals: std.ArrayList(Global),
     flavor: RunFlavor,
-
+    ffi: FFI,
     reporter: Reporter,
 
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
@@ -430,6 +439,13 @@ pub const Parser = struct {
             .reporter = Reporter{
                 .allocator = gc.allocator,
                 .error_prefix = "Syntax",
+            },
+            .ffi = .{
+                .reporter = Reporter{
+                    .allocator = gc.allocator,
+                    .error_prefix = "FFI",
+                },
+                .gc = gc,
             },
         };
     }
@@ -1072,6 +1088,7 @@ pub const Parser = struct {
                 .Continue,
                 .Export,
                 .Import,
+                .Zdef,
                 => return,
                 else => {},
             }
@@ -1190,6 +1207,8 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Import))
                 try self.importStatement()
+            else if (try self.match(.Zdef))
+                try self.zdefStatement()
                 // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
             else if (try self.match(.Identifier))
                 try self.userVarDeclaration(false, constant)
@@ -2296,6 +2315,116 @@ pub const Parser = struct {
         }
 
         return try self.varDeclaration(var_type.?, .Semicolon, constant, true);
+    }
+
+    fn zdefStatement(self: *Self) anyerror!*ParseNode {
+        if (!BuildOptions.jit) {
+            self.reportError(.zdef, "zdef can't be used, this instance of buzz was built with JIT compiler disabled");
+        }
+
+        const start_location = self.parser.previous_token.?;
+
+        try self.consume(.LeftParen, "Expected `(` after `zdef`.");
+        // TODO: this identifier can have `_` in it
+        try self.consume(.String, "Expected identifier after `zdef(`.");
+        const lib_name = self.parser.previous_token.?;
+        try self.consume(.Comma, "Expected `,` after lib name.");
+        try self.consume(.String, "Expected zdef declaration.");
+        const source = self.parser.previous_token.?;
+        try self.consume(.RightParen, "Expected `)` to close zdef");
+        try self.consume(.Semicolon, "Expected `;`");
+
+        const zdef = try self.ffi.parse(source);
+        var fn_ptr: ?*anyopaque = null;
+
+        var slot: usize = undefined;
+        if (zdef) |uzdef| {
+            // Load the lib
+            const paths = try self.searchZdefLibPaths(lib_name.literal_string.?);
+            defer {
+                for (paths.items) |path| {
+                    self.gc.allocator.free(path);
+                }
+                paths.deinit();
+            }
+
+            assert(self.current.?.scope_depth == 0);
+            slot = try self.declareVariable(
+                uzdef.type_def,
+                Token.identifier(uzdef.name),
+                true,
+                true,
+            );
+            self.markInitialized();
+
+            if (uzdef.type_def.def_type == .Function) {
+                var lib: ?std.DynLib = null;
+                for (paths.items) |path| {
+                    lib = std.DynLib.open(path) catch null;
+                    if (lib != null) {
+                        break;
+                    }
+                }
+
+                if (lib) |*dlib| {
+                    // Convert symbol names to zig slices
+                    const symbol = try self.gc.allocator.dupeZ(u8, uzdef.name);
+                    defer self.gc.allocator.free(symbol);
+
+                    // Lookup symbol
+                    const opaque_symbol_method = dlib.lookup(*anyopaque, symbol);
+
+                    if (opaque_symbol_method == null) {
+                        self.reportErrorFmt(
+                            .symbol_not_found,
+                            "Could not find symbol `{s}` in lib `{s}`",
+                            .{
+                                symbol,
+                                lib_name.literal_string.?,
+                            },
+                        );
+                    }
+
+                    fn_ptr = opaque_symbol_method;
+                } else {
+                    var search_report = std.ArrayList(u8).init(self.gc.allocator);
+                    defer search_report.deinit();
+                    var writer = search_report.writer();
+
+                    for (paths.items) |path| {
+                        try writer.print("    no file `{s}`\n", .{path});
+                    }
+
+                    self.reportErrorFmt(
+                        .library_not_found,
+                        "External library `{s}` not found: {s}{s}\n",
+                        .{
+                            lib_name.literal_string.?,
+                            if (builtin.link_libc)
+                                std.mem.sliceTo(dlerror(), 0)
+                            else
+                                "",
+                            search_report.items,
+                        },
+                    );
+                }
+            }
+        }
+
+        var node = try self.gc.allocator.create(ZdefNode);
+        node.* = ZdefNode{
+            .lib_name = lib_name,
+            .symbol = if (zdef) |uzdef| uzdef.name else "unknown",
+            .source = source,
+            .fn_ptr = fn_ptr,
+            .slot = slot,
+            .zdef = zdef orelse undefined,
+        };
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+        node.node.type_def = if (zdef) |uzdef| uzdef.type_def else null;
+
+        return &node.node;
     }
 
     fn importStatement(self: *Self) anyerror!*ParseNode {
@@ -4712,6 +4841,30 @@ pub const Parser = struct {
         return paths;
     }
 
+    fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+        var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+
+        for (zdef_search_paths) |path| {
+            const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
+            defer self.gc.allocator.free(filled);
+            const suffixed = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                filled,
+                "x",
+                switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
+            );
+            try paths.append(suffixed);
+        }
+
+        return paths;
+    }
+
     fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!?ScriptImport {
         var import: ?ScriptImport = self.imports.get(file_name);
 
@@ -4875,7 +5028,14 @@ pub const Parser = struct {
             const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
 
             if (opaque_symbol_method == null) {
-                self.reportErrorFmt(.symbol_not_found, "Could not find symbol `{s}` in lib `{s}`", .{ symbol, file_name });
+                self.reportErrorFmt(
+                    .symbol_not_found,
+                    "Could not find symbol `{s}` in lib `{s}`",
+                    .{
+                        symbol,
+                        file_name,
+                    },
+                );
                 return null;
             }
 
