@@ -555,15 +555,17 @@ export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_na
         false,
         self.flavor,
     );
-    var codegen = CodeGen.init(self.gc, &parser, self.flavor);
+    var codegen = CodeGen.init(
+        self.gc,
+        &parser,
+        self.flavor,
+        null,
+    );
     defer {
         codegen.deinit();
         imports.deinit();
         parser.deinit();
         strings.deinit();
-        // FIXME: fails
-        // gc.deinit();
-        // self.gc.allocator.destroy(self.gc);
     }
 
     if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |function_node| {

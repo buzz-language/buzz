@@ -15,6 +15,8 @@ const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 const global_allocator = @import("./buzz_api.zig").allocator;
+const ZigType = @import("./zigtypes.zig").Type;
+const FFI = @import("./ffi.zig");
 
 const disassembleChunk = disassembler.disassembleChunk;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -98,6 +100,7 @@ pub const ParseNodeType = enum(u8) {
     Import,
     Try,
     Range,
+    Zdef,
 };
 
 pub const RenderError = Allocator.Error || std.fmt.BufPrintError;
@@ -7690,6 +7693,110 @@ pub const ExportNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .Export) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const ZdefNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .Zdef,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    lib_name: Token,
+    symbol: []const u8,
+    source: Token,
+    fn_ptr: ?*anyopaque = null,
+    obj_native: ?*ObjNative = null,
+    // TODO: On the stack, do we free it at some point?
+    zdef: *FFI.Zdef,
+    slot: usize,
+
+    fn constant(_: *anyopaque) bool {
+        return false;
+    }
+
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        return GenError.NotConstant;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        const self = Self.cast(node).?;
+
+        // Generate ObjNative wrapper of actual zdef
+        switch (node.type_def.?.def_type) {
+            .Function => {
+                if (self.obj_native == null) {
+                    self.obj_native = try codegen.mir_jit.?.compileZdef(self);
+
+                    try codegen.emitConstant(node.location, self.obj_native.?.toValue());
+                    try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
+                }
+            },
+            // TODO: generate object corresponding to the struct
+            .Object => unreachable,
+            // TODO: constants?
+            else => unreachable,
+        }
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"Zdef\", \"lib_name\": \"{s}\"", .{self.lib_name.lexeme});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.print(
+            "zdef({s}) {s}",
+            .{
+                self.lib_name.lexeme,
+                self.source.lexeme,
+            },
+        );
+
+        try out.writeAll(";\n");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.node_type != .Zdef) {
             return null;
         }
 

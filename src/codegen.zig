@@ -16,6 +16,7 @@ const _token = @import("./token.zig");
 const GarbageCollector = @import("./memory.zig").GarbageCollector;
 const Reporter = @import("./reporter.zig");
 const BuildOptions = @import("build_options");
+const MIRJIT = @import("./mirjit.zig");
 const ParseNode = _node.ParseNode;
 const FunctionNode = _node.FunctionNode;
 const ObjFunction = _obj.ObjFunction;
@@ -48,6 +49,7 @@ pub const CodeGen = struct {
     opt_jumps: ?std.ArrayList(usize) = null,
     // Used to generate error messages
     parser: *Parser,
+    mir_jit: ?*MIRJIT,
 
     reporter: Reporter,
 
@@ -55,6 +57,7 @@ pub const CodeGen = struct {
         gc: *GarbageCollector,
         parser: *Parser,
         flavor: RunFlavor,
+        mir_jit: ?*MIRJIT,
     ) Self {
         return .{
             .gc = gc,
@@ -64,6 +67,7 @@ pub const CodeGen = struct {
                 .allocator = gc.allocator,
                 .error_prefix = "Compile",
             },
+            .mir_jit = mir_jit,
         };
     }
 

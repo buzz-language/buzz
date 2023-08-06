@@ -349,17 +349,9 @@ pub const VM = struct {
         return self;
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(_: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
-        if (BuildOptions.jit) {
-            self.mir_jit.?.deinit();
-            self.mir_jit = null;
-        }
-    }
-
-    pub fn initJIT(self: *Self) !void {
-        self.mir_jit = MIRJIT.init(self);
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
