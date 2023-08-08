@@ -202,6 +202,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToObjPattern(value: Value) *ObjPattern;
     pub extern fn bz_valueToObjString(value: Value) *ObjString;
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
+    pub extern fn bz_valueToCString(value: Value) ?[*:0]const u8;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
 
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;

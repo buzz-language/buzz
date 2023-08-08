@@ -273,7 +273,11 @@ pub fn compileFunction(self: *Self, closure: *o.ObjClosure) Error!void {
         }
     }
 
-    // Ensure queues are empty for future use
+    self.reset();
+}
+
+// Ensure queues are empty for future use
+fn reset(self: *Self) void {
     self.functions_queue.clearAndFree();
     self.objclosures_queue.clearAndFree();
     self.required_ext_api.clearAndFree();
@@ -313,10 +317,7 @@ pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = undefined,
     };
-    defer {
-        self.state.?.deinit();
-        self.state = null;
-    }
+    defer self.reset();
 
     // Build wrapper
     const wrapper_item = try self.buildZdefWrapper(zdef);
@@ -338,6 +339,20 @@ pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
 
     // Load function we're wrapping
     m.MIR_load_external(self.ctx, dupped_symbol, zdef.fn_ptr.?);
+
+    // Load external functions
+    var it_ext = self.required_ext_api.iterator();
+    while (it_ext.next()) |kv| {
+        switch (kv.key_ptr.*) {
+            // TODO: don't mix those with actual api functions
+            .rawfn, .nativefn => {},
+            else => m.MIR_load_external(
+                self.ctx,
+                kv.key_ptr.*.name(),
+                kv.key_ptr.*.ptr(),
+            ),
+        }
+    }
 
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
@@ -376,7 +391,7 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
             else => unreachable,
         },
         .Bool => m.MIR_T_U8,
-        // TODO: pointer
+        .Pointer => m.MIR_T_I64,
         // TODO: struct
         else => unreachable,
     };
@@ -450,14 +465,23 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         return_type.*
     else
         ZigType{ .Void = {} };
-    const return_mir_type = zigToMIRType(zig_return_type);
-    const result = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG(
-            "result",
-            return_mir_type,
-        ),
-    );
+
+    const return_mir_type = if (zig_return_type != .Void)
+        zigToMIRType(zig_return_type)
+    else
+        null;
+
+    const result = if (return_mir_type) |rmt|
+        m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG(
+                "result",
+                rmt,
+            ),
+        )
+    else
+        null;
+
     const result_value = m.MIR_new_reg_op(
         self.ctx,
         try self.REG(
@@ -473,8 +497,8 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
             m.MIR_new_proto_arr(
                 self.ctx,
                 @ptrCast(wrapper_protocol_name.items.ptr),
-                1,
-                &[_]m.MIR_type_t{return_mir_type},
+                if (return_mir_type != null) 1 else 0,
+                if (return_mir_type) |rmt| &[_]m.MIR_type_t{rmt} else null,
                 arg_types.items.len,
                 arg_types.items.ptr,
             ),
@@ -487,7 +511,9 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
             m.MIR_new_import(self.ctx, @ptrCast(dupped_symbol)),
         ),
     );
-    try full_args.append(result);
+    if (result) |res| {
+        try full_args.append(res);
+    }
     // actual args
     var it = function_def.parameters.iterator();
     var idx = function_def.parameters.count();
@@ -511,6 +537,18 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
             .Int => self.buildValueToInteger(param_value, param),
             .Float => self.buildValueToFloat(param_value, param),
             .Bool => self.buildValueToBoolean(param_value, param),
+            .Pointer => {
+                // Is it a [*:0]const u8
+                // zig fmt: off
+                if (zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.* == .Int
+                    and zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.Int.bits == 8
+                    and zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.Int.signedness == .unsigned) {
+                    // zig fmt: on
+                    try self.buildValueToCString(param_value, param);
+                } else {
+                    unreachable;
+                }
+            },
             else => unreachable,
         }
         try full_args.append(param);
@@ -528,9 +566,9 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
 
     // Push result on map
     switch (zig_return_type) {
-        .Int => self.buildValueFromInteger(result, result_value),
-        .Float => self.buildValueFromFloat(result, result_value),
-        .Bool => self.buildValueFromBoolean(result, result_value),
+        .Int => self.buildValueFromInteger(result.?, result_value),
+        .Float => self.buildValueFromFloat(result.?, result_value),
+        .Bool => self.buildValueFromBoolean(result.?, result_value),
         .Void => self.MOV(result_value, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
         else => unreachable,
     }
@@ -1075,6 +1113,14 @@ fn buildValueFromObj(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
         dest,
         m.MIR_new_uint_op(self.ctx, v.PointerMask),
         value,
+    );
+}
+
+fn buildValueToCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_valueToCString,
+        dest,
+        &[_]m.MIR_op_t{value},
     );
 }
 
@@ -4880,6 +4926,7 @@ pub const ExternApi = enum {
     bz_mapNext,
     bz_enumNext,
     bz_clone,
+    bz_valueToCString,
 
     bz_dumpStack,
 
@@ -5480,12 +5527,25 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-
             .dumpInt => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 0,
                 null,
+                1,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_valueToCString => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_P},
                 1,
                 &[_]m.MIR_var_t{
                     .{
@@ -5543,6 +5603,7 @@ pub const ExternApi = enum {
             .bz_getFiberField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjFiber.bz_getFiberField))),
             .bz_setTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_setTryCtx))),
             .bz_popTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_popTryCtx))),
+            .bz_valueToCString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToCString))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -5606,6 +5667,7 @@ pub const ExternApi = enum {
             .bz_mapNext => "bz_mapNext",
             .bz_enumNext => "bz_enumNext",
             .bz_clone => "bz_clone",
+            .bz_valueToCString => "bz_valueToCString",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -5663,6 +5725,7 @@ pub const ExternApi = enum {
             .bz_mapNext => "p_bz_mapNext",
             .bz_enumNext => "p_bz_enumNext",
             .bz_clone => "p_bz_clone",
+            .bz_valueToCString => "p_bz_valueToCString",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",
