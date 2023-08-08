@@ -124,6 +124,14 @@ export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
     return if (string.len > 0) @as([*]const u8, @ptrCast(string)) else null;
 }
 
+export fn bz_valueToCString(value: Value) ?[*:0]const u8 {
+    if (!value.isObj() or value.obj().obj_type != .String) {
+        return null;
+    }
+
+    return @ptrCast(ObjString.cast(value.obj()).?.string);
+}
+
 fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), depth: usize) void {
     if (depth > 50) {
         std.debug.print("...", .{});

@@ -30,6 +30,8 @@ const basic_types = std.ComptimeStringMap(
 
         .{ "bool", .{ .def_type = .Bool } },
         .{ "u1", .{ .def_type = .Bool } },
+
+        .{ "void", .{ .def_type = .Void } },
     },
 );
 
@@ -119,6 +121,12 @@ const zig_basic_types = std.ComptimeStringMap(
                     .signedness = .unsigned,
                     .bits = 1,
                 },
+            },
+        },
+        .{
+            "void",
+            ZigType{
+                .Void = {},
             },
         },
     },
@@ -239,11 +247,38 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .ptr_type => self.ast.ptrType(decl_index),
         else => unreachable,
     };
-    _ = ptr_type;
 
-    // If sentinel, must be 0
+    const child_type = (try self.getZdef(ptr_type.ast.child_type)).?;
+    const sentinel_node = self.ast.nodes.get(ptr_type.ast.sentinel);
 
-    // ObjTypeDef should be .String if [:0]u8 and List otherwise
+    // Is it a null terminated string?
+    // zig fmt: off
+    if (ptr_type.const_token != null
+        and child_type.zig_type == .Int
+        and child_type.zig_type.Int.bits == 8
+        and sentinel_node.tag == .number_literal
+        and std.mem.eql(u8, self.ast.tokenSlice(sentinel_node.main_token), "0")) {
+        // zig fmt: on
+        var zdef = try self.gc.allocator.create(Zdef);
+        zdef.* = .{
+            .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
+            .zig_type = ZigType{
+                .Pointer = .{
+                    .size = .C,
+                    .is_const = ptr_type.const_token != null,
+                    .is_volatile = undefined,
+                    .alignment = undefined,
+                    .address_space = undefined,
+                    .child = &child_type.zig_type,
+                    .is_allowzero = undefined,
+                    .sentinel = undefined,
+                },
+            },
+            .name = "string",
+        };
+
+        return zdef;
+    }
 
     unreachable;
 }

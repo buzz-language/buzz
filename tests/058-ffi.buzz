@@ -1,7 +1,12 @@
 import "std";
 
 zdef("tests/utils/libforeign", "fn acos(value: f64) f64;");
+| `[*:0]const u8` is the only pointer type that will be handled with an ObjString
+zdef("tests/utils/libforeign", "fn fprint(msg: [*:0]const u8) void;");
+
+fun dupe(str string) -> "{string}\0";
 
 test "ffi" {
-    print("{acos(0.12)}");
+    | We could add ourselve the \0 but that would require a useless copy of the string that we would no know when to free
+    fprint(dupe("{acos(0.12)}"));
 }
