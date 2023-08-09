@@ -30,11 +30,21 @@ extern fun BufferCursor(ud userdata) > int;
 || @private
 extern fun BufferBuffer(ud userdata) > str;
 || @private
+extern fun BufferPtr(ud userdata) > ud;
+|| @private
 extern fun BufferEmpty(ud userdata) > void;
 || @private
 extern fun BufferAt(ud userdata, int index) > int;
 || @private
 extern fun BufferSetAt(ud userdata, int index, int value) > void;
+|| @private
+extern fun BufferWriteZ(ud userdata, str type, [any] values) > void !> WriteWhileReadingError;
+|| @private
+extern fun BufferWriteZAt(ud userdata, int at, str type, [any] values) > void !> WriteWhileReadingError;
+|| @private
+extern fun BufferReadZ(<T>, ud userdata, str type) > T;
+|| @private
+extern fun BufferReadZAt(<T>, ud userdata, int at, str type) > T;
 
 || Read and write data to a string buffer
 export object Buffer {
@@ -65,6 +75,22 @@ export object Buffer {
     || @hot
     fun write(str bytes) > void !> WriteWhileReadingError {
         BufferWrite(this.buffer, bytes: bytes);
+    }
+
+    fun writeZ(<T>, str type, [T] values) > void !> WriteWhileReadingError {
+        BufferWriteZ(this.buffer, type: type, values: values);
+    }
+
+    fun writeZAt(<T>, int at, str type, [T] values) > void !> WriteWhileReadingError {
+        BufferWriteZAt(this.buffer, at: at, type: type, values: values);
+    }
+
+    fun readZ(<T>, str type) > T {
+        return BufferReadZ(<T>, this.buffer, type: type);
+    }
+
+    fun readZAt(<T>, int at, str type) > T {
+        return BufferReadZAt(<T>, this.buffer, at: at, type: type);
     }
 
     || Reads a boolean
@@ -122,6 +148,11 @@ export object Buffer {
     || Get buffer as string
     fun toString() > str {
         return BufferBuffer(this.buffer);
+    }
+
+    || Get buffer's ptr
+    fun ptr() > ud {
+        return BufferPtr(this.buffer);
     }
 
     || Get byte at `index`

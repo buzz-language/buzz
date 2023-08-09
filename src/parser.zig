@@ -440,18 +440,13 @@ pub const Parser = struct {
                 .allocator = gc.allocator,
                 .error_prefix = "Syntax",
             },
-            .ffi = .{
-                .reporter = Reporter{
-                    .allocator = gc.allocator,
-                    .error_prefix = "FFI",
-                },
-                .gc = gc,
-            },
+            .ffi = FFI.init(gc),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.parser.deinit();
+        self.ffi.deinit();
     }
 
     pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?*ParseNode {
@@ -2334,7 +2329,7 @@ pub const Parser = struct {
         try self.consume(.RightParen, "Expected `)` to close zdef");
         try self.consume(.Semicolon, "Expected `;`");
 
-        const zdef = try self.ffi.parse(source);
+        const zdef = try self.ffi.parse(source, false);
         var fn_ptr: ?*anyopaque = null;
 
         var slot: usize = undefined;
@@ -3626,7 +3621,13 @@ pub const Parser = struct {
         var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
         if (function_type != null and try self.match(.Less)) {
             while (!self.check(.Greater) and !self.check(.Eof)) {
-                try resolved_generics.append(try self.parseTypeDef(null));
+                const resolved_generic = try self.parseTypeDef(null);
+
+                if (resolved_generic.def_type == .Any) {
+                    self.reportError(.any_generic, "`any` not allowed as generic type");
+                }
+
+                try resolved_generics.append(resolved_generic);
 
                 if (!self.check(.Greater)) {
                     try self.consume(.Comma, "Expected `,` between generic types");
@@ -4196,7 +4197,6 @@ pub const Parser = struct {
 
             .Minus,
             .Star,
-            .Slash,
             .Percent,
             => try self.gc.type_registry.getTypeDef(
                 ObjTypeDef{
@@ -4204,6 +4204,12 @@ pub const Parser = struct {
                         .Float
                     else
                         .Integer,
+                },
+            ),
+
+            .Slash => try self.gc.type_registry.getTypeDef(
+                ObjTypeDef{
+                    .def_type = .Float,
                 },
             ),
 

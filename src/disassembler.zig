@@ -114,9 +114,9 @@ pub fn dumpStack(vm: *VM) void {
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
-            print("{} {s} frame\n ", .{ @intFromPtr(value), value_str.items[0..@min(value_str.items.len, 100)] });
+            print("{} {} {s} frame\n ", .{ @intFromPtr(value), value[0].val, value_str.items[0..@min(value_str.items.len, 100)] });
         } else {
-            print("{} {s}\n ", .{ @intFromPtr(value), value_str.items[0..@min(value_str.items.len, 100)] });
+            print("{} {} {s}\n ", .{ @intFromPtr(value), value[0].val, value_str.items[0..@min(value_str.items.len, 100)] });
         }
 
         value += 1;

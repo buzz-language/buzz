@@ -36,6 +36,7 @@ pub const Token = struct {
             .column = 0,
             .source = "",
             .script_name = "",
+            .literal_string = name,
         };
     }
 
