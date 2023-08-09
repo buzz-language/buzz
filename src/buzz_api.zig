@@ -13,6 +13,8 @@ const BuildOptions = @import("build_options");
 const jmp = @import("jmp.zig").jmp;
 const FunctionNode = @import("./node.zig").FunctionNode;
 const dumpStack = @import("./disassembler.zig").dumpStack;
+const ZigType = @import("./zigtypes.zig").Type;
+const Token = @import("./token.zig").Token;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -1150,4 +1152,258 @@ export fn bz_clone(vm: *VM, value: Value) Value {
 
 export fn dumpInt(value: u64) void {
     std.debug.print("-> {}\n", .{value});
+}
+
+export fn bz_freeZigType(vm: *VM, ztype: *ZigType) void {
+    vm.gc.allocator.destroy(ztype);
+}
+
+export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize) ?*ZigType {
+    const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
+
+    if (zdef) |uzdef| {
+        var zig_type = vm.gc.allocator.create(ZigType) catch @panic("Out of memory");
+        zig_type.* = uzdef.zig_type;
+
+        return zig_type;
+    }
+
+    return null;
+}
+
+export fn bz_zigValueSize(ztype: *ZigType) usize {
+    return switch (ztype.*) {
+        .Bool => 1,
+        .Int => ztype.Int.bits / 8,
+        .Float => ztype.Float.bits / 8,
+        else => return 0,
+    };
+}
+
+export fn bz_readZigValueFromBuffer(
+    vm: *VM,
+    ztype: *ZigType,
+    at: usize,
+    buf: [*]u8,
+    len: usize,
+) Value {
+    var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..len]);
+    buffer.capacity = len;
+
+    // All those cases are necessary because bytesAsValue require arrays and not slices
+    return switch (ztype.*) {
+        .Bool => Value.fromBoolean(buffer.items[at] == 1),
+        .Int => integer: {
+            const bytes = buffer.items[at .. at + (ztype.Int.bits / 8)];
+
+            switch (ztype.Int.bits) {
+                64 => {
+                    const userdata = vm.gc.allocateObject(
+                        ObjUserData,
+                        .{
+                            .userdata = @as(
+                                *UserData,
+                                if (ztype.Int.signedness == .unsigned)
+                                    @ptrFromInt(
+                                        @as(
+                                            usize,
+                                            @intCast(
+                                                std.mem.bytesToValue(
+                                                    u64,
+                                                    bytes[0..8],
+                                                ),
+                                            ),
+                                        ),
+                                    )
+                                else
+                                    @ptrFromInt(
+                                        @as(
+                                            usize,
+                                            @intCast(
+                                                std.mem.bytesToValue(
+                                                    i64,
+                                                    bytes[0..8],
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                            ),
+                        },
+                    ) catch @panic("Out of memory");
+
+                    break :integer userdata.toValue();
+                },
+                32 => {
+                    if (ztype.Int.signedness == .signed) {
+                        break :integer Value.fromInteger(
+                            std.mem.bytesToValue(
+                                i32,
+                                bytes[0..4],
+                            ),
+                        );
+                    } else {
+                        break :integer Value.fromFloat(
+                            @floatFromInt(
+                                std.mem.bytesToValue(
+                                    u32,
+                                    bytes[0..4],
+                                ),
+                            ),
+                        );
+                    }
+                },
+                16 => {
+                    break :integer Value.fromInteger(
+                        if (ztype.Int.signedness == .signed)
+                            std.mem.bytesToValue(
+                                i16,
+                                bytes[0..2],
+                            )
+                        else
+                            std.mem.bytesToValue(
+                                u16,
+                                bytes[0..2],
+                            ),
+                    );
+                },
+                8 => {
+                    break :integer Value.fromInteger(
+                        if (ztype.Int.signedness == .signed)
+                            std.mem.bytesToValue(
+                                i8,
+                                bytes[0..1],
+                            )
+                        else
+                            std.mem.bytesToValue(
+                                u8,
+                                bytes[0..1],
+                            ),
+                    );
+                },
+                else => break :integer Value.Void,
+            }
+        },
+        .Float => float: {
+            const bytes = buffer.items[at .. at + (ztype.Float.bits / 8)];
+
+            switch (ztype.Float.bits) {
+                32 => {
+                    break :float Value.fromFloat(
+                        @as(
+                            f64,
+                            @floatCast(
+                                std.mem.bytesToValue(f32, bytes[0..4]),
+                            ),
+                        ),
+                    );
+                },
+                64 => {
+                    break :float Value.fromFloat(
+                        std.mem.bytesToValue(f64, bytes[0..8]),
+                    );
+                },
+                else => break :float Value.Void,
+            }
+        },
+        .Pointer,
+        .Fn,
+        .Opaque,
+        => ptr: {
+            const bytes = buffer.items[at .. at + 8];
+
+            const userdata = vm.gc.allocateObject(
+                ObjUserData,
+                .{
+                    .userdata = @as(
+                        *UserData,
+                        @ptrFromInt(
+                            std.mem.bytesToValue(u64, bytes[0..8]),
+                        ),
+                    ),
+                },
+            ) catch @panic("Out of memory");
+
+            break :ptr userdata.toValue();
+        },
+        else => Value.Void,
+    };
+}
+
+export fn bz_writeZigValueToBuffer(
+    vm: *VM,
+    value: Value,
+    ztype: *ZigType,
+    at: usize,
+    buf: [*]u8,
+    capacity: usize,
+) void {
+    var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..capacity]);
+    buffer.capacity = capacity;
+
+    switch (ztype.*) {
+        // Does C ABI has u1 booleans?
+        .Bool => {
+            const unwrapped = (if (value.boolean())
+                @as(u8, 1)
+            else
+                @as(u8, 0));
+            var bytes = std.mem.asBytes(&unwrapped);
+
+            buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+        },
+        // Integer can just be truncated
+        .Int => {
+            switch (ztype.Int.bits) {
+                64 => {
+                    const unwrapped = @intFromPtr(ObjUserData.cast(value.obj()).?.userdata);
+                    var bytes = std.mem.asBytes(&unwrapped);
+
+                    buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                },
+                1...32 => {
+                    const unwrapped = value.integer();
+                    var bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
+
+                    buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                },
+                else => {},
+            }
+        },
+        .Float => switch (ztype.Float.bits) {
+            32 => {
+                const unwrapped = @as(f32, @floatCast(value.float()));
+                var bytes = std.mem.asBytes(&unwrapped);
+
+                buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+            },
+            64 => {
+                const unwrapped = value.float();
+                var bytes = std.mem.asBytes(&unwrapped);
+
+                buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+            },
+            else => {},
+        },
+        .Null, .Void => {},
+        .Optional => if (!value.isNull())
+            bz_writeZigValueToBuffer(
+                vm,
+                value,
+                ztype.Optional.child,
+                at,
+                buf,
+                capacity,
+            )
+        else {},
+        .Pointer,
+        .Fn,
+        .Opaque,
+        => {
+            const unwrapped = @intFromPtr(ObjUserData.cast(value.obj()).?.userdata);
+            var bytes = std.mem.asBytes(&unwrapped);
+
+            buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+        },
+        else => {},
+    }
 }

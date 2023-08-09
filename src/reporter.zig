@@ -93,6 +93,7 @@ pub const Error = enum(u8) {
     yield_not_allowed = 81,
     yield_type = 82,
     zdef = 83,
+    any_generic = 84,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

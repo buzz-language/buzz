@@ -29,6 +29,8 @@ pub const TryCtx = extern struct {
     env: jmp.jmp_buf = undefined,
 };
 
+pub const ZigType = opaque {};
+
 pub const VM = opaque {
     pub const allocator = @import("../buzz_api.zig").allocator;
 
@@ -52,6 +54,22 @@ pub const VM = opaque {
     pub extern fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void;
     pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void;
     pub extern fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void;
+    pub extern fn bz_zigValueSize(ztype: *ZigType) usize;
+    pub extern fn bz_writeZigValueToBuffer(
+        vm: *VM,
+        value: Value,
+        ztype: *ZigType,
+        at: usize,
+        buf: [*]u8,
+        capacity: usize,
+    ) void;
+    pub extern fn bz_readZigValueFromBuffer(
+        vm: *VM,
+        ztype: *ZigType,
+        at: usize,
+        buf: [*]u8,
+        len: usize,
+    ) Value;
 
     pub inline fn pushError(self: *VM, qualified_name: []const u8) void {
         self.bz_pushError(qualified_name.ptr, qualified_name.len);
@@ -80,6 +98,9 @@ pub const VM = opaque {
     pub extern fn bz_clone(vm: *VM, value: Value) Value;
 
     pub extern fn bz_dumpStack(vm: *VM) void;
+
+    pub extern fn bz_freeZigType(vm: *VM, ztype: *ZigType) void;
+    pub extern fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize) *ZigType;
 };
 
 pub const FunctionNode = opaque {};

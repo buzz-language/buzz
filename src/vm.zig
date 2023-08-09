@@ -14,6 +14,7 @@ const TypeRegistry = _memory.TypeRegistry;
 const MIRJIT = @import("mirjit.zig");
 const Token = @import("./token.zig").Token;
 const Reporter = @import("./reporter.zig");
+const FFI = @import("./ffi.zig");
 
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
@@ -335,6 +336,7 @@ pub const VM = struct {
     mir_jit: ?MIRJIT = null,
     flavor: RunFlavor,
     reporter: Reporter,
+    ffi: FFI,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         var self: Self = .{
@@ -344,14 +346,16 @@ pub const VM = struct {
             .current_fiber = try gc.allocator.create(Fiber),
             .flavor = flavor,
             .reporter = Reporter{ .allocator = gc.allocator },
+            .ffi = FFI.init(gc),
         };
 
         return self;
     }
 
-    pub fn deinit(_: *Self) void {
+    pub fn deinit(self: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
+        self.ffi.deinit();
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {

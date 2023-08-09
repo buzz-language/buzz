@@ -304,7 +304,7 @@ pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
             "Compiling zdef wrapper for `{s}` or type `{s}`\n",
             .{
                 zdef.symbol,
-                zdef.node.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
+                (zdef.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
             },
         );
     }
@@ -377,12 +377,14 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
                 8 => m.MIR_T_I8,
                 16 => m.MIR_T_I16,
                 32 => m.MIR_T_I32,
+                64 => m.MIR_T_I64,
                 else => unreachable,
             }
         else switch (zig_type.Int.bits) {
             8 => m.MIR_T_U8,
             16 => m.MIR_T_U16,
             32 => m.MIR_T_U32,
+            64 => m.MIR_T_U64,
             else => unreachable,
         },
         .Float => switch (zig_type.Float.bits) {
@@ -392,6 +394,19 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
         },
         .Bool => m.MIR_T_U8,
         .Pointer => m.MIR_T_I64,
+        // TODO: struct
+        else => unreachable,
+    };
+}
+
+fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
+    return switch (zig_type) {
+        .Int, .Bool, .Pointer => m.MIR_T_I64,
+        .Float => switch (zig_type.Float.bits) {
+            32 => m.MIR_T_F,
+            64 => m.MIR_T_D,
+            else => unreachable,
+        },
         // TODO: struct
         else => unreachable,
     };
@@ -466,8 +481,8 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
     else
         ZigType{ .Void = {} };
 
-    const return_mir_type = if (zig_return_type != .Void)
-        zigToMIRType(zig_return_type)
+    var return_mir_type = if (zig_return_type != .Void)
+        zigToMIRRegType(zig_return_type)
     else
         null;
 
@@ -528,29 +543,31 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         );
         const param = m.MIR_new_reg_op(
             self.ctx,
-            try self.REG("param", zigToMIRType(zig_function_def.Fn.params[zidx].type.?.*)),
+            try self.REG("param", zigToMIRRegType(zig_function_def.Fn.params[zidx].type.?.*)),
         );
 
         try self.buildPeek(@intCast(idx - 1), param_value);
 
-        switch (zig_function_def.Fn.params[idx - 1].type.?.*) {
+        switch (zig_function_def.Fn.params[zidx].type.?.*) {
             .Int => self.buildValueToInteger(param_value, param),
+            // TODO: float can't be truncated like ints, we need a D2F instruction
             .Float => self.buildValueToFloat(param_value, param),
             .Bool => self.buildValueToBoolean(param_value, param),
             .Pointer => {
                 // Is it a [*:0]const u8
                 // zig fmt: off
-                if (zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.* == .Int
-                    and zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.Int.bits == 8
-                    and zig_function_def.Fn.params[idx - 1].type.?.Pointer.child.Int.signedness == .unsigned) {
+                if (zig_function_def.Fn.params[zidx].type.?.Pointer.child.* == .Int
+                    and zig_function_def.Fn.params[zidx].type.?.Pointer.child.Int.bits == 8
+                    and zig_function_def.Fn.params[zidx].type.?.Pointer.child.Int.signedness == .unsigned) {
                     // zig fmt: on
                     try self.buildValueToCString(param_value, param);
                 } else {
-                    unreachable;
+                    try self.buildValueToUserData(param_value, param);
                 }
             },
             else => unreachable,
         }
+
         try full_args.append(param);
     }
 
@@ -1119,6 +1136,14 @@ fn buildValueFromObj(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
 fn buildValueToCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_valueToCString,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+}
+
+fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_valueToUserData,
         dest,
         &[_]m.MIR_op_t{value},
     );
@@ -4927,6 +4952,7 @@ pub const ExternApi = enum {
     bz_enumNext,
     bz_clone,
     bz_valueToCString,
+    bz_valueToUserData,
 
     bz_dumpStack,
 
@@ -5555,6 +5581,20 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_valueToUserData => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_P},
+                1,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -5604,6 +5644,7 @@ pub const ExternApi = enum {
             .bz_setTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_setTryCtx))),
             .bz_popTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_popTryCtx))),
             .bz_valueToCString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToCString))),
+            .bz_valueToUserData => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToUserData))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -5668,6 +5709,7 @@ pub const ExternApi = enum {
             .bz_enumNext => "bz_enumNext",
             .bz_clone => "bz_clone",
             .bz_valueToCString => "bz_valueToCString",
+            .bz_valueToUserData => "bz_valueToUserData",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -5726,6 +5768,7 @@ pub const ExternApi = enum {
             .bz_enumNext => "p_bz_enumNext",
             .bz_clone => "p_bz_clone",
             .bz_valueToCString => "p_bz_valueToCString",
+            .bz_valueToUserData => "p_bz_valueToUserData",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",

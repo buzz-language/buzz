@@ -1,12 +1,42 @@
 import "std";
+import "buffer";
+import "debug";
 
+| TODO: one zdef for one lib and multiple declarations
+| TODO: Allow multiple declarations in one string
 zdef("tests/utils/libforeign", "fn acos(value: f64) f64;");
 | `[*:0]const u8` is the only pointer type that will be handled with an ObjString
 zdef("tests/utils/libforeign", "fn fprint(msg: [*:0]const u8) void;");
+zdef("tests/utils/libforeign", "fn sum(values: [*]i32, len: i32) i32;");
 
-fun dupe(str string) -> "{string}\0";
+fun cstr(str string) -> "{string}\0";
 
-test "ffi" {
-    | We could add ourselve the \0 but that would require a useless copy of the string that we would no know when to free
-    fprint(dupe("{acos(0.12)}"));
+test "scalar type" {
+    assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
+}
+
+test "cstring" {
+    fprint(cstr("hello world"));
+}
+
+test "pointer with Buffer" {
+    | TODO: would be better with object destructor so the buffer can be collected
+    Buffer buffer = Buffer.init();
+
+    buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
+    buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
+
+    int len = toInt(buffer.len() / 4);
+    int total = sum(buffer.ptr(), len: len);
+
+    assert(total == 12, message: "Could call FFI function with pointer argument");
+
+    int readTotal = 0;
+    foreach (int i in 0..toInt((buffer.len() / 4))) {
+        readTotal = readTotal + buffer.readZAt(<int>, i * 4, type: "i32");
+    }
+
+    assert(readTotal == total, message: "Could read from pointer");
+
+    buffer.deinit();
 }

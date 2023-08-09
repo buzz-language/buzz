@@ -365,11 +365,140 @@ export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
+export fn BufferPtr(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+
+    ctx.vm.bz_push(api.ObjUserData.bz_newUserData(ctx.vm, @ptrCast(buffer.buffer.items.ptr)).?.bz_userDataToValue());
+
+    return 1;
+}
+
 export fn BufferAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const number = ctx.vm.bz_peek(0).integer();
 
     ctx.vm.bz_pushInteger(buffer.at(@intCast(number)));
+
+    return 1;
+}
+
+inline fn rawWriteZ(
+    ctx: *api.NativeCtx,
+    buffer: *Buffer,
+    ztype: []const u8,
+    at: usize,
+    values_value: api.Value,
+) void {
+    const values = api.Value.bz_valueToObjList(values_value);
+
+    const zig_type = ctx.vm.bz_zigType(@ptrCast(ztype.ptr), ztype.len);
+    defer ctx.vm.bz_freeZigType(zig_type);
+
+    var index = at;
+    for (0..values.bz_listLen()) |i| {
+        var len = api.VM.bz_zigValueSize(zig_type);
+
+        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
+        buffer.buffer.expandToCapacity();
+
+        std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
+
+        ctx.vm.bz_writeZigValueToBuffer(
+            api.ObjList.bz_listGet(values_value, i),
+            zig_type,
+            index,
+            buffer.buffer.items.ptr,
+            buffer.buffer.capacity,
+        );
+
+        index += len;
+    }
+}
+
+export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    var len: usize = 0;
+    const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
+    const values = ctx.vm.bz_peek(0);
+
+    rawWriteZ(
+        ctx,
+        buffer,
+        ztype[0..len],
+        buffer.buffer.items.len,
+        values,
+    );
+
+    return 0;
+}
+
+export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
+    const index = ctx.vm.bz_peek(2).integer();
+    var len: usize = 0;
+    const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
+    const values = ctx.vm.bz_peek(0);
+
+    rawWriteZ(
+        ctx,
+        buffer,
+        ztype[0..len],
+        @intCast(index),
+        values,
+    );
+
+    return -1;
+}
+
+fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) api.Value {
+    const zig_type = vm.bz_zigType(@ptrCast(ztype), ztype.len);
+    defer vm.bz_freeZigType(zig_type);
+
+    const len = api.VM.bz_zigValueSize(zig_type);
+
+    const value = vm.bz_readZigValueFromBuffer(
+        zig_type,
+        at orelse buffer.cursor,
+        buffer.buffer.items.ptr,
+        buffer.buffer.items.len,
+    );
+
+    buffer.cursor += len;
+
+    return value;
+}
+
+export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var len: usize = 0;
+    const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
+
+    ctx.vm.bz_push(
+        rawReadZ(
+            ctx.vm,
+            buffer,
+            null,
+            ztype[0..len],
+        ),
+    );
+
+    return 1;
+}
+
+export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
+    var len: usize = 0;
+    const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
+
+    ctx.vm.bz_push(
+        rawReadZ(
+            ctx.vm,
+            buffer,
+            index,
+            ztype[0..len],
+        ),
+    );
 
     return 1;
 }

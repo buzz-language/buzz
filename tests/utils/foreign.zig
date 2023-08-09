@@ -7,3 +7,12 @@ export fn acos(value: f64) f64 {
 export fn fprint(msg: [*:0]const u8) void {
     std.debug.print("{s}\n", .{msg});
 }
+
+export fn sum(values: [*]i32, len: i32) i32 {
+    var total: i32 = 0;
+    for (0..@intCast(len)) |i| {
+        total += values[i];
+    }
+
+    return total;
+}

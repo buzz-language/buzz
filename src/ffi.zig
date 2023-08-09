@@ -14,6 +14,8 @@ gc: *m.GarbageCollector,
 reporter: Reporter,
 source: t.Token = undefined,
 ast: Ast = undefined,
+parsing_type_expr: bool = false,
+type_expr_cache: std.StringHashMap(?*Zdef),
 
 const basic_types = std.ComptimeStringMap(
     o.ObjTypeDef,
@@ -22,14 +24,17 @@ const basic_types = std.ComptimeStringMap(
         .{ "i8", .{ .def_type = .Integer } },
         .{ "u16", .{ .def_type = .Integer } },
         .{ "i16", .{ .def_type = .Integer } },
-        .{ "u32", .{ .def_type = .Integer } },
         .{ "i32", .{ .def_type = .Integer } },
 
+        .{ "u32", .{ .def_type = .Float } },
+        .{ "i64", .{ .def_type = .Float } },
         .{ "f32", .{ .def_type = .Float } },
         .{ "f64", .{ .def_type = .Float } },
 
+        .{ "u64", .{ .def_type = .UserData } },
+        .{ "usize", .{ .def_type = .UserData } },
+
         .{ "bool", .{ .def_type = .Bool } },
-        .{ "u1", .{ .def_type = .Bool } },
 
         .{ "void", .{ .def_type = .Void } },
     },
@@ -92,6 +97,33 @@ const zig_basic_types = std.ComptimeStringMap(
                 },
             },
         },
+        .{
+            "u64",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 64,
+                },
+            },
+        },
+        .{
+            "i64",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 64,
+                },
+            },
+        },
+        .{
+            "usize",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = @bitSizeOf(usize),
+                },
+            },
+        },
 
         .{
             "f32",
@@ -115,15 +147,6 @@ const zig_basic_types = std.ComptimeStringMap(
             ZigType{ .Bool = {} },
         },
         .{
-            "u1",
-            ZigType{
-                .Int = .{
-                    .signedness = .unsigned,
-                    .bits = 1,
-                },
-            },
-        },
-        .{
             "void",
             ZigType{
                 .Void = {},
@@ -138,11 +161,44 @@ pub const Zdef = struct {
     zig_type: ZigType,
 };
 
-pub fn parse(self: *Self, zdef: t.Token) !?*Zdef {
+pub fn init(gc: *m.GarbageCollector) Self {
+    return .{
+        .gc = gc,
+        .reporter = .{
+            .allocator = gc.allocator,
+            .error_prefix = "FFI",
+        },
+        .type_expr_cache = std.StringHashMap(?*Zdef).init(gc.allocator),
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    self.type_expr_cache.deinit();
+}
+
+pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
+    if (self.type_expr_cache.get(ztype)) |zdef| {
+        return zdef;
+    }
+
+    var full = std.ArrayList(u8).init(self.gc.allocator);
+    defer full.deinit();
+
+    full.writer().print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
+
+    var zdef = try self.parse(t.Token.identifier(full.items), true);
+
+    self.type_expr_cache.put(ztype, zdef) catch @panic("Out of memory");
+
+    return zdef;
+}
+
+pub fn parse(self: *Self, zdef: t.Token, parsing_type_expr: bool) !?*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
     const duped = self.gc.allocator.dupeZ(u8, zdef.literal_string.?) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
 
+    self.parsing_type_expr = parsing_type_expr;
     self.source = zdef;
     self.ast = Ast.parse(
         self.gc.allocator,
@@ -198,11 +254,26 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         .ptr_type,
         => try self.ptrType(decl.tag, decl_index),
 
-        else => fail: {
-            self.reporter.report(
+        .simple_var_decl => var_decl: {
+            if (self.parsing_type_expr) {
+                break :var_decl try self.getZdef(self.ast.simpleVarDecl(decl_index).ast.type_node);
+            }
+
+            self.reporter.reportErrorFmt(
                 .zdef,
                 self.source,
-                "Unsupported zig node: only C ABI compatible function signatures, structs and enums are supported",
+                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and enums are supported",
+                .{decl.tag},
+            );
+            break :var_decl null;
+        },
+
+        else => fail: {
+            self.reporter.reportErrorFmt(
+                .zdef,
+                self.source,
+                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and enums are supported",
+                .{decl.tag},
             );
             break :fail null;
         },
@@ -248,20 +319,38 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         else => unreachable,
     };
 
+    var zdef = try self.gc.allocator.create(Zdef);
+
     const child_type = (try self.getZdef(ptr_type.ast.child_type)).?;
     const sentinel_node = self.ast.nodes.get(ptr_type.ast.sentinel);
 
     // Is it a null terminated string?
     // zig fmt: off
-    if (ptr_type.const_token != null
+    zdef.* = if (ptr_type.const_token != null
         and child_type.zig_type == .Int
         and child_type.zig_type.Int.bits == 8
         and sentinel_node.tag == .number_literal
-        and std.mem.eql(u8, self.ast.tokenSlice(sentinel_node.main_token), "0")) {
+        and std.mem.eql(u8, self.ast.tokenSlice(sentinel_node.main_token), "0"))
         // zig fmt: on
-        var zdef = try self.gc.allocator.create(Zdef);
-        zdef.* = .{
+        .{
             .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
+            .zig_type = ZigType{
+                .Pointer = .{
+                    .size = .C,
+                    .is_const = ptr_type.const_token != null,
+                    .is_volatile = undefined,
+                    .alignment = undefined,
+                    .address_space = undefined,
+                    .child = &child_type.zig_type,
+                    .is_allowzero = undefined,
+                    .sentinel = undefined,
+                },
+            },
+            .name = "string",
+        }
+    else
+        .{
+            .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .UserData }),
             .zig_type = ZigType{
                 .Pointer = .{
                     .size = .C,
@@ -277,10 +366,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             .name = "string",
         };
 
-        return zdef;
-    }
-
-    unreachable;
+    return zdef;
 }
 
 fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!*Zdef {
