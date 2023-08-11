@@ -1,4 +1,5 @@
 import "errors";
+import "ffi";
 
 export object WriteWhileReadingError {}
 export object OutOfBoundError {}
@@ -38,13 +39,13 @@ extern fun BufferAt(ud userdata, int index) > int;
 || @private
 extern fun BufferSetAt(ud userdata, int index, int value) > void;
 || @private
-extern fun BufferWriteZ(ud userdata, str type, [any] values) > void !> WriteWhileReadingError;
+extern fun BufferWriteZ(ud userdata, str type, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
 || @private
-extern fun BufferWriteZAt(ud userdata, int at, str type, [any] values) > void !> WriteWhileReadingError;
+extern fun BufferWriteZAt(ud userdata, int at, str type, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
 || @private
-extern fun BufferReadZ(<T>, ud userdata, str type) > T;
+extern fun BufferReadZ(<T>, ud userdata, str type) > T !> FFITypeMismatchError;
 || @private
-extern fun BufferReadZAt(<T>, ud userdata, int at, str type) > T;
+extern fun BufferReadZAt(<T>, ud userdata, int at, str type) > T !> FFITypeMismatchError;
 
 || Read and write data to a string buffer
 export object Buffer {
@@ -77,19 +78,19 @@ export object Buffer {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
-    fun writeZ(<T>, str type, [T] values) > void !> WriteWhileReadingError {
+    fun writeZ(<T>, str type, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
         BufferWriteZ(this.buffer, type: type, values: values);
     }
 
-    fun writeZAt(<T>, int at, str type, [T] values) > void !> WriteWhileReadingError {
+    fun writeZAt(<T>, int at, str type, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
         BufferWriteZAt(this.buffer, at: at, type: type, values: values);
     }
 
-    fun readZ(<T>, str type) > T {
+    fun readZ(<T>, str type) > T !> FFITypeMismatchError {
         return BufferReadZ(<T>, this.buffer, type: type);
     }
 
-    fun readZAt(<T>, int at, str type) > T {
+    fun readZAt(<T>, int at, str type) > T !> FFITypeMismatchError {
         return BufferReadZAt(<T>, this.buffer, at: at, type: type);
     }
 

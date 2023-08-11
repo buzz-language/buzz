@@ -20,7 +20,7 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -59,7 +59,7 @@ fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         // Zig doesn't let me use those even though it lists them as being raised
         // error.FileNotFound => ctx.vm.pushError("errors.FileNotFoundError"),
         // error.CannotDeleteRootDirectory => ctx.vm.pushError("errors.CannotDeleteRootDirectoryError"),
@@ -114,7 +114,7 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -147,7 +147,7 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => @panic("Out of memory"),
     }
 }
@@ -233,7 +233,7 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -255,7 +255,7 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -265,7 +265,7 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 

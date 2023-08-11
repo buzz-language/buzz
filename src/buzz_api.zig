@@ -642,8 +642,28 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
 }
 
 // Assumes the global exists
-export fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void {
-    self.push(bz_instanceQualified(self, qualified_name, len));
+export fn bz_pushError(
+    self: *VM,
+    qualified_name: [*]const u8,
+    len: usize,
+    message: ?[*]const u8,
+    mlen: usize,
+) void {
+    const instance = bz_instanceQualified(self, qualified_name, len);
+
+    if (message) |msg| {
+        const obj_instance = ObjObjectInstance.cast(instance.obj()).?;
+        const message_key = self.gc.strings.get("message").?;
+
+        if (obj_instance.fields.get(message_key) != null) {
+            obj_instance.fields.put(
+                message_key,
+                (self.gc.copyString(msg[0..mlen]) catch @panic("Out of memory")).toValue(),
+            ) catch @panic("Out of memory");
+        }
+    }
+
+    self.push(instance);
 }
 
 export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {
@@ -1154,18 +1174,13 @@ export fn dumpInt(value: u64) void {
     std.debug.print("-> {}\n", .{value});
 }
 
-export fn bz_freeZigType(vm: *VM, ztype: *ZigType) void {
-    vm.gc.allocator.destroy(ztype);
-}
-
-export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize) ?*ZigType {
+export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*ZigType {
     const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
 
     if (zdef) |uzdef| {
-        var zig_type = vm.gc.allocator.create(ZigType) catch @panic("Out of memory");
-        zig_type.* = uzdef.zig_type;
+        expected_type.* = uzdef.type_def.toValue();
 
-        return zig_type;
+        return &uzdef.zig_type;
     }
 
     return null;
@@ -1180,6 +1195,41 @@ export fn bz_zigValueSize(ztype: *ZigType) usize {
     };
 }
 
+export fn bz_checkBuzzType(
+    vm: *VM,
+    value: Value,
+    ztype: *ZigType,
+    btype: Value,
+) bool {
+    if (!bz_valueIs(value, btype).boolean()) {
+        var err = std.ArrayList(u8).init(vm.gc.allocator);
+        defer err.deinit();
+
+        const typedef = ObjTypeDef.cast(btype.obj()).?.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+        defer typedef.deinit();
+
+        err.writer().print(
+            "Expected buzz value of type `{s}` to match FFI type `{}`",
+            .{
+                typedef.items,
+                ztype.*,
+            },
+        ) catch @panic("Out of memory");
+
+        bz_pushError(
+            vm,
+            "ffi.FFITypeMismatchError",
+            "ffi.FFITypeMismatchError".len,
+            err.items.ptr,
+            err.items.len,
+        );
+
+        return false;
+    }
+
+    return true;
+}
+
 export fn bz_readZigValueFromBuffer(
     vm: *VM,
     ztype: *ZigType,
@@ -1191,7 +1241,7 @@ export fn bz_readZigValueFromBuffer(
     buffer.capacity = len;
 
     // All those cases are necessary because bytesAsValue require arrays and not slices
-    return switch (ztype.*) {
+    const value = switch (ztype.*) {
         .Bool => Value.fromBoolean(buffer.items[at] == 1),
         .Int => integer: {
             const bytes = buffer.items[at .. at + (ztype.Int.bits / 8)];
@@ -1327,6 +1377,8 @@ export fn bz_readZigValueFromBuffer(
         },
         else => Value.Void,
     };
+
+    return value;
 }
 
 export fn bz_writeZigValueToBuffer(

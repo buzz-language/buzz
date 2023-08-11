@@ -52,7 +52,13 @@ pub const VM = opaque {
     pub extern fn bz_pushVoid(self: *VM) void;
     pub extern fn bz_pushObjectInstance(vm: *VM, payload: *ObjObjectInstance) void;
     pub extern fn bz_pushEnumInstance(vm: *VM, payload: *ObjEnumInstance) void;
-    pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize) void;
+    pub extern fn bz_pushError(
+        self: *VM,
+        qualified_name: [*]const u8,
+        len: usize,
+        message: ?[*]const u8,
+        mlen: usize,
+    ) void;
     pub extern fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void;
     pub extern fn bz_zigValueSize(ztype: *ZigType) usize;
     pub extern fn bz_writeZigValueToBuffer(
@@ -70,9 +76,20 @@ pub const VM = opaque {
         buf: [*]u8,
         len: usize,
     ) Value;
+    pub extern fn bz_checkBuzzType(
+        vm: *VM,
+        value: Value,
+        ztype: *ZigType,
+        btype: Value,
+    ) bool;
 
-    pub inline fn pushError(self: *VM, qualified_name: []const u8) void {
-        self.bz_pushError(qualified_name.ptr, qualified_name.len);
+    pub inline fn pushError(self: *VM, qualified_name: []const u8, message: ?[]const u8) void {
+        self.bz_pushError(
+            qualified_name.ptr,
+            qualified_name.len,
+            if (message) |m| m.ptr else null,
+            if (message) |m| m.len else 0,
+        );
     }
 
     pub inline fn pushErrorEnum(self: *VM, qualified_name: []const u8, case: []const u8) void {
@@ -99,8 +116,12 @@ pub const VM = opaque {
 
     pub extern fn bz_dumpStack(vm: *VM) void;
 
-    pub extern fn bz_freeZigType(vm: *VM, ztype: *ZigType) void;
-    pub extern fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize) *ZigType;
+    pub extern fn bz_zigType(
+        vm: *VM,
+        ztype: [*]const u8,
+        len: usize,
+        expected_type: *Value,
+    ) ?*ZigType;
 };
 
 pub const FunctionNode = opaque {};

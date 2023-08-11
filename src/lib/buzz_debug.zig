@@ -85,7 +85,7 @@ export fn ast(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    ctx.vm.pushError("errors.CompileError");
+    ctx.vm.pushError("errors.CompileError", null);
 
     return -1;
 }
