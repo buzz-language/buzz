@@ -22,6 +22,8 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
+      - name: Build test ffi lib
+        run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run Tests
         run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
@@ -43,6 +45,8 @@ jobs:
         uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
+      - name: Build test ffi lib
+        run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run tests
         run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup

@@ -36,6 +36,7 @@ const ObjClosure = _obj.ObjClosure;
 const ObjNative = _obj.ObjNative;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjFiber = _obj.ObjFiber;
+const ObjForeignStruct = _obj.ObjForeignStruct;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const UserData = _obj.UserData;
@@ -132,7 +133,7 @@ export fn bz_valueToCString(value: Value) ?[*:0]const u8 {
         return null;
     }
 
-    return @ptrCast(ObjString.cast(value.obj()).?.string);
+    return @ptrCast(ObjString.cast(value.obj()).?.string.ptr);
 }
 
 fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), depth: usize) void {
@@ -293,11 +294,45 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .ObjectInstance => {
                 const object_instance = ObjObjectInstance.cast(value.obj()).?;
 
-                std.debug.print("{s}{{ ", .{if (object_instance.object) |object| object.type_def.resolved_type.?.Object.name.string else "."});
+                std.debug.print(
+                    "{s}{{ ",
+                    .{
+                        if (object_instance.object) |object|
+                            object.type_def.resolved_type.?.Object.name.string
+                        else
+                            ".",
+                    },
+                );
                 var it = object_instance.fields.iterator();
                 while (it.next()) |kv| {
                     std.debug.print("{s} = ", .{kv.key_ptr.*.string});
                     valueDump(kv.value_ptr.*, vm, seen, depth + 1);
+                    std.debug.print(", ", .{});
+                }
+                std.debug.print("}}", .{});
+            },
+
+            .ForeignStruct => {
+                const foreign = ObjForeignStruct.cast(value.obj()).?;
+                const foreign_def = foreign.type_def.resolved_type.?.ForeignStruct;
+
+                std.debug.print(
+                    "{s}{{ ",
+                    .{foreign_def.name.string},
+                );
+
+                var it = foreign_def.fields.iterator();
+                while (it.next()) |kv| {
+                    std.debug.print("{s} = ", .{kv.key_ptr.*});
+                    valueDump(
+                        kv.value_ptr.*.getter(
+                            vm,
+                            foreign.data.ptr,
+                        ),
+                        vm,
+                        seen,
+                        depth + 1,
+                    );
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -314,15 +349,24 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
     valueDump(value, vm, &seen, 0);
 }
 
+// Obj manipulations
+
 export fn bz_valueToUserData(value: Value) *UserData {
     return ObjUserData.cast(value.obj()).?.userdata;
 }
 
-// Obj manipulations
+export fn bz_valueToForeignStructPtr(value: Value) [*]u8 {
+    return ObjForeignStruct.cast(value.obj()).?.data.ptr;
+}
 
 /// Converts a c string to a *ObjString
 export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
     return (if (string) |ustring| vm.gc.copyString(ustring[0..len]) else vm.gc.copyString("")) catch null;
+}
+
+export fn bz_stringZ(vm: *VM, string: [*:0]const u8) Value {
+    // Keeping the sentinel
+    return (vm.gc.copyString(string[0..(std.mem.len(string) + 1)]) catch @panic("Out of memory")).toValue();
 }
 
 export fn bz_valueToObjString(value: Value) *ObjString {
@@ -1232,7 +1276,7 @@ export fn bz_clone(vm: *VM, value: Value) Value {
 }
 
 export fn dumpInt(value: u64) void {
-    std.debug.print("-> {}\n", .{value});
+    std.debug.print("-> {x}\n", .{value});
 }
 
 export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*ZigType {
@@ -1247,13 +1291,8 @@ export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Va
     return null;
 }
 
-export fn bz_zigValueSize(ztype: *ZigType) usize {
-    return switch (ztype.*) {
-        .Bool => 1,
-        .Int => ztype.Int.bits / 8,
-        .Float => ztype.Float.bits / 8,
-        else => return 0,
-    };
+pub export fn bz_zigValueSize(ztype: *ZigType) usize {
+    return ztype.size();
 }
 
 export fn bz_checkBuzzType(
@@ -1519,4 +1558,33 @@ export fn bz_writeZigValueToBuffer(
         },
         else => {},
     }
+}
+
+export fn bz_fstructGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value {
+    const fstruct = ObjForeignStruct.cast(value.obj()).?;
+    // Oh right that's beautiful enough...
+    return fstruct.type_def.resolved_type.?.ForeignStruct.fields.get(field[0..len]).?.getter(
+        vm,
+        fstruct.data.ptr,
+    );
+}
+
+export fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void {
+    const fstruct = ObjForeignStruct.cast(value.obj()).?;
+    // Oh right that's beautiful enough...
+    return fstruct.type_def.resolved_type.?.ForeignStruct.fields.get(field[0..len]).?.setter(
+        vm,
+        fstruct.data.ptr,
+        new_value,
+    );
+}
+
+export fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value {
+    return (vm.gc.allocateObject(
+        ObjForeignStruct,
+        ObjForeignStruct.init(
+            vm,
+            ObjTypeDef.cast(typedef_value.obj()).?,
+        ) catch @panic("Out of memory"),
+    ) catch @panic("Out of memory")).toValue();
 }

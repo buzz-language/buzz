@@ -6828,20 +6828,25 @@ pub const DotNode = struct {
             codegen.reporter.reportPlaceholder(callee_type.resolved_type.?.Placeholder);
         }
 
-        // zig fmt: off
-        if (callee_type.def_type != .ObjectInstance
-            and callee_type.def_type != .Object
-            and callee_type.def_type != .ProtocolInstance
-            and callee_type.def_type != .Enum
-            and callee_type.def_type != .EnumInstance
-            and callee_type.def_type != .List
-            and callee_type.def_type != .Map
-            and callee_type.def_type != .String
-            and callee_type.def_type != .Pattern
-            and callee_type.def_type != .Fiber) {
-            codegen.reporter.reportErrorAt(.field_access, node.location, "Doesn't have field access",);
+        switch (callee_type.def_type) {
+            .ObjectInstance,
+            .Object,
+            .ProtocolInstance,
+            .Enum,
+            .EnumInstance,
+            .List,
+            .Map,
+            .String,
+            .Pattern,
+            .Fiber,
+            .ForeignStruct,
+            => {},
+            else => codegen.reporter.reportErrorAt(
+                .field_access,
+                node.location,
+                "Doesn't have field access",
+            ),
         }
-        // zig fmt: on
 
         if (callee_type.optional) {
             codegen.reporter.reportErrorAt(
@@ -6854,6 +6859,7 @@ pub const DotNode = struct {
         var get_code: ?OpCode = switch (callee_type.def_type) {
             .Object => .OP_GET_OBJECT_PROPERTY,
             .ObjectInstance, .ProtocolInstance => .OP_GET_INSTANCE_PROPERTY,
+            .ForeignStruct => .OP_GET_FSTRUCT_INSTANCE_PROPERTY,
             .List => .OP_GET_LIST_PROPERTY,
             .Map => .OP_GET_MAP_PROPERTY,
             .String => .OP_GET_STRING_PROPERTY,
@@ -6876,7 +6882,7 @@ pub const DotNode = struct {
                     );
                 }
             },
-            .ObjectInstance, .Object => {
+            .ForeignStruct, .ObjectInstance, .Object => {
                 if (self.value) |value| {
                     if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                         codegen.reporter.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
@@ -6886,18 +6892,38 @@ pub const DotNode = struct {
 
                     try codegen.emitCodeArg(
                         self.node.location,
-                        if (callee_type.def_type == .ObjectInstance) .OP_SET_INSTANCE_PROPERTY else .OP_SET_OBJECT_PROPERTY,
+                        switch (callee_type.def_type) {
+                            .ObjectInstance => .OP_SET_INSTANCE_PROPERTY,
+                            .ForeignStruct => .OP_SET_FSTRUCT_INSTANCE_PROPERTY,
+                            else => .OP_SET_OBJECT_PROPERTY,
+                        },
                         try codegen.identifierConstant(self.identifier.lexeme),
                     );
                 } else if (self.call) |call| {
+                    if (callee_type.def_type == .ForeignStruct) {
+                        codegen.reporter.reportErrorAt(
+                            .callable,
+                            self.callee.location,
+                            "Not callable",
+                        );
+                    }
+
                     // Static call
                     if (callee_type.def_type == .Object) {
-                        try codegen.emitCodeArg(node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
+                        try codegen.emitCodeArg(
+                            node.location,
+                            get_code.?,
+                            try codegen.identifierConstant(self.identifier.lexeme),
+                        );
                     }
 
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
-                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        get_code.?,
+                        try codegen.identifierConstant(self.identifier.lexeme),
+                    );
                 }
             },
             .ProtocolInstance => {
@@ -6905,7 +6931,11 @@ pub const DotNode = struct {
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
                     assert(self.value == null);
-                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        get_code.?,
+                        try codegen.identifierConstant(self.identifier.lexeme),
+                    );
                 }
             },
             .Enum => {
@@ -6923,7 +6953,11 @@ pub const DotNode = struct {
                     _ = try call.node.toByteCode(&call.node, codegen, breaks);
                 } else {
                     assert(self.value == null);
-                    try codegen.emitCodeArg(self.node.location, get_code.?, try codegen.identifierConstant(self.identifier.lexeme));
+                    try codegen.emitCodeArg(
+                        self.node.location,
+                        get_code.?,
+                        try codegen.identifierConstant(self.identifier.lexeme),
+                    );
                 }
             },
             else => unreachable,
@@ -7006,12 +7040,18 @@ pub const ObjectInitNode = struct {
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
 
-    fn checkOmittedProperty(self: *Self, codegenPtr: *anyopaque, obj_def: ObjObject.ObjectDef, init_properties: std.StringHashMap(void)) anyerror!void {
+    fn checkOmittedProperty(
+        self: *Self,
+        codegenPtr: *anyopaque,
+        fields: std.StringArrayHashMap(*ObjTypeDef),
+        fields_defaults: ?std.StringArrayHashMap(void),
+        init_properties: std.StringHashMap(void),
+    ) anyerror!void {
         var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
-        var it = obj_def.fields.iterator();
+        var it = fields.iterator();
         while (it.next()) |kv| {
             // If ommitted in initialization and doesn't have default value
-            if (init_properties.get(kv.key_ptr.*) == null and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
+            if (init_properties.get(kv.key_ptr.*) == null and (fields_defaults == null or fields_defaults.?.get(kv.key_ptr.*) == null)) {
                 codegen.reporter.reportErrorFmt(
                     .property_not_initialized,
                     self.node.location,
@@ -7040,10 +7080,10 @@ pub const ObjectInitNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (self.object) |object| {
-            _ = try object.toByteCode(object, codegen, breaks);
+        if (self.object != null and self.object.?.type_def.?.def_type == .Object) {
+            _ = try self.object.?.toByteCode(self.object.?, codegen, breaks);
         } else {
-            // Anonymous object, we push its type
+            // Anonymous object or struct, we push its type
             try codegen.emitCodeArg(
                 node.location,
                 .OP_CONSTANT,
@@ -7051,20 +7091,38 @@ pub const ObjectInitNode = struct {
             );
         }
 
-        try codegen.emitOpCode(self.node.location, .OP_INSTANCE);
-
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
-        } else if (node.type_def.?.def_type != .ObjectInstance) {
+        } else if (node.type_def.?.def_type != .ObjectInstance and node.type_def.?.def_type != .ForeignStruct) {
             codegen.reporter.reportErrorAt(
                 .expected_object,
                 node.location,
-                "Expected an object.",
+                "Expected object or foreign struct.",
             );
         }
 
-        const object_type = node.type_def.?.resolved_type.?.ObjectInstance;
-        const obj_def = object_type.resolved_type.?.Object;
+        try codegen.emitOpCode(
+            self.node.location,
+            if (node.type_def.?.def_type == .ObjectInstance)
+                .OP_INSTANCE
+            else
+                .OP_FSTRUCT_INSTANCE,
+        );
+
+        const fields = if (node.type_def.?.def_type == .ObjectInstance)
+            node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
+        else
+            node.type_def.?.resolved_type.?.ForeignStruct.buzz_type;
+
+        const location = if (node.type_def.?.def_type == .ObjectInstance)
+            node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.location
+        else
+            node.type_def.?.resolved_type.?.ForeignStruct.location;
+
+        const fields_location = if (node.type_def.?.def_type == .ObjectInstance)
+            node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_locations
+        else
+            null;
 
         // To keep track of what's been initialized or not by this statement
         var init_properties = std.StringHashMap(void).init(codegen.gc.allocator);
@@ -7074,7 +7132,7 @@ pub const ObjectInitNode = struct {
             const property_name_constant: u24 = try codegen.identifierConstant(property_name);
             const value = self.properties.get(property_name).?;
 
-            if (obj_def.fields.get(property_name)) |prop| {
+            if (fields.get(property_name)) |prop| {
                 try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
@@ -7093,7 +7151,10 @@ pub const ObjectInitNode = struct {
                     }
                     codegen.reporter.reportTypeCheck(
                         .property_type,
-                        obj_def.fields_locations.get(property_name) orelse obj_def.location,
+                        if (fields_location) |floc|
+                            floc.get(property_name)
+                        else
+                            location,
                         prop,
                         value.location,
                         value.type_def.?,
@@ -7105,13 +7166,20 @@ pub const ObjectInitNode = struct {
 
                 try init_properties.put(property_name, {});
 
-                try codegen.emitCodeArg(self.node.location, .OP_SET_INSTANCE_PROPERTY, property_name_constant);
+                try codegen.emitCodeArg(
+                    self.node.location,
+                    if (node.type_def.?.def_type == .ObjectInstance)
+                        .OP_SET_INSTANCE_PROPERTY
+                    else
+                        .OP_SET_FSTRUCT_INSTANCE_PROPERTY,
+                    property_name_constant,
+                );
                 try codegen.emitOpCode(self.node.location, .OP_POP); // Pop property value
             } else {
                 codegen.reporter.reportWithOrigin(
                     .property_does_not_exists,
                     node.location,
-                    obj_def.location,
+                    location,
                     "Property `{s}` does not exists",
                     .{property_name},
                     null,
@@ -7120,7 +7188,15 @@ pub const ObjectInitNode = struct {
         }
 
         // Did we initialized all properties without a default value?
-        try self.checkOmittedProperty(codegen, obj_def, init_properties);
+        try self.checkOmittedProperty(
+            codegen,
+            fields,
+            if (node.type_def.?.def_type == .ObjectInstance)
+                node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_defaults
+            else
+                null,
+            init_properties,
+        );
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -7793,14 +7869,16 @@ pub const ZdefNode = struct {
                     self.obj_native = try codegen.mir_jit.?.compileZdef(self);
 
                     try codegen.emitConstant(node.location, self.obj_native.?.toValue());
-                    try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
                 }
             },
-            // TODO: generate object corresponding to the struct
-            .Object => unreachable,
-            // TODO: constants?
+            .ForeignStruct => {
+                try codegen.mir_jit.?.compileZdefStruct(self);
+
+                try codegen.emitConstant(node.location, node.type_def.?.toValue());
+            },
             else => unreachable,
         }
+        try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -7812,7 +7890,7 @@ pub const ZdefNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
-        try out.print("{{\"node\": \"Zdef\", \"lib_name\": \"{s}\"", .{self.lib_name.lexeme});
+        try out.print("{{\"node\": \"Zdef\", \"lib_name\": {s}, ", .{self.lib_name.lexeme});
 
         try ParseNode.stringify(node, out);
 

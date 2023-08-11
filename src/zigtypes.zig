@@ -29,6 +29,76 @@ pub const Type = union(enum) {
     Vector: Vector,
     EnumLiteral: void,
 
+    // FIXME: should be expressed in bits, because alignment and shit
+    pub fn size(self: Type) usize {
+        return switch (self) {
+            .Bool => 1,
+            .Int => self.Int.bits / 8,
+            .Float => self.Float.bits / 8,
+            .Pointer => 8,
+            .Struct => str: {
+                const struct_type = self.Struct;
+                var struct_size: usize = 0;
+                var next_field: ?Type.StructField = null;
+                var struct_align: u16 = 0;
+                for (struct_type.fields, 0..) |field, idx| {
+                    next_field = if (idx < struct_type.fields.len - 1)
+                        struct_type.fields[idx + 1]
+                    else
+                        null;
+
+                    struct_align = if (field.alignment > struct_align)
+                        field.alignment
+                    else
+                        struct_align;
+
+                    struct_size += field.type.size();
+
+                    if (next_field) |next| {
+                        const next_field_align = next.alignment;
+                        const current_field_size = field.type.size();
+
+                        const div = @as(f64, @floatFromInt(current_field_size)) / @as(f64, @floatFromInt(next_field_align));
+                        const fpart = std.math.modf(div).fpart;
+                        const padding = @as(usize, @intFromFloat(fpart * @as(f64, @floatFromInt(next_field_align))));
+
+                        struct_size += padding;
+                    } else {
+                        const div = @as(f64, @floatFromInt(struct_size)) / @as(f64, @floatFromInt(struct_align));
+                        const fpart = std.math.modf(div).fpart;
+                        const padding = @as(usize, @intFromFloat(fpart * @as(f64, @floatFromInt(struct_align))));
+
+                        struct_size += padding;
+                    }
+                }
+
+                break :str struct_size;
+            },
+            else => unreachable,
+        };
+    }
+
+    pub fn alignment(self: Type) u16 {
+        return switch (self) {
+            .Bool => 1,
+            .Int => @as(u16, @intCast(self.Int.bits)) / 8,
+            .Float => @as(u16, @intCast(self.Float.bits)) / 8,
+            .Struct => str: {
+                const struct_type = self.Struct;
+                var max_align: u16 = 0;
+                for (struct_type.fields) |field| {
+                    max_align = if (field.alignment > max_align)
+                        field.alignment
+                    else
+                        max_align;
+                }
+                break :str max_align;
+            },
+            .Pointer => 8,
+            else => unreachable,
+        };
+    }
+
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Int = struct {
@@ -56,7 +126,7 @@ pub const Type = union(enum) {
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
         /// to refer to that type here, so we use pointer to `anyopaque`.
-        sentinel: ?*const anyopaque,
+        sentinel: ?*const Type,
     };
 
     /// This data structure is used by the Zig language code generation and

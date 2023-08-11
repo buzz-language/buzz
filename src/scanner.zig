@@ -344,6 +344,8 @@ pub const Scanner = struct {
             } else if (self.peek() == '\\' and self.peekNext() == '\\') {
                 // Escaped backslash, go past it
                 _ = self.advance();
+            } else if (self.peek() == '\n') {
+                self.current.line += 1;
             }
 
             _ = self.advance();

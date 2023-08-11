@@ -873,7 +873,7 @@ pub const Parser = struct {
                         // We can't create a field access placeholder without a name
                         assert(child_placeholder.name != null);
 
-                        var object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                        const object_def: ObjObject.ObjectDef = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                         // Search for a field matching the placeholder
                         if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
@@ -886,6 +886,26 @@ pub const Parser = struct {
                                 "`{s}` has no field `{s}`",
                                 .{
                                     object_def.name.string,
+                                    child_placeholder.name.?.string,
+                                },
+                            );
+                        }
+                    },
+                    .ForeignStruct => {
+                        // We can't create a field access placeholder without a name
+                        assert(child_placeholder.name != null);
+
+                        const f_def = resolved_type.resolved_type.?.ForeignStruct;
+
+                        // Search for a field matching the placeholder
+                        if (f_def.buzz_type.get(child_placeholder.name.?.string)) |field| {
+                            try self.resolvePlaceholder(child, field, false);
+                        } else {
+                            self.reportErrorFmt(
+                                .property_does_not_exists,
+                                "`{s}` has no field `{s}`",
+                                .{
+                                    f_def.name.string,
                                     child_placeholder.name.?.string,
                                 },
                             );
@@ -2329,20 +2349,15 @@ pub const Parser = struct {
         try self.consume(.RightParen, "Expected `)` to close zdef");
         try self.consume(.Semicolon, "Expected `;`");
 
-        const zdef = try self.ffi.parse(source, false);
+        const zdef = try self.ffi.parse(
+            self,
+            source,
+            false,
+        );
         var fn_ptr: ?*anyopaque = null;
 
         var slot: usize = undefined;
         if (zdef) |uzdef| {
-            // Load the lib
-            const paths = try self.searchZdefLibPaths(lib_name.literal_string.?);
-            defer {
-                for (paths.items) |path| {
-                    self.gc.allocator.free(path);
-                }
-                paths.deinit();
-            }
-
             assert(self.current.?.scope_depth == 0);
             slot = try self.declareVariable(
                 uzdef.type_def,
@@ -2352,7 +2367,18 @@ pub const Parser = struct {
             );
             self.markInitialized();
 
-            if (uzdef.type_def.def_type == .Function) {
+            // If zig_type is struct, we just push the objtypedef itself on the stack
+            // Otherwise we try to build a wrapper around the imported function
+            if (uzdef.zig_type == .Fn) {
+                // Load the lib
+                const paths = try self.searchZdefLibPaths(lib_name.literal_string.?);
+                defer {
+                    for (paths.items) |path| {
+                        self.gc.allocator.free(path);
+                    }
+                    paths.deinit();
+                }
+
                 var lib: ?std.DynLib = null;
                 for (paths.items) |path| {
                     lib = std.DynLib.open(path) catch null;
@@ -2953,7 +2979,10 @@ pub const Parser = struct {
 
         try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
-        node.node.type_def = if (object.type_def) |type_def| try type_def.toInstance(self.gc.allocator, &self.gc.type_registry) else null;
+        node.node.type_def = if (object.type_def) |type_def|
+            try type_def.toInstance(self.gc.allocator, &self.gc.type_registry)
+        else
+            null;
         node.node.end_location = self.parser.previous_token.?;
 
         return &node.node;
@@ -3876,6 +3905,26 @@ pub const Parser = struct {
                     node.node.type_def = node.call.?.node.type_def;
                 } else { // access only
                     node.node.type_def = property_type;
+                }
+            },
+            .ForeignStruct => {
+                const f_def = callee.type_def.?.resolved_type.?.ForeignStruct;
+
+                if (f_def.buzz_type.get(member_name)) |field| {
+                    if (can_assign and try self.match(.Equal)) {
+                        node.value = try self.expression(false);
+                    }
+
+                    node.node.type_def = field;
+                } else {
+                    self.reportErrorFmt(
+                        .property_does_not_exists,
+                        "Property `{s}` does not exists in object `{s}`",
+                        .{
+                            member_name,
+                            f_def.name.string,
+                        },
+                    );
                 }
             },
             .ObjectInstance => {
@@ -5624,7 +5673,7 @@ pub const Parser = struct {
     }
 
     // Will consume tokens if find a prefixed identifier
-    fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: Token) anyerror!?usize {
+    pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: Token) anyerror!?usize {
         if (self.globals.items.len == 0) {
             return null;
         }

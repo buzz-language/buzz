@@ -434,7 +434,7 @@ pub extern fn MIR_new_ref_data(ctx: MIR_context_t, name: [*:0]const u8, item: MI
 pub extern fn MIR_new_expr_data(ctx: MIR_context_t, name: [*:0]const u8, expr_item: MIR_item_t) MIR_item_t;
 pub extern fn MIR_new_proto_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: ?[*]const MIR_type_t, nargs: usize, vars: ?[*]const MIR_var_t) MIR_item_t;
 pub extern fn MIR_new_vararg_proto_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vars: *MIR_var_t) MIR_item_t;
-pub extern fn MIR_new_func_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: [*]const MIR_type_t, nargs: usize, vars: [*]const MIR_var_t) MIR_item_t;
+pub extern fn MIR_new_func_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: ?[*]const MIR_type_t, nargs: usize, vars: [*]const MIR_var_t) MIR_item_t;
 pub extern fn MIR_new_vararg_func_arr(ctx: MIR_context_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vars: *MIR_var_t) MIR_item_t;
 pub extern fn MIR_item_name(ctx: MIR_context_t, item: MIR_item_t) [*:0]const u8;
 pub extern fn MIR_get_item_func(ctx: MIR_context_t, item: MIR_item_t) MIR_func_t;
