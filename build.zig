@@ -394,6 +394,7 @@ pub fn build(b: *Build) !void {
         "http",
         "errors",
         "serialize",
+        "ffi",
     };
 
     // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries

@@ -201,7 +201,7 @@ export fn BufferWrite(ctx: *api.NativeCtx) c_int {
 
     buffer.write(bytes.?[0..len]) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => @panic("Out of memory"),
         }
 
@@ -218,7 +218,7 @@ export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
 
     buffer.setAt(@intCast(index), @intCast(value)) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
         }
 
         return -1;
@@ -245,7 +245,7 @@ export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
 
     buffer.writeBool(value) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => @panic("Out of memory"),
         }
 
@@ -303,7 +303,7 @@ export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
 
     buffer.writeInteger(number.integer()) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => @panic("Out of memory"),
         }
 
@@ -319,7 +319,7 @@ export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
 
     buffer.writeFloat(number.float()) catch |err| {
         switch (err) {
-            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError"),
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => @panic("Out of memory"),
         }
 
@@ -388,15 +388,25 @@ inline fn rawWriteZ(
     ztype: []const u8,
     at: usize,
     values_value: api.Value,
-) void {
+) bool {
     const values = api.Value.bz_valueToObjList(values_value);
 
-    const zig_type = ctx.vm.bz_zigType(@ptrCast(ztype.ptr), ztype.len);
-    defer ctx.vm.bz_freeZigType(zig_type);
+    var obj_typedef: api.Value = undefined;
+    const zig_type = ctx.vm.bz_zigType(
+        @ptrCast(ztype),
+        ztype.len,
+        &obj_typedef,
+    );
 
     var index = at;
     for (0..values.bz_listLen()) |i| {
-        var len = api.VM.bz_zigValueSize(zig_type);
+        const value = api.ObjList.bz_listGet(values_value, i);
+
+        if (!ctx.vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
+            return false;
+        }
+
+        var len = api.VM.bz_zigValueSize(zig_type.?);
 
         buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
         buffer.buffer.expandToCapacity();
@@ -404,8 +414,8 @@ inline fn rawWriteZ(
         std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
 
         ctx.vm.bz_writeZigValueToBuffer(
-            api.ObjList.bz_listGet(values_value, i),
-            zig_type,
+            value,
+            zig_type.?,
             index,
             buffer.buffer.items.ptr,
             buffer.buffer.capacity,
@@ -413,6 +423,8 @@ inline fn rawWriteZ(
 
         index += len;
     }
+
+    return true;
 }
 
 export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
@@ -421,15 +433,13 @@ export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
     const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
     const values = ctx.vm.bz_peek(0);
 
-    rawWriteZ(
+    return if (!rawWriteZ(
         ctx,
         buffer,
         ztype[0..len],
         buffer.buffer.items.len,
         values,
-    );
-
-    return 0;
+    )) -1 else 0;
 }
 
 export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
@@ -439,33 +449,41 @@ export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
     const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
     const values = ctx.vm.bz_peek(0);
 
-    rawWriteZ(
+    return if (!rawWriteZ(
         ctx,
         buffer,
         ztype[0..len],
         @intCast(index),
         values,
-    );
-
-    return -1;
+    )) -1 else 0;
 }
 
-fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) api.Value {
-    const zig_type = vm.bz_zigType(@ptrCast(ztype), ztype.len);
-    defer vm.bz_freeZigType(zig_type);
+fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
+    var obj_typedef: api.Value = undefined;
+    const zig_type = vm.bz_zigType(
+        @ptrCast(ztype),
+        ztype.len,
+        &obj_typedef,
+    );
 
-    const len = api.VM.bz_zigValueSize(zig_type);
+    const len = api.VM.bz_zigValueSize(zig_type.?);
 
     const value = vm.bz_readZigValueFromBuffer(
-        zig_type,
+        zig_type.?,
         at orelse buffer.cursor,
         buffer.buffer.items.ptr,
         buffer.buffer.items.len,
     );
 
+    if (!vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
+        return -1;
+    }
+
     buffer.cursor += len;
 
-    return value;
+    vm.bz_push(value);
+
+    return 1;
 }
 
 export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
@@ -473,16 +491,12 @@ export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
 
-    ctx.vm.bz_push(
-        rawReadZ(
-            ctx.vm,
-            buffer,
-            null,
-            ztype[0..len],
-        ),
+    return rawReadZ(
+        ctx.vm,
+        buffer,
+        null,
+        ztype[0..len],
     );
-
-    return 1;
 }
 
 export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
@@ -491,14 +505,10 @@ export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
 
-    ctx.vm.bz_push(
-        rawReadZ(
-            ctx.vm,
-            buffer,
-            index,
-            ztype[0..len],
-        ),
+    return rawReadZ(
+        ctx.vm,
+        buffer,
+        index,
+        ztype[0..len],
     );
-
-    return 1;
 }

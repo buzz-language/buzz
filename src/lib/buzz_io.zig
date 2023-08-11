@@ -46,7 +46,7 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -116,7 +116,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => @panic("Out of memory"),
     }
 }
@@ -165,7 +165,7 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => @panic("Out of memory"),
     }
 }
@@ -218,14 +218,14 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
 export fn FileRead(ctx: *api.NativeCtx) c_int {
     const n = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -285,13 +285,13 @@ export fn FileWrite(ctx: *api.NativeCtx) c_int {
             error.DiskQuota => ctx.vm.pushErrorEnum("errors.FileSystemError", "DiskQuota"),
             error.FileTooBig => ctx.vm.pushErrorEnum("errors.FileSystemError", "FileTooBig"),
             error.InputOutput => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
-            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError"),
+            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
             error.LockViolation => ctx.vm.pushErrorEnum("errors.ReadWriteError", "LockViolation"),
             error.NoSpaceLeft => ctx.vm.pushErrorEnum("errors.FileSystemError", "NoSpaceLeft"),
             error.NotOpenForWriting => ctx.vm.pushErrorEnum("errors.ReadWriteError", "NotOpenForWriting"),
             error.OperationAborted => ctx.vm.pushErrorEnum("errors.ReadWriteError", "OperationAborted"),
             error.SystemResources => ctx.vm.pushErrorEnum("errors.FileSystemError", "SystemResources"),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
             error.WouldBlock => ctx.vm.pushErrorEnum("errors.FileSystemError", "WouldBlock"),
         }
 
@@ -343,14 +343,14 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
         if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,
         filename.len,
     ) orelse {
-        ctx.vm.pushError("errors.CompileError");
+        ctx.vm.pushError("errors.CompileError", null);
 
         return -1;
     };
 
     // Run
     if (!vm.bz_interpret(function)) {
-        ctx.vm.pushError("errors.InterpretError");
+        ctx.vm.pushError("errors.InterpretError", null);
 
         return -1;
     }

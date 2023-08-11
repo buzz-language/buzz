@@ -19,7 +19,7 @@ export fn env(ctx: *api.NativeCtx) c_int {
     const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -32,7 +32,7 @@ export fn env(ctx: *api.NativeCtx) c_int {
     }
 
     if (key_slice == null) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -141,7 +141,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.OutOfMemory => @panic("Out of memory"),
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -253,8 +253,8 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.OutOfMemory => @panic("Out of memory"),
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
-        error.Overflow => ctx.vm.pushError("errors.OverflowError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
     }
 }
 
@@ -280,7 +280,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
         error.NameTooLong,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -290,7 +290,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?i32 = ctx.vm.bz_peek(1).integer();
     if (port == null or port.? < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -315,7 +315,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
         },
         1, // TODO: UDP
         => {
-            ctx.vm.pushError("errors.NotYetImplementedError");
+            ctx.vm.pushError("errors.NotYetImplementedError", null);
 
             return -1;
         },
@@ -331,7 +331,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
             return 1;
         },
         else => {
-            ctx.vm.pushError("errors.InvalidArgumentError");
+            ctx.vm.pushError("errors.InvalidArgumentError", null);
 
             return -1;
         },
@@ -368,7 +368,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         // error.OutOfMemory => @panic("Out of memory"),
 
         // TODO: bug in zig compiler that complains about StreamTooLong and OutOfMemory errors missing when not there, but complains also if they're there
@@ -379,7 +379,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
 export fn SocketRead(ctx: *api.NativeCtx) c_int {
     const n: i32 = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -433,7 +433,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => @panic("Out of memory"),
 
         error.EndOfStream => {},
@@ -523,8 +523,8 @@ export fn SocketWrite(ctx: *api.NativeCtx) c_int {
             error.NotOpenForWriting,
             error.LockViolation,
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
-            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError"),
+            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
         }
 
         return -1;
@@ -539,7 +539,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?i32 = ctx.vm.bz_peek(2).integer();
     if (port == null or port.? < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError");
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     }
@@ -610,9 +610,9 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.WouldBlock,
             error.NetworkNotFound,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
             error.OutOfMemory => @panic("Out of memory"),
-            error.Overflow => ctx.vm.pushError("errors.OverflowError"),
+            error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
             error.BrokenPipe,
             error.NetNameDeleted,
             error.NotOpenForReading,
@@ -659,7 +659,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.NetworkSubsystemFailed,
             error.AddressFamilyNotSupported,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         }
 
         return -1;
@@ -700,7 +700,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
             error.NetworkSubsystemFailed,
             error.OperationNotSupported,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError"),
+            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         }
 
         return -1;

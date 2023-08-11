@@ -1,6 +1,7 @@
 import "std";
 import "buffer";
 import "debug";
+import "ffi";
 
 | TODO: one zdef for one lib and multiple declarations
 | TODO: Allow multiple declarations in one string
@@ -8,8 +9,6 @@ zdef("tests/utils/libforeign", "fn acos(value: f64) f64;");
 | `[*:0]const u8` is the only pointer type that will be handled with an ObjString
 zdef("tests/utils/libforeign", "fn fprint(msg: [*:0]const u8) void;");
 zdef("tests/utils/libforeign", "fn sum(values: [*]i32, len: i32) i32;");
-
-fun cstr(str string) -> "{string}\0";
 
 test "scalar type" {
     assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
@@ -25,6 +24,13 @@ test "pointer with Buffer" {
 
     buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
     buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
+
+    try {
+        buffer.writeZ(<int>, "u64", values: [1]);
+        assert(false, message: "Using bad buzz type triggers error");
+    } catch (FFITypeMismatchError error) {
+        assert(true, message: "Using bad buzz type triggers error");
+    }
 
     int len = toInt(buffer.len() / 4);
     int total = sum(buffer.ptr(), len: len);
