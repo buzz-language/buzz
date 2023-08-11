@@ -287,6 +287,318 @@ fn reset(self: *Self) void {
     self.state = null;
 }
 
+pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
+    var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
+
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef_node.symbol});
+
+    const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
+    defer m.MIR_finish_module(self.ctx);
+
+    if (BuildOptions.debug_jit) {
+        std.debug.print(
+            "Compiling zdef struct getters/setters for `{s}` or type `{s}`\n",
+            .{
+                zdef_node.symbol,
+                (zdef_node.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+            },
+        );
+    }
+
+    // FIXME: Not everything applies to a zdef, maybe split the two states?
+    self.state = .{
+        .module = module,
+        .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
+        .function_node = undefined,
+        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .closure = undefined,
+    };
+    defer self.reset();
+
+    const foreign_def = zdef_node.node.type_def.?.resolved_type.?.ForeignStruct;
+
+    var getters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
+    defer getters.deinit();
+    var setters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
+    defer setters.deinit();
+    for (foreign_def.zig_type.Struct.fields) |field| {
+        var struct_field = foreign_def.fields.getEntry(field.name).?;
+
+        try getters.append(
+            try self.buildZdefStructGetter(
+                struct_field.value_ptr.*.offset,
+                foreign_def.name.string,
+                field.name,
+                field.type,
+            ),
+        );
+
+        try setters.append(
+            try self.buildZdefStructSetter(
+                struct_field.value_ptr.*.offset,
+                foreign_def.name.string,
+                field.name,
+                field.type,
+            ),
+        );
+    }
+
+    if (BuildOptions.debug_jit) {
+        var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
+        defer debug_path.deinit();
+        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{wrapper_name.items}) catch unreachable;
+
+        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
+        defer _ = std.c.fclose(debug_file);
+
+        m.MIR_output_module(self.ctx, debug_file, module);
+    }
+
+    m.MIR_load_module(self.ctx, module);
+
+    // Load external functions
+    var it_ext = self.required_ext_api.iterator();
+    while (it_ext.next()) |kv| {
+        switch (kv.key_ptr.*) {
+            // TODO: don't mix those with actual api functions
+            .rawfn, .nativefn => {},
+            else => m.MIR_load_external(
+                self.ctx,
+                kv.key_ptr.*.name(),
+                kv.key_ptr.*.ptr(),
+            ),
+        }
+    }
+
+    // Link everything together
+    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
+
+    m.MIR_gen_init(self.ctx, 1);
+    defer m.MIR_gen_finish(self.ctx);
+
+    // Gen getters/setters
+    for (foreign_def.zig_type.Struct.fields, 0..) |field, idx| {
+        var struct_field = foreign_def.fields.getEntry(field.name).?;
+        struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
+            self.ctx,
+            0,
+            getters.items[idx],
+        ) orelse unreachable));
+
+        struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
+            self.ctx,
+            0,
+            setters.items[idx],
+        ) orelse unreachable));
+    }
+}
+
+fn buildZdefStructGetter(
+    self: *Self,
+    offset: usize,
+    struct_name: []const u8,
+    field_name: []const u8,
+    zig_type: *ZigType,
+) Error!m.MIR_item_t {
+    var getter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer getter_name.deinit();
+
+    try getter_name.writer().print(
+        "zdef_struct_{s}_{s}_getter\x00",
+        .{
+            struct_name,
+            field_name,
+        },
+    );
+
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(getter_name.items.ptr),
+        1,
+        &[_]m.MIR_type_t{m.MIR_T_U64},
+        2,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = "vm",
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_P,
+                .name = "data",
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+    self.state.?.vm_reg = m.MIR_reg(self.ctx, "vm", function.u.func);
+
+    const data_reg = m.MIR_reg(self.ctx, "data", function.u.func);
+
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    const field_ptr = m.MIR_new_mem_op(
+        self.ctx,
+        zigToMIRType(zig_type.*),
+        @intCast(offset),
+        data_reg,
+        index,
+        0,
+    );
+
+    const result_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "result_value",
+            m.MIR_T_I64,
+        ),
+    );
+
+    try self.buildZigValueToBuzzValue(
+        zig_type.*,
+        field_ptr,
+        result_value,
+    );
+
+    self.RET(result_value);
+
+    m.MIR_finish_func(self.ctx);
+
+    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.items.ptr));
+
+    return function;
+}
+
+fn buildZdefStructSetter(
+    self: *Self,
+    offset: usize,
+    struct_name: []const u8,
+    field_name: []const u8,
+    zig_type: *ZigType,
+) Error!m.MIR_item_t {
+    var setter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer setter_name.deinit();
+
+    try setter_name.writer().print(
+        "zdef_struct_{s}_{s}_setter\x00",
+        .{
+            struct_name,
+            field_name,
+        },
+    );
+
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(setter_name.items.ptr),
+        0,
+        null,
+        3,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = "vm",
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_P,
+                .name = "data",
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_U64,
+                .name = "new_value",
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+    self.state.?.vm_reg = m.MIR_reg(self.ctx, "vm", function.u.func);
+
+    const data_reg = m.MIR_reg(self.ctx, "data", function.u.func);
+    const new_value_reg = m.MIR_reg(self.ctx, "new_value", function.u.func);
+
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    const field_ptr = m.MIR_new_mem_op(
+        self.ctx,
+        zigToMIRType(zig_type.*),
+        @intCast(offset),
+        data_reg,
+        index,
+        0,
+    );
+
+    try self.buildBuzzValueToZigValue(
+        zig_type.*,
+        m.MIR_new_reg_op(self.ctx, new_value_reg),
+        field_ptr,
+    );
+
+    m.MIR_finish_func(self.ctx);
+
+    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.items.ptr));
+
+    return function;
+}
+
+fn buildBuzzValueToZigValue(self: *Self, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    switch (zig_type) {
+        .Int => self.buildValueToInteger(buzz_value, dest),
+        // TODO: float can't be truncated like ints, we need a D2F instruction
+        .Float => self.buildValueToFloat(buzz_value, dest),
+        .Bool => self.buildValueToBoolean(buzz_value, dest),
+        .Pointer => {
+            // Is it a [*:0]const u8
+            // zig fmt: off
+            if (zig_type.Pointer.child.* == .Int
+                and zig_type.Pointer.child.Int.bits == 8
+                and zig_type.Pointer.child.Int.signedness == .unsigned) {
+                // zig fmt: on
+                try self.buildValueToCString(buzz_value, dest);
+            } else if (zig_type.Pointer.child.* == .Struct) {
+                try self.buildValueToForeignStructPtr(buzz_value, dest);
+            } else {
+                try self.buildValueToUserData(buzz_value, dest);
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn buildZigValueToBuzzValue(self: *Self, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    switch (zig_type) {
+        .Int => self.buildValueFromInteger(zig_value, dest),
+        .Float => self.buildValueFromFloat(zig_value, dest),
+        .Bool => self.buildValueFromBoolean(zig_value, dest),
+        .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
+        .Struct => unreachable, // FIXME: should call an api function build a ObjForeignStruct
+        .Pointer => {
+            // Is it a [*:0]const u8
+            // zig fmt: off
+            if (zig_type.Pointer.child.* == .Int
+                and zig_type.Pointer.child.Int.bits == 8
+                and zig_type.Pointer.child.Int.signedness == .unsigned) {
+                    // zig fmt: on
+                try self.buildValueFromCString(zig_value, dest);
+            } else {
+                try self.buildValueFromUserData(zig_value, dest);
+            }
+        },
+        else => unreachable,
+    }
+}
+
 pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
@@ -394,7 +706,8 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
         },
         .Bool => m.MIR_T_U8,
         .Pointer => m.MIR_T_I64,
-        // TODO: struct
+        // See https://github.com/vnmakarov/mir/issues/332 passing struct by values will need some work
+        .Struct => unreachable, //m.MIR_T_BLK,
         else => unreachable,
     };
 }
@@ -407,7 +720,8 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
             64 => m.MIR_T_D,
             else => unreachable,
         },
-        // TODO: struct
+        // See https://github.com/vnmakarov/mir/issues/332 passing struct by values will need some work
+        .Struct => unreachable, //m.MIR_T_BLK,
         else => unreachable,
     };
 }
@@ -450,6 +764,23 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
     // Build ref to ctx arg and vm
     self.state.?.ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
     self.state.?.vm_reg = m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_I64, "vm");
+
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_P,
+            @offsetOf(o.NativeCtx, "vm"),
+            self.state.?.ctx_reg.?,
+            index,
+            0,
+        ),
+    );
 
     const function_def = zdef.node.type_def.?.resolved_type.?.Function;
     const zig_function_def = zdef.zdef.zig_type;
@@ -548,25 +879,11 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
 
         try self.buildPeek(@intCast(idx - 1), param_value);
 
-        switch (zig_function_def.Fn.params[zidx].type.?.*) {
-            .Int => self.buildValueToInteger(param_value, param),
-            // TODO: float can't be truncated like ints, we need a D2F instruction
-            .Float => self.buildValueToFloat(param_value, param),
-            .Bool => self.buildValueToBoolean(param_value, param),
-            .Pointer => {
-                // Is it a [*:0]const u8
-                // zig fmt: off
-                if (zig_function_def.Fn.params[zidx].type.?.Pointer.child.* == .Int
-                    and zig_function_def.Fn.params[zidx].type.?.Pointer.child.Int.bits == 8
-                    and zig_function_def.Fn.params[zidx].type.?.Pointer.child.Int.signedness == .unsigned) {
-                    // zig fmt: on
-                    try self.buildValueToCString(param_value, param);
-                } else {
-                    try self.buildValueToUserData(param_value, param);
-                }
-            },
-            else => unreachable,
-        }
+        try self.buildBuzzValueToZigValue(
+            zig_function_def.Fn.params[zidx].type.?.*,
+            param_value,
+            param,
+        );
 
         try full_args.append(param);
     }
@@ -581,15 +898,17 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         ),
     );
 
-    // Push result on map
-    switch (zig_return_type) {
-        .Int => self.buildValueFromInteger(result.?, result_value),
-        .Float => self.buildValueFromFloat(result.?, result_value),
-        .Bool => self.buildValueFromBoolean(result.?, result_value),
-        .Void => self.MOV(result_value, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
-        else => unreachable,
+    // Push result on stack
+    if (result) |res| {
+        try self.buildZigValueToBuzzValue(
+            zig_return_type,
+            res,
+            result_value,
+        );
+        try self.buildPush(result_value);
+    } else {
+        try self.buildPush(m.MIR_new_uint_op(self.ctx, v.Value.Void.val));
     }
-    try self.buildPush(result_value);
 
     // Return -1/0/1
     self.RET(
@@ -1145,9 +1464,36 @@ fn buildValueToCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     );
 }
 
+fn buildValueFromCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_stringZ,
+        dest,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            value,
+        },
+    );
+}
+
 fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_valueToUserData,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+}
+
+fn buildValueToForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_valueToForeignStructPtr,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+}
+
+fn buildValueFromUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_userDataToValue,
         dest,
         &[_]m.MIR_op_t{value},
     );
@@ -1217,8 +1563,42 @@ fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
+fn buildValueFromForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    _ = dest;
+    _ = value;
+    _ = self;
+    unreachable;
+}
+
+fn buildValueToForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    const foreign = try self.REG("foreign", m.MIR_T_P);
+    try self.buildExternApiCall(
+        .bz_valueToForeignStructPtr,
+        m.MIR_new_reg_op(self.ctx, foreign),
+        &[_]m.MIR_op_t{value},
+    );
+
+    self.MOV(
+        dest,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_P,
+            0,
+            foreign,
+            index,
+            0,
+        ),
+    );
+}
+
 // Unwrap buzz value to its raw mir Value
-fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     return switch (def_type) {
         .Bool => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
@@ -1239,6 +1619,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
         .Fiber,
         .UserData,
         => self.buildValueToObj(value, dest),
+        .ForeignStruct => try self.buildValueToForeignStruct(value, dest),
         .Placeholder,
         .Generic,
         .Any,
@@ -1268,6 +1649,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
         .Fiber,
         .UserData,
         => self.buildValueFromObj(value, dest),
+        .ForeignStruct => self.buildValueFromForeignStruct(value, dest),
         .Placeholder,
         .Generic,
         .Any,
@@ -2086,13 +2468,13 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
             },
         );
 
-        self.unwrap(
+        try self.unwrap(
             .Bool,
             condition,
             condition,
         );
     } else if (constant_condition == null) {
-        self.unwrap(
+        try self.unwrap(
             .Bool,
             condition_value.?,
             condition,
@@ -2184,7 +2566,7 @@ fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_o
             try self.REG("ucond", m.MIR_T_I64),
         );
 
-        self.unwrap(
+        try self.unwrap(
             .Bool,
             condition,
             unwrapped_condition,
@@ -2261,17 +2643,17 @@ fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
             );
 
             if (left_type_def == .Integer) {
-                self.unwrap(.Integer, left_value, left);
+                try self.unwrap(.Integer, left_value, left);
             } else if (left_type_def == .Float) {
-                self.unwrap(.Float, left_value, left);
+                try self.unwrap(.Float, left_value, left);
             } else {
                 self.MOV(left, left_value);
             }
 
             if (right_type_def == .Integer) {
-                self.unwrap(.Integer, right_value, right);
+                try self.unwrap(.Integer, right_value, right);
             } else if (right_type_def == .Float) {
-                self.unwrap(.Float, right_value, right);
+                try self.unwrap(.Float, right_value, right);
             } else {
                 self.MOV(right, right_value);
             }
@@ -2304,7 +2686,7 @@ fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
                         },
                     );
 
-                    self.unwrap(.Bool, res, res);
+                    try self.unwrap(.Bool, res, res);
 
                     const true_label = m.MIR_new_label(self.ctx);
                     const out_label = m.MIR_new_label(self.ctx);
@@ -2619,12 +3001,12 @@ fn generateBitwise(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
         try self.REG("right", m.MIR_T_I64),
     );
 
-    self.unwrap(
+    try self.unwrap(
         .Integer,
         (try self.generateNode(binary_node.left)).?,
         left,
     );
-    self.unwrap(
+    try self.unwrap(
         .Integer,
         (try self.generateNode(binary_node.right)).?,
         right,
@@ -2832,13 +3214,13 @@ fn generateRange(self: *Self, range: *n.RangeNode) Error!?m.MIR_op_t {
         self.ctx,
         try self.REG("unwrapped_low", m.MIR_T_I64),
     );
-    self.unwrap(.Integer, low, unwrapped_low);
+    try self.unwrap(.Integer, low, unwrapped_low);
 
     const unwrapped_high = m.MIR_new_reg_op(
         self.ctx,
         try self.REG("unwrapped_high", m.MIR_T_I64),
     );
-    self.unwrap(.Integer, high, unwrapped_high);
+    try self.unwrap(.Integer, high, unwrapped_high);
 
     // Select increment
     const is_negative_delta = m.MIR_new_reg_op(
@@ -3103,6 +3485,44 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             return res;
         },
 
+        .ForeignStruct => {
+            if (dot_node.value) |value| {
+                const gen_value = (try self.generateNode(value)).?;
+
+                try self.buildExternApiCall(
+                    .bz_fstructSet,
+                    null,
+                    &[_]m.MIR_op_t{
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        (try self.generateNode(dot_node.callee)).?,
+                        m.MIR_new_uint_op(self.ctx, @as(u64, @intFromPtr(dot_node.identifier.lexeme.ptr))),
+                        m.MIR_new_uint_op(self.ctx, dot_node.identifier.lexeme.len),
+                        gen_value,
+                    },
+                );
+
+                return gen_value;
+            } else {
+                const res = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("res", m.MIR_T_I64),
+                );
+
+                try self.buildExternApiCall(
+                    .bz_fstructGet,
+                    res,
+                    &[_]m.MIR_op_t{
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        (try self.generateNode(dot_node.callee)).?,
+                        m.MIR_new_uint_op(self.ctx, @as(u64, @intFromPtr(dot_node.identifier.lexeme.ptr))),
+                        m.MIR_new_uint_op(self.ctx, dot_node.identifier.lexeme.len),
+                    },
+                );
+
+                return res;
+            }
+        },
+
         .Enum => {
             const res = m.MIR_new_reg_op(
                 self.ctx,
@@ -3199,7 +3619,7 @@ fn generateSubscript(self: *Self, subscript_node: *n.SubscriptNode) Error!?m.MIR
                 try self.REG("index", m.MIR_T_I64),
             );
 
-            self.unwrap(.Integer, index_val, index);
+            try self.unwrap(.Integer, index_val, index);
 
             if (value) |val| {
                 try self.buildExternApiCall(
@@ -3498,7 +3918,7 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
             },
         );
 
-        self.unwrap(
+        try self.unwrap(
             .Bool,
             m.MIR_new_reg_op(self.ctx, matches),
             m.MIR_new_reg_op(self.ctx, matches),
@@ -3627,7 +4047,47 @@ fn generateUnwrap(self: *Self, unwrap_node: *n.UnwrapNode) Error!?m.MIR_op_t {
     return value;
 }
 
+fn generateForeignStructInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m.MIR_op_t {
+    const fdef = object_init_node.node.type_def.?.resolved_type.?.ForeignStruct;
+    _ = fdef;
+
+    const instance = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("instance", m.MIR_T_I64),
+    );
+    try self.buildExternApiCall(
+        .bz_fstructInstance,
+        instance,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            m.MIR_new_uint_op(self.ctx, object_init_node.node.type_def.?.toValue().val),
+        },
+    );
+
+    for (object_init_node.properties.keys()) |property_name| {
+        const value = object_init_node.properties.get(property_name).?;
+
+        try self.buildExternApiCall(
+            .bz_fstructSet,
+            null,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                instance,
+                m.MIR_new_uint_op(self.ctx, @as(u64, @intFromPtr(property_name.ptr))),
+                m.MIR_new_uint_op(self.ctx, property_name.len),
+                (try self.generateNode(value)).?,
+            },
+        );
+    }
+
+    return instance;
+}
+
 fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m.MIR_op_t {
+    if (object_init_node.node.type_def.?.def_type == .ForeignStruct) {
+        return self.generateForeignStructInit(object_init_node);
+    }
+
     const object = if (object_init_node.object) |node|
         (try self.generateNode(node)).?
     else
@@ -3709,12 +4169,12 @@ fn generateUnary(self: *Self, unary_node: *n.UnaryNode) Error!?m.MIR_op_t {
 
     switch (unary_node.operator) {
         .Bnot => {
-            self.unwrap(.Integer, left, result);
+            try self.unwrap(.Integer, left, result);
             self.NOTS(result, result);
             self.wrap(.Integer, result, result);
         },
         .Bang => {
-            self.unwrap(.Bool, left, result);
+            try self.unwrap(.Bool, left, result);
 
             const true_label = m.MIR_new_label(self.ctx);
             const out_label = m.MIR_new_label(self.ctx);
@@ -3742,7 +4202,7 @@ fn generateUnary(self: *Self, unary_node: *n.UnaryNode) Error!?m.MIR_op_t {
             self.append(out_label);
         },
         .Minus => {
-            self.unwrap(.Integer, left, result);
+            try self.unwrap(.Integer, left, result);
 
             if (unary_node.left.type_def.?.def_type == .Integer) {
                 self.NEGS(result, result);
@@ -4957,6 +5417,12 @@ pub const ExternApi = enum {
     bz_clone,
     bz_valueToCString,
     bz_valueToUserData,
+    bz_userDataToValue,
+    bz_valueToForeignStructPtr,
+    bz_stringZ,
+    bz_fstructGet,
+    bz_fstructSet,
+    bz_fstructInstance,
 
     bz_dumpStack,
 
@@ -5599,6 +6065,135 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_userDataToValue => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                1,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_valueToForeignStructPtr => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_P},
+                1,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_stringZ => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "string",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_fstructGet => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                4,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "field",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "len",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_fstructSet => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                5,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "field",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "len",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "new_value",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_fstructInstance => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -5649,6 +6244,12 @@ pub const ExternApi = enum {
             .bz_popTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_popTryCtx))),
             .bz_valueToCString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToCString))),
             .bz_valueToUserData => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToUserData))),
+            .bz_userDataToValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjUserData.bz_userDataToValue))),
+            .bz_valueToForeignStructPtr => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToForeignStructPtr))),
+            .bz_stringZ => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_stringZ))),
+            .bz_fstructGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructGet))),
+            .bz_fstructSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructSet))),
+            .bz_fstructInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructInstance))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -5714,6 +6315,12 @@ pub const ExternApi = enum {
             .bz_clone => "bz_clone",
             .bz_valueToCString => "bz_valueToCString",
             .bz_valueToUserData => "bz_valueToUserData",
+            .bz_userDataToValue => "bz_userDataToValue",
+            .bz_valueToForeignStructPtr => "bz_valueToForeignStructPtr",
+            .bz_stringZ => "bz_stringZ",
+            .bz_fstructGet => "bz_fstructGet",
+            .bz_fstructSet => "bz_fstructSet",
+            .bz_fstructInstance => "bz_fstructInstance",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -5773,6 +6380,12 @@ pub const ExternApi = enum {
             .bz_clone => "p_bz_clone",
             .bz_valueToCString => "p_bz_valueToCString",
             .bz_valueToUserData => "p_bz_valueToUserData",
+            .bz_userDataToValue => "p_bz_userDataToValue",
+            .bz_valueToForeignStructPtr => "p_bz_valueToForeignStructPtr",
+            .bz_stringZ => "p_bz_stringZ",
+            .bz_fstructGet => "p_bz_fstructGet",
+            .bz_fstructSet => "p_bz_fstructSet",
+            .bz_fstructInstance => "p_bz_fstructInstance",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",

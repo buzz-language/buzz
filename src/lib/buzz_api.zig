@@ -258,6 +258,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToCString(value: Value) ?[*:0]const u8;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
+    pub extern fn bz_valueToForeignStructPtr(value: Value) [*]u8;
 
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
 
@@ -275,6 +276,7 @@ pub const ObjTypeDef = opaque {
 
 pub const ObjString = opaque {
     pub extern fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString;
+    pub extern fn bz_stringZ(vm: *VM, string: ?[*:0]const u8) ?*ObjString;
     pub extern fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8;
     pub extern fn bz_objStringToValue(obj_string: *ObjString) Value;
     pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
@@ -339,6 +341,12 @@ pub const ObjPattern = opaque {
 
 pub const ObjFiber = opaque {
     pub extern fn bz_getFiberField(vm: *VM, field_name_value: Value) Value;
+};
+
+pub const ObjForeignStruct = opaque {
+    pub extern fn bz_fstructGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value;
+    pub extern fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
+    pub extern fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value;
 };
 
 pub extern fn dumpInt(value: u64) void;

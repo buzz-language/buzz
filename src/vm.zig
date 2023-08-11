@@ -43,6 +43,7 @@ const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
+const ObjForeignStruct = _obj.ObjForeignStruct;
 const FunctionNode = _node.FunctionNode;
 const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
@@ -626,10 +627,12 @@ pub const VM = struct {
 
         OP_OBJECT,
         OP_INSTANCE,
+        OP_FSTRUCT_INSTANCE,
         OP_METHOD,
         OP_PROPERTY,
         OP_GET_OBJECT_PROPERTY,
         OP_GET_INSTANCE_PROPERTY,
+        OP_GET_FSTRUCT_INSTANCE_PROPERTY,
         OP_GET_LIST_PROPERTY,
         OP_GET_MAP_PROPERTY,
         OP_GET_STRING_PROPERTY,
@@ -637,6 +640,7 @@ pub const VM = struct {
         OP_GET_FIBER_PROPERTY,
         OP_SET_OBJECT_PROPERTY,
         OP_SET_INSTANCE_PROPERTY,
+        OP_SET_FSTRUCT_INSTANCE_PROPERTY,
 
         OP_ENUM,
         OP_ENUM_CASE,
@@ -2257,26 +2261,52 @@ pub const VM = struct {
         );
     }
 
+    fn OP_FSTRUCT_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const typedef = self.pop().obj().access(ObjTypeDef, .Type, self.gc);
+        const instance = (self.gc.allocateObject(
+            ObjForeignStruct,
+            ObjForeignStruct.init(
+                self,
+                typedef.?,
+            ) catch @panic("Out of memory"),
+        ) catch @panic("Out of memory")).toValue();
+
+        self.push(instance);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const object_or_type = self.pop().obj();
-        var instance: *ObjObjectInstance = self.gc.allocateObject(
+        const object = object_or_type.access(ObjObject, .Object, self.gc);
+        const typedef = object_or_type.access(ObjTypeDef, .Type, self.gc);
+
+        var obj_instance: *ObjObjectInstance = self.gc.allocateObject(
             ObjObjectInstance,
             ObjObjectInstance.init(
                 self,
-                object_or_type.access(ObjObject, .Object, self.gc),
-                object_or_type.access(ObjTypeDef, .Type, self.gc),
+                object,
+                typedef,
             ),
-        ) catch |e| {
-            panic(e);
-            unreachable;
-        };
+        ) catch @panic("Out of memory");
 
         // If not anonymous, set default fields
-        if (object_or_type.access(ObjObject, .Object, self.gc)) |object| {
+        if (object) |obj| {
             // Set instance fields with default values
-            var it = object.fields.iterator();
+            var it = obj.fields.iterator();
             while (it.next()) |kv| {
-                instance.setField(
+                obj_instance.setField(
                     self.gc,
                     kv.key_ptr.*,
                     self.cloneValue(kv.value_ptr.*) catch |e| {
@@ -2290,7 +2320,7 @@ pub const VM = struct {
             }
         }
 
-        self.push(instance.toValue());
+        self.push(obj_instance.toValue());
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2390,14 +2420,42 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = self.peek(0).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+    fn OP_GET_FSTRUCT_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const instance_value = self.peek(0);
         const name: *ObjString = self.readString(arg);
 
-        if (instance.fields.get(name)) |field| {
+        const struct_instance = instance_value.obj().access(
+            ObjForeignStruct,
+            .ForeignStruct,
+            self.gc,
+        ).?;
+
+        _ = self.pop(); // Pop instance
+        self.push(struct_instance.getField(self, name.string));
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const instance_value = self.peek(0);
+        const name: *ObjString = self.readString(arg);
+        const obj_instance = instance_value.obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+
+        if (obj_instance.fields.get(name)) |field| {
             _ = self.pop(); // Pop instance
             self.push(field);
-        } else if (instance.object) |object| {
+        } else if (obj_instance.object) |object| {
             if (object.methods.get(name)) |method| {
                 self.bindMethod(method, null) catch |e| {
                     panic(e);
@@ -2595,15 +2653,55 @@ pub const VM = struct {
         );
     }
 
+    fn OP_SET_FSTRUCT_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const instance_value = self.peek(1);
+        const name: *ObjString = self.readString(arg);
+
+        const struct_instance = instance_value.obj().access(
+            ObjForeignStruct,
+            .ForeignStruct,
+            self.gc,
+        ).?;
+
+        struct_instance.setField(
+            self,
+            name.string,
+            self.peek(0),
+        );
+
+        // Get the new value from stack, pop the instance and push value again
+        const value: Value = self.pop();
+        _ = self.pop();
+        self.push(value);
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     fn OP_SET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        const instance: *ObjObjectInstance = self.peek(1).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance_value = self.peek(1);
         const name: *ObjString = self.readString(arg);
 
         // Set new value
-        instance.setField(self.gc, name, self.peek(0)) catch |e| {
-            panic(e);
-            unreachable;
-        };
+        instance_value.obj().access(
+            ObjObjectInstance,
+            .ObjectInstance,
+            self.gc,
+        ).?.setField(
+            self.gc,
+            name,
+            self.peek(0),
+        ) catch @panic("Out of memory");
 
         // Get the new value from stack, pop the instance and push value again
         const value: Value = self.pop();

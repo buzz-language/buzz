@@ -32,6 +32,7 @@ const ObjNative = _obj.ObjNative;
 const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
 const ObjFiber = _obj.ObjFiber;
+const ObjForeignStruct = _obj.ObjForeignStruct;
 
 pub const TypeRegistry = struct {
     const Self = @This();
@@ -258,6 +259,7 @@ pub const GarbageCollector = struct {
             ObjUserData => ObjUserData.toObj(obj),
             ObjPattern => ObjPattern.toObj(obj),
             ObjFiber => ObjFiber.toObj(obj),
+            ObjForeignStruct => ObjForeignStruct.toObj(obj),
             else => {},
         };
 
@@ -290,6 +292,7 @@ pub const GarbageCollector = struct {
                     ObjUserData => .UserData,
                     ObjPattern => .Pattern,
                     ObjFiber => .Fiber,
+                    ObjForeignStruct => .ForeignStruct,
                     else => {},
                 },
             );
@@ -314,7 +317,6 @@ pub const GarbageCollector = struct {
             ObjString{ .string = chars },
         );
 
-        // std.debug.print("allocated new string @{} `{s}`\n", .{ @intFromPtr(&string.obj), string.string });
         try self.strings.put(string.string, string);
 
         return string;
@@ -470,6 +472,7 @@ pub const GarbageCollector = struct {
             .UserData => ObjUserData.cast(obj).?.mark(self),
             .Pattern => ObjPattern.cast(obj).?.mark(self),
             .Fiber => try ObjFiber.cast(obj).?.mark(self),
+            .ForeignStruct => try ObjForeignStruct.cast(obj).?.mark(self),
         };
 
         if (BuildOptions.gc_debug) {
@@ -621,6 +624,13 @@ pub const GarbageCollector = struct {
                 obj_fiber.fiber.deinit();
 
                 free(self, ObjFiber, obj_fiber);
+            },
+            .ForeignStruct => {
+                var obj_foreignstruct = ObjForeignStruct.cast(obj).?;
+
+                self.freeMany(u8, obj_foreignstruct.data);
+
+                free(self, ObjForeignStruct, obj_foreignstruct);
             },
         }
     }

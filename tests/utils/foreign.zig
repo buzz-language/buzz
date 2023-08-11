@@ -16,3 +16,16 @@ export fn sum(values: [*]i32, len: i32) i32 {
 
     return total;
 }
+
+pub const Data = extern struct {
+    msg: [*:0]u8,
+    id: i32,
+};
+
+export fn getDataMsg(data: *Data) [*:0]u8 {
+    return data.msg;
+}
+
+export fn setDataId(data: *Data) void {
+    data.id *= 2;
+}

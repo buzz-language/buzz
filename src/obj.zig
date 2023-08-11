@@ -20,6 +20,7 @@ const buzz_api = @import("./buzz_api.zig");
 const _node = @import("./node.zig");
 const FunctionNode = _node.FunctionNode;
 const buzz_builtin = @import("./builtin.zig");
+const ZigType = @import("./zigtypes.zig").Type;
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -48,6 +49,7 @@ pub const ObjType = enum {
     UserData,
     Pattern,
     Fiber,
+    ForeignStruct,
 };
 
 pub const Obj = struct {
@@ -107,6 +109,7 @@ pub const Obj = struct {
                     Value.fromObj(if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj()),
                 );
             },
+            .ForeignStruct => type_def.def_type == .ForeignStruct and ObjForeignStruct.cast(self).?.is(type_def),
 
             .UserData, .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
         };
@@ -191,6 +194,7 @@ pub const Obj = struct {
             .Native,
             .UserData,
             .Fiber,
+            .ForeignStruct,
             => {
                 return self == other;
             },
@@ -623,7 +627,11 @@ pub const ObjUpValue = struct {
     next: ?*ObjUpValue = null,
 
     pub fn init(slot: *Value) Self {
-        return Self{ .closed = null, .location = slot, .next = null };
+        return Self{
+            .closed = null,
+            .location = slot,
+            .next = null,
+        };
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
@@ -956,6 +964,91 @@ pub const ObjObjectInstance = struct {
         }
 
         return false;
+    }
+};
+
+/// FFI struct
+pub const ObjForeignStruct = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .ForeignStruct },
+
+    type_def: *ObjTypeDef,
+
+    data: []u8,
+
+    pub fn init(vm: *VM, type_def: *ObjTypeDef) !Self {
+        const zig_type = type_def.resolved_type.?.ForeignStruct.zig_type;
+
+        return .{
+            .type_def = type_def,
+            .data = try vm.gc.allocateMany(u8, zig_type.size()),
+        };
+    }
+
+    pub fn setField(self: *Self, vm: *VM, field: []const u8, value: Value) void {
+        self.type_def.resolved_type.?.ForeignStruct.fields.get(field).?.setter(
+            vm,
+            self.data.ptr,
+            value,
+        );
+    }
+
+    pub fn getField(self: *Self, vm: *VM, field: []const u8) Value {
+        return self.type_def.resolved_type.?.ForeignStruct.fields.get(field).?.getter(
+            vm,
+            self.data.ptr,
+        );
+    }
+
+    fn is(self: *Self, type_def: *ObjTypeDef) bool {
+        return self.type_def == type_def;
+    }
+
+    pub const StructDef = struct {
+        pub const Getter = fn (vm: *VM, data: [*]u8) Value;
+        pub const Setter = fn (vm: *VM, data: [*]u8, value: Value) void;
+
+        pub const StructField = struct {
+            offset: usize,
+            getter: *Getter,
+            setter: *Setter,
+        };
+
+        location: Token,
+        name: *ObjString,
+        qualified_name: *ObjString,
+
+        zig_type: ZigType,
+        buzz_type: std.StringArrayHashMap(*ObjTypeDef),
+
+        // Filled by codegen
+        fields: std.StringArrayHashMap(StructField),
+
+        pub fn mark(def: *StructDef, gc: *GarbageCollector) !void {
+            try gc.markObj(def.name.toObj());
+            try gc.markObj(def.qualified_name.toObj());
+            var it = def.buzz_type.iterator();
+            while (it.next()) |kv| {
+                try gc.markObj(kv.value_ptr.*.toObj());
+            }
+        }
+    };
+
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        try gc.markObj(self.type_def.toObj());
+    }
+
+    pub inline fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
+    }
+
+    pub inline fn cast(obj: *Obj) ?*Self {
+        return obj.cast(Self, .ForeignStruct);
     }
 };
 
@@ -2495,6 +2588,7 @@ pub const ObjTypeDef = struct {
         Void,
         Fiber,
         UserData,
+        ForeignStruct,
 
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
     };
@@ -2535,6 +2629,7 @@ pub const ObjTypeDef = struct {
         Function: ObjFunction.FunctionDef,
 
         Placeholder: PlaceholderDef,
+        ForeignStruct: ObjForeignStruct.StructDef,
     };
 
     obj: Obj = .{ .obj_type = .Type },
@@ -2567,6 +2662,8 @@ pub const ObjTypeDef = struct {
                 try resolved.Fiber.mark(gc);
             } else if (resolved.* == .Placeholder) {
                 // unreachable;
+            } else if (resolved.* == .ForeignStruct) {
+                try resolved.ForeignStruct.mark(gc);
             }
         }
     }
@@ -2612,6 +2709,7 @@ pub const ObjTypeDef = struct {
             .Protocol,
             .ProtocolInstance,
             .Any,
+            .ForeignStruct,
             => self,
 
             .Generic => generic: {
@@ -3013,6 +3111,13 @@ pub const ObjTypeDef = struct {
                     }
                 }
             },
+            .ForeignStruct => {
+                if (qualified) {
+                    try writer.writeAll(self.resolved_type.?.ForeignStruct.qualified_name.string);
+                } else {
+                    try writer.writeAll(self.resolved_type.?.ForeignStruct.name.string);
+                }
+            },
             .ProtocolInstance => {
                 const protocol_def = self.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
 
@@ -3248,7 +3353,8 @@ pub const ObjTypeDef = struct {
             .UserData,
             .Type,
             .Any,
-            => return true,
+            .ForeignStruct,
+            => return false,
 
             .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
 
@@ -3316,6 +3422,7 @@ pub const ObjTypeDef = struct {
     pub fn eql(expected: *Self, actual: *Self) bool {
         // zig fmt: off
         const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
+            or (expected.def_type == .UserData and actual.def_type == .ForeignStruct)
             or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
@@ -3363,6 +3470,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .UserData,
         .Pattern,
         .Fiber,
+        .ForeignStruct,
         => return Value.fromObj(obj),
 
         .List => {
@@ -3527,6 +3635,14 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             var userdata: *ObjUserData = ObjUserData.cast(obj).?;
 
             try writer.print("userdata: 0x{x}", .{@intFromPtr(userdata)});
+        },
+        .ForeignStruct => {
+            const foreign = ObjForeignStruct.cast(obj).?;
+
+            try writer.print("foreign struct: 0x{x} `{s}`", .{
+                @intFromPtr(foreign.data.ptr),
+                foreign.type_def.resolved_type.?.ForeignStruct.name.string,
+            });
         },
     };
 }
