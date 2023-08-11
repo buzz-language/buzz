@@ -1,5 +1,6 @@
 import "errors";
 import "ffi";
+import "std";
 
 export object WriteWhileReadingError {}
 export object OutOfBoundError {}
@@ -60,8 +61,8 @@ export object Buffer {
     }
 
     || Frees the buffer
-    || TODO: with finalizers we could do this automatically when the object is collected
-    fun deinit() > void {
+    fun collect() > void {
+        | print("Buffer collect called");
         BufferDeinit(this.buffer);
     }
 

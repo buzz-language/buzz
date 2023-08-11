@@ -1,0 +1,4 @@
+| Expected `toString` method to be `fun toString() > str` got fun toString(str arg) > void
+object Printable {
+    fun toString(str arg) > void {}
+}

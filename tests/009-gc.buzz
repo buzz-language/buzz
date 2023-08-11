@@ -1,8 +1,15 @@
 import "std";
 import "gc" as gc;
+import "debug";
+
+bool collectorCalled = false;
 
 object Kill {
-    int yo = -1
+    int yo = -1,
+
+    fun collect() > void {
+        collectorCalled = true;
+    }
 }
 
 test "GC, collecting unreferenced objects" {
@@ -19,4 +26,5 @@ test "GC, collecting unreferenced objects" {
     gc.collect();
 
     assert(gc.allocated() <= before, message: "Garbage was collected");
+    assert(collectorCalled, message: "Object collector was called");
 }

@@ -897,17 +897,20 @@ pub const ObjObjectInstance = struct {
     type_def: ?*ObjTypeDef,
     /// Fields value
     fields: std.AutoHashMap(*ObjString, Value),
+    /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
+    vm: *VM,
 
     pub fn setField(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
         try self.fields.put(key, value);
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn init(allocator: Allocator, object: ?*ObjObject, type_def: ?*ObjTypeDef) Self {
+    pub fn init(vm: *VM, object: ?*ObjObject, type_def: ?*ObjTypeDef) Self {
         return Self{
+            .vm = vm,
             .object = object,
             .type_def = type_def,
-            .fields = std.AutoHashMap(*ObjString, Value).init(allocator),
+            .fields = std.AutoHashMap(*ObjString, Value).init(vm.gc.allocator),
         };
     }
 

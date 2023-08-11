@@ -19,6 +19,7 @@ const Token = @import("./token.zig").Token;
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
 const valueEql = _value.valueEql;
+const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
@@ -593,11 +594,71 @@ export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
     return true;
 }
 
-pub export fn bz_call(self: *VM, closure: *ObjClosure, arguments: [*]const *const Value, len: u8, catch_value: ?*Value) void {
+fn calleeIsCompiled(value: Value) bool {
+    var obj: *Obj = value.obj();
+    return switch (obj.obj_type) {
+        .Bound => bound: {
+            const bound = ObjBoundMethod.cast(obj).?;
+
+            if (bound.native != null) {
+                break :bound true;
+            }
+
+            if (bound.closure) |cls| {
+                break :bound cls.function.native != null;
+            }
+
+            break :bound false;
+        },
+        .Closure => ObjClosure.cast(obj).?.function.native != null,
+        .Native => true,
+        else => false,
+    };
+}
+
+pub export fn bz_invoke(
+    self: *VM,
+    instance: Value,
+    method: *ObjString,
+    arguments: ?[*]const *const Value,
+    len: u8,
+    catch_value: ?*Value,
+) void {
+    self.push(instance);
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        self.push(arguments.?[i].*);
+    }
+
+    self.currentFrame().?.in_native_call = true;
+
+    // TODO: catch properly
+    const callee = self.invoke(
+        method,
+        len,
+        if (catch_value) |v| v.* else null,
+        false,
+    ) catch unreachable;
+
+    // If not compiled, run it with the VM loop
+    if (!calleeIsCompiled(callee)) {
+        self.run();
+    }
+
+    self.currentFrame().?.in_native_call = false;
+}
+
+pub export fn bz_call(
+    self: *VM,
+    closure: *ObjClosure,
+    arguments: ?[*]const *const Value,
+    len: u8,
+    catch_value: ?*Value,
+) void {
     self.push(closure.toValue());
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        self.push(arguments[i].*);
+        self.push(arguments.?[i].*);
     }
 
     // TODO: catch properly
@@ -620,7 +681,7 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
     const instance: *ObjObjectInstance = self.gc.allocateObject(
         ObjObjectInstance,
         ObjObjectInstance.init(
-            self.gc.allocator,
+            self,
             object,
             null,
         ),
@@ -712,7 +773,7 @@ export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value 
     const instance = vm.gc.allocateObject(
         ObjObjectInstance,
         ObjObjectInstance.init(
-            vm.gc.allocator,
+            vm,
             object,
             typedef,
         ),

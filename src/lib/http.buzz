@@ -182,7 +182,7 @@ export object Client {
         return request;
     }
 
-    fun deinit() > void {
+    fun collect() > void {
         HttpClientDeinit(this.client);
     }
 }
@@ -221,7 +221,6 @@ export object Request {
             result.write("{this.body ?? ""}\r\n");
 
             str strResult = result.toString();
-            result.deinit();
 
             return strResult;
         } catch {}
@@ -247,7 +246,6 @@ export object Response {
             result.write("\r\n{this.body ?? ""}\r\n");
 
             str strResult = result.toString();
-            result.deinit();
 
             return strResult;
         } catch {}

@@ -7321,6 +7321,53 @@ pub const ObjectDeclarationNode = struct {
                 codegen.reporter.reportPlaceholder(member.type_def.?.resolved_type.?.Placeholder);
             }
 
+            // Enforce "collect" method signature
+            if (std.mem.eql(u8, member_name, "collect")) {
+                const collect_def = member.type_def.?.resolved_type.?.Function;
+
+                // zig fmt: off
+                if (collect_def.parameters.count() > 0
+                    or collect_def.return_type.def_type != .Void
+                    or collect_def.yield_type.def_type != .Void
+                    or collect_def.error_types != null) {
+                    // zig fmt: on
+                    const collect_def_str = member.type_def.?.toStringAlloc(codegen.gc.allocator) catch @panic("Out of memory");
+                    defer collect_def_str.deinit();
+                    codegen.reporter.reportErrorFmt(
+                        .collect_signature,
+                        member.location,
+                        "Expected `collect` method to be `fun collect() > void` got {s}",
+                        .{
+                            collect_def_str.items,
+                        },
+                    );
+                }
+            }
+
+            // Enforce "toString" method signature
+            if (std.mem.eql(u8, member_name, "toString")) {
+                const tostring_def = member.type_def.?.resolved_type.?.Function;
+
+                // zig fmt: off
+                if (tostring_def.parameters.count() > 0
+                    or tostring_def.return_type.def_type != .String
+                    or tostring_def.yield_type.def_type != .Void
+                    or tostring_def.error_types != null
+                    or tostring_def.generic_types.count() > 0) {
+                    // zig fmt: on
+                    const tostring_def_str = member.type_def.?.toStringAlloc(codegen.gc.allocator) catch @panic("Out of memory");
+                    defer tostring_def_str.deinit();
+                    codegen.reporter.reportErrorFmt(
+                        .tostring_signature,
+                        member.location,
+                        "Expected `toString` method to be `fun toString() > str` got {s}",
+                        .{
+                            tostring_def_str.items,
+                        },
+                    );
+                }
+            }
+
             const is_static = object_def.static_fields.get(member_name) != null;
 
             _ = try member.toByteCode(member, codegen, breaks);

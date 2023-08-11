@@ -187,8 +187,6 @@ fun main([str] args) > void
 
                 genMarkdownDoc(declarations, out: out);
                 markdownDoc[file] = out.toString();
-
-                out.deinit();
             }
         }
     }

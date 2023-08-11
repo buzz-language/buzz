@@ -2579,19 +2579,29 @@ pub const Parser = struct {
         if (is_main) {
             const fun_def = function_node.type_def.?.resolved_type.?.Function;
 
-            if (fun_def.parameters.count() != 1) {
-                self.reportError(.main_signature, "`main` function signature must only have one `[str]` argument");
+            var signature_valid = true;
+            if (fun_def.parameters.count() != 1 or (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void)) {
+                signature_valid = false;
             } else {
                 const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
                 if (first_param == null or
                     !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
                 {
-                    self.reportError(.main_signature, "`main` function signature must only have one `[str]` argument");
+                    signature_valid = false;
                 }
             }
 
-            if (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void) {
-                self.reportError(.main_signature, "`main` function must either return `int` or `void`");
+            if (!signature_valid) {
+                const main_def_str = function_node.type_def.?.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                defer main_def_str.deinit();
+                self.reporter.reportErrorFmt(
+                    .main_signature,
+                    function_node.location,
+                    "Expected `main` signature to be `fun main([str] args) > void|int` got {s}",
+                    .{
+                        main_def_str.items,
+                    },
+                );
             }
         }
 
