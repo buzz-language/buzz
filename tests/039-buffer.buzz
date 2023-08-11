@@ -31,6 +31,4 @@ test "Reading and writing in a buffer" {
     buffer.empty();
 
     assert(buffer.len() == 0, message: "could empty buffer");
-
-    buffer.deinit();
 }

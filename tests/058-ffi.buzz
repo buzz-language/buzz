@@ -26,6 +26,9 @@ test "pointer with Buffer" {
     buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
 
     try {
+        | Arguably, the zig type parameter could a constant and be built at compile time
+        | But: that would require a new type
+        | Since we cache the result of the type parsing this roughly equivalent
         buffer.writeZ(<int>, "u64", values: [1]);
         assert(false, message: "Using bad buzz type triggers error");
     } catch (FFITypeMismatchError error) {
@@ -43,6 +46,4 @@ test "pointer with Buffer" {
     }
 
     assert(readTotal == total, message: "Could read from pointer");
-
-    buffer.deinit();
 }

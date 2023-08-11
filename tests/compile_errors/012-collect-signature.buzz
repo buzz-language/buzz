@@ -1,0 +1,4 @@
+| Expected `collect` method to be `fun collect() > void` got fun collect(str arg) > void
+object Collectable {
+    fun collect(str arg) > void {}
+}

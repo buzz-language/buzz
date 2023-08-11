@@ -19,6 +19,4 @@ fun main([str] args) > void !> any {
     Response response = client.send(request);
 
     dump(response);
-
-    client.deinit();
 }

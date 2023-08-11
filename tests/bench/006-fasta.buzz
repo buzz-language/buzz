@@ -91,7 +91,6 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, int nchars) > void !> OutOf
 
         if (bufferIndex == bufferSize) {
             print(buffer.toString().sub(0, len: bufferIndex));
-            buffer.deinit();
             buffer = Buffer.init(bufferSize);
             bufferIndex = 0;
         }
@@ -104,8 +103,6 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, int nchars) > void !> OutOf
     }
 
     print(buffer.toString().sub(0, len: bufferIndex));
-
-    buffer.deinit();
 }
 
 const str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
@@ -143,7 +140,4 @@ fun main([str] args) > void !> any {
     );
 
     makeRandomFasta("THREE", desc: "Homo sapiens frequency", fpf: homoSapiens, nchars: N * 5);
-
-    homoSapiensChars.deinit();
-    iubChars.deinit();
 }

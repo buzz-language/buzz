@@ -188,7 +188,7 @@ pub const Fiber = struct {
                 );
             },
             .OP_INVOKE_ROUTINE => { // | receiver | ...args | ?catch |
-                try vm.invoke(
+                _ = try vm.invoke(
                     self.method.?,
                     self.arg_count,
                     if (self.has_catch_value) vm.pop() else null,
@@ -1337,7 +1337,7 @@ pub const VM = struct {
                 unreachable;
             };
         } else {
-            self.invokeFromObject(instance.object.?, method, arg_count, catch_value, false) catch |e| {
+            _ = self.invokeFromObject(instance.object.?, method, arg_count, catch_value, false) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -2262,7 +2262,7 @@ pub const VM = struct {
         var instance: *ObjObjectInstance = self.gc.allocateObject(
             ObjObjectInstance,
             ObjObjectInstance.init(
-                self.gc.allocator,
+                self,
                 object_or_type.access(ObjObject, .Object, self.gc),
                 object_or_type.access(ObjTypeDef, .Type, self.gc),
             ),
@@ -3692,7 +3692,7 @@ pub const VM = struct {
             // -1 is because we reserve slot 0 for this
             .slots = self.current_fiber.stack_top - arg_count - 1,
             .call_site = if (self.currentFrame()) |current_frame|
-                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
+                current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
             else
                 null,
         };
@@ -3858,16 +3858,18 @@ pub const VM = struct {
         }
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !void {
+    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
         if (object.methods.get(name)) |method| {
-            return self.call(method, arg_count, catch_value, in_fiber);
-        } else {
-            unreachable;
+            try self.call(method, arg_count, catch_value, in_fiber);
+
+            return method.toValue();
         }
+
+        unreachable;
     }
 
     // FIXME: find way to remove
-    fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !void {
+    pub fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.obj();
@@ -3880,17 +3882,21 @@ pub const VM = struct {
                 if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-                    return try self.callValue(field, arg_count, catch_value, in_fiber);
+                    try self.callValue(field, arg_count, catch_value, in_fiber);
+
+                    return field;
                 }
 
-                try self.invokeFromObject(instance.object.?, name, arg_count, catch_value, in_fiber);
+                return try self.invokeFromObject(instance.object.?, name, arg_count, catch_value, in_fiber);
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
+                    try self.callValue(member_value, arg_count, catch_value, in_fiber);
+
+                    return member_value;
                 }
 
                 unreachable;
@@ -3900,7 +3906,9 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
+                    try self.callValue(member_value, arg_count, catch_value, in_fiber);
+
+                    return member_value;
                 }
 
                 unreachable;
@@ -3910,7 +3918,9 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
+                    try self.callValue(member_value, arg_count, catch_value, in_fiber);
+
+                    return member_value;
                 }
 
                 unreachable;
@@ -3922,7 +3932,9 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
+                    try self.callValue(member_value, arg_count, catch_value, in_fiber);
+
+                    return member_value;
                 }
 
                 unreachable;
@@ -3934,7 +3946,9 @@ pub const VM = struct {
                     var member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-                    return try self.callValue(member_value, arg_count, catch_value, in_fiber);
+                    try self.callValue(member_value, arg_count, catch_value, in_fiber);
+
+                    return member_value;
                 }
 
                 unreachable;

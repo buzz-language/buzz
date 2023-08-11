@@ -1037,18 +1037,22 @@ fn buildGetGlobal(self: *Self, slot: usize) !m.MIR_op_t {
 fn buildSetGlobal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     const ctx_reg = self.state.?.ctx_reg.?;
     const index = try self.REG("index", m.MIR_T_I64);
-
     const globals = try self.REG("globals", m.MIR_T_I64);
+
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
 
     self.MOV(
         m.MIR_new_reg_op(self.ctx, globals),
         m.MIR_new_mem_op(
             self.ctx,
-            m.MIR_T_P,
+            m.MIR_T_U64,
             @offsetOf(o.NativeCtx, "globals"),
             ctx_reg,
             index,
-            @sizeOf(u64),
+            0,
         ),
     );
 
@@ -1057,16 +1061,16 @@ fn buildSetGlobal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
         m.MIR_new_uint_op(self.ctx, slot),
     );
 
-    const local = m.MIR_new_mem_op(
+    const global = m.MIR_new_mem_op(
         self.ctx,
-        m.MIR_T_P,
+        m.MIR_T_U64,
         0,
         globals,
         index,
         @sizeOf(u64),
     );
 
-    self.MOV(local, value);
+    self.MOV(global, value);
 }
 
 fn buildValueToBoolean(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {

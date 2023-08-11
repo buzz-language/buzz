@@ -9,6 +9,7 @@ const BuildOptions = @import("build_options");
 const VM = @import("./vm.zig").VM;
 const assert = std.debug.assert;
 const Token = @import("./token.zig").Token;
+const buzz_api = @import("./buzz_api.zig");
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -564,6 +565,25 @@ pub const GarbageCollector = struct {
             },
             .ObjectInstance => {
                 var obj_objectinstance = ObjObjectInstance.cast(obj).?;
+
+                // Calling eventual destructor method
+                if (obj_objectinstance.object) |object| {
+                    const collect_key = self.strings.get("collect").?;
+                    if (object.methods.get(collect_key) != null) {
+                        buzz_api.bz_invoke(
+                            obj_objectinstance.vm,
+                            obj_objectinstance.toValue(),
+                            collect_key,
+                            null,
+                            0,
+                            null,
+                        );
+
+                        // Remove void result of the collect call
+                        _ = obj_objectinstance.vm.pop();
+                    }
+                }
+
                 obj_objectinstance.deinit();
 
                 free(self, ObjObjectInstance, obj_objectinstance);
@@ -796,7 +816,18 @@ pub const GarbageCollector = struct {
         }
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-            std.debug.print("\nSwept {} objects for {} bytes, now {} bytes\n", .{ obj_count, swept - self.bytes_allocated, self.bytes_allocated });
+            if (swept < self.bytes_allocated) {
+                std.debug.print("Warn: sweep gained memory, possibly due to an Object collector that takes up memory\n", .{});
+            }
+
+            std.debug.print(
+                "\nSwept {} objects for {} bytes, now {} bytes\n",
+                .{
+                    obj_count,
+                    @max(swept, self.bytes_allocated) - self.bytes_allocated,
+                    self.bytes_allocated,
+                },
+            );
         }
     }
 
