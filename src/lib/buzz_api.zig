@@ -29,7 +29,10 @@ pub const TryCtx = extern struct {
     env: jmp.jmp_buf = undefined,
 };
 
-pub const ZigType = opaque {};
+pub const ZigType = opaque {
+    pub extern fn bz_zigTypeSize(self: *ZigType) usize;
+    pub extern fn bz_zigTypeAlignment(self: *ZigType) u16;
+};
 
 pub const VM = opaque {
     pub const allocator = @import("../buzz_api.zig").allocator;

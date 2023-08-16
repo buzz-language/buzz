@@ -906,8 +906,6 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
             result_value,
         );
         try self.buildPush(result_value);
-    } else {
-        try self.buildPush(m.MIR_new_uint_op(self.ctx, v.Value.Void.val));
     }
 
     // Return -1/0/1
