@@ -30,8 +30,8 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
 
-    print("{}\t{s}({} args, {} catches)", .{
-        code,
+    print("{s}\t{s}({} args, {} catches)", .{
+        @tagName(code),
         value_str.items[0..@min(value_str.items.len, 100)],
         arg_count,
         catch_count,
@@ -41,14 +41,20 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
 }
 
 fn simpleInstruction(code: OpCode, offset: usize) usize {
-    print("{}\t", .{code});
+    print("{s}\t", .{@tagName(code)});
 
     return offset + 1;
 }
 
 fn byteInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const slot: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
-    print("{}\t{}", .{ code, slot });
+    print(
+        "{s}\t{}",
+        .{
+            @tagName(code),
+            slot,
+        },
+    );
     return offset + 1;
 }
 
@@ -56,7 +62,14 @@ fn bytesInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const a: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     const b: u24 = @intCast(chunk.code.items[offset + 1]);
 
-    print("{}\t{} {}", .{ code, a, b });
+    print(
+        "{s}\t{} {}",
+        .{
+            @tagName(code),
+            a,
+            b,
+        },
+    );
     return offset + 2;
 }
 
@@ -66,7 +79,14 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const a: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
     const b: u16 = @intCast(0x0000ffff & full_instruction);
 
-    print("{}\t{} {}", .{ code, a, b });
+    print(
+        "{s}\t{} {}",
+        .{
+            @tagName(code),
+            a,
+            b,
+        },
+    );
     return offset + 1;
 }
 
@@ -75,11 +95,14 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
     defer value_str.deinit();
 
-    print("{}\t{} {s}", .{
-        code,
-        constant,
-        value_str.items[0..@min(value_str.items.len, 100)],
-    });
+    print(
+        "{s}\t{} {s}",
+        .{
+            @tagName(code),
+            constant,
+            value_str.items[0..@min(value_str.items.len, 100)],
+        },
+    );
 
     return offset + 1;
 }
@@ -88,9 +111,23 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
     const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
     if (direction) {
-        print("{}\t{} -> {}", .{ code, offset, offset + 1 + 1 * jump });
+        print(
+            "{s}\t{} -> {}",
+            .{
+                @tagName(code),
+                offset,
+                offset + 1 + 1 * jump,
+            },
+        );
     } else {
-        print("{}\t{} -> {}", .{ code, offset, offset + 1 - 1 * jump });
+        print(
+            "{s}\t{} -> {}",
+            .{
+                @tagName(code),
+                offset,
+                offset + 1 - 1 * jump,
+            },
+        );
     }
 
     return offset + 1;
@@ -99,7 +136,14 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
 fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
-    print("{}\t{} -> {}", .{ code, offset, jump });
+    print(
+        "{s}\t{} -> {}",
+        .{
+            @tagName(code),
+            offset,
+            jump,
+        },
+    );
 
     return offset + 1;
 }
@@ -114,9 +158,23 @@ pub fn dumpStack(vm: *VM) void {
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
-            print("{} {} {s} frame\n ", .{ @intFromPtr(value), value[0].val, value_str.items[0..@min(value_str.items.len, 100)] });
+            print(
+                "{} {} {s} frame\n ",
+                .{
+                    @intFromPtr(value),
+                    value[0].val,
+                    value_str.items[0..@min(value_str.items.len, 100)],
+                },
+            );
         } else {
-            print("{} {} {s}\n ", .{ @intFromPtr(value), value[0].val, value_str.items[0..@min(value_str.items.len, 100)] });
+            print(
+                "{} {} {s}\n ",
+                .{
+                    @intFromPtr(value),
+                    value[0].val,
+                    value_str.items[0..@min(value_str.items.len, 100)],
+                },
+            );
         }
 
         value += 1;
@@ -179,6 +237,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_IMPORT,
         .OP_TO_STRING,
         .OP_INSTANCE,
+        .OP_FSTRUCT_INSTANCE,
         .OP_STRING_FOREACH,
         .OP_LIST_FOREACH,
         .OP_ENUM_FOREACH,
@@ -217,6 +276,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_PROPERTY,
         .OP_GET_OBJECT_PROPERTY,
         .OP_GET_INSTANCE_PROPERTY,
+        .OP_GET_FSTRUCT_INSTANCE_PROPERTY,
         .OP_GET_LIST_PROPERTY,
         .OP_GET_MAP_PROPERTY,
         .OP_GET_STRING_PROPERTY,
@@ -224,6 +284,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_FIBER_PROPERTY,
         .OP_SET_OBJECT_PROPERTY,
         .OP_SET_INSTANCE_PROPERTY,
+        .OP_SET_FSTRUCT_INSTANCE_PROPERTY,
         .OP_CONSTANT,
         => try constantInstruction(instruction, chunk, offset),
 
@@ -256,7 +317,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
             defer value_str.deinit();
 
-            print("{}\t{} {s}", .{ instruction, constant, value_str.items[0..@min(value_str.items.len, 100)] });
+            print(
+                "{s}\t{} {s}",
+                .{
+                    @tagName(instruction),
+                    constant,
+                    value_str.items[0..@min(value_str.items.len, 100)],
+                },
+            );
 
             var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].obj()).?;
             var i: u8 = 0;
@@ -265,7 +333,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
                 off_offset += 1;
                 var index: u8 = @intCast(chunk.code.items[off_offset]);
                 off_offset += 1;
-                print("\n{:0>3} |                         \t{s} {}\n", .{ off_offset - 2, if (is_local) "local  " else "upvalue", index });
+                print(
+                    "\n{:0>3} |                         \t{s} {}\n",
+                    .{
+                        off_offset - 2,
+                        if (is_local) "local  " else "upvalue",
+                        index,
+                    },
+                );
             }
 
             break :closure off_offset;
