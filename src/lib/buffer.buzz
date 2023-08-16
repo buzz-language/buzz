@@ -26,13 +26,13 @@ extern fun BufferWriteFloat(ud userdata, float n) > str !> WriteWhileReadingErro
 || @private
 extern fun BufferReadFloat(ud userdata) > float?;
 || @private
-extern fun BufferLen(ud userdata) > int;
+extern fun BufferLen(ud userdata, int align) > int;
 || @private
 extern fun BufferCursor(ud userdata) > int;
 || @private
 extern fun BufferBuffer(ud userdata) > str;
 || @private
-extern fun BufferPtr(ud userdata) > ud;
+extern fun BufferPtr(ud userdata, int at, int alignment) > ud;
 || @private
 extern fun BufferEmpty(ud userdata) > void;
 || @private
@@ -133,8 +133,8 @@ export object Buffer {
 
 
     || @return Length of the buffer
-    fun len() > int {
-        return BufferLen(this.buffer);
+    fun len(int align = 1) > int {
+        return BufferLen(this.buffer, align: align);
     }
 
     || @return Position of the reading cursor
@@ -153,8 +153,8 @@ export object Buffer {
     }
 
     || Get buffer's ptr
-    fun ptr() > ud {
-        return BufferPtr(this.buffer);
+    fun ptr(int at = 0, int align = 1) > ud {
+        return BufferPtr(this.buffer, at: at, alignment: align);
     }
 
     || Get byte at `index`

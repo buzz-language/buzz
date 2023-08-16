@@ -30,8 +30,8 @@ pub const Type = union(enum) {
     EnumLiteral: void,
 
     // FIXME: should be expressed in bits, because alignment and shit
-    pub fn size(self: Type) usize {
-        return switch (self) {
+    pub fn size(self: *const Type) usize {
+        return switch (self.*) {
             .Bool => 1,
             .Int => self.Int.bits / 8,
             .Float => self.Float.bits / 8,
@@ -78,8 +78,8 @@ pub const Type = union(enum) {
         };
     }
 
-    pub fn alignment(self: Type) u16 {
-        return switch (self) {
+    pub fn alignment(self: *const Type) u16 {
+        return switch (self.*) {
             .Bool => 1,
             .Int => @as(u16, @intCast(self.Int.bits)) / 8,
             .Float => @as(u16, @intCast(self.Float.bits)) / 8,

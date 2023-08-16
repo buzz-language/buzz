@@ -35,17 +35,27 @@ test "pointer with Buffer" {
         assert(true, message: "Using bad buzz type triggers error");
     }
 
-    int len = toInt(buffer.len() / 4);
+    int i32align = alignOf("i32");
+    int len = buffer.len(align: i32align);
+    assert(len == buffer.len() / 4, message: "Len align");
     int total = sum(buffer.ptr(), len: len);
 
     assert(total == 12, message: "Could call FFI function with pointer argument");
 
     int readTotal = 0;
-    foreach (int i in 0..toInt((buffer.len() / 4))) {
-        readTotal = readTotal + buffer.readZAt(<int>, i * 4, type: "i32");
+    foreach (int i in 0..buffer.len(align: i32align)) {
+        readTotal = readTotal + buffer.readZAt(
+            <int>,
+            at: i,
+            type: "i32"
+        );
     }
 
     assert(readTotal == total, message: "Could read from pointer");
+
+    int subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
+
+    assert(subTotal == 11, message: "Could get ptr at offset");
 }
 
 zdef("tests/utils/libforeign", `

@@ -3,3 +3,11 @@ export fun cstr(str string) -> "{string}\0";
 export object FFITypeMismatchError {
     str message = "Provided buzz value type does not match expected FFI type",
 }
+
+export object FFIZigTypeParseError {
+    str message = "Could not parse zig type",
+}
+
+export extern fun alignOf(str zigType) > int;
+
+export extern fun sizeOf(str zigType) > int;

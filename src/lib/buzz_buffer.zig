@@ -338,9 +338,10 @@ export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
 }
 
 export fn BufferLen(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buf_align = ctx.vm.bz_peek(0).integer();
 
-    ctx.vm.bz_pushInteger(@intCast(buffer.buffer.items.len));
+    ctx.vm.bz_pushInteger(@intCast(buffer.buffer.items.len / @as(usize, @intCast(buf_align))));
 
     return 1;
 }
@@ -366,9 +367,16 @@ export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
 }
 
 export fn BufferPtr(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const at = ctx.vm.bz_peek(1).integer();
+    const alignment = ctx.vm.bz_peek(0).integer();
 
-    ctx.vm.bz_push(api.ObjUserData.bz_newUserData(ctx.vm, @ptrCast(buffer.buffer.items.ptr)).?.bz_userDataToValue());
+    ctx.vm.bz_push(
+        api.ObjUserData.bz_newUserData(
+            ctx.vm,
+            @ptrCast(&buffer.buffer.items.ptr[@intCast(at * alignment)]),
+        ).?.bz_userDataToValue(),
+    );
 
     return 1;
 }

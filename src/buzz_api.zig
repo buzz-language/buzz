@@ -1344,7 +1344,8 @@ export fn bz_readZigValueFromBuffer(
     const value = switch (ztype.*) {
         .Bool => Value.fromBoolean(buffer.items[at] == 1),
         .Int => integer: {
-            const bytes = buffer.items[at .. at + (ztype.Int.bits / 8)];
+            const offset = at * ztype.size();
+            const bytes = buffer.items[offset .. offset + (ztype.Int.bits / 8)];
 
             switch (ztype.Int.bits) {
                 64 => {
@@ -1434,7 +1435,8 @@ export fn bz_readZigValueFromBuffer(
             }
         },
         .Float => float: {
-            const bytes = buffer.items[at .. at + (ztype.Float.bits / 8)];
+            const offset = at * ztype.size();
+            const bytes = buffer.items[offset .. offset + (ztype.Float.bits / 8)];
 
             switch (ztype.Float.bits) {
                 32 => {
@@ -1459,7 +1461,8 @@ export fn bz_readZigValueFromBuffer(
         .Fn,
         .Opaque,
         => ptr: {
-            const bytes = buffer.items[at .. at + 8];
+            const offset = at * 8;
+            const bytes = buffer.items[offset .. offset + 8];
 
             const userdata = vm.gc.allocateObject(
                 ObjUserData,
@@ -1587,4 +1590,11 @@ export fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value {
             ObjTypeDef.cast(typedef_value.obj()).?,
         ) catch @panic("Out of memory"),
     ) catch @panic("Out of memory")).toValue();
+}
+
+export fn bz_zigTypeSize(self: *ZigType) usize {
+    return self.size();
+}
+export fn bz_zigTypeAlignment(self: *ZigType) u16 {
+    return self.alignment();
 }
