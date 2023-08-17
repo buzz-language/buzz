@@ -355,6 +355,7 @@ export fn bz_valueToUserData(value: Value) *UserData {
     return ObjUserData.cast(value.obj()).?.userdata;
 }
 
+// FIXME: move this is ObjForeignStruct?
 export fn bz_valueToForeignStructPtr(value: Value) [*]u8 {
     return ObjForeignStruct.cast(value.obj()).?.data.ptr;
 }
@@ -1590,6 +1591,14 @@ export fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value {
             ObjTypeDef.cast(typedef_value.obj()).?,
         ) catch @panic("Out of memory"),
     ) catch @panic("Out of memory")).toValue();
+}
+
+export fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8 {
+    const fstruct = ObjForeignStruct.cast(fstruct_value.obj()).?;
+
+    len.* = fstruct.data.len;
+
+    return fstruct.data.ptr;
 }
 
 export fn bz_zigTypeSize(self: *ZigType) usize {

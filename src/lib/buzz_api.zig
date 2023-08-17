@@ -350,6 +350,7 @@ pub const ObjForeignStruct = opaque {
     pub extern fn bz_fstructGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value;
     pub extern fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
     pub extern fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value;
+    pub extern fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8;
 };
 
 pub extern fn dumpInt(value: u64) void;

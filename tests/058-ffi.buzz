@@ -87,3 +87,21 @@ test "struct" {
 
     assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
 }
+
+test "write/read struct in buffer" {
+    Data data = Data{
+        msg = cstr("bye world"),
+        id = 123,
+    };
+
+    Buffer buffer = Buffer.init();
+
+    buffer.writeStruct(<Data>, [data]);
+
+    Data read = buffer.readStruct(<Data>);
+
+    assert(
+        read.msg == data.msg and read.id == data.id,
+        message: "Could read/write struct from/to buffer"
+    );
+}
