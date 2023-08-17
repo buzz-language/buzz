@@ -47,6 +47,11 @@ extern fun BufferWriteZAt(ud userdata, int at, str type, [any] values) > void !>
 extern fun BufferReadZ(<T>, ud userdata, str type) > T !> FFITypeMismatchError;
 || @private
 extern fun BufferReadZAt(<T>, ud userdata, int at, str type) > T !> FFITypeMismatchError;
+|| @private
+| FIXME: fail if T is not a fstruct! or try to enforce it in the syntax?
+extern fun BufferWriteStruct(<T>, ud userdata, [T] struct) > void !> WriteWhileReadingError, FFITypeMismatchError;
+|| @private
+extern fun BufferWriteStructAt(<T>, ud userdata, int at, [T] struct) > void !> WriteWhileReadingError, FFITypeMismatchError;
 
 || Read and write data to a string buffer
 export object Buffer {
@@ -93,6 +98,14 @@ export object Buffer {
 
     fun readZAt(<T>, int at, str type) > T !> FFITypeMismatchError {
         return BufferReadZAt(<T>, this.buffer, at: at, type: type);
+    }
+
+    fun writeStruct(<T>, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteStruct(<T>, this.buffer, values: values);
+    }
+
+    fun writeStructAt(<T>, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteStructAt(<T>, this.buffer, at: at, values: values);
     }
 
     || Reads a boolean

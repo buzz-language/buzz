@@ -466,6 +466,55 @@ export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
     )) -1 else 0;
 }
 
+inline fn rawWriteStruct(
+    buffer: *Buffer,
+    at: usize,
+    values_value: api.Value,
+) bool {
+    const values = api.Value.bz_valueToObjList(values_value);
+
+    var index = at;
+    for (0..values.bz_listLen()) |i| {
+        const value = api.ObjList.bz_listGet(values_value, i);
+        var len: usize = 0;
+        const ptr = api.ObjForeignStruct.bz_fstructSlice(value, &len);
+
+        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
+        buffer.buffer.expandToCapacity();
+
+        std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
+
+        buffer.buffer.replaceRange(index, len, ptr[0..len]) catch @panic("Out of memory");
+
+        index += len;
+    }
+
+    return true;
+}
+
+export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const values = ctx.vm.bz_peek(0);
+
+    return if (!rawWriteStruct(
+        buffer,
+        buffer.buffer.items.len,
+        values,
+    )) -1 else 0;
+}
+
+export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const index = ctx.vm.bz_peek(1).integer();
+    const values = ctx.vm.bz_peek(0);
+
+    return if (!rawWriteStruct(
+        buffer,
+        @intCast(index),
+        values,
+    )) -1 else 0;
+}
+
 fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
     var obj_typedef: api.Value = undefined;
     const zig_type = vm.bz_zigType(
