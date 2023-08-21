@@ -122,6 +122,7 @@ pub const OpCode = enum(u8) {
     OP_IMPORT,
 
     OP_TO_STRING,
+    OP_TYPEOF,
 };
 
 /// A chunk of code to execute

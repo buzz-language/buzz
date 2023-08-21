@@ -1742,6 +1742,8 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         .Pattern => try self.generatePattern(n.PatternNode.cast(node).?),
         .ForEach => try self.generateForEach(n.ForEachNode.cast(node).?),
         .InlineIf => try self.generateInlineIf(n.InlineIfNode.cast(node).?),
+        .TypeExpression => try self.generateTypeExpression(n.TypeExpressionNode.cast(node).?),
+        .TypeOfExpression => try self.generateTypeOfExpression(n.TypeOfExpressionNode.cast(node).?),
         .AsyncCall,
         .Resume,
         .Resolve,
@@ -2534,6 +2536,32 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
     self.append(out_label);
 
     return null;
+}
+
+fn generateTypeExpression(self: *Self, type_expression_node: *n.TypeExpressionNode) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        type_expression_node.value.val,
+    );
+}
+
+fn generateTypeOfExpression(self: *Self, typeof_expression_node: *n.TypeOfExpressionNode) Error!?m.MIR_op_t {
+    const value = (try self.generateNode(typeof_expression_node.expression)).?;
+    const result = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("typeof", m.MIR_T_I64),
+    );
+
+    try self.buildExternApiCall(
+        .bz_valueTypeOf,
+        result,
+        &[_]m.MIR_op_t{
+            value,
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
+
+    return result;
 }
 
 fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_op_t {
@@ -5421,6 +5449,7 @@ pub const ExternApi = enum {
     bz_fstructGet,
     bz_fstructSet,
     bz_fstructInstance,
+    bz_valueTypeOf,
 
     bz_dumpStack,
 
@@ -6192,6 +6221,25 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_valueTypeOf => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -6248,6 +6296,7 @@ pub const ExternApi = enum {
             .bz_fstructGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructGet))),
             .bz_fstructSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructSet))),
             .bz_fstructInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructInstance))),
+            .bz_valueTypeOf => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueTypeOf))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -6319,6 +6368,7 @@ pub const ExternApi = enum {
             .bz_fstructGet => "bz_fstructGet",
             .bz_fstructSet => "bz_fstructSet",
             .bz_fstructInstance => "bz_fstructInstance",
+            .bz_valueTypeOf => "bz_valueTypeOf",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -6384,6 +6434,7 @@ pub const ExternApi = enum {
             .bz_fstructGet => "p_bz_fstructGet",
             .bz_fstructSet => "p_bz_fstructSet",
             .bz_fstructInstance => "p_bz_fstructInstance",
+            .bz_valueTypeOf => "p_bz_valueTypeOf",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",

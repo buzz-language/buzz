@@ -98,7 +98,8 @@ test "write/read struct in buffer" {
 
     buffer.writeStruct(<Data>, [data]);
 
-    Data read = buffer.readStruct(<Data>);
+    type dataType = Data;
+    Data read = buffer.readStruct(<Data>, dataType);
 
     assert(
         read.msg == data.msg and read.id == data.id,
