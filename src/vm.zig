@@ -659,6 +659,8 @@ pub const VM = struct {
         OP_IMPORT,
 
         OP_TO_STRING,
+
+        OP_TYPEOF,
     };
 
     fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
@@ -3500,6 +3502,23 @@ pub const VM = struct {
                 unreachable;
             };
         }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TYPEOF(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        self.push((Value.typeOf(self.pop(), self.gc) catch @panic("Out of memory")).toValue());
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

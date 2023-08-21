@@ -101,6 +101,8 @@ pub const ParseNodeType = enum(u8) {
     Try,
     Range,
     Zdef,
+    TypeExpression,
+    TypeOfExpression,
 };
 
 pub const RenderError = Allocator.Error || std.fmt.BufPrintError;
@@ -7816,6 +7818,187 @@ pub const ExportNode = struct {
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .Export) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const TypeExpressionNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .TypeExpression,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    value: Value,
+
+    fn constant(_: *anyopaque) bool {
+        return true;
+    }
+
+    fn val(nodePtr: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        return Self.cast(node).?.value;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        const self = Self.cast(node).?;
+
+        try codegen.emitConstant(self.node.location, self.value);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"TypeExpression\", \"value\": \"", .{});
+
+        try ObjTypeDef.cast(self.value.obj()).?.toString(out);
+
+        try out.print("\", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.print("<", .{});
+
+        try ObjTypeDef.cast(self.value.obj()).?.toString(out);
+
+        try out.writeAll(">");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.node_type != .TypeExpression) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
+pub const TypeOfExpressionNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .TypeOfExpression,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    expression: *ParseNode,
+
+    fn constant(nodePtr: *anyopaque) bool {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        return self.expression.isConstant(self.expression);
+    }
+
+    fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            const expr = try self.expression.toValue(self.expression, gc);
+
+            return (try Value.typeOf(expr, gc)).toValue();
+        }
+
+        return GenError.NotConstant;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        const self = Self.cast(node).?;
+
+        _ = try self.expression.toByteCode(self.expression, codegen, breaks);
+
+        try codegen.emitOpCode(node.location, .OP_TYPEOF);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        var self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"TypeOfExpression\", \"expression\": \"", .{});
+
+        try self.expression.toJson(self.expression, out);
+
+        try out.print(", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        try out.writeByteNTimes(' ', depth * 4);
+
+        try out.print("<", .{});
+
+        try self.expression.render(self.expression, out, depth);
+
+        try out.writeAll(">");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.node_type != .TypeOfExpression) {
             return null;
         }
 

@@ -1,0 +1,25 @@
+import "std";
+
+object A {}
+enum B {
+    case,
+}
+
+test "Types as value" {
+    type myType = <A>;
+    type another = <str>;
+    type again = <str>;
+
+    assert(another == again, message: "Can compare type values");
+}
+
+test "typeof" {
+    assert((typeof A{}) == <A>, message: "typeof operator");
+    assert((typeof B.case) == <B>, message: "typeof operator");
+    assert((typeof "hello") == <str>, message: "typeof operator");
+    assert((typeof true) == <bool>, message: "typeof operator");
+    assert((typeof null) == <void>, message: "typeof operator");
+    assert((typeof 1) == <int>, message: "typeof operator");
+    assert((typeof 3.14) == <float>, message: "typeof operator");
+    assert((typeof _hello_) == <pat>, message: "typeof operator");
+}

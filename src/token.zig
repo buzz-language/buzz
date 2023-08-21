@@ -180,6 +180,7 @@ pub const TokenType = enum {
     Spread, // ..
     Any, // any
     Zdef, // zdef
+    TypeOf, // typeof
 };
 
 pub const keywords = std.ComptimeStringMap(
@@ -234,5 +235,7 @@ pub const keywords = std.ComptimeStringMap(
         .{ "yield", .Yield },
         .{ "any", .Any },
         .{ "zdef", .Zdef },
+        .{ "type", .Type },
+        .{ "typeof", .TypeOf },
     },
 );

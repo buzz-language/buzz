@@ -101,6 +101,8 @@ const ImportNode = _node.ImportNode;
 const RangeNode = _node.RangeNode;
 const TryNode = _node.TryNode;
 const ZdefNode = _node.ZdefNode;
+const TypeExpressionNode = _node.TypeExpressionNode;
+const TypeOfExpressionNode = _node.TypeOfExpressionNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
 const TypeRegistry = _obj.TypeRegistry;
@@ -310,7 +312,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // Comma
         .{ .prefix = null, .infix = null, .precedence = .None }, // Semicolon
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Greater
-        .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Less
+        .{ .prefix = typeExpression, .infix = binary, .precedence = .Comparison }, // Less
         .{ .prefix = null, .infix = binary, .precedence = .Term }, // Plus
         .{ .prefix = unary, .infix = binary, .precedence = .Term }, // Minus
         .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Star
@@ -397,8 +399,9 @@ pub const Parser = struct {
         .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
         .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
         .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Any
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Zdf
+        .{ .prefix = null, .infix = null, .precedence = .None }, // any
+        .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
+        .{ .prefix = typeOfExpression, .infix = null, .precedence = .IsAs }, // typeof
     };
 
     pub const ScriptImport = struct {
@@ -1179,13 +1182,13 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
-                // else if (try self.match(.Type))
-                //     try self.varDeclaration(
-                //         try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
-                //         .Semicolon,
-                //         constant,
-                //         true,
-                //     )
+            else if (try self.match(.Type))
+                try self.varDeclaration(
+                    try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.Any))
                 try self.varDeclaration(
                     try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
@@ -3541,6 +3544,40 @@ pub const Parser = struct {
         }
     }
 
+    fn typeOfExpression(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        const expr = try self.expression(false);
+
+        var node = try self.gc.allocator.create(TypeOfExpressionNode);
+        node.* = .{
+            .expression = expr,
+        };
+        node.node.type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Type });
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
+    fn typeExpression(self: *Self, _: bool) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        const type_def = try self.parseTypeDef(null);
+
+        try self.consume(.Greater, "Expected `>` after type expression.");
+
+        var node = try self.gc.allocator.create(TypeExpressionNode);
+        node.* = .{
+            .value = type_def.toValue(),
+        };
+        node.node.type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Type });
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
     fn unary(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
@@ -5378,8 +5415,8 @@ pub const Parser = struct {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool });
         } else if (try self.match(.Any)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Any });
-            // } else if (try self.match(.Type)) {
-            //     return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
+        } else if (try self.match(.Type)) {
+            return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type });
         } else if (try self.match(.LeftBracket)) {
             return self.parseListType(generic_types);
         } else if (try self.match(.LeftBrace)) {

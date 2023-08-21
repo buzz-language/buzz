@@ -77,6 +77,42 @@ pub const Obj = struct {
         return obj.cast(T, obj_type);
     }
 
+    pub fn typeOf(self: *Self, gc: *GarbageCollector) anyerror!*ObjTypeDef {
+        return switch (self.obj_type) {
+            .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
+            .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
+            .Fiber => try gc.type_registry.getTypeDef(.{ .def_type = .Fiber }),
+            .Type, .Object, .Enum => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
+            .ObjectInstance => instance: {
+                const obj_instance = ObjObjectInstance.cast(self).?;
+
+                if (obj_instance.object) |object| {
+                    break :instance object.type_def;
+                } else {
+                    break :instance obj_instance.type_def.?;
+                }
+            },
+            .EnumInstance => ObjEnumInstance.cast(self).?.enum_ref.type_def,
+            .Function => ObjFunction.cast(self).?.type_def,
+            .UpValue => upvalue: {
+                const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+
+                break :upvalue (upvalue.closed orelse upvalue.location.*).typeOf(gc);
+            },
+            .Closure => ObjClosure.cast(self).?.function.type_def,
+            .List => ObjList.cast(self).?.type_def,
+            .Map => ObjMap.cast(self).?.type_def,
+            .Bound => bound: {
+                const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
+                break :bound try (if (bound.closure) |cls| cls.function.toValue() else bound.native.?.toValue()).typeOf(gc);
+            },
+            .ForeignStruct => ObjForeignStruct.cast(self).?.type_def,
+            .UserData => try gc.type_registry.getTypeDef(.{ .def_type = .UserData }),
+            // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
+            .Native => unreachable,
+        };
+    }
+
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
@@ -110,8 +146,8 @@ pub const Obj = struct {
                 );
             },
             .ForeignStruct => type_def.def_type == .ForeignStruct and ObjForeignStruct.cast(self).?.is(type_def),
-
-            .UserData, .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
+            .UserData => type_def.def_type == .UserData,
+            .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
         };
     }
 

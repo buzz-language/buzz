@@ -1,7 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const _obj = @import("./obj.zig");
+const _obj = @import("obj.zig");
+const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Obj = _obj.Obj;
 const objToString = _obj.objToString;
 const copyObj = _obj.copyObj;
@@ -115,6 +116,27 @@ pub const Value = packed struct {
 
     pub inline fn obj(self: Value) *Obj {
         return @as(*Obj, @ptrFromInt(self.val & ~PointerMask));
+    }
+
+    pub fn typeOf(self: Value, gc: *GarbageCollector) !*ObjTypeDef {
+        if (self.isObj()) {
+            return try self.obj().typeOf(gc);
+        }
+
+        if (self.isFloat()) {
+            return try gc.type_registry.getTypeDef(.{ .def_type = .Float });
+        }
+
+        return try gc.type_registry.getTypeDef(
+            .{
+                .def_type = switch (self.getTag()) {
+                    TagBoolean => .Bool,
+                    TagInteger => .Integer,
+                    TagNull, TagVoid => .Void,
+                    else => .Float,
+                },
+            },
+        );
     }
 };
 

@@ -982,6 +982,10 @@ export fn bz_valueEqual(self: Value, other: Value) Value {
     return Value.fromBoolean(_value.valueEql(self, other));
 }
 
+export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
+    return (self.typeOf(vm.gc) catch @panic("Out of memory")).toValue();
+}
+
 export fn bz_newMap(vm: *VM, map_type: Value) Value {
     var map: *ObjMap = vm.gc.allocateObject(ObjMap, ObjMap.init(
         vm.gc.allocator,
