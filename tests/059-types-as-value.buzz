@@ -46,4 +46,5 @@ zdef("tests/utils/libforeign", `
 test "necessary weirdness" {
     assert((typeof A) == (typeof A{}), message: "typeof Object == typeof Object instance");
     assert((typeof C) == <type>, message: "protocol is a type at runtime");
+    assert((typeof Data) == <type>, message: "fstruct is a type at runtime");
 }

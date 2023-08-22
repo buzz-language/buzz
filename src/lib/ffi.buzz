@@ -11,3 +11,7 @@ export object FFIZigTypeParseError {
 export extern fun alignOf(str zigType) > int;
 
 export extern fun sizeOf(str zigType) > int;
+
+export extern fun sizeOfStruct(type structType) > int !> FFITypeMismatchError;
+
+export extern fun alignOfStruct(type structType) > int !> FFITypeMismatchError;

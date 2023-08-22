@@ -476,6 +476,12 @@ export fn bz_fstructTypeSize(type_def: *ObjTypeDef) usize {
     return struct_def.zig_type.size();
 }
 
+export fn bz_fstructTypeAlign(type_def: *ObjTypeDef) usize {
+    const struct_def = type_def.resolved_type.?.ForeignStruct;
+
+    return struct_def.zig_type.alignment();
+}
+
 export fn bz_allocated(self: *VM) usize {
     return self.gc.bytes_allocated;
 }
