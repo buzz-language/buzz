@@ -412,6 +412,11 @@ fn buildZdefStructGetter(
         },
     );
 
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(vm_name);
+    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(getter_name.items.ptr),
@@ -421,12 +426,12 @@ fn buildZdefStructGetter(
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = "vm",
+                .name = @ptrCast(vm_name.ptr),
                 .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
-                .name = "data",
+                .name = @ptrCast(data_name.ptr),
                 .size = undefined,
             },
         },
@@ -493,6 +498,13 @@ fn buildZdefStructSetter(
         },
     );
 
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(vm_name);
+    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(data_name);
+    var new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(setter_name.items.ptr),
@@ -502,17 +514,17 @@ fn buildZdefStructSetter(
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = "vm",
+                .name = @ptrCast(vm_name.ptr),
                 .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
-                .name = "data",
+                .name = @ptrCast(data_name.ptr),
                 .size = undefined,
             },
             .{
                 .type = m.MIR_T_U64,
-                .name = "new_value",
+                .name = @ptrCast(new_value_name.ptr),
                 .size = undefined,
             },
         },
@@ -741,9 +753,8 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
-    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
-    defer ctx_name.deinit();
+    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(wrapper_name.items.ptr),
@@ -753,7 +764,7 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = @ptrCast(ctx_name.items.ptr),
+                .name = @ptrCast(ctx_name.ptr),
                 .size = undefined,
             },
         },
@@ -4433,9 +4444,8 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     }
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
-    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
-    defer ctx_name.deinit();
+    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(qualified_name.items.ptr),
@@ -4445,7 +4455,7 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = @ptrCast(ctx_name.items.ptr),
+                .name = @ptrCast(ctx_name.ptr),
                 .size = undefined,
             },
         },
@@ -4512,9 +4522,8 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     defer nativefn_qualified_name.deinit();
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = std.ArrayList(u8).init(self.vm.gc.allocator);
-    try ctx_name.writer().print("{s}\u{0}", .{"ctx"});
-    defer ctx_name.deinit();
+    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(nativefn_qualified_name.items.ptr),
@@ -4524,7 +4533,7 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         &[_]m.MIR_var_t{
             .{
                 .type = m.MIR_T_P,
-                .name = @ptrCast(ctx_name.items.ptr),
+                .name = @ptrCast(ctx_name.ptr),
                 .size = undefined,
             },
         },
