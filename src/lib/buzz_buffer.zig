@@ -467,8 +467,10 @@ export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
 }
 
 inline fn rawWriteStruct(
+    vm: *api.VM,
     buffer: *Buffer,
     at: usize,
+    type_def_value: api.Value,
     values_value: api.Value,
 ) bool {
     const values = api.Value.bz_valueToObjList(values_value);
@@ -476,6 +478,21 @@ inline fn rawWriteStruct(
     var index = at;
     for (0..values.bz_listLen()) |i| {
         const value = api.ObjList.bz_listGet(values_value, i);
+
+        if (!value.bz_valueIs(type_def_value).boolean()) {
+            var msg = std.ArrayList(u8).init(api.VM.allocator);
+            defer msg.deinit();
+
+            vm.bz_pushError(
+                "ffi.FFITypeMismatchError",
+                "ffi.FFITypeMismatchError".len,
+                null,
+                0,
+            );
+
+            return false;
+        }
+
         var len: usize = 0;
         const ptr = api.ObjForeignStruct.bz_fstructSlice(value, &len);
 
@@ -494,25 +511,79 @@ inline fn rawWriteStruct(
 
 export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const type_def = ctx.vm.bz_peek(1);
     const values = ctx.vm.bz_peek(0);
 
     return if (!rawWriteStruct(
+        ctx.vm,
         buffer,
         buffer.buffer.items.len,
+        type_def,
         values,
     )) -1 else 0;
 }
 
 export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
+    const type_def = ctx.vm.bz_peek(2);
     const index = ctx.vm.bz_peek(1).integer();
     const values = ctx.vm.bz_peek(0);
 
     return if (!rawWriteStruct(
+        ctx.vm,
         buffer,
         @intCast(index),
+        type_def,
         values,
     )) -1 else 0;
+}
+
+inline fn rawReadStruct(
+    vm: *api.VM,
+    buffer: *Buffer,
+    at: ?usize,
+    type_def_value: api.Value,
+) api.Value {
+    const type_def = type_def_value.bz_valueToObjTypeDef();
+    const size = type_def.bz_fstructTypeSize();
+
+    const from = (at orelse buffer.cursor);
+    const slice = buffer.buffer.items[from .. from + size];
+
+    return api.ObjForeignStruct.bz_fstructFromSlice(vm, type_def, slice.ptr, slice.len);
+}
+
+export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const type_def = ctx.vm.bz_peek(0);
+
+    ctx.vm.bz_push(
+        rawReadStruct(
+            ctx.vm,
+            buffer,
+            null,
+            type_def,
+        ),
+    );
+
+    return 1;
+}
+
+export fn BufferReadStructAt(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
+    const type_def = ctx.vm.bz_peek(0);
+
+    ctx.vm.bz_push(
+        rawReadStruct(
+            ctx.vm,
+            buffer,
+            index,
+            type_def,
+        ),
+    );
+
+    return 1;
 }
 
 fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {

@@ -40,18 +40,21 @@ extern fun BufferAt(ud userdata, int index) > int;
 || @private
 extern fun BufferSetAt(ud userdata, int index, int value) > void;
 || @private
-extern fun BufferWriteZ(ud userdata, str type, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteZ(ud userdata, str zigType, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
 || @private
-extern fun BufferWriteZAt(ud userdata, int at, str type, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteZAt(ud userdata, int at, str zigType, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
 || @private
-extern fun BufferReadZ(<T>, ud userdata, str type) > T !> FFITypeMismatchError;
+extern fun BufferReadZ(<T>, ud userdata, str zigType) > T !> FFITypeMismatchError;
 || @private
-extern fun BufferReadZAt(<T>, ud userdata, int at, str type) > T !> FFITypeMismatchError;
+extern fun BufferReadZAt(<T>, ud userdata, int at, str zigType) > T !> FFITypeMismatchError;
 || @private
-| FIXME: fail if T is not a fstruct! or try to enforce it in the syntax?
-extern fun BufferWriteStruct(<T>, ud userdata, [T] struct) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteStruct(<T>, ud userdata, type structType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
 || @private
-extern fun BufferWriteStructAt(<T>, ud userdata, int at, [T] struct) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteStructAt(<T>, ud userdata, type structType, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+|| @private
+extern fun BufferReadStruct(<T>, ud userdata, type structType) > T !> FFITypeMismatchError;
+|| @private
+extern fun BufferReadStructAt(<T>, ud userdata, type structType, int at) > T !> FFITypeMismatchError;
 
 || Read and write data to a string buffer
 export object Buffer {
@@ -84,28 +87,36 @@ export object Buffer {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
-    fun writeZ(<T>, str type, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
-        BufferWriteZ(this.buffer, type: type, values: values);
+    fun writeZ(<T>, str zigType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteZ(this.buffer, zigType: zigType, values: values);
     }
 
-    fun writeZAt(<T>, int at, str type, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
-        BufferWriteZAt(this.buffer, at: at, type: type, values: values);
+    fun writeZAt(<T>, int at, str zigType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteZAt(this.buffer, at: at, zigType: zigType, values: values);
     }
 
-    fun readZ(<T>, str type) > T !> FFITypeMismatchError {
-        return BufferReadZ(<T>, this.buffer, type: type);
+    fun readZ(<T>, str zigType) > T !> FFITypeMismatchError {
+        return BufferReadZ(<T>, this.buffer, zigType: zigType);
     }
 
-    fun readZAt(<T>, int at, str type) > T !> FFITypeMismatchError {
-        return BufferReadZAt(<T>, this.buffer, at: at, type: type);
+    fun readZAt(<T>, int at, str zigType) > T !> FFITypeMismatchError {
+        return BufferReadZAt(<T>, this.buffer, at: at, zigType: zigType);
     }
 
-    fun writeStruct(<T>, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
-        BufferWriteStruct(<T>, this.buffer, values: values);
+    fun writeStruct(<T>, type structType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteStruct(<T>, this.buffer, structType: structType, values: values);
     }
 
-    fun writeStructAt(<T>, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
-        BufferWriteStructAt(<T>, this.buffer, at: at, values: values);
+    fun writeStructAt(<T>, type structType, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+        BufferWriteStructAt(<T>, this.buffer, structType: structType, at: at, values: values);
+    }
+
+    fun readStruct(<T>, type structType) > T !> FFITypeMismatchError {
+        return BufferReadStruct(<T>, this.buffer, structType: structType);
+    }
+
+    fun readStructAt(<T>, type structType, int at) > T !> FFITypeMismatchError {
+        return BufferReadStructAt(<T>, this.buffer, structType: structType, at: at);
     }
 
     || Reads a boolean

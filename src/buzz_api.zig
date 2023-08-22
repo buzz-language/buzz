@@ -374,6 +374,10 @@ export fn bz_valueToObjString(value: Value) *ObjString {
     return ObjString.cast(value.obj()).?;
 }
 
+export fn bz_valueToObjTypeDef(value: Value) *ObjTypeDef {
+    return ObjTypeDef.cast(value.obj()).?;
+}
+
 /// ObjString -> [*]const u8 + len
 export fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8 {
     len.* = obj_string.string.len;
@@ -464,6 +468,12 @@ export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
     ) catch @panic("Out of memory");
 
     return typedef.toValue();
+}
+
+export fn bz_fstructTypeSize(type_def: *ObjTypeDef) usize {
+    const struct_def = type_def.resolved_type.?.ForeignStruct;
+
+    return struct_def.zig_type.size();
 }
 
 export fn bz_allocated(self: *VM) usize {
@@ -1603,6 +1613,20 @@ export fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8 {
     len.* = fstruct.data.len;
 
     return fstruct.data.ptr;
+}
+
+export fn bz_fstructFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value {
+    var fstruct = (vm.gc.allocateObject(
+        ObjForeignStruct,
+        ObjForeignStruct.init(
+            vm,
+            type_def,
+        ) catch @panic("Out of memory"),
+    ) catch @panic("Out of memory"));
+
+    fstruct.data = ptr[0..len];
+
+    return fstruct.toValue();
 }
 
 export fn bz_zigTypeSize(self: *ZigType) usize {
