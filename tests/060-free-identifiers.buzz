@@ -1,0 +1,9 @@
+import "std";
+
+test "Free identifiers" {
+    str @"non-standard-identifier" = "hello world";
+
+    assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
+
+    print(@"non-standard-identifier");
+}
