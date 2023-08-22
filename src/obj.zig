@@ -82,7 +82,9 @@ pub const Obj = struct {
             .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
             .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
             .Fiber => try gc.type_registry.getTypeDef(.{ .def_type = .Fiber }),
-            .Type, .Object, .Enum => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
+            .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
+            .Object => ObjObject.cast(self).?.type_def,
+            .Enum => ObjEnum.cast(self).?.type_def,
             .ObjectInstance => instance: {
                 const obj_instance = ObjObjectInstance.cast(self).?;
 

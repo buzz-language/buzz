@@ -7649,7 +7649,7 @@ pub const ProtocolDeclarationNode = struct {
     const Self = @This();
 
     node: ParseNode = .{
-        .node_type = .ObjectDeclaration,
+        .node_type = .ProtocolDeclaration,
         .toJson = stringify,
         .toByteCode = generate,
         .toValue = val,
@@ -7657,8 +7657,7 @@ pub const ProtocolDeclarationNode = struct {
         .render = render,
     },
 
-    // Nothing here because protocol only make sense at compile time
-    // The only revelant thing is the node type_def
+    slot: usize,
 
     fn constant(_: *anyopaque) bool {
         return false;
@@ -7675,6 +7674,11 @@ pub const ProtocolDeclarationNode = struct {
         if (node.synchronize(codegen)) {
             return null;
         }
+
+        const self = Self.cast(node).?;
+
+        try codegen.emitConstant(node.location, node.type_def.?.toValue());
+        try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
