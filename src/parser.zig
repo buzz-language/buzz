@@ -246,7 +246,7 @@ pub const Parser = struct {
         Equality, // ==, !=
         Comparison, // >=, <=, >, <
         Term, // +, -
-        NullCoalescing, // ??
+        NullCoalescing, // ??, typeof
         Bitwise, // \, &, ^
         Shift, // >>, <<
         Factor, // /, *, %
@@ -1801,7 +1801,7 @@ pub const Parser = struct {
         var node = try self.gc.allocator.create(ProtocolDeclarationNode);
         node.node.ends_scope = try self.endScope();
 
-        _ = try self.declareVariable(
+        const slot = try self.declareVariable(
             &protocol_type, // Should resolve protocol_placeholder and be discarded
             protocol_name,
             true, // Protocol is always constant
@@ -1812,7 +1812,9 @@ pub const Parser = struct {
 
         self.markInitialized();
 
-        node.* = ProtocolDeclarationNode{};
+        node.* = ProtocolDeclarationNode{
+            .slot = slot,
+        };
         node.node.type_def = protocol_placeholder;
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;

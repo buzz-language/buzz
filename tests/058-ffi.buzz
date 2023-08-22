@@ -86,6 +86,8 @@ test "struct" {
     setDataId(data);
 
     assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
+
+    | dump(sizeOf("Data"));
 }
 
 test "write/read struct in buffer" {
