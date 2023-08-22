@@ -3344,7 +3344,7 @@ pub const Parser = struct {
 
         const source_slice = self.parser.previous_token.?.literal_string.?;
         // Replace escaped pattern delimiter with delimiter
-        const source_slice_clean = try std.mem.replaceOwned(u8, self.gc.allocator, source_slice, "__", "_");
+        const source_slice_clean = try std.mem.replaceOwned(u8, self.gc.allocator, source_slice, "\\\"", "\"");
         const source = try self.gc.allocator.dupeZ(u8, source_slice_clean);
 
         var err = try self.gc.allocator.allocSentinel(u8, 1000, 0);

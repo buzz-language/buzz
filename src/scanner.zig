@@ -123,7 +123,7 @@ pub const Scanner = struct {
             '`' => self.string(true),
             '@' => self.atIdentifier(),
             '|' => self.docblock(),
-            '_' => self.pattern(),
+            '$' => self.pattern(),
 
             else => self.makeToken(.Error, "Unexpected character.", null, null),
         };
@@ -307,10 +307,14 @@ pub const Scanner = struct {
     }
 
     fn pattern(self: *Self) !Token {
-        while ((self.peek() != '_' or self.peekNext() == '_') and !self.isEOF()) {
+        if (self.advance() != '"') {
+            return self.makeToken(.Error, "Unterminated pattern.", null, null);
+        }
+
+        while ((self.peek() != '"' or self.peekNext() == '"') and !self.isEOF()) {
             if (self.peek() == '\n') {
                 return self.makeToken(.Error, "Unterminated pattern.", null, null);
-            } else if (self.peek() == '_' and self.peekNext() == '_') {
+            } else if (self.peek() == '\\' and self.peekNext() == '"') {
                 // Escaped pattern delimiter, go past it
                 _ = self.advance();
             }
@@ -327,7 +331,7 @@ pub const Scanner = struct {
         return self.makeToken(
             .Pattern,
             if (self.current.offset - self.current.start > 0)
-                self.source[(self.current.start + 1)..(self.current.offset - 1)]
+                self.source[(self.current.start + 2)..(self.current.offset - 1)]
             else
                 null,
             null,

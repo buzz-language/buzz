@@ -877,7 +877,7 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
     }
     
     if (ndType == "FunDeclaration") {
-        pat namePattern = _fun (.+)\(_;
+        pat namePattern = $"fun (.+)\(";
         str name = namePattern.match(node.q(["type_def"]).stringValue())![1];
 
         declarations.append(Boxed{
@@ -893,7 +893,7 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
     }
     
     if (ndType == "ObjectDeclaration") {
-        pat namePattern = _(object) (.+)_;
+        pat namePattern = $"(object) (.+)";
         [str] match = namePattern.match(node.q(["type_def"]).stringValue())!;
         SymbolKind kind = SymbolKind.Object;
         str name = match[2];
