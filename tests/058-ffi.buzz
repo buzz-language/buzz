@@ -47,7 +47,7 @@ test "pointer with Buffer" {
         readTotal = readTotal + buffer.readZAt(
             <int>,
             at: i,
-            type: "i32"
+            zigType: "i32"
         );
     }
 
@@ -96,13 +96,14 @@ test "write/read struct in buffer" {
 
     Buffer buffer = Buffer.init();
 
-    buffer.writeStruct(<Data>, [data]);
+    buffer.writeStruct(<Data>, Data, values: [data]);
 
-    type dataType = Data;
-    Data read = buffer.readStruct(<Data>, dataType);
+    assert(buffer.toString().len() == 16, message: "Could write struct to buffer");
+
+    Data read = buffer.readStruct(<Data>, Data);
 
     assert(
         read.msg == data.msg and read.id == data.id,
-        message: "Could read/write struct from/to buffer"
+        message: "Could read struct from buffer"
     );
 }

@@ -109,6 +109,7 @@ pub const Obj = struct {
             .ForeignStruct => ObjForeignStruct.cast(self).?.type_def,
             .UserData => try gc.type_registry.getTypeDef(.{ .def_type = .UserData }),
             // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
+            // Or since native are ptr to unique function we can keep a map of ptr => typedef
             .Native => unreachable,
         };
     }
@@ -3459,6 +3460,7 @@ pub const ObjTypeDef = struct {
         // zig fmt: off
         const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
             or (expected.def_type == .UserData and actual.def_type == .ForeignStruct)
+            or (expected.def_type == .Type and actual.def_type == .ForeignStruct)
             or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings

@@ -261,6 +261,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToCString(value: Value) ?[*:0]const u8;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
+    pub extern fn bz_valueToObjTypeDef(value: Value) *ObjTypeDef;
     pub extern fn bz_valueToForeignStructPtr(value: Value) [*]u8;
 
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
@@ -276,6 +277,7 @@ pub const ObjClosure = opaque {};
 pub const ObjTypeDef = opaque {
     pub extern fn bz_stringType(vm: *VM) Value;
     pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value;
+    pub extern fn bz_fstructTypeSize(self: *ObjTypeDef) usize;
 };
 
 pub const ObjString = opaque {
@@ -352,6 +354,7 @@ pub const ObjForeignStruct = opaque {
     pub extern fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
     pub extern fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value;
     pub extern fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8;
+    pub extern fn bz_fstructFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value;
 };
 
 pub extern fn dumpInt(value: u64) void;
