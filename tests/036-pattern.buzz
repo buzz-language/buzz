@@ -1,7 +1,7 @@
 import "std";
 
 test "pattern.match" {
-    pat pattern = _hello ([a-z]+)_;
+    pat pattern = $"hello ([a-z]+)";
 
     [str]? results = pattern.match("All i want to say is hello joe! hello mundo!");
 
@@ -11,7 +11,7 @@ test "pattern.match" {
 }
 
 test "pattern.matchAll" {
-    pat pattern = _hello ([a-z]+)_;
+    pat pattern = $"hello ([a-z]+)";
 
     [[str]]? results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
 
@@ -21,19 +21,19 @@ test "pattern.matchAll" {
 }
 
 test "Escaped pattern delimiter" {
-    pat pattern = _hello __ world_;
+    pat pattern = $"hello \" world";
 
-    assert("{pattern}" == "hello _ world", message: "delimiter was properly escaped");
+    assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
 }
 
 test "replace" {
     assert(
-        _world_.replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
+        $"world".replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
         message: "replace"
     );
 
     assert(
-        _alright_.replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
+        $"alright".replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
         message: "replaceAll"
     );
 }

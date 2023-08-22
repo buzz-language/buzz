@@ -28,7 +28,7 @@ object Declaration {
 
     | Split docblock by @ instructions
     static fun handleDocblock(str docblock) > {str, str} {
-        const pat atPattern = _@([^@ ]+)(\s+[^\n@]+)?_;
+        const pat atPattern = $"@([^@ ]+)(\s+[^\n@]+)?";
         {str, str} out = {<str, str>};
 
         foreach (str line in docblock.split("\\n")) {
@@ -47,7 +47,7 @@ object Declaration {
     }
 
     fun toMarkdown(str? heading, Buffer out) > void !> WriteWhileReadingError {
-        const pat atParamPattern = _([^\s]+)\s+(.+)_;
+        const pat atParamPattern = $"([^\s]+)\s+(.+)";
 
         if (this.docblock == null) {
             return;

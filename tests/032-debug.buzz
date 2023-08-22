@@ -66,5 +66,5 @@ test "dump" {
     debug.dump(MyStringEnum.One);
     debug.dump(MyEnum.One);
     debug.dump("hello world");
-    debug.dump(_hello .*_);
+    debug.dump($"hello .*");
 }
