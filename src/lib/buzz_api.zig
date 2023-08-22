@@ -278,6 +278,7 @@ pub const ObjTypeDef = opaque {
     pub extern fn bz_stringType(vm: *VM) Value;
     pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value;
     pub extern fn bz_fstructTypeSize(self: *ObjTypeDef) usize;
+    pub extern fn bz_fstructTypeAlign(type_def: *ObjTypeDef) usize;
 };
 
 pub const ObjString = opaque {

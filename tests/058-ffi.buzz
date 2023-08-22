@@ -86,8 +86,6 @@ test "struct" {
     setDataId(data);
 
     assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
-
-    | dump(sizeOf("Data"));
 }
 
 test "write/read struct in buffer" {
@@ -100,7 +98,7 @@ test "write/read struct in buffer" {
 
     buffer.writeStruct(<Data>, Data, values: [data]);
 
-    assert(buffer.toString().len() == 16, message: "Could write struct to buffer");
+    assert(buffer.toString().len() == sizeOfStruct(Data), message: "Could write struct to buffer");
 
     Data read = buffer.readStruct(<Data>, Data);
 

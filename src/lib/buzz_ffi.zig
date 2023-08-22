@@ -46,3 +46,20 @@ export fn sizeOf(ctx: *api.NativeCtx) c_int {
 
     return 1;
 }
+
+// FIXME: raise error if typedef is not .ForeignStruct
+export fn sizeOfStruct(ctx: *api.NativeCtx) c_int {
+    const type_def = ctx.vm.bz_peek(0).bz_valueToObjTypeDef();
+
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(type_def.bz_fstructTypeSize())));
+
+    return 1;
+}
+
+export fn alignOfStruct(ctx: *api.NativeCtx) c_int {
+    const type_def = ctx.vm.bz_peek(0).bz_valueToObjTypeDef();
+
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(type_def.bz_fstructTypeAlign())));
+
+    return 1;
+}
