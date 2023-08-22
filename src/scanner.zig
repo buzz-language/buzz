@@ -121,8 +121,9 @@ pub const Scanner = struct {
             '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '"' => self.string(false),
             '`' => self.string(true),
-            '|' => try self.docblock(),
-            '_' => try self.pattern(),
+            '@' => self.atIdentifier(),
+            '|' => self.docblock(),
+            '_' => self.pattern(),
 
             else => self.makeToken(.Error, "Unexpected character.", null, null),
         };
@@ -205,6 +206,28 @@ pub const Scanner = struct {
         }
 
         return self.makeToken(.Docblock, std.mem.trim(u8, block.items, " "), null, null);
+    }
+
+    fn atIdentifier(self: *Self) !Token {
+        if (self.advance() != '"') {
+            return self.makeToken(.Error, "Unterminated identifier.", null, null);
+        }
+
+        const string_token = try self.string(false);
+
+        self.token_index += 1;
+        return .{
+            .token_type = .Identifier,
+            .lexeme = string_token.literal_string.?,
+            .literal_string = string_token.literal_string.?,
+            .literal_float = null,
+            .literal_integer = null,
+            .offset = self.current.start - 1,
+            .line = self.line_offset + self.current.start_line,
+            .column = self.column_offset + self.current.start_column,
+            .source = self.source,
+            .script_name = self.script_name,
+        };
     }
 
     fn identifier(self: *Self) !Token {
