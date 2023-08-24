@@ -1,3 +1,33 @@
+# Unreleased
+
+## Added
+
+- FFI (https://github.com/buzz-language/buzz/issues/109)
+    - Uses MIR to generate wrappers around imported functions and to generate getters and setters to struct fields
+    - New `zdef` statement to declare and bind foreign functions and struct using zig code
+    - New `ffi` std lib
+    - When you need a pointer to something you can use the `Buffer` std lib object. Added:
+        - `Buffer.writeZ`, `Buffer.readZ`, `Buffer.writeStruct`, `Buffer.readStruct`
+        - `Buffer.ptr`, `Buffer.len`
+- New (fancy) error reporter
+- Errors have now an associated code
+- `os.sleep`
+- First class types (https://github.com/buzz-language/buzz/issues/21)
+    - Type can be passed around as values like so: `<str>`
+    - New `typeof` operator returns type of any value: `typeof "hello"` -> `<str>`
+- Delimiters for non-standard identifiers (https://github.com/buzz-language/buzz/issues/138)
+
+## Changed
+
+- `Json` now return a `Box` object (which can be reused in other contexts than JSON)
+- Identifiers can now have `_` since pattern delimiters have changed
+- Changed pattern delimiters (https://github.com/buzz-language/buzz/issues/165)
+
+## Fixed
+
+- Some bugs `any`
+- Runtime error stack trace was wrong
+
 # 0.2.0 (07-26-2023)
 
 ## Added
