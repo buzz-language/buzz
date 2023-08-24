@@ -2604,32 +2604,30 @@ pub const ObjBoundMethod = struct {
 pub const ObjTypeDef = struct {
     const Self = @This();
 
-    // TODO: merge this with ObjType
     pub const Type = enum {
-        Bool,
-        Integer,
-        Float,
-        String,
-        Pattern,
         Any,
-        // Types before ObjectInstance have no resolved_type
-        ObjectInstance,
-        Object,
-        Protocol,
-        ProtocolInstance,
+        Bool,
+        Float,
+        Integer,
+        Pattern,
+        String,
+        Type, // Something that holds a type, not an actual type
+        UserData,
+        Void,
+
         Enum,
         EnumInstance,
-        List,
-        Map,
+        Fiber,
+        ForeignStruct,
         Function,
         Generic,
-        Type, // Something that holds a type, not an actual type
-        Void,
-        Fiber,
-        UserData,
-        ForeignStruct,
-
+        List,
+        Map,
+        Object,
+        ObjectInstance,
         Placeholder, // Used in first-pass when we refer to a not yet parsed type
+        Protocol,
+        ProtocolInstance,
     };
 
     pub const GenericDef = struct {
@@ -2638,37 +2636,31 @@ pub const ObjTypeDef = struct {
         index: usize, // Index in generic list
     };
 
+    // Always keep types with void value first.
     pub const TypeUnion = union(Type) {
-        // For those type checking is obvious, the value is a placeholder
-        Bool: void,
-        Integer: void,
-        Float: void,
-        String: void,
-        Pattern: void,
-        Generic: GenericDef,
-        Type: void,
-        Void: void,
-        UserData: void,
-        Fiber: ObjFiber.FiberDef,
         Any: void,
+        Bool: void,
+        Float: void,
+        Integer: void,
+        Pattern: void,
+        String: void,
+        Type: void,
+        UserData: void,
+        Void: void,
 
-        // For those we check that the value is an instance of, because those are user defined types
-        ObjectInstance: *ObjTypeDef,
-        EnumInstance: *ObjTypeDef,
-        ProtocolInstance: *ObjTypeDef,
-
-        // Those are never equal
-        Object: ObjObject.ObjectDef,
         Enum: ObjEnum.EnumDef,
-        Protocol: ObjObject.ProtocolDef,
-
-        // For those we compare definitions, so we own those structs, we don't use actual Obj because we don't want the data, only the types
+        EnumInstance: *ObjTypeDef,
+        Fiber: ObjFiber.FiberDef,
+        ForeignStruct: ObjForeignStruct.StructDef,
+        Function: ObjFunction.FunctionDef,
+        Generic: GenericDef,
         List: ObjList.ListDef,
         Map: ObjMap.MapDef,
-        Function: ObjFunction.FunctionDef,
-
+        Object: ObjObject.ObjectDef,
+        ObjectInstance: *ObjTypeDef,
         Placeholder: PlaceholderDef,
-        ForeignStruct: ObjForeignStruct.StructDef,
+        Protocol: ObjObject.ProtocolDef,
+        ProtocolInstance: *ObjTypeDef,
     };
 
     obj: Obj = .{ .obj_type = .Type },
