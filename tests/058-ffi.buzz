@@ -65,8 +65,8 @@ zdef("tests/utils/libforeign", `
     };
 `);
 
-zdef("tests/utils/libforeign", "fn getDataMsg(data: *Data) [*:0]const u8;");
-zdef("tests/utils/libforeign", "fn setDataId(data: *Data) void;");
+zdef("tests/utils/libforeign", "fn get_data_msg(data: *Data) [*:0]const u8;");
+zdef("tests/utils/libforeign", "fn set_data_id(data: *Data) void;");
 
 test "struct" {
     Data data = Data{
@@ -81,9 +81,9 @@ test "struct" {
 
     assert(data.id == 42, message: "Could set Zig struct field");
 
-    assert(getDataMsg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
+    assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
 
-    setDataId(data);
+    set_data_id(data);
 
     assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
 }
