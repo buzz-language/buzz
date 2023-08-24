@@ -401,7 +401,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
         .{ .prefix = null, .infix = null, .precedence = .None }, // any
         .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
-        .{ .prefix = typeOfExpression, .infix = null, .precedence = .IsAs }, // typeof
+        .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
     };
 
     pub const ScriptImport = struct {
@@ -3549,7 +3549,7 @@ pub const Parser = struct {
     fn typeOfExpression(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        const expr = try self.expression(false);
+        const expr = try self.parsePrecedence(.Unary, false);
 
         var node = try self.gc.allocator.create(TypeOfExpressionNode);
         node.* = .{
