@@ -231,7 +231,7 @@ pub const Scanner = struct {
     }
 
     fn identifier(self: *Self) !Token {
-        while (isLetter(self.peek()) or isNumber(self.peek())) {
+        while (isLetter(self.peek()) or isNumber(self.peek()) or self.peek() == '_') {
             _ = self.advance();
         }
 

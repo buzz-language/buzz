@@ -22,10 +22,10 @@ pub const Data = extern struct {
     id: i32,
 };
 
-export fn getDataMsg(data: *Data) [*:0]u8 {
+export fn get_data_msg(data: *Data) [*:0]u8 {
     return data.msg;
 }
 
-export fn setDataId(data: *Data) void {
+export fn set_data_id(data: *Data) void {
     data.id *= 2;
 }

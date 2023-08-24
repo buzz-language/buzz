@@ -116,3 +116,5 @@ dist/
 *.dylib
 *.so
 *.o
+
+tests/utils/libforeign.*
