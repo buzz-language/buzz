@@ -21,15 +21,15 @@ test "Types as value" {
 }
 
 test "typeof" {
-    assert((typeof A{}) == <A>, message: "typeof operator");
-    assert((typeof B.case) == <B>, message: "typeof operator");
-    assert((typeof "hello") == <str>, message: "typeof operator");
-    assert((typeof true) == <bool>, message: "typeof operator");
-    assert((typeof null) == <void>, message: "typeof operator");
-    assert((typeof 1) == <int>, message: "typeof operator");
-    assert((typeof 3.14) == <float>, message: "typeof operator");
-    assert((typeof $"hello") == <pat>, message: "typeof operator");
-    assert((typeof dumpType) == <Function(type myType) > void > void>, message: "typeof operator");
+    assert(typeof A{} == <A>, message: "typeof operator");
+    assert(typeof B.case == <B>, message: "typeof operator");
+    assert(typeof "hello" == <str>, message: "typeof operator");
+    assert(typeof true == <bool>, message: "typeof operator");
+    assert(typeof null == <void>, message: "typeof operator");
+    assert(typeof 1 == <int>, message: "typeof operator");
+    assert(typeof 3.14 == <float>, message: "typeof operator");
+    assert(typeof $"hello" == <pat>, message: "typeof operator");
+    assert(typeof dumpType == <Function(type myType) > void > void>, message: "typeof operator");
 }
 
 test "type argument" {
@@ -44,7 +44,23 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "necessary weirdness" {
-    assert((typeof A) == (typeof A{}), message: "typeof Object == typeof Object instance");
-    assert((typeof C) == <type>, message: "protocol is a type at runtime");
-    assert((typeof Data) == <type>, message: "fstruct is a type at runtime");
+    assert(typeof A == typeof A{}, message: "typeof Object == typeof Object instance");
+    assert((<A>) == typeof A, message: "typeof Object == typeof Object instance");
+
+    assert(typeof C == <type>, message: "protocol is a type at runtime");
+    assert(typeof Data == <type>, message: "fstruct is a type at runtime");
+}
+
+fun generic(<T>, T value) > T {
+    return value;
+}
+
+fun typeArg(type T, str value) > str {
+    dump(T);
+    return value;
+}
+
+test "generic type expression ambiguity" {
+    dump(generic(<str>, "hello"));
+    dump(typeArg((<str>), value: "hello"));
 }
