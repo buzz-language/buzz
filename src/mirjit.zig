@@ -584,6 +584,20 @@ fn buildBuzzValueToZigValue(self: *Self, zig_type: ZigType, buzz_value: m.MIR_op
                 try self.buildValueToUserData(buzz_value, dest);
             }
         },
+        .Optional => {
+            // Is it a [*:0]const u8
+            // zig fmt: off
+            if (zig_type.Optional.child.Pointer.child.* == .Int
+                and zig_type.Optional.child.Pointer.child.Int.bits == 8
+                and zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned) {
+                // zig fmt: on
+                try self.buildValueToOptionalCString(buzz_value, dest);
+            } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
+                try self.buildValueToOptionalForeignStructPtr(buzz_value, dest);
+            } else {
+                try self.buildValueToOptionalUserData(buzz_value, dest);
+            }
+        },
         else => unreachable,
     }
 }
@@ -605,6 +619,18 @@ fn buildZigValueToBuzzValue(self: *Self, zig_type: ZigType, zig_value: m.MIR_op_
                 try self.buildValueFromCString(zig_value, dest);
             } else {
                 try self.buildValueFromUserData(zig_value, dest);
+            }
+        },
+        .Optional => {
+            // Is it a [*:0]const u8
+            // zig fmt: off
+            if (zig_type.Optional.child.Pointer.child.* == .Int
+                and zig_type.Optional.child.Pointer.child.Int.bits == 8
+                and zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned) {
+                    // zig fmt: on
+                try self.buildValueFromOptionalCString(zig_value, dest);
+            } else {
+                try self.buildValueFromOptionalUserData(zig_value, dest);
             }
         },
         else => unreachable,
@@ -717,7 +743,10 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
             else => unreachable,
         },
         .Bool => m.MIR_T_U8,
-        .Pointer => m.MIR_T_I64,
+        // Optional only allowed on pointers so its either 0 or an actual ptr
+        .Pointer,
+        .Optional,
+        => m.MIR_T_I64,
         // See https://github.com/vnmakarov/mir/issues/332 passing struct by values will need some work
         .Struct => unreachable, //m.MIR_T_BLK,
         else => unreachable,
@@ -734,7 +763,12 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
         },
         // See https://github.com/vnmakarov/mir/issues/332 passing struct by values will need some work
         .Struct => unreachable, //m.MIR_T_BLK,
-        else => unreachable,
+        // Optional are only allowed on pointers
+        .Optional => m.MIR_T_I64,
+        else => {
+            std.debug.print("{}\n", .{zig_type});
+            unreachable;
+        },
     };
 }
 
@@ -1473,6 +1507,29 @@ fn buildValueToCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     );
 }
 
+fn buildValueToOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    try self.buildExternApiCall(
+        .bz_valueToCString,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+
+    self.append(null_label);
+}
+
 fn buildValueFromCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_stringZ,
@@ -1482,6 +1539,32 @@ fn buildValueFromCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void
             value,
         },
     );
+}
+
+fn buildValueFromOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    try self.buildExternApiCall(
+        .bz_stringZ,
+        dest,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            value,
+        },
+    );
+
+    self.append(null_label);
 }
 
 fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
@@ -1500,12 +1583,81 @@ fn buildValueToForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
     );
 }
 
+fn buildValueToOptionalForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    try self.buildExternApiCall(
+        .bz_valueToForeignStructPtr,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+
+    self.append(null_label);
+}
+
 fn buildValueFromUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_userDataToValue,
         dest,
         &[_]m.MIR_op_t{value},
     );
+}
+
+fn buildValueFromOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    try self.buildExternApiCall(
+        .bz_userDataToValue,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+
+    self.append(null_label);
+}
+
+fn buildValueToOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    try self.buildExternApiCall(
+        .bz_valueToUserData,
+        dest,
+        &[_]m.MIR_op_t{value},
+    );
+
+    self.append(null_label);
 }
 
 fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
@@ -1570,13 +1722,6 @@ fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
             0,
         ),
     );
-}
-
-fn buildValueFromForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
-    _ = dest;
-    _ = value;
-    _ = self;
-    unreachable;
 }
 
 fn buildValueToForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
@@ -1658,7 +1803,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
         .Fiber,
         .UserData,
         => self.buildValueFromObj(value, dest),
-        .ForeignStruct => self.buildValueFromForeignStruct(value, dest),
+        .ForeignStruct,
         .Placeholder,
         .Generic,
         .Any,

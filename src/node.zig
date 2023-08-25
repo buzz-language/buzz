@@ -8050,22 +8050,24 @@ pub const ZdefNode = struct {
         const self = Self.cast(node).?;
 
         // Generate ObjNative wrapper of actual zdef
-        switch (node.type_def.?.def_type) {
-            .Function => {
-                if (self.obj_native == null) {
-                    self.obj_native = try codegen.mir_jit.?.compileZdef(self);
+        if (node.type_def) |type_def| {
+            switch (type_def.def_type) {
+                .Function => {
+                    if (self.obj_native == null) {
+                        self.obj_native = try codegen.mir_jit.?.compileZdef(self);
 
-                    try codegen.emitConstant(node.location, self.obj_native.?.toValue());
-                }
-            },
-            .ForeignStruct => {
-                try codegen.mir_jit.?.compileZdefStruct(self);
+                        try codegen.emitConstant(node.location, self.obj_native.?.toValue());
+                    }
+                },
+                .ForeignStruct => {
+                    try codegen.mir_jit.?.compileZdefStruct(self);
 
-                try codegen.emitConstant(node.location, node.type_def.?.toValue());
-            },
-            else => unreachable,
+                    try codegen.emitConstant(node.location, type_def.toValue());
+                },
+                else => unreachable,
+            }
+            try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
         }
-        try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);

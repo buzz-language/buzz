@@ -292,7 +292,7 @@ pub const Scanner = struct {
         _ = self.advance(); // Consume 'x'
 
         var peeked: u8 = self.peek();
-        while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F')) {
+        while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F') or (peeked >= 'a' and peeked <= 'f')) {
             _ = self.advance();
 
             peeked = self.peek();
