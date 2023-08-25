@@ -20,6 +20,10 @@ const basic_types = std.ComptimeStringMap(
         .{ "i16", .{ .def_type = .Integer } },
         .{ "i32", .{ .def_type = .Integer } },
 
+        // Could it be > 32bits one some systems?
+        .{ "c_int", .{ .def_type = .Integer } },
+
+        .{ "c_uint", .{ .def_type = .Float } },
         .{ "u32", .{ .def_type = .Float } },
         .{ "i64", .{ .def_type = .Float } },
         .{ "f32", .{ .def_type = .Float } },
@@ -37,6 +41,24 @@ const basic_types = std.ComptimeStringMap(
 const zig_basic_types = std.ComptimeStringMap(
     ZigType,
     .{
+        .{
+            "c_int",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 32,
+                },
+            },
+        },
+        .{
+            "c_uint",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 32,
+                },
+            },
+        },
         .{
             "u8",
             ZigType{
@@ -253,6 +275,7 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
 
 fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
     const decl = self.state.?.ast.nodes.get(decl_index);
+    const ast = self.state.?.ast;
 
     return switch (decl.tag) {
         .fn_proto_simple,
@@ -271,10 +294,10 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         .simple_var_decl => var_decl: {
             // Allow simple type if we're parsing type expr, or struct type
             if (self.state.?.parsing_type_expr) {
-                break :var_decl try self.getZdef(self.state.?.ast.simpleVarDecl(decl_index).ast.type_node);
+                break :var_decl try self.getZdef(ast.simpleVarDecl(decl_index).ast.type_node);
             }
 
-            switch (self.state.?.ast.nodes.get(self.state.?.ast.simpleVarDecl(decl_index).ast.init_node).tag) {
+            switch (ast.nodes.get(ast.simpleVarDecl(decl_index).ast.init_node).tag) {
                 .container_decl,
                 .container_decl_trailing,
                 .container_decl_two,
@@ -282,8 +305,10 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 .container_decl_arg,
                 .container_decl_arg_trailing,
                 => break :var_decl try self.containerDecl(
-                    self.state.?.ast.tokenSlice(self.state.?.ast.nodes.get(self.state.?.ast.simpleVarDecl(decl_index).ast.type_node).data.rhs),
-                    self.state.?.ast.simpleVarDecl(decl_index).ast.init_node,
+                    ast.tokenSlice(
+                        ast.simpleVarDecl(decl_index).ast.mut_token + 1,
+                    ),
+                    ast.simpleVarDecl(decl_index).ast.init_node,
                 ),
                 else => {},
             }
@@ -291,7 +316,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             self.reporter.reportErrorFmt(
                 .zdef,
                 self.state.?.source,
-                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and enums are supported",
+                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{decl.tag},
             );
             break :var_decl null;
@@ -300,11 +325,40 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         // TODO: do we support container_field and container_field_align?
         .container_field_init => try self.containerField(decl_index),
 
+        .optional_type => opt: {
+            const zdef = try self.getZdef(decl.data.lhs);
+
+            if (zdef) |uzdef| {
+                var opt_zdef = try self.gc.allocator.create(Zdef);
+                opt_zdef.* = .{
+                    .zig_type = .{
+                        .Optional = .{
+                            .child = &uzdef.zig_type,
+                        },
+                    },
+                    .type_def = try uzdef.type_def.cloneOptional(&self.gc.type_registry),
+                    .name = uzdef.name,
+                };
+
+                if (uzdef.zig_type != .Pointer) {
+                    self.reporter.reportErrorAt(
+                        .zdef,
+                        self.state.?.source,
+                        "Optionals only allowed on pointers",
+                    );
+                }
+
+                break :opt opt_zdef;
+            } else {
+                break :opt null;
+            }
+        },
+
         else => fail: {
             self.reporter.reportErrorFmt(
                 .zdef,
                 self.state.?.source,
-                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and enums are supported",
+                "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{decl.tag},
             );
             break :fail null;
@@ -326,7 +380,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         else => unreachable,
     };
 
-    if (container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) {
+    if ((container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) and self.state.?.ast.tokens.get(container.ast.main_token).tag != .keyword_opaque) {
         self.reporter.reportErrorAt(
             .zdef,
             self.state.?.source,
@@ -334,11 +388,11 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         );
     }
 
-    if (self.state.?.ast.tokens.get(container_node.main_token).tag != .keyword_struct) {
+    if (self.state.?.ast.tokens.get(container_node.main_token).tag != .keyword_struct and self.state.?.ast.tokens.get(container_node.main_token).tag != .keyword_opaque) {
         self.reporter.reportErrorAt(
             .zdef,
             self.state.?.source,
-            "Unsupported type",
+            "Only `extern` and `opaque` structs are supported",
         );
     }
 
@@ -524,7 +578,24 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
                     .sentinel = undefined,
                 },
             },
-            .name = "string",
+            .name = "ptr",
+        }
+    else if (child_type.type_def.def_type == .ForeignStruct)
+        .{
+            .type_def = child_type.type_def,
+            .zig_type = ZigType{
+                .Pointer = .{
+                    .size = .C,
+                    .is_const = ptr_type.const_token != null,
+                    .is_volatile = undefined,
+                    .alignment = undefined,
+                    .address_space = undefined,
+                    .child = &child_type.zig_type,
+                    .is_allowzero = undefined,
+                    .sentinel = undefined,
+                },
+            },
+            .name = "ptr",
         }
     else
         .{
@@ -541,7 +612,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
                     .sentinel = undefined,
                 },
             },
-            .name = "string",
+            .name = "ptr",
         };
 
     return zdef;
@@ -613,6 +684,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         }
 
         const param_zdef = try self.getZdef(param.type_expr);
+        if (param_zdef == null) break;
 
         try function_def.parameters.put(
             try self.gc.copyString(param_name orelse "$"),

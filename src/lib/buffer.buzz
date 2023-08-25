@@ -60,6 +60,8 @@ extern fun BufferReadStructAt(<T>, ud userdata, type structType, int at) > T !> 
 export object Buffer {
     || @private
     ud buffer,
+    || @private
+    bool released = false,
 
     || @return A new `Buffer`
     static fun init(int capacity = 0) > Buffer {
@@ -70,8 +72,11 @@ export object Buffer {
 
     || Frees the buffer
     fun collect() > void {
-        | print("Buffer collect called");
-        BufferDeinit(this.buffer);
+        | Avoid double free
+        if (!this.released) {
+            this.released = true;
+            BufferDeinit(this.buffer);
+        }
     }
 
     || Reads `n` bytes

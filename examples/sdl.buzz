@@ -1,0 +1,101 @@
+import "std";
+import "ffi";
+import "buffer";
+
+| TODO: support typedef, type aliases
+zdef("SDL2", "const SDL_Window = opaque{};");
+zdef("SDL2", "const SDL_Renderer = opaque{};");
+zdef("SDL2", `
+    const SDL_Rect = extern struct {
+        x: c_int,
+        y: c_int,
+        w: c_int,
+        h: c_int,
+    };
+`);
+
+zdef("SDL2", "fn SDL_GetError() [*c]const u8;");
+zdef("SDL2", "fn SDL_Init(flags: u32) c_int;");
+zdef("SDL2", "fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;");
+zdef("SDL2", "fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;");
+zdef("SDL2", "fn SDL_CreateRenderer(window: *SDL_Window, index: c_int, flags: u32) ?*SDL_Renderer;");
+zdef("SDL2", "fn SDL_RenderPresent(renderer: *SDL_Renderer) void;");
+zdef("SDL2", "fn SDL_DestroyWindow(window: *SDL_Window) void;");
+zdef("SDL2", "fn SDL_Delay(ms: u32) void;");
+zdef("SDL2", "fn SDL_Quit() void;");
+zdef("SDL2", "fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: [*c]const SDL_Rect) c_int;");
+zdef("SDL2", "fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;");
+
+| zdef("SDL2", "const SDL_INIT_VIDEO: c_uint = 0x00000020;");
+| zdef("SDL2", "const SDL_WINDOWPOS_CENTERED_MASK: c_uint = 0x2FFF0000;");
+| zdef("SDL2", "const SDL_WINDOW_OPENGL: c_int = 2;");
+| zdef("SDL2", "const SDL_WINDOW_ALLOW_HIGHDPI: c_int = 8192;");
+| zdef("SDL2", "const SDL_RENDERER_ACCELERATED: c_int = 2;");
+| zdef("SDL2", "const SDL_RENDERER_TARGETTEXTURE: c_int = 8;");
+
+const float SDL_INIT_VIDEO = 32.0;
+const int SDL_WINDOWPOS_CENTERED_MASK = 0x2FFF0000;
+const float SDL_WINDOW_OPENGL = 2.0;
+const float SDL_WINDOW_ALLOW_HIGHDPI = 8192.0;
+const float SDL_RENDERER_ACCELERATED = 2.0;
+const float SDL_RENDERER_TARGETTEXTURE = 8.0;
+
+fun main([str] args) > int {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        print("Error: {SDL_GetError()}");
+        return -1;
+    }
+
+    const SDL_Window? window_opt = SDL_CreateWindow(
+        cstr("SDL FFI test"),
+        x: SDL_WINDOWPOS_CENTERED_MASK,
+        y: SDL_WINDOWPOS_CENTERED_MASK,
+        w: 800,
+        h: 600,
+        flags: SDL_WINDOW_OPENGL \ SDL_WINDOW_ALLOW_HIGHDPI,
+    );
+
+    if (window_opt == null) {
+        print("Error: {SDL_GetError()}");
+        return -1;
+    }
+
+    const SDL_Window window = window_opt!;
+
+    const SDL_Renderer? renderer_opt = SDL_CreateRenderer(
+        window,
+        index: -1,
+        flags: SDL_RENDERER_ACCELERATED \ SDL_RENDERER_TARGETTEXTURE,
+    );
+
+    if (renderer_opt == null) {
+        print("Error: {SDL_GetError()}");
+        return -1;
+    }
+
+    const SDL_Renderer renderer = renderer_opt!;
+
+    SDL_SetRenderDrawColor(renderer, r: 0x01, g: 0x9d, b: 0xe0, a: 0xff);
+
+    while (true) {
+        SDL_RenderFillRect(
+            renderer,
+            rect: SDL_Rect{
+                x = 200,
+                y = 200,
+                w = 200,
+                h = 200,
+            },
+        );
+
+        SDL_RenderPresent(renderer);
+
+        SDL_Delay(10.0);
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+
+    return 0;
+}

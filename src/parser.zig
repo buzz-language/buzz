@@ -298,6 +298,9 @@ pub const Parser = struct {
         "./?.x",
         "/usr/lib/?.x",
         "/usr/local/lib/?.x",
+        "./lib?.x",
+        "/usr/lib/lib?.x",
+        "/usr/local/lib/lib?.x",
     };
 
     const rules = [_]ParseRule{
@@ -410,6 +413,8 @@ pub const Parser = struct {
         absolute_path: *ObjString,
     };
 
+    pub var user_library_paths: ?[][]const u8 = null;
+
     gc: *GarbageCollector,
     scanner: ?Scanner = null,
     parser: ParserState,
@@ -431,7 +436,12 @@ pub const Parser = struct {
     // Jump to patch at end of current expression with a optional unwrapping in the middle of it
     opt_jumps: ?std.ArrayList(Precedence) = null,
 
-    pub fn init(gc: *GarbageCollector, imports: *std.StringHashMap(ScriptImport), imported: bool, flavor: RunFlavor) Self {
+    pub fn init(
+        gc: *GarbageCollector,
+        imports: *std.StringHashMap(ScriptImport),
+        imported: bool,
+        flavor: RunFlavor,
+    ) Self {
         return .{
             .gc = gc,
             .parser = ParserState.init(gc.allocator),
@@ -4942,6 +4952,50 @@ pub const Parser = struct {
             try paths.append(prefixed);
         }
 
+        for (Parser.user_library_paths orelse &[_][]const u8{}) |path| {
+            var filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try filled.writer().print(
+                "{s}{s}{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            filled.shrinkAndFree(filled.items.len);
+
+            try paths.append(filled.items);
+
+            var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try prefixed_filled.writer().print(
+                "{s}{s}lib{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
+
+            try paths.append(prefixed_filled.items);
+        }
+
         return paths;
     }
 
@@ -4964,6 +5018,50 @@ pub const Parser = struct {
                 },
             );
             try paths.append(suffixed);
+        }
+
+        for (Parser.user_library_paths orelse &[_][]const u8{}) |path| {
+            var filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try filled.writer().print(
+                "{s}{s}{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            filled.shrinkAndFree(filled.items.len);
+
+            try paths.append(filled.items);
+
+            var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try prefixed_filled.writer().print(
+                "{s}{s}lib{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
+
+            try paths.append(prefixed_filled.items);
         }
 
         return paths;

@@ -191,12 +191,13 @@ pub fn main() !void {
         std.heap.c_allocator;
 
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help    Show help and exit
-        \\-t, --test    Run test blocks in provided script
-        \\-c, --check   Check script for error without running it
-        \\-f, --fmt     Format script
-        \\-a, --tree    Dump AST as JSON
-        \\-v, --version Print version and exit
+        \\-h, --help             Show help and exit
+        \\-t, --test             Run test blocks in provided script
+        \\-c, --check            Check script for error without running it
+        \\-f, --fmt              Format script
+        \\-a, --tree             Dump AST as JSON
+        \\-v, --version          Print version and exit
+        \\-L, --library <str>... Add search path for external libraries
         \\<str>...
         \\
     );
@@ -260,6 +261,17 @@ pub fn main() !void {
         );
 
         std.os.exit(0);
+    }
+
+    if (res.args.library.len > 0) {
+        var list = std.ArrayList([]const u8).init(allocator);
+        defer list.shrinkAndFree(list.items.len);
+
+        for (res.args.library) |path| {
+            try list.append(path);
+        }
+
+        Parser.user_library_paths = list.items;
     }
 
     var positionals = std.ArrayList([:0]u8).init(allocator);
