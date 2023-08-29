@@ -209,6 +209,10 @@ pub const Scanner = struct {
     }
 
     fn atIdentifier(self: *Self) !Token {
+        self.current.start = self.current.offset;
+        self.current.start_line = self.current.line;
+        self.current.start_column = self.current.column;
+
         if (self.advance() != '"') {
             return self.makeToken(.Error, "Unterminated identifier.", null, null);
         }
