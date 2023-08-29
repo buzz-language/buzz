@@ -298,7 +298,7 @@ pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
 
     if (BuildOptions.debug_jit) {
         std.debug.print(
-            "Compiling zdef struct getters/setters for `{s}` or type `{s}`\n",
+            "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_node.symbol,
                 (zdef_node.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
@@ -340,6 +340,7 @@ pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
                 struct_field.value_ptr.*.offset,
                 foreign_def.name.string,
                 field.name,
+                foreign_def.buzz_type.get(field.name).?,
                 field.type,
             ),
         );
@@ -488,6 +489,7 @@ fn buildZdefStructSetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
+    buzz_type: *o.ObjTypeDef,
     zig_type: *ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -555,6 +557,7 @@ fn buildZdefStructSetter(
     );
 
     try self.buildBuzzValueToZigValue(
+        buzz_type,
         zig_type.*,
         m.MIR_new_reg_op(self.ctx, new_value_reg),
         field_ptr,
@@ -567,9 +570,24 @@ fn buildZdefStructSetter(
     return function;
 }
 
-fn buildBuzzValueToZigValue(self: *Self, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     switch (zig_type) {
-        .Int => self.buildValueToInteger(buzz_value, dest),
+        .Int => {
+            if (buzz_type.def_type == .Float) {
+                const tmp_float = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("tmp_float", m.MIR_T_D),
+                );
+
+                // This is a int represented by a buzz float value
+                self.buildValueToFloat(buzz_value, tmp_float);
+
+                // Convert it back to an int
+                self.D2I(dest, tmp_float);
+            } else {
+                self.buildValueToInteger(buzz_value, dest);
+            }
+        },
         // TODO: float can't be truncated like ints, we need a D2F instruction
         .Float => self.buildValueToFloat(buzz_value, dest),
         .Bool => self.buildValueToBoolean(buzz_value, dest),
@@ -607,7 +625,22 @@ fn buildBuzzValueToZigValue(self: *Self, zig_type: ZigType, buzz_value: m.MIR_op
 
 fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     switch (zig_type) {
-        .Int => self.buildValueFromInteger(zig_value, dest),
+        .Int => {
+            if (buzz_type.def_type == .Float) {
+                const tmp_int = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("tmp_int", m.MIR_T_I64),
+                );
+
+                // This is a int represented by a buzz float value
+                self.buildValueFromInteger(zig_value, tmp_int);
+
+                // Convert it back to an int
+                self.I2D(dest, tmp_int);
+            } else {
+                self.buildValueFromInteger(zig_value, dest);
+            }
+        },
         .Float => self.buildValueFromFloat(zig_value, dest),
         .Bool => self.buildValueFromBoolean(zig_value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
@@ -658,7 +691,7 @@ pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
 
     if (BuildOptions.debug_jit) {
         std.debug.print(
-            "Compiling zdef wrapper for `{s}` or type `{s}`\n",
+            "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.symbol,
                 (zdef.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
@@ -934,6 +967,7 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         try self.buildPeek(@intCast(idx - 1), param_value);
 
         try self.buildBuzzValueToZigValue(
+            function_def.parameters.get(function_def.parameters.keys()[zidx]).?,
             zig_function_def.Fn.params[zidx].type.?.*,
             param_value,
             param,
