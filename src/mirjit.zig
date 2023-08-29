@@ -330,6 +330,7 @@ pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
                 struct_field.value_ptr.*.offset,
                 foreign_def.name.string,
                 field.name,
+                foreign_def.buzz_type.get(field.name).?,
                 field.type,
             ),
         );
@@ -399,6 +400,7 @@ fn buildZdefStructGetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
+    buzz_type: *o.ObjTypeDef,
     zig_type: *ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
@@ -466,6 +468,7 @@ fn buildZdefStructGetter(
     );
 
     try self.buildZigValueToBuzzValue(
+        buzz_type,
         zig_type.*,
         field_ptr,
         result_value,
@@ -602,7 +605,7 @@ fn buildBuzzValueToZigValue(self: *Self, zig_type: ZigType, buzz_value: m.MIR_op
     }
 }
 
-fn buildZigValueToBuzzValue(self: *Self, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     switch (zig_type) {
         .Int => self.buildValueFromInteger(zig_value, dest),
         .Float => self.buildValueFromFloat(zig_value, dest),
@@ -617,6 +620,8 @@ fn buildZigValueToBuzzValue(self: *Self, zig_type: ZigType, zig_value: m.MIR_op_
                 and zig_type.Pointer.child.Int.signedness == .unsigned) {
                     // zig fmt: on
                 try self.buildValueFromCString(zig_value, dest);
+            } else if (zig_type.Pointer.child.* == .Struct) {
+                try self.buildValueFromForeignStructPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromUserData(zig_value, dest);
             }
@@ -629,6 +634,8 @@ fn buildZigValueToBuzzValue(self: *Self, zig_type: ZigType, zig_value: m.MIR_op_
                 and zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned) {
                     // zig fmt: on
                 try self.buildValueFromOptionalCString(zig_value, dest);
+            } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
+                try self.buildValueFromOptionalForeignStructPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromOptionalUserData(zig_value, dest);
             }
@@ -857,6 +864,8 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
     else
         ZigType{ .Void = {} };
 
+    const buzz_return_type = function_def.return_type;
+
     var return_mir_type = if (zig_return_type != .Void)
         zigToMIRRegType(zig_return_type)
     else
@@ -946,6 +955,7 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
     // Push result on stack
     if (result) |res| {
         try self.buildZigValueToBuzzValue(
+            buzz_return_type,
             zig_return_type,
             res,
             result_value,
@@ -1581,6 +1591,47 @@ fn buildValueToForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
         dest,
         &[_]m.MIR_op_t{value},
     );
+}
+
+fn buildValueFromForeignStructPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    try self.buildExternApiCall(
+        .bz_fstructFromSlice,
+        dest,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
+            value,
+            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignStruct.zig_type.size()),
+        },
+    );
+}
+
+fn buildValueFromOptionalForeignStructPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const null_label = m.MIR_new_label(self.ctx);
+
+    self.MOV(
+        dest,
+        m.MIR_new_uint_op(self.ctx, v.Value.Null.val),
+    );
+
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, null_label),
+        value,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    try self.buildExternApiCall(
+        .bz_fstructFromSlice,
+        dest,
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
+            value,
+            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignStruct.zig_type.size()),
+        },
+    );
+
+    self.append(null_label);
 }
 
 fn buildValueToOptionalForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
@@ -5604,6 +5655,7 @@ pub const ExternApi = enum {
     bz_fstructSet,
     bz_fstructInstance,
     bz_valueTypeOf,
+    bz_fstructFromSlice,
 
     bz_dumpStack,
 
@@ -5613,6 +5665,7 @@ pub const ExternApi = enum {
     exit,
 
     dumpInt,
+    bz_valueDump,
 
     pub fn declare(self: ExternApi, jit: *Self) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
@@ -6218,6 +6271,25 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_valueDump => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                },
+            ),
             .bz_valueToCString => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -6394,6 +6466,35 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_fstructFromSlice => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                4,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "type_def",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "ptr",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "len",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -6451,6 +6552,7 @@ pub const ExternApi = enum {
             .bz_fstructSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructSet))),
             .bz_fstructInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructInstance))),
             .bz_valueTypeOf => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueTypeOf))),
+            .bz_fstructFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructFromSlice))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -6460,6 +6562,7 @@ pub const ExternApi = enum {
             .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
 
             .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
+            .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
             else => {
                 std.debug.print("{s}\n", .{self.name()});
                 unreachable;
@@ -6523,6 +6626,7 @@ pub const ExternApi = enum {
             .bz_fstructSet => "bz_fstructSet",
             .bz_fstructInstance => "bz_fstructInstance",
             .bz_valueTypeOf => "bz_valueTypeOf",
+            .bz_fstructFromSlice => "bz_fstructFromSlice",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -6530,6 +6634,7 @@ pub const ExternApi = enum {
             .bz_dumpStack => "bz_dumpStack",
 
             .dumpInt => "dumpInt",
+            .bz_valueDump => "bz_valueDump",
         };
     }
 
@@ -6589,6 +6694,7 @@ pub const ExternApi = enum {
             .bz_fstructSet => "p_bz_fstructSet",
             .bz_fstructInstance => "p_bz_fstructInstance",
             .bz_valueTypeOf => "p_bz_valueTypeOf",
+            .bz_fstructFromSlice => "p_bz_fstructFromSlice",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",
@@ -6596,6 +6702,7 @@ pub const ExternApi = enum {
             .bz_dumpStack => "p_bz_dumpStack",
 
             .dumpInt => "p_dumpInt",
+            .bz_valueDump => "p_bz_valueDump",
         };
     }
 };

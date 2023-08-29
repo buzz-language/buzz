@@ -1,10 +1,13 @@
 import "std";
 import "ffi";
 import "buffer";
+import "debug";
 
-| TODO: support typedef, type aliases
 zdef("SDL2", "const SDL_Window = opaque{};");
 zdef("SDL2", "const SDL_Renderer = opaque{};");
+zdef("SDL2", "const SDL_Texture = opaque{};");
+| TODO: union
+zdef("SDL2", "const SDL_Event = opaque{};");
 zdef("SDL2", `
     const SDL_Rect = extern struct {
         x: c_int,
@@ -14,7 +17,7 @@ zdef("SDL2", `
     };
 `);
 
-zdef("SDL2", "fn SDL_GetError() [*c]const u8;");
+zdef("SDL2", "fn SDL_GetError() [*:0]const u8;");
 zdef("SDL2", "fn SDL_Init(flags: u32) c_int;");
 zdef("SDL2", "fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;");
 zdef("SDL2", "fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;");
@@ -23,8 +26,13 @@ zdef("SDL2", "fn SDL_RenderPresent(renderer: *SDL_Renderer) void;");
 zdef("SDL2", "fn SDL_DestroyWindow(window: *SDL_Window) void;");
 zdef("SDL2", "fn SDL_Delay(ms: u32) void;");
 zdef("SDL2", "fn SDL_Quit() void;");
-zdef("SDL2", "fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: [*c]const SDL_Rect) c_int;");
+zdef("SDL2", "fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;");
 zdef("SDL2", "fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;");
+zdef("SDL2", "fn SDL_PollEvent(event: *SDL_Event) c_int;");
+zdef("SDL2", "fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;");
+zdef("SDL2", "fn SDL_DestroyTexture(texture: *SDL_Texture) void;");
+zdef("SDL2", "fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;");
+zdef("SDL2", "fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;");
 
 | zdef("SDL2", "const SDL_INIT_VIDEO: c_uint = 0x00000020;");
 | zdef("SDL2", "const SDL_WINDOWPOS_CENTERED_MASK: c_uint = 0x2FFF0000;");
@@ -35,10 +43,12 @@ zdef("SDL2", "fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b
 
 const float SDL_INIT_VIDEO = 32.0;
 const int SDL_WINDOWPOS_CENTERED_MASK = 0x2FFF0000;
-const float SDL_WINDOW_OPENGL = 2.0;
-const float SDL_WINDOW_ALLOW_HIGHDPI = 8192.0;
-const float SDL_RENDERER_ACCELERATED = 2.0;
-const float SDL_RENDERER_TARGETTEXTURE = 8.0;
+const int SDL_WINDOW_OPENGL = 2;
+const int SDL_WINDOW_ALLOW_HIGHDPI = 8192;
+const int SDL_RENDERER_ACCELERATED = 2;
+const int SDL_RENDERER_TARGETTEXTURE = 8;
+const int SDL_PIXELFORMAT_RGBA8888 = 373694468;
+const int SDL_TEXTUREACCESS_TARGET = 2;
 
 fun main([str] args) > int {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -46,46 +56,77 @@ fun main([str] args) > int {
         return -1;
     }
 
-    const SDL_Window? window_opt = SDL_CreateWindow(
+    const SDL_Window? windowOpt = SDL_CreateWindow(
         cstr("SDL FFI test"),
         x: SDL_WINDOWPOS_CENTERED_MASK,
         y: SDL_WINDOWPOS_CENTERED_MASK,
         w: 800,
         h: 600,
-        flags: SDL_WINDOW_OPENGL \ SDL_WINDOW_ALLOW_HIGHDPI,
+        flags: toFloat(SDL_WINDOW_OPENGL \ SDL_WINDOW_ALLOW_HIGHDPI),
     );
 
-    if (window_opt == null) {
+    if (windowOpt == null) {
         print("Error: {SDL_GetError()}");
         return -1;
     }
 
-    const SDL_Window window = window_opt!;
+    const SDL_Window window = windowOpt!;
 
-    const SDL_Renderer? renderer_opt = SDL_CreateRenderer(
+    const SDL_Renderer? rendererOpt = SDL_CreateRenderer(
         window,
         index: -1,
-        flags: SDL_RENDERER_ACCELERATED \ SDL_RENDERER_TARGETTEXTURE,
+        flags: toFloat(SDL_RENDERER_ACCELERATED \ SDL_RENDERER_TARGETTEXTURE),
     );
 
-    if (renderer_opt == null) {
+    if (rendererOpt == null) {
         print("Error: {SDL_GetError()}");
         return -1;
     }
 
-    const SDL_Renderer renderer = renderer_opt!;
+    const SDL_Renderer renderer = rendererOpt!;
 
+    const SDL_Texture? textureOpt = SDL_CreateTexture(
+        renderer,
+        format: toFloat(SDL_PIXELFORMAT_RGBA8888),
+        access: SDL_TEXTUREACCESS_TARGET,
+        w: 800,
+        h: 600,
+    );
+
+    if (textureOpt == null) {
+        print("Error: {SDL_GetError()}");
+        return -1;
+    }
+
+    const SDL_Texture texture = textureOpt!;
+
+    SDL_SetRenderTarget(renderer, texture: texture);
     SDL_SetRenderDrawColor(renderer, r: 0x01, g: 0x9d, b: 0xe0, a: 0xff);
 
+    SDL_RenderFillRect(
+        renderer,
+        rect: SDL_Rect{
+            x = 200,
+            y = 200,
+            w = 200,
+            h = 200,
+        },
+    );
+
+    SDL_SetRenderTarget(renderer, texture: null);
+    SDL_SetRenderDrawColor(renderer, r: 0, g: 0, b: 0, a: 0xff);
+
+    SDL_Event event = SDL_Event{};
     while (true) {
-        SDL_RenderFillRect(
+        if (SDL_PollEvent(event) != 0) {
+            break;
+        }
+
+        SDL_RenderCopy(
             renderer,
-            rect: SDL_Rect{
-                x = 200,
-                y = 200,
-                w = 200,
-                h = 200,
-            },
+            texture: texture,
+            srcrect: null,
+            dstrect: null,
         );
 
         SDL_RenderPresent(renderer);
