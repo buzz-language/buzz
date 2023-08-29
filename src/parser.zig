@@ -159,6 +159,7 @@ pub const ParserState = struct {
 
 pub const Local = struct {
     name: *ObjString,
+    location: Token,
     type_def: *ObjTypeDef,
     depth: i32,
     is_captured: bool,
@@ -5667,19 +5668,28 @@ pub const Parser = struct {
 
         if (self.current.?.scope_depth > 0) {
             // Check a local with the same name doesn't exists
-            var i: usize = self.current.?.locals.len - 1;
-            while (check_name and i >= 0) : (i -= 1) {
-                var local: *Local = &self.current.?.locals[i];
+            if (self.current.?.local_count > 0) {
+                var i: usize = self.current.?.local_count - 1;
+                while (check_name and i >= 0) : (i -= 1) {
+                    var local: *Local = &self.current.?.locals[i];
 
-                if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
-                    break;
+                    if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
+                        break;
+                    }
+
+                    if (mem.eql(u8, name.lexeme, local.name.string)) {
+                        self.reporter.reportWithOrigin(
+                            .variable_already_exists,
+                            name,
+                            local.location,
+                            "A variable named `{s}` already exists",
+                            .{name.lexeme},
+                            null,
+                        );
+                    }
+
+                    if (i == 0) break;
                 }
-
-                if (mem.eql(u8, name.lexeme, local.name.string)) {
-                    self.reportError(.variable_already_exists, "A variable with the same name already exists in this scope.");
-                }
-
-                if (i == 0) break;
             }
 
             return try self.addLocal(name, variable_type, constant);
@@ -5728,6 +5738,7 @@ pub const Parser = struct {
 
         self.current.?.locals[self.current.?.local_count] = Local{
             .name = try self.gc.copyString(name.lexeme),
+            .location = name,
             .depth = -1,
             .is_captured = false,
             .type_def = local_type,
