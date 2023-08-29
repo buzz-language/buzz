@@ -7,7 +7,25 @@ zdef("SDL2", "const SDL_Window = opaque{};");
 zdef("SDL2", "const SDL_Renderer = opaque{};");
 zdef("SDL2", "const SDL_Texture = opaque{};");
 | TODO: union
-zdef("SDL2", "const SDL_Event = opaque{};");
+| Until we know how to use union, this struct needs to be the largest event possible so we allocate the right amount of memory
+zdef("SDL2", `
+    const SDL_Event = extern struct{
+        pad01: i32,
+        pad02: i32,
+        pad03: i32,
+        pad04: i32,
+        pad05: i32,
+        pad06: i32,
+        pad07: i32,
+        pad08: i32,
+        pad09: i32,
+        pad10: i32,
+        pad11: i32,
+        pad12: i32,
+        pad13: i32,
+        pad14: i32,
+    };
+`);
 zdef("SDL2", `
     const SDL_Rect = extern struct {
         x: c_int,
@@ -34,13 +52,6 @@ zdef("SDL2", "fn SDL_DestroyTexture(texture: *SDL_Texture) void;");
 zdef("SDL2", "fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;");
 zdef("SDL2", "fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;");
 
-| zdef("SDL2", "const SDL_INIT_VIDEO: c_uint = 0x00000020;");
-| zdef("SDL2", "const SDL_WINDOWPOS_CENTERED_MASK: c_uint = 0x2FFF0000;");
-| zdef("SDL2", "const SDL_WINDOW_OPENGL: c_int = 2;");
-| zdef("SDL2", "const SDL_WINDOW_ALLOW_HIGHDPI: c_int = 8192;");
-| zdef("SDL2", "const SDL_RENDERER_ACCELERATED: c_int = 2;");
-| zdef("SDL2", "const SDL_RENDERER_TARGETTEXTURE: c_int = 8;");
-
 const float SDL_INIT_VIDEO = 32.0;
 const int SDL_WINDOWPOS_CENTERED_MASK = 0x2FFF0000;
 const int SDL_WINDOW_OPENGL = 2;
@@ -52,7 +63,7 @@ const int SDL_TEXTUREACCESS_TARGET = 2;
 
 fun main([str] args) > int {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        print("Error: {SDL_GetError()}");
+        print("SDL_Init error: {SDL_GetError()}");
         return -1;
     }
 
@@ -66,7 +77,7 @@ fun main([str] args) > int {
     );
 
     if (windowOpt == null) {
-        print("Error: {SDL_GetError()}");
+        print("SDL_CreateWindow error: {SDL_GetError()}");
         return -1;
     }
 
@@ -79,7 +90,7 @@ fun main([str] args) > int {
     );
 
     if (rendererOpt == null) {
-        print("Error: {SDL_GetError()}");
+        print("SDL_CreateRenderer error: {SDL_GetError()}");
         return -1;
     }
 
@@ -94,7 +105,7 @@ fun main([str] args) > int {
     );
 
     if (textureOpt == null) {
-        print("Error: {SDL_GetError()}");
+        print("SDL_CreateTexture error: {SDL_GetError()}");
         return -1;
     }
 
@@ -116,10 +127,24 @@ fun main([str] args) > int {
     SDL_SetRenderTarget(renderer, texture: null);
     SDL_SetRenderDrawColor(renderer, r: 0, g: 0, b: 0, a: 0xff);
 
-    SDL_Event event = SDL_Event{};
+    SDL_Event event = SDL_Event{
+        pad01 = 0,
+        pad02 = 0,
+        pad03 = 0,
+        pad04 = 0,
+        pad05 = 0,
+        pad06 = 0,
+        pad07 = 0,
+        pad08 = 0,
+        pad09 = 0,
+        pad10 = 0,
+        pad11 = 0,
+        pad12 = 0,
+        pad13 = 0,
+        pad14 = 0,
+    };
     while (true) {
         if (SDL_PollEvent(event) != 0) {
-            break;
         }
 
         SDL_RenderCopy(
