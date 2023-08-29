@@ -3384,8 +3384,9 @@ pub const ObjTypeDef = struct {
             .UserData,
             .Type,
             .Any,
-            .ForeignStruct,
-            => return false,
+            => unreachable,
+
+            .ForeignStruct => std.mem.eql(u8, expected.ForeignStruct.name.string, actual.ForeignStruct.name.string),
 
             .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
 
@@ -3451,22 +3452,20 @@ pub const ObjTypeDef = struct {
 
     // Compare two type definitions
     pub fn eql(expected: *Self, actual: *Self) bool {
+        if (expected == actual or (expected.optional and actual.def_type == .Void) or expected.def_type == .Any) {
+            return true;
+        }
+
         // zig fmt: off
         const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type)
-            or (expected.def_type == .UserData and actual.def_type == .ForeignStruct)
+            or (expected.def_type == .UserData and actual.def_type == .ForeignStruct) // FIXME: we should not need this anymore
             or (expected.def_type == .Type and actual.def_type == .ForeignStruct)
             or (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(expected.resolved_type.?, actual.resolved_type.?));
+        // zig fmt: on
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
         // FIXME: previous comment should be wrong now? we do share type_registries between fibers and this should be enough ?
-        return expected == actual
-            or (expected.optional and actual.def_type == .Void) // Void is equal to any optional type
-            or expected.def_type == .Any // Any is equal to any type
-            or (
-                (type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder)
-                and (expected.optional or !actual.optional)
-            );
-        // zig fmt: on
+        return (type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder) and (expected.optional or !actual.optional);
     }
 
     // Strict compare two type definitions
