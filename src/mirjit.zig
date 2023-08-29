@@ -627,16 +627,21 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     switch (zig_type) {
         .Int => {
             if (buzz_type.def_type == .Float) {
-                const tmp_int = m.MIR_new_reg_op(
+                // This is a int represented by a buzz float value
+                const tmp_float = m.MIR_new_reg_op(
                     self.ctx,
-                    try self.REG("tmp_int", m.MIR_T_I64),
+                    try self.REG("tmp_float", m.MIR_T_D),
                 );
 
-                // This is a int represented by a buzz float value
-                self.buildValueFromInteger(zig_value, tmp_int);
-
                 // Convert it back to an int
-                self.I2D(dest, tmp_int);
+                if (zig_type.Int.signedness == .signed) {
+                    self.I2D(tmp_float, zig_value);
+                } else {
+                    self.UI2D(tmp_float, zig_value);
+                }
+
+                // And to a buzz value
+                self.buildValueFromFloat(tmp_float, dest);
             } else {
                 self.buildValueFromInteger(zig_value, dest);
             }
@@ -5529,6 +5534,20 @@ inline fn I2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
         m.MIR_new_insn_arr(
             self.ctx,
             m.MIR_I2D,
+            2,
+            &[_]m.MIR_op_t{
+                dest,
+                value,
+            },
+        ),
+    );
+}
+
+inline fn UI2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            m.MIR_UI2D,
             2,
             &[_]m.MIR_op_t{
                 dest,

@@ -6,10 +6,10 @@ import "debug";
 zdef("SDL2", "const SDL_Window = opaque{};");
 zdef("SDL2", "const SDL_Renderer = opaque{};");
 zdef("SDL2", "const SDL_Texture = opaque{};");
-| TODO: union
-| Until we know how to use union, this struct needs to be the largest event possible so we allocate the right amount of memory
+| Until we know how to use unions, this struct needs to be padded to allocate enough space for an actual SDL_Event (56 bytes)
 zdef("SDL2", `
     const SDL_Event = extern struct{
+        type: u32,
         pad01: i32,
         pad02: i32,
         pad03: i32,
@@ -23,7 +23,6 @@ zdef("SDL2", `
         pad11: i32,
         pad12: i32,
         pad13: i32,
-        pad14: i32,
     };
 `);
 zdef("SDL2", `
@@ -60,6 +59,60 @@ const int SDL_RENDERER_ACCELERATED = 2;
 const int SDL_RENDERER_TARGETTEXTURE = 8;
 const int SDL_PIXELFORMAT_RGBA8888 = 373694468;
 const int SDL_TEXTUREACCESS_TARGET = 2;
+
+enum(int) SDL_EventType {
+    SDL_FIRSTEVENT = 0,
+    SDL_QUIT = 256,
+    SDL_APP_TERMINATING = 257,
+    SDL_APP_LOWMEMORY = 258,
+    SDL_APP_WILLENTERBACKGROUND = 259,
+    SDL_APP_DIDENTERBACKGROUND = 260,
+    SDL_APP_WILLENTERFOREGROUND = 261,
+    SDL_APP_DIDENTERFOREGROUND = 262,
+    SDL_DISPLAYEVENT = 336,
+    SDL_WINDOWEVENT = 512,
+    SDL_SYSWMEVENT = 513,
+    SDL_KEYDOWN = 768,
+    SDL_KEYUP = 769,
+    SDL_TEXTEDITING = 770,
+    SDL_TEXTINPUT = 771,
+    SDL_KEYMAPCHANGED = 772,
+    SDL_MOUSEMOTION = 1024,
+    SDL_MOUSEBUTTONDOWN = 1025,
+    SDL_MOUSEBUTTONUP = 1026,
+    SDL_MOUSEWHEEL = 1027,
+    SDL_JOYAXISMOTION = 1536,
+    SDL_JOYBALLMOTION = 1537,
+    SDL_JOYHATMOTION = 1538,
+    SDL_JOYBUTTONDOWN = 1539,
+    SDL_JOYBUTTONUP = 1540,
+    SDL_JOYDEVICEADDED = 1541,
+    SDL_JOYDEVICEREMOVED = 1542,
+    SDL_CONTROLLERAXISMOTION = 1616,
+    SDL_CONTROLLERBUTTONDOWN = 1617,
+    SDL_CONTROLLERBUTTONUP = 1618,
+    SDL_CONTROLLERDEVICEADDED = 1619,
+    SDL_CONTROLLERDEVICEREMOVED = 1620,
+    SDL_CONTROLLERDEVICEREMAPPED = 1621,
+    SDL_FINGERDOWN = 1792,
+    SDL_FINGERUP = 1793,
+    SDL_FINGERMOTION = 1794,
+    SDL_DOLLARGESTURE = 2048,
+    SDL_DOLLARRECORD = 2049,
+    SDL_MULTIGESTURE = 2050,
+    SDL_CLIPBOARDUPDATE = 2304,
+    SDL_DROPFILE = 4096,
+    SDL_DROPTEXT = 4097,
+    SDL_DROPBEGIN = 4098,
+    SDL_DROPCOMPLETE = 4099,
+    SDL_AUDIODEVICEADDED = 4352,
+    SDL_AUDIODEVICEREMOVED = 4353,
+    SDL_SENSORUPDATE = 4608,
+    SDL_RENDER_TARGETS_RESET = 8192,
+    SDL_RENDER_DEVICE_RESET = 8193,
+    SDL_USEREVENT = 32768,
+    SDL_LASTEVENT = 65535,
+}
 
 fun main([str] args) > int {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -128,6 +181,8 @@ fun main([str] args) > int {
     SDL_SetRenderDrawColor(renderer, r: 0, g: 0, b: 0, a: 0xff);
 
     SDL_Event event = SDL_Event{
+        @"type" = 0.0,
+        | Would be useful to define default values in zig and get them back in buzz
         pad01 = 0,
         pad02 = 0,
         pad03 = 0,
@@ -141,10 +196,12 @@ fun main([str] args) > int {
         pad11 = 0,
         pad12 = 0,
         pad13 = 0,
-        pad14 = 0,
     };
     while (true) {
         if (SDL_PollEvent(event) != 0) {
+            if (event.@"type" == SDL_EventType.SDL_QUIT.value) {
+                break;
+            }
         }
 
         SDL_RenderCopy(

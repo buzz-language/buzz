@@ -4,6 +4,16 @@ test "Free identifiers" {
     str @"non-standard-identifier" = "hello world";
 
     assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
+}
 
-    print(@"non-standard-identifier");
+object A {
+    str @"type",
+}
+
+test "Free identifier as object field" {
+    const A a = A{
+        @"type" = "Hello",
+    };
+
+    assert(a.@"type" == "Hello", message: "Could use non-standard identifiers as object field");
 }
