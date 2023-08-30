@@ -505,6 +505,9 @@ pub const ObjString = struct {
         NativeFn,
         .{
             .{ "len", buzz_builtin.str.len },
+            .{ "utf8Len", buzz_builtin.str.utf8Len },
+            .{ "utf8Valid", buzz_builtin.str.utf8Valid },
+            .{ "utf8Codepoints", buzz_builtin.str.utf8Codepoints },
             .{ "trim", buzz_builtin.str.trim },
             .{ "byte", buzz_builtin.str.byte },
             .{ "indexOf", buzz_builtin.str.indexOf },
@@ -557,8 +560,25 @@ pub const ObjString = struct {
             try parser.gc.objstring_memberDefs.put("len", native_type);
 
             return native_type;
-        }
-        if (mem.eql(u8, method, "trim")) {
+        } else if (mem.eql(u8, method, "utf8Len")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function utf8Len() > int");
+
+            try parser.gc.objstring_memberDefs.put("utf8Len", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "utf8Valid")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function utf8Valid() > bool");
+
+            try parser.gc.objstring_memberDefs.put("utf8Valid", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "utf8Codepoints")) {
+            const native_type = try parser.parseTypeDefFrom("extern Function utf8Codepoints() > [str]");
+
+            try parser.gc.objstring_memberDefs.put("utf8Codepoints", native_type);
+
+            return native_type;
+        } else if (mem.eql(u8, method, "trim")) {
             const native_type = try parser.parseTypeDefFrom("extern Function trim() > str");
 
             try parser.gc.objstring_memberDefs.put("trim", native_type);

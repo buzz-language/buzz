@@ -25,7 +25,69 @@ pub fn trim(ctx: *NativeCtx) c_int {
 pub fn len(ctx: *NativeCtx) c_int {
     const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(str.string.len))));
+    ctx.vm.push(Value.fromInteger(@intCast(str.string.len)));
+
+    return 1;
+}
+
+pub fn utf8Len(ctx: *NativeCtx) c_int {
+    const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+
+    ctx.vm.push(
+        Value.fromInteger(
+            @intCast(std.unicode.utf8CountCodepoints(str.string) catch 0),
+        ),
+    );
+
+    return 1;
+}
+
+pub fn utf8Valid(ctx: *NativeCtx) c_int {
+    const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+
+    ctx.vm.push(
+        Value.fromBoolean(
+            std.unicode.utf8ValidateSlice(str.string),
+        ),
+    );
+
+    return 1;
+}
+
+pub fn utf8Codepoints(ctx: *NativeCtx) c_int {
+    const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+
+    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+        ctx.vm.gc.allocator,
+        ctx.vm.gc.type_registry.getTypeDef(.{ .def_type = .String }) catch @panic("Could not create list"),
+    );
+
+    var list_def_union: ObjTypeDef.TypeUnion = .{
+        .List = list_def,
+    };
+
+    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
+        .def_type = .List,
+        .optional = false,
+        .resolved_type = list_def_union,
+    }) catch @panic("Could not create list");
+
+    var list = (ctx.vm.gc.allocateObject(
+        ObjList,
+        ObjList.init(ctx.vm.gc.allocator, list_def_type),
+    ) catch @panic("Could not create list"));
+
+    if (std.unicode.utf8ValidateSlice(str.string)) {
+        const view = std.unicode.Utf8View.init(str.string) catch unreachable;
+        var it = view.iterator();
+        while (it.nextCodepointSlice()) |codepoint| {
+            const codepoint_str = ctx.vm.gc.copyString(codepoint) catch @panic("Could not get codepoints");
+
+            list.rawAppend(ctx.vm.gc, codepoint_str.toValue()) catch @panic("Could not get codepoints");
+        }
+    }
+
+    ctx.vm.push(list.toValue());
 
     return 1;
 }
