@@ -9,14 +9,13 @@ const VM = @import("../vm.zig").VM;
 const _value = @import("../value.zig");
 const buzz_api = @import("../buzz_api.zig");
 const Value = _value.Value;
-const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
 pub fn append(ctx: *NativeCtx) c_int {
-    var list_value: Value = ctx.vm.peek(1);
-    var list: *ObjList = ObjList.cast(list_value.obj()).?;
-    var value: Value = ctx.vm.peek(0);
+    const list_value: Value = ctx.vm.peek(1);
+    const list: *ObjList = ObjList.cast(list_value.obj()).?;
+    const value: Value = ctx.vm.peek(0);
 
     list.rawAppend(ctx.vm.gc, value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
@@ -34,10 +33,10 @@ pub fn append(ctx: *NativeCtx) c_int {
 }
 
 pub fn insert(ctx: *NativeCtx) c_int {
-    var list_value: Value = ctx.vm.peek(2);
-    var list: *ObjList = ObjList.cast(list_value.obj()).?;
-    var index: i32 = ctx.vm.peek(1).integer();
-    var value: Value = ctx.vm.peek(0);
+    const list_value: Value = ctx.vm.peek(2);
+    const list: *ObjList = ObjList.cast(list_value.obj()).?;
+    var index = ctx.vm.peek(1).integer();
+    const value: Value = ctx.vm.peek(0);
 
     if (index < 0 or list.items.items.len == 0) {
         index = 0;
@@ -61,7 +60,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
 }
 
 pub fn len(ctx: *NativeCtx) c_int {
-    var list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     ctx.vm.push(Value.fromInteger(@as(i32, @intCast(list.items.items.len))));
 
@@ -69,7 +68,7 @@ pub fn len(ctx: *NativeCtx) c_int {
 }
 
 pub fn pop(ctx: *NativeCtx) c_int {
-    var list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     if (list.items.items.len > 0) {
         ctx.vm.push(list.items.pop());
@@ -81,17 +80,16 @@ pub fn pop(ctx: *NativeCtx) c_int {
 }
 
 pub fn remove(ctx: *NativeCtx) c_int {
-    var list: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var list_index_value = floatToInteger(ctx.vm.peek(0));
-    var list_index: ?i32 = if (list_index_value.isInteger()) list_index_value.integer() else null;
+    const list: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const list_index = ctx.vm.peek(0).integer();
 
-    if (list_index == null or list_index.? < 0 or list_index.? >= list.items.items.len) {
+    if (list_index < 0 or list_index >= list.items.items.len) {
         ctx.vm.push(Value.Null);
 
         return 1;
     }
 
-    ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index.?))));
+    ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
     ctx.vm.gc.markObjDirty(&list.obj) catch {
         std.debug.print("Could not remove from list", .{});
         std.os.exit(1);
@@ -200,18 +198,11 @@ pub fn join(ctx: *NativeCtx) c_int {
 }
 
 pub fn sub(ctx: *NativeCtx) c_int {
-    var self: *ObjList = ObjList.cast(ctx.vm.peek(2).obj()).?;
-    var start_value = floatToInteger(ctx.vm.peek(1));
-    var start: ?i32 = if (start_value.isInteger()) start_value.integer() else null;
-    var upto_value: Value = floatToInteger(ctx.vm.peek(0));
-    var upto: ?i32 = if (upto_value.isInteger())
-        upto_value.integer()
-    else if (upto_value.isFloat())
-        @as(i32, @intFromFloat(upto_value.float()))
-    else
-        null;
+    const self: *ObjList = ObjList.cast(ctx.vm.peek(2).obj()).?;
+    const start = ctx.vm.peek(1).integer();
+    const upto = ctx.vm.peek(0).integerOrNull();
 
-    if (start == null or start.? < 0 or start.? >= self.items.items.len) {
+    if (start < 0 or start >= self.items.items.len) {
         var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
@@ -225,11 +216,11 @@ pub fn sub(ctx: *NativeCtx) c_int {
         return -1;
     }
 
-    const limit: usize = if (upto != null and @as(usize, @intCast(start.? + upto.?)) < self.items.items.len)
-        @as(usize, @intCast(start.? + upto.?))
+    const limit: usize = if (upto != null and @as(usize, @intCast(start + upto.?)) < self.items.items.len)
+        @as(usize, @intCast(start + upto.?))
     else
         self.items.items.len;
-    var substr: []Value = self.items.items[@as(usize, @intCast(start.?))..limit];
+    var substr: []Value = self.items.items[@as(usize, @intCast(start))..limit];
 
     var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
         .type_def = self.type_def,
@@ -260,11 +251,11 @@ pub fn sub(ctx: *NativeCtx) c_int {
 }
 
 pub fn next(ctx: *NativeCtx) c_int {
-    var list_value: Value = ctx.vm.peek(1);
-    var list: *ObjList = ObjList.cast(list_value.obj()).?;
-    var list_index: Value = ctx.vm.peek(0);
+    const list_value: Value = ctx.vm.peek(1);
+    const list: *ObjList = ObjList.cast(list_value.obj()).?;
+    const list_index: Value = ctx.vm.peek(0);
 
-    var next_index: ?i32 = list.rawNext(ctx.vm, if (list_index.isNull()) null else list_index.integer()) catch |err| {
+    var next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch |err| {
         // TODO: should we distinguish NativeFn and ExternFn ?
         std.debug.print("{}\n", .{err});
         std.os.exit(1);
@@ -276,8 +267,8 @@ pub fn next(ctx: *NativeCtx) c_int {
 }
 
 pub fn forEach(ctx: *NativeCtx) c_int {
-    var list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     for (list.items.items, 0..) |item, index| {
         var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
@@ -301,8 +292,8 @@ pub fn forEach(ctx: *NativeCtx) c_int {
 }
 
 pub fn reduce(ctx: *NativeCtx) c_int {
-    var list = ObjList.cast(ctx.vm.peek(2).obj()).?;
-    var closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
+    const list = ObjList.cast(ctx.vm.peek(2).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
     var accumulator = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
@@ -332,8 +323,8 @@ pub fn reduce(ctx: *NativeCtx) c_int {
 }
 
 pub fn filter(ctx: *NativeCtx) c_int {
-    var list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     var new_list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
@@ -371,8 +362,8 @@ pub fn filter(ctx: *NativeCtx) c_int {
 }
 
 pub fn map(ctx: *NativeCtx) c_int {
-    var list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     // FIXME: how to get concret generic type here? for now we use the generic type
     var function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;

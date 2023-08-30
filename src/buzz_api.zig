@@ -1020,7 +1020,7 @@ export fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void {
 }
 
 export fn bz_mapGet(map: Value, key: Value) Value {
-    return ObjMap.cast(map.obj()).?.map.get(_value.floatToInteger(key)) orelse Value.Null;
+    return ObjMap.cast(map.obj()).?.map.get(key) orelse Value.Null;
 }
 
 export fn bz_valueIs(self: Value, type_def: Value) Value {

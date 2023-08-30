@@ -118,6 +118,22 @@ pub const Value = packed struct {
         return @as(*Obj, @ptrFromInt(self.val & ~PointerMask));
     }
 
+    pub inline fn booleanOrNull(self: Value) ?bool {
+        return if (self.isBool()) self.boolean() else null;
+    }
+
+    pub inline fn integerOrNull(self: Value) ?i32 {
+        return if (self.isInteger()) self.integer() else null;
+    }
+
+    pub inline fn floatOrNull(self: Value) ?f64 {
+        return if (self.isFloat()) self.float() else null;
+    }
+
+    pub inline fn objOrNull(self: Value) ?*Obj {
+        return if (self.isObj()) self.obj() else null;
+    }
+
     pub fn typeOf(self: Value, gc: *GarbageCollector) !*ObjTypeDef {
         if (self.isObj()) {
             return try self.obj().typeOf(gc);
@@ -152,18 +168,6 @@ test "NaN boxing" {
     std.debug.assert(Value.Void.isVoid());
     std.debug.assert(Value.False.isBool());
     std.debug.assert(Value.True.isBool());
-}
-
-// If nothing in its decimal part, will return a Value.Integer
-pub inline fn floatToInteger(value: Value) Value {
-    const float = if (value.isFloat()) value.float() else null;
-
-    // FIXME also check that the f64 can fit in the i32
-    if (float != null and @as(i64, @intFromFloat(float.?)) < std.math.maxInt(i32) and std.math.floor(float.?) == float.?) {
-        return Value.fromInteger(@as(i32, @intFromFloat(float.?)));
-    }
-
-    return value;
 }
 
 pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
@@ -209,13 +213,10 @@ pub fn valueEql(a: Value, b: Value) bool {
     }
 
     if (a.isInteger() or a.isFloat()) {
-        const aa = floatToInteger(a);
-        const bb = floatToInteger(b);
-
-        const a_f: ?f64 = if (aa.isFloat()) aa.float() else null;
-        const b_f: ?f64 = if (bb.isFloat()) bb.float() else null;
-        const a_i: ?i32 = if (aa.isInteger()) aa.integer() else null;
-        const b_i: ?i32 = if (bb.isInteger()) bb.integer() else null;
+        const a_f: ?f64 = if (a.isFloat()) a.float() else null;
+        const b_f: ?f64 = if (b.isFloat()) b.float() else null;
+        const a_i: ?i32 = if (a.isInteger()) a.integer() else null;
+        const b_i: ?i32 = if (b.isInteger()) b.integer() else null;
 
         if (a_f) |af| {
             if (b_f) |bf| {

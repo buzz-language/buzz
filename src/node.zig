@@ -33,7 +33,6 @@ const FunctionType = ObjFunction.FunctionType;
 const copyObj = _obj.copyObj;
 const Value = _value.Value;
 const valueToString = _value.valueToString;
-const floatToInteger = _value.floatToInteger;
 const Token = _token.Token;
 const TokenType = _token.TokenType;
 const CodeGen = _codegen.CodeGen;
@@ -2369,12 +2368,12 @@ pub const BinaryNode = struct {
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
-            var left = floatToInteger(try self.left.toValue(self.left, gc));
-            var right = floatToInteger(try self.right.toValue(self.right, gc));
-            var left_f: ?f64 = if (left.isFloat()) left.float() else null;
-            var right_f: ?f64 = if (right.isFloat()) right.float() else null;
-            var left_i: ?i32 = if (left.isInteger()) left.integer() else null;
-            var right_i: ?i32 = if (right.isInteger()) right.integer() else null;
+            const left = try self.left.toValue(self.left, gc);
+            const right = try self.right.toValue(self.right, gc);
+            const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+            const right_f: ?f64 = if (right.isFloat()) right.float() else null;
+            const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+            const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
 
             switch (self.operator) {
                 .Ampersand => {
@@ -3032,7 +3031,7 @@ pub const SubscriptNode = struct {
             const self = Self.cast(node).?;
 
             const subscriptable = (try self.subscripted.toValue(self.subscripted, gc)).obj();
-            const index = floatToInteger(try self.index.toValue(self.index, gc));
+            const index = try self.index.toValue(self.index, gc);
 
             switch (subscriptable.obj_type) {
                 .List => {

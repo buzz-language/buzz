@@ -17,7 +17,6 @@ const Reporter = @import("./reporter.zig");
 const FFI = @import("./ffi.zig");
 
 const Value = _value.Value;
-const floatToInteger = _value.floatToInteger;
 const valueToString = _value.valueToString;
 const valueToStringAlloc = _value.valueToStringAlloc;
 const valueEql = _value.valueEql;
@@ -1926,7 +1925,7 @@ pub const VM = struct {
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var map: *ObjMap = self.peek(1).obj().access(ObjMap, .Map, self.gc).?;
-        var index: Value = floatToInteger(self.peek(0));
+        var index: Value = self.peek(0);
 
         // Pop map and key
         _ = self.pop();
@@ -2761,8 +2760,8 @@ pub const VM = struct {
     }
 
     fn OP_GREATER(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right_value = floatToInteger(self.pop());
-        const left_value = floatToInteger(self.pop());
+        const right_value = self.pop();
+        const left_value = self.pop();
 
         const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
         const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
@@ -2798,8 +2797,8 @@ pub const VM = struct {
     }
 
     fn OP_LESS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right_value = floatToInteger(self.pop());
-        const left_value = floatToInteger(self.pop());
+        const right_value = self.pop();
+        const left_value = self.pop();
 
         const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
         const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
@@ -2938,8 +2937,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -2968,8 +2967,8 @@ pub const VM = struct {
     }
 
     fn OP_SUBTRACT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -2997,8 +2996,8 @@ pub const VM = struct {
     }
 
     fn OP_MULTIPLY(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3026,8 +3025,8 @@ pub const VM = struct {
     }
 
     fn OP_DIVIDE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3053,8 +3052,8 @@ pub const VM = struct {
     }
 
     fn OP_MOD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3082,8 +3081,8 @@ pub const VM = struct {
     }
 
     fn OP_BAND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3107,8 +3106,8 @@ pub const VM = struct {
     }
 
     fn OP_BOR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3132,8 +3131,8 @@ pub const VM = struct {
     }
 
     fn OP_XOR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3156,8 +3155,8 @@ pub const VM = struct {
     }
 
     fn OP_SHL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
@@ -3194,8 +3193,8 @@ pub const VM = struct {
     }
 
     fn OP_SHR(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = floatToInteger(self.pop());
-        const left: Value = floatToInteger(self.pop());
+        const right: Value = self.pop();
+        const left: Value = self.pop();
 
         const right_f: ?f64 = if (right.isFloat()) right.float() else null;
         const left_f: ?f64 = if (left.isFloat()) left.float() else null;
