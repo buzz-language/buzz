@@ -275,6 +275,14 @@ pub const ObjFiber = struct {
         },
     );
 
+    const members_typedef = std.ComptimeStringMap(
+        []const u8,
+        .{
+            .{ "over", "extern Function over() > bool" },
+            .{ "cancel", "extern Function cancel() > void" },
+        },
+    );
+
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objfiber_members.get(method)) |umethod| {
             return umethod;
@@ -302,21 +310,11 @@ pub const ObjFiber = struct {
             return umethod;
         }
 
-        if (mem.eql(u8, method, "over")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function over() > bool");
+        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
 
-            try parser.gc.objfiber_memberDefs.put("over", native_type);
+        try parser.gc.objfiber_memberDefs.put(method, native_type);
 
-            return native_type;
-        } else if (mem.eql(u8, method, "cancel")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function cancel() > void");
-
-            try parser.gc.objfiber_memberDefs.put("cancel", native_type);
-
-            return native_type;
-        }
-
-        return null;
+        return native_type;
     }
 
     pub const FiberDef = struct {
@@ -372,6 +370,16 @@ pub const ObjPattern = struct {
         },
     );
 
+    const members_typedef = std.ComptimeStringMap(
+        []const u8,
+        .{
+            .{ "match", "extern Function match(str subject) > [str]?" },
+            .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
+            .{ "replace", "extern Function replace(str subject, str with) > str" },
+            .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+        },
+    );
+
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objpattern_members.get(method)) |umethod| {
             return umethod;
@@ -399,34 +407,11 @@ pub const ObjPattern = struct {
             return umethod;
         }
 
-        if (mem.eql(u8, method, "match")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function match(str subject) > [str]?");
+        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
 
-            try parser.gc.objpattern_memberDefs.put("match", native_type);
+        try parser.gc.objpattern_memberDefs.put(method, native_type);
 
-            return native_type;
-        } else if (mem.eql(u8, method, "matchAll")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function matchAll(str subject) > [[str]]?");
-
-            try parser.gc.objpattern_memberDefs.put("matchAll", native_type);
-
-            return native_type;
-        }
-        if (mem.eql(u8, method, "replace")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function replace(str subject, str with) > str");
-
-            try parser.gc.objpattern_memberDefs.put("replace", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "replaceAll")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function replaceAll(str subject, str with) > str");
-
-            try parser.gc.objpattern_memberDefs.put("replaceAll", native_type);
-
-            return native_type;
-        }
-
-        return null;
+        return native_type;
     }
 };
 
@@ -526,6 +511,31 @@ pub const ObjString = struct {
         },
     );
 
+    pub const members_typedef = std.ComptimeStringMap(
+        []const u8,
+        .{
+            .{ "len", "extern Function len() > int" },
+            .{ "utf8Len", "extern Function utf8Len() > int" },
+            .{ "utf8Valid", "extern Function utf8Valid() > bool" },
+            .{ "utf8Codepoints", "extern Function utf8Codepoints() > [str]" },
+            .{ "trim", "extern Function trim() > str" },
+            .{ "byte", "extern Function byte(int at) > int" },
+            .{ "indexOf", "extern Function indexOf(str needle) > int?" },
+            .{ "startsWith", "extern Function startsWith(str needle) > bool" },
+            .{ "endsWith", "extern Function endsWith(str needle) > bool" },
+            .{ "replace", "extern Function replace(str needle, str with) > str" },
+            .{ "split", "extern Function split(str separator) > [str]" },
+            .{ "sub", "extern Function sub(int start, int? len) > str" },
+            .{ "repeat", "extern Function repeat(int n) > str" },
+            .{ "encodeBase64", "extern Function encodeBase64() > str" },
+            .{ "decodeBase64", "extern Function decodeBase64() > str" },
+            .{ "upper", "extern Function upper() > str" },
+            .{ "lower", "extern Function lower() > str" },
+            .{ "hex", "extern Function hex() > str" },
+            .{ "bin", "extern Function bin() > str" },
+        },
+    );
+
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objstring_members.get(method)) |umethod| {
@@ -554,123 +564,11 @@ pub const ObjString = struct {
             return umethod;
         }
 
-        if (mem.eql(u8, method, "len")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function len() > int");
+        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
 
-            try parser.gc.objstring_memberDefs.put("len", native_type);
+        try parser.gc.objstring_memberDefs.put(method, native_type);
 
-            return native_type;
-        } else if (mem.eql(u8, method, "utf8Len")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function utf8Len() > int");
-
-            try parser.gc.objstring_memberDefs.put("utf8Len", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "utf8Valid")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function utf8Valid() > bool");
-
-            try parser.gc.objstring_memberDefs.put("utf8Valid", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "utf8Codepoints")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function utf8Codepoints() > [str]");
-
-            try parser.gc.objstring_memberDefs.put("utf8Codepoints", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "trim")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function trim() > str");
-
-            try parser.gc.objstring_memberDefs.put("trim", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "byte")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function byte(int at) > int");
-
-            try parser.gc.objstring_memberDefs.put("byte", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "indexOf")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function indexOf(str needle) > int?");
-
-            try parser.gc.objstring_memberDefs.put("indexOf", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "startsWith")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function startsWith(str needle) > bool");
-
-            try parser.gc.objstring_memberDefs.put("startsWith", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "endsWith")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function endsWith(str needle) > bool");
-
-            try parser.gc.objstring_memberDefs.put("endsWith", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "replace")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function replace(str needle, str with) > str");
-
-            try parser.gc.objstring_memberDefs.put("replace", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "split")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function split(str separator) > [str]");
-
-            try parser.gc.objstring_memberDefs.put("split", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "sub")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function sub(int start, int? len) > str");
-
-            try parser.gc.objstring_memberDefs.put("sub", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "repeat")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function repeat(int n) > str");
-
-            try parser.gc.objstring_memberDefs.put("repeat", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "encodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function encodeBase64() > str");
-
-            try parser.gc.objstring_memberDefs.put("encodeBase64", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "decodeBase64")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function decodeBase64() > str");
-
-            try parser.gc.objstring_memberDefs.put("decodeBase64", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "upper")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function upper() > str");
-
-            try parser.gc.objstring_memberDefs.put("upper", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "lower")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function lower() > str");
-
-            try parser.gc.objstring_memberDefs.put("lower", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "hex")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function hex() > str");
-
-            try parser.gc.objstring_memberDefs.put("hex", native_type);
-
-            return native_type;
-        } else if (mem.eql(u8, method, "bin")) {
-            const native_type = try parser.parseTypeDefFrom("extern Function bin() > str");
-
-            try parser.gc.objstring_memberDefs.put("bin", native_type);
-
-            return native_type;
-        }
-
-        return null;
+        return native_type;
     }
 };
 
