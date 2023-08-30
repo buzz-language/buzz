@@ -8013,6 +8013,14 @@ pub const TypeOfExpressionNode = struct {
 pub const ZdefNode = struct {
     const Self = @This();
 
+    pub const ZdefElement = struct {
+        fn_ptr: ?*anyopaque = null,
+        obj_native: ?*ObjNative = null,
+        // TODO: On the stack, do we free it at some point?
+        zdef: *const FFI.Zdef,
+        slot: usize,
+    };
+
     node: ParseNode = .{
         .node_type = .Zdef,
         .toJson = stringify,
@@ -8023,13 +8031,8 @@ pub const ZdefNode = struct {
     },
 
     lib_name: Token,
-    symbol: []const u8,
     source: Token,
-    fn_ptr: ?*anyopaque = null,
-    obj_native: ?*ObjNative = null,
-    // TODO: On the stack, do we free it at some point?
-    zdef: *FFI.Zdef,
-    slot: usize,
+    elements: []ZdefElement,
 
     fn constant(_: *anyopaque) bool {
         return false;
@@ -8049,24 +8052,24 @@ pub const ZdefNode = struct {
 
         const self = Self.cast(node).?;
 
-        // Generate ObjNative wrapper of actual zdef
-        if (node.type_def) |type_def| {
-            switch (type_def.def_type) {
+        for (self.elements) |*element| {
+            // Generate ObjNative wrapper of actual zdef
+            switch (element.zdef.type_def.def_type) {
                 .Function => {
-                    if (self.obj_native == null) {
-                        self.obj_native = try codegen.mir_jit.?.compileZdef(self);
+                    if (element.obj_native == null) {
+                        element.obj_native = try codegen.mir_jit.?.compileZdef(element);
 
-                        try codegen.emitConstant(node.location, self.obj_native.?.toValue());
+                        try codegen.emitConstant(node.location, element.obj_native.?.toValue());
                     }
                 },
                 .ForeignStruct => {
-                    try codegen.mir_jit.?.compileZdefStruct(self);
+                    try codegen.mir_jit.?.compileZdefStruct(element);
 
-                    try codegen.emitConstant(node.location, type_def.toValue());
+                    try codegen.emitConstant(node.location, element.zdef.type_def.toValue());
                 },
                 else => unreachable,
             }
-            try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
+            try codegen.emitCodeArg(node.location, .OP_DEFINE_GLOBAL, @intCast(element.slot));
         }
 
         try node.patchOptJumps(codegen);
@@ -8093,14 +8096,26 @@ pub const ZdefNode = struct {
         try out.writeByteNTimes(' ', depth * 4);
 
         try out.print(
-            "zdef({s}) {s}",
+            "zdef({s}, {s}{s}",
             .{
+                if (std.mem.indexOf(u8, self.source.lexeme, "\n") != null)
+                    "`"
+                else
+                    "\"",
                 self.lib_name.lexeme,
                 self.source.lexeme,
             },
         );
 
-        try out.writeAll(";\n");
+        try out.print(
+            "{s});\n",
+            .{
+                if (std.mem.indexOf(u8, self.source.lexeme, "\n") != null)
+                    "`"
+                else
+                    "\"",
+            },
+        );
     }
 
     pub fn toNode(self: *Self) *ParseNode {

@@ -3,11 +3,12 @@ import "ffi";
 import "buffer";
 import "debug";
 
-zdef("SDL2", "const SDL_Window = opaque{};");
-zdef("SDL2", "const SDL_Renderer = opaque{};");
-zdef("SDL2", "const SDL_Texture = opaque{};");
-| Until we know how to use unions, this struct needs to be padded to allocate enough space for an actual SDL_Event (56 bytes)
 zdef("SDL2", `
+    const SDL_Window = opaque{};
+    const SDL_Renderer = opaque{};
+    const SDL_Texture = opaque{};
+
+    // TODO: union
     const SDL_Event = extern struct{
         type: u32,
         pad01: i32,
@@ -24,32 +25,31 @@ zdef("SDL2", `
         pad12: i32,
         pad13: i32,
     };
-`);
-zdef("SDL2", `
+
     const SDL_Rect = extern struct {
         x: c_int,
         y: c_int,
         w: c_int,
         h: c_int,
     };
-`);
 
-zdef("SDL2", "fn SDL_GetError() [*:0]const u8;");
-zdef("SDL2", "fn SDL_Init(flags: u32) c_int;");
-zdef("SDL2", "fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;");
-zdef("SDL2", "fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;");
-zdef("SDL2", "fn SDL_CreateRenderer(window: *SDL_Window, index: c_int, flags: u32) ?*SDL_Renderer;");
-zdef("SDL2", "fn SDL_RenderPresent(renderer: *SDL_Renderer) void;");
-zdef("SDL2", "fn SDL_DestroyWindow(window: *SDL_Window) void;");
-zdef("SDL2", "fn SDL_Delay(ms: u32) void;");
-zdef("SDL2", "fn SDL_Quit() void;");
-zdef("SDL2", "fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;");
-zdef("SDL2", "fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;");
-zdef("SDL2", "fn SDL_PollEvent(event: *SDL_Event) c_int;");
-zdef("SDL2", "fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;");
-zdef("SDL2", "fn SDL_DestroyTexture(texture: *SDL_Texture) void;");
-zdef("SDL2", "fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;");
-zdef("SDL2", "fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;");
+    fn SDL_GetError() [*:0]const u8;
+    fn SDL_Init(flags: u32) c_int;
+    fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;
+    fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;
+    fn SDL_CreateRenderer(window: *SDL_Window, index: c_int, flags: u32) ?*SDL_Renderer;
+    fn SDL_RenderPresent(renderer: *SDL_Renderer) void;
+    fn SDL_DestroyWindow(window: *SDL_Window) void;
+    fn SDL_Delay(ms: u32) void;
+    fn SDL_Quit() void;
+    fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;
+    fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;
+    fn SDL_PollEvent(event: *SDL_Event) c_int;
+    fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;
+    fn SDL_DestroyTexture(texture: *SDL_Texture) void;
+    fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;
+    fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;
+`);
 
 const float SDL_INIT_VIDEO = 32.0;
 const int SDL_WINDOWPOS_CENTERED_MASK = 0x2FFF0000;

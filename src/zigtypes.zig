@@ -120,7 +120,7 @@ pub const Type = union(enum) {
         is_volatile: bool,
         alignment: u16,
         address_space: std.builtin.AddressSpace,
-        child: *Type,
+        child: *const Type,
         is_allowzero: bool,
 
         /// The type of the sentinel is the element type of the pointer, which is
@@ -133,7 +133,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Array = struct {
         len: usize,
-        child: *Type,
+        child: *const Type,
 
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
@@ -145,7 +145,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
-        type: *Type,
+        type: *const Type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: u16,
@@ -156,7 +156,7 @@ pub const Type = union(enum) {
     pub const Struct = struct {
         layout: std.builtin.Type.ContainerLayout,
         /// Only valid if layout is .Packed
-        backing_integer: ?*Type = null,
+        backing_integer: ?*const Type = null,
         fields: []const StructField,
         decls: []const Declaration,
         is_tuple: bool,
@@ -165,14 +165,14 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Optional = struct {
-        child: *Type,
+        child: *const Type,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const ErrorUnion = struct {
-        error_set: *Type,
-        payload: *Type,
+        error_set: *const Type,
+        payload: *const Type,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -195,7 +195,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Enum = struct {
-        tag_type: *Type,
+        tag_type: *const Type,
         fields: []const EnumField,
         decls: []const Declaration,
         is_exhaustive: bool,
@@ -205,7 +205,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        type: *Type,
+        type: *const Type,
         alignment: u16,
     };
 
@@ -213,7 +213,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Union = struct {
         layout: std.builtin.Type.ContainerLayout,
-        tag_type: ?*Type,
+        tag_type: ?*const Type,
         fields: []const UnionField,
         decls: []const Declaration,
     };
@@ -226,7 +226,7 @@ pub const Type = union(enum) {
         is_generic: bool,
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.
-        return_type: ?*Type,
+        return_type: ?*const Type,
         params: []const Param,
 
         /// This data structure is used by the Zig language code generation and
@@ -234,7 +234,7 @@ pub const Type = union(enum) {
         pub const Param = struct {
             is_generic: bool,
             is_noalias: bool,
-            type: ?*Type,
+            type: ?*const Type,
         };
     };
 
@@ -253,14 +253,14 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const AnyFrame = struct {
-        child: ?*Type,
+        child: ?*const Type,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Vector = struct {
         len: usize,
-        child: *Type,
+        child: *const Type,
     };
 
     /// This data structure is used by the Zig language code generation and

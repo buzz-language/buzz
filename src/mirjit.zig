@@ -287,11 +287,11 @@ fn reset(self: *Self) void {
     self.state = null;
 }
 
-pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
+pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElement) Error!void {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
-    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef_node.symbol});
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef_element.zdef.name});
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
@@ -300,8 +300,8 @@ pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
         std.debug.print(
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
-                zdef_node.symbol,
-                (zdef_node.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+                zdef_element.symbol,
+                (zdef_element.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
             },
         );
     }
@@ -316,7 +316,7 @@ pub fn compileZdefStruct(self: *Self, zdef_node: *n.ZdefNode) Error!void {
     };
     defer self.reset();
 
-    const foreign_def = zdef_node.node.type_def.?.resolved_type.?.ForeignStruct;
+    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignStruct;
 
     var getters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
     defer getters.deinit();
@@ -402,7 +402,7 @@ fn buildZdefStructGetter(
     struct_name: []const u8,
     field_name: []const u8,
     buzz_type: *o.ObjTypeDef,
-    zig_type: *ZigType,
+    zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer getter_name.deinit();
@@ -490,7 +490,7 @@ fn buildZdefStructSetter(
     struct_name: []const u8,
     field_name: []const u8,
     buzz_type: *o.ObjTypeDef,
-    zig_type: *ZigType,
+    zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer setter_name.deinit();
@@ -682,13 +682,13 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, zdef: *n.ZdefNode) Error!*o.ObjNative {
+pub fn compileZdef(self: *Self, zdef: *const n.ZdefNode.ZdefElement) Error!*o.ObjNative {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
-    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.symbol});
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.zdef.name});
 
-    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.symbol) catch @panic("Out of memory");
+    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
@@ -817,18 +817,18 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
     };
 }
 
-fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
+fn buildZdefWrapper(self: *Self, zdef_element: *const n.ZdefNode.ZdefElement) Error!m.MIR_item_t {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
-    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.symbol});
+    try wrapper_name.writer().print("zdef_{s}\x00", .{zdef_element.zdef.name});
 
     var wrapper_protocol_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_protocol_name.deinit();
 
-    try wrapper_protocol_name.writer().print("p_zdef_{s}\x00", .{zdef.symbol});
+    try wrapper_protocol_name.writer().print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.symbol) catch @panic("Out of memory");
+    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
@@ -872,8 +872,8 @@ fn buildZdefWrapper(self: *Self, zdef: *n.ZdefNode) Error!m.MIR_item_t {
         ),
     );
 
-    const function_def = zdef.node.type_def.?.resolved_type.?.Function;
-    const zig_function_def = zdef.zdef.zig_type;
+    const function_def = zdef_element.zdef.type_def.resolved_type.?.Function;
+    const zig_function_def = zdef_element.zdef.zig_type;
 
     // Get arguments from stack
     var full_args = std.ArrayList(m.MIR_op_t).init(self.vm.gc.allocator);
