@@ -1300,7 +1300,7 @@ export fn dumpInt(value: u64) void {
     std.debug.print("-> {x}\n", .{value});
 }
 
-export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*ZigType {
+export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*const ZigType {
     const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
 
     if (zdef) |uzdef| {
@@ -1508,7 +1508,7 @@ export fn bz_readZigValueFromBuffer(
 export fn bz_writeZigValueToBuffer(
     vm: *VM,
     value: Value,
-    ztype: *ZigType,
+    ztype: *const ZigType,
     at: usize,
     buf: [*]u8,
     capacity: usize,

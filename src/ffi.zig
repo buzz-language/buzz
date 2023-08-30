@@ -182,6 +182,7 @@ pub const State = struct {
     ast: Ast,
     parser: ?*p.Parser,
     parsing_type_expr: bool = false,
+    structs: std.StringHashMap(*Zdef),
 };
 
 gc: *m.GarbageCollector,
@@ -220,12 +221,17 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
         true,
     );
 
-    self.type_expr_cache.put(ztype, zdef) catch @panic("Out of memory");
+    std.debug.assert(zdef == null or zdef.?.len == 1);
 
-    return zdef;
+    self.type_expr_cache.put(
+        ztype,
+        if (zdef) |z| z[0] else null,
+    ) catch @panic("Out of memory");
+
+    return if (zdef) |z| z[0] else null;
 }
 
-pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr: bool) !?*Zdef {
+pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr: bool) !?[]*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
     const duped = self.gc.allocator.dupeZ(u8, source.literal_string.?) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
@@ -239,8 +245,12 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
             duped,
             .zig,
         ) catch @panic("Could not parse zdef"),
+        .structs = std.StringHashMap(*Zdef).init(self.gc.allocator),
     };
-    defer self.state = null;
+    defer {
+        self.state.?.structs.deinit();
+        self.state = null;
+    }
 
     for (self.state.?.ast.errors) |err| {
         if (!err.is_note) {
@@ -254,13 +264,7 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
 
     const root_decls = self.state.?.ast.rootDecls();
 
-    if (root_decls.len > 1) {
-        self.reporter.report(
-            .zdef,
-            self.state.?.source,
-            "Only one declaration is allowed in zdef",
-        );
-    } else if (root_decls.len == 0) {
+    if (root_decls.len == 0) {
         self.reporter.report(
             .zdef,
             self.state.?.source,
@@ -270,7 +274,17 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
         return null;
     }
 
-    return self.getZdef(root_decls[0]);
+    var zdefs = std.ArrayList(*Zdef).init(self.gc.allocator);
+
+    for (root_decls) |decl| {
+        if (try self.getZdef(decl)) |zdef| {
+            try zdefs.append(zdef);
+        }
+    }
+
+    zdefs.shrinkAndFree(zdefs.items.len);
+
+    return zdefs.items;
 }
 
 fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
@@ -304,12 +318,21 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 .container_decl_two_trailing,
                 .container_decl_arg,
                 .container_decl_arg_trailing,
-                => break :var_decl try self.containerDecl(
-                    ast.tokenSlice(
+                => {
+                    const name = ast.tokenSlice(
                         ast.simpleVarDecl(decl_index).ast.mut_token + 1,
-                    ),
-                    ast.simpleVarDecl(decl_index).ast.init_node,
-                ),
+                    );
+                    const zdef = try self.containerDecl(
+                        ast.tokenSlice(
+                            ast.simpleVarDecl(decl_index).ast.mut_token + 1,
+                        ),
+                        ast.simpleVarDecl(decl_index).ast.init_node,
+                    );
+
+                    try self.state.?.structs.put(name, zdef);
+
+                    break :var_decl zdef;
+                },
                 else => {},
             }
 
@@ -330,7 +353,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
 
             if (zdef) |uzdef| {
                 var opt_zdef = try self.gc.allocator.create(Zdef);
-                opt_zdef.* = .{
+                opt_zdef.* = Zdef{
                     .zig_type = .{
                         .Optional = .{
                             .child = &uzdef.zig_type,
@@ -479,7 +502,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         .resolved_type = .{ .ForeignStruct = foreign_def },
     };
 
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(type_def),
         .zig_type = zig_type,
@@ -521,6 +544,13 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
             type_def = global.?.type_def.*;
             zig_type = global.?.type_def.resolved_type.?.ForeignStruct.zig_type;
         }
+
+        if (global == null) {
+            if (self.state.?.structs.get(id)) |fstruct| {
+                type_def = fstruct.type_def.*;
+                zig_type = fstruct.zig_type;
+            }
+        }
     }
 
     if (type_def == null or zig_type == null) {
@@ -533,7 +563,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
         );
     }
 
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(type_def orelse .{ .def_type = .Void }),
         .zig_type = zig_type orelse ZigType{ .Void = {} },
@@ -551,14 +581,13 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         else => unreachable,
     };
 
-    var zdef = try self.gc.allocator.create(Zdef);
-
     const child_type = (try self.getZdef(ptr_type.ast.child_type)).?;
     const sentinel_node = self.state.?.ast.nodes.get(ptr_type.ast.sentinel);
 
     // Is it a null terminated string?
     // zig fmt: off
-    zdef.* = if (ptr_type.const_token != null
+    var zdef = try self.gc.allocator.create(Zdef);
+    zdef.* =  if (ptr_type.const_token != null
         and child_type.zig_type == .Int
         and child_type.zig_type.Int.bits == 8
         and sentinel_node.tag == .number_literal

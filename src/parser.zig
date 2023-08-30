@@ -2365,19 +2365,21 @@ pub const Parser = struct {
         try self.consume(.RightParen, "Expected `)` to close zdef");
         try self.consume(.Semicolon, "Expected `;`");
 
-        const zdef = try self.ffi.parse(
+        const zdefs = try self.ffi.parse(
             self,
             source,
             false,
-        );
-        var fn_ptr: ?*anyopaque = null;
+        ) orelse &[_]*FFI.Zdef{};
 
-        var slot: usize = undefined;
-        if (zdef) |uzdef| {
+        var elements = std.ArrayList(ZdefNode.ZdefElement).init(self.gc.allocator);
+        for (zdefs) |zdef| {
+            var fn_ptr: ?*anyopaque = null;
+            var slot: usize = undefined;
+
             assert(self.current.?.scope_depth == 0);
             slot = try self.declareVariable(
-                uzdef.type_def,
-                Token.identifier(uzdef.name),
+                zdef.type_def,
+                Token.identifier(zdef.name),
                 true,
                 true,
             );
@@ -2385,7 +2387,7 @@ pub const Parser = struct {
 
             // If zig_type is struct, we just push the objtypedef itself on the stack
             // Otherwise we try to build a wrapper around the imported function
-            if (uzdef.zig_type == .Fn) {
+            if (zdef.zig_type == .Fn) {
                 // Load the lib
                 const paths = try self.searchZdefLibPaths(lib_name.literal_string.?);
                 defer {
@@ -2405,7 +2407,7 @@ pub const Parser = struct {
 
                 if (lib) |*dlib| {
                     // Convert symbol names to zig slices
-                    const symbol = try self.gc.allocator.dupeZ(u8, uzdef.name);
+                    const symbol = try self.gc.allocator.dupeZ(u8, zdef.name);
                     defer self.gc.allocator.free(symbol);
 
                     // Lookup symbol
@@ -2446,20 +2448,27 @@ pub const Parser = struct {
                     );
                 }
             }
+
+            try elements.append(
+                .{
+                    .fn_ptr = fn_ptr,
+                    .slot = slot,
+                    .zdef = zdef,
+                },
+            );
         }
+
+        elements.shrinkAndFree(elements.items.len);
 
         var node = try self.gc.allocator.create(ZdefNode);
         node.* = ZdefNode{
             .lib_name = lib_name,
-            .symbol = if (zdef) |uzdef| uzdef.name else "unknown",
             .source = source,
-            .fn_ptr = fn_ptr,
-            .slot = slot,
-            .zdef = zdef orelse undefined,
+            .elements = elements.items,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
-        node.node.type_def = if (zdef) |uzdef| uzdef.type_def else null;
+        node.node.type_def = null;
 
         return &node.node;
     }
