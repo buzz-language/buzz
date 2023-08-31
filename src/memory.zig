@@ -10,6 +10,7 @@ const VM = @import("./vm.zig").VM;
 const assert = std.debug.assert;
 const Token = @import("./token.zig").Token;
 const buzz_api = @import("./buzz_api.zig");
+const Reporter = @import("./reporter.zig");
 
 pub const pcre = @import("./pcre.zig").pcre;
 
@@ -910,12 +911,14 @@ pub const GarbageCollectorDebugger = struct {
     };
 
     allocator: std.mem.Allocator,
+    reporter: Reporter,
     tracker: std.AutoHashMap(*Obj, Ptr),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
             .tracker = std.AutoHashMap(*Obj, Ptr).init(allocator),
+            .reporter = Reporter{ .allocator = allocator },
         };
     }
 
@@ -945,82 +948,60 @@ pub const GarbageCollectorDebugger = struct {
     pub fn accessed(self: *Self, ptr: *Obj, at: ?Token) void {
         if (self.tracker.getPtr(ptr)) |tracked| {
             if (tracked.collected_at) |collected_at| {
-                std.debug.print(
-                    "Access to already collected {}:",
+                var items = std.ArrayList(Reporter.ReportItem).init(self.allocator);
+                defer items.deinit();
+
+                var message = std.ArrayList(u8).init(self.allocator);
+                defer message.deinit();
+
+                message.writer().print(
+                    "Access to already collected {} {*}:",
                     .{
                         tracked.what,
+                        ptr,
                     },
-                );
+                ) catch unreachable;
+
+                items.append(
+                    .{
+                        .location = at.?,
+                        .kind = .@"error",
+                        .message = message.items,
+                    },
+                ) catch unreachable;
 
                 if (tracked.allocated_at) |allocated_at| {
-                    std.debug.print(
-                        "\nAllocated at {s}:{d}:{d}:",
+                    items.append(
                         .{
-                            allocated_at.script_name,
-                            allocated_at.line + 1,
-                            allocated_at.column,
+                            .location = allocated_at,
+                            .kind = .hint,
+                            .message = "allocated here",
                         },
-                    );
-                    self.printTokenContext(allocated_at);
-                } else {
-                    std.debug.print("\n\nProbably allocated during compilation\n", .{});
+                    ) catch unreachable;
                 }
 
-                std.debug.print(
-                    "\nCollected at {s}:{d}:{d}:",
+                items.append(
                     .{
-                        collected_at.script_name,
-                        collected_at.line + 1,
-                        collected_at.column,
+                        .location = collected_at,
+                        .kind = .hint,
+                        .message = "collected here",
                     },
-                );
-                self.printTokenContext(collected_at);
+                ) catch unreachable;
 
-                if (at) |accessed_at| {
-                    std.debug.print(
-                        "\nBad access at {s}:{d}:{d}:",
-                        .{
-                            accessed_at.script_name,
-                            accessed_at.line + 1,
-                            accessed_at.column,
-                        },
-                    );
-                    self.printTokenContext(accessed_at);
-                } else {
-                    std.debug.print("\nProbably accessed at VM start up\n", .{});
-                }
+                var report = Reporter.Report{
+                    .message = message.items,
+                    .error_type = .gc,
+                    .items = items.items,
+                };
+
+                report.reportStderr(&self.reporter) catch unreachable;
+
+                unreachable;
             }
         } else {
+            std.debug.print("Untracked obj {}\n", .{@intFromPtr(ptr)});
+
             unreachable;
         }
-    }
-
-    fn printTokenContext(self: *Self, token: Token) void {
-        const lines: std.ArrayList([]const u8) = token.getLines(self.allocator, 3) catch unreachable;
-        defer lines.deinit();
-        var report_line = std.ArrayList(u8).init(self.allocator);
-        defer report_line.deinit();
-        var writer = report_line.writer();
-
-        writer.print("\n", .{}) catch unreachable;
-        var l: usize = if (token.line > 0) token.line - 1 else 0;
-        for (lines.items) |line| {
-            if (l != token.line) {
-                writer.print("\u{001b}[2m", .{}) catch unreachable;
-            }
-
-            var prefix_len: usize = report_line.items.len;
-            writer.print(" {: >5} |", .{l + 1}) catch unreachable;
-            prefix_len = report_line.items.len - prefix_len;
-            writer.print(" {s}\n\u{001b}[0m", .{line}) catch unreachable;
-
-            if (l == token.line) {
-                writer.writeByteNTimes(' ', (if (token.column > 0) token.column - 1 else 0) + prefix_len) catch unreachable;
-                writer.print("\u{001b}[31m^\u{001b}[0m\n", .{}) catch unreachable;
-            }
-
-            l += 1;
-        }
-        std.debug.print("{s}", .{report_line.items});
     }
 };

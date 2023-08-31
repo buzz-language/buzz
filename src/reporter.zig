@@ -96,6 +96,7 @@ pub const Error = enum(u8) {
     any_generic = 84,
     collect_signature = 85,
     tostring_signature = 86,
+    gc = 87,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

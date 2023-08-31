@@ -51,7 +51,7 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
 
 pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
     gpa.allocator()
-else if (BuildOptions.use_mimalloc)
+else if (BuildOptions.mimalloc)
     @import("mimalloc.zig").mim_allocator
 else
     std.heap.c_allocator;

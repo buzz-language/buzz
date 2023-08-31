@@ -25,11 +25,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run Tests
-        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
+        run: BUZZ_PATH=./dist zig build -Dmimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
       - name: Run tests with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Dmimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
   test-linux:
@@ -48,11 +48,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run tests
-        run: BUZZ_PATH=./dist zig build -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
+        run: BUZZ_PATH=./dist zig build -Dmimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
       - name: Run tests with JIT always on
-        run: BUZZ_PATH=./dist zig build -Djit_always_on -Duse_mimalloc=false -Doptimize=ReleaseSafe -p dist test
+        run: BUZZ_PATH=./dist zig build -Djit_always_on -Dmimalloc=false -Doptimize=ReleaseSafe -p dist test
       - name: Cleanup
         run: rm -rf zig-cache dist
   lint:

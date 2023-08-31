@@ -185,7 +185,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
-    else if (BuildOptions.use_mimalloc)
+    else if (BuildOptions.mimalloc)
         @import("./mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
@@ -227,7 +227,7 @@ pub fn main() !void {
                 },
                 if (builtin.mode == .Debug)
                     "gpa"
-                else if (BuildOptions.use_mimalloc) "mimalloc" else "c_allocator",
+                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
                 if (BuildOptions.jit)
                     "on"
                 else

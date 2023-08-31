@@ -300,8 +300,8 @@ pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElemen
         std.debug.print(
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
-                zdef_element.symbol,
-                (zdef_element.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+                zdef_element.zdef.name,
+                (zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
             },
         );
     }
@@ -698,8 +698,8 @@ pub fn compileZdef(self: *Self, zdef: *const n.ZdefNode.ZdefElement) Error!*o.Ob
         std.debug.print(
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
-                zdef.symbol,
-                (zdef.node.type_def.?.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+                zdef.zdef.name,
+                (zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
             },
         );
     }
@@ -722,7 +722,7 @@ pub fn compileZdef(self: *Self, zdef: *const n.ZdefNode.ZdefElement) Error!*o.Ob
     if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
-        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{zdef.symbol}) catch unreachable;
+        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{zdef.zdef.name}) catch unreachable;
 
         const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
         defer _ = std.c.fclose(debug_file);
