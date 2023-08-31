@@ -999,7 +999,23 @@ pub const GarbageCollectorDebugger = struct {
                 unreachable;
             }
         } else {
-            std.debug.print("Untracked obj {}\n", .{@intFromPtr(ptr)});
+            if (at) |accessed_at| {
+                self.reporter.reportErrorFmt(
+                    .gc,
+                    accessed_at,
+                    "Untracked obj {*}",
+                    .{
+                        ptr,
+                    },
+                );
+            } else {
+                std.debug.print(
+                    "Untracked obj {*}\n",
+                    .{
+                        ptr,
+                    },
+                );
+            }
 
             unreachable;
         }
