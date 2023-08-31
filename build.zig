@@ -27,7 +27,7 @@ const BuzzJITOptions = struct {
     prof_threshold: f128 = 0.05,
 
     pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
-        options.addOption(@TypeOf(self.debug), "debug_jit", self.debug);
+        options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
@@ -38,7 +38,7 @@ const BuzzGCOptions = struct {
     debug: bool,
     debug_light: bool,
     debug_access: bool,
-    off: bool,
+    on: bool,
     initial_gc: usize,
     next_gc_ratio: usize,
     next_full_gc_ratio: usize,
@@ -47,7 +47,7 @@ const BuzzGCOptions = struct {
         options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
         options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
         options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
-        options.addOption(@TypeOf(self.off), "gc_off", self.off);
+        options.addOption(@TypeOf(self.on), "gc", self.on);
         options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
         options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
         options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
@@ -57,7 +57,7 @@ const BuzzGCOptions = struct {
 const BuzzBuildOptions = struct {
     version: []const u8,
     sha: []const u8,
-    use_mimalloc: bool,
+    mimalloc: bool,
     debug: BuzzDebugOptions,
     gc: BuzzGCOptions,
     jit: BuzzJITOptions,
@@ -67,7 +67,7 @@ const BuzzBuildOptions = struct {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
-        options.addOption(@TypeOf(self.use_mimalloc), "use_mimalloc", self.use_mimalloc);
+        options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
 
         self.debug.step(options);
         self.gc.step(options);
@@ -81,7 +81,7 @@ const BuzzBuildOptions = struct {
         // mir can be built with musl libc
         // mimalloc can be built with musl libc
         // longjmp/setjmp need to be removed
-        return self.target.isLinux() or self.use_mimalloc;
+        return self.target.isLinux() or self.mimalloc;
     }
 };
 
@@ -142,9 +142,9 @@ pub fn build(b: *Build) !void {
             }).stdout,
             "\n \t",
         ),
-        .use_mimalloc = b.option(
+        .mimalloc = b.option(
             bool,
-            "use_mimalloc",
+            "mimalloc",
             "Use mimalloc allocator",
         ) orelse true,
         .debug = .{
@@ -195,11 +195,11 @@ pub fn build(b: *Build) !void {
                 "gc_debug_access",
                 "Track objects access",
             ) orelse false,
-            .off = b.option(
+            .on = b.option(
                 bool,
-                "gc_off",
-                "Turn off garbage collector",
-            ) orelse false,
+                "gc",
+                "Turn on garbage collector",
+            ) orelse true,
             .initial_gc = b.option(
                 usize,
                 "initial_gc",
@@ -219,7 +219,7 @@ pub fn build(b: *Build) !void {
         .jit = .{
             .debug = b.option(
                 bool,
-                "debug_jit",
+                "jit_debug",
                 "Show debug information for the JIT engine",
             ) orelse false,
             .always_on = b.option(
@@ -253,7 +253,7 @@ pub fn build(b: *Build) !void {
             "pcre",
         },
     ) catch unreachable;
-    if (build_options.use_mimalloc) {
+    if (build_options.mimalloc) {
         sys_libs.append("mimalloc") catch unreachable;
     }
 

@@ -141,7 +141,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     if (closure) |uclosure| {
         try self.compiled_closures.put(uclosure, {});
 
-        if (BuildOptions.debug_jit) {
+        if (BuildOptions.jit_debug) {
             std.debug.print(
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
@@ -152,7 +152,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
             );
         }
     } else {
-        if (BuildOptions.debug_jit) {
+        if (BuildOptions.jit_debug) {
             std.debug.print(
                 "Compiling closure `{s}`\n",
                 .{
@@ -164,7 +164,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
 
     _ = self.generateNode(function_node.toNode()) catch |err| {
         if (err == Error.CantCompile) {
-            if (BuildOptions.debug_jit) {
+            if (BuildOptions.jit_debug) {
                 std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
             }
 
@@ -184,7 +184,7 @@ fn buildFunction(self: *Self, closure: ?*o.ObjClosure, function_node: *n.Functio
     _ = m.MIR_new_export(self.ctx, @ptrCast(raw_qualified_name.items.ptr));
     _ = m.MIR_new_export(self.ctx, @ptrCast(qualified_name.items.ptr));
 
-    if (BuildOptions.debug_jit) {
+    if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/gen/{s}.mod.mir\u{0}", .{qualified_name.items}) catch unreachable;
@@ -296,7 +296,7 @@ pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElemen
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
 
-    if (BuildOptions.debug_jit) {
+    if (BuildOptions.jit_debug) {
         std.debug.print(
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
@@ -346,7 +346,7 @@ pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElemen
         );
     }
 
-    if (BuildOptions.debug_jit) {
+    if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{wrapper_name.items}) catch unreachable;
@@ -694,7 +694,7 @@ pub fn compileZdef(self: *Self, zdef: *const n.ZdefNode.ZdefElement) Error!*o.Ob
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
 
-    if (BuildOptions.debug_jit) {
+    if (BuildOptions.jit_debug) {
         std.debug.print(
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
@@ -719,7 +719,7 @@ pub fn compileZdef(self: *Self, zdef: *const n.ZdefNode.ZdefElement) Error!*o.Ob
 
     _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.items.ptr));
 
-    if (BuildOptions.debug_jit) {
+    if (BuildOptions.jit_debug) {
         var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
         defer debug_path.deinit();
         debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{zdef.symbol}) catch unreachable;

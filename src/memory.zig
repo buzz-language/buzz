@@ -205,7 +205,7 @@ pub const GarbageCollector = struct {
             self.max_allocated = self.bytes_allocated;
         }
 
-        if (self.bytes_allocated > self.next_gc and !BuildOptions.gc_off) {
+        if (self.bytes_allocated > self.next_gc and BuildOptions.gc) {
             try self.collectGarbage();
         }
 
@@ -228,7 +228,7 @@ pub const GarbageCollector = struct {
             self.max_allocated = self.bytes_allocated;
         }
 
-        if (self.bytes_allocated > self.next_gc and !BuildOptions.gc_off) {
+        if (self.bytes_allocated > self.next_gc and BuildOptions.gc) {
             try self.collectGarbage();
         }
 
