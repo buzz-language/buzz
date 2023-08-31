@@ -3372,15 +3372,26 @@ pub const Parser = struct {
         // defer self.gc.allocator.free(err);
         var err_offset: c_int = undefined;
         const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
-            @as([*c]const u8, @ptrCast(source)), // pattern
+            @ptrCast(source), // pattern
             0, // options
-            @as([*c][*c]const u8, @ptrCast(&err)), // error message buffer
+            @ptrCast(&err), // error message buffer
             &err_offset, // offset at which error occured
             null, // extra ?
         );
 
         if (reg == null) {
-            self.reportErrorFmt(.pattern, "Could not compile pattern, error at {}: {s}", .{ err_offset, err });
+            var location = self.parser.previous_token.?.clone();
+            location.column += @intCast(err_offset + 2);
+            location.lexeme = location.lexeme[@intCast(2 + err_offset)..@intCast(2 + err_offset + 1)];
+            self.reporter.reportErrorFmt(
+                .pattern,
+                location,
+                "Could not compile pattern, error at {}: {s}",
+                .{
+                    err_offset,
+                    std.mem.span(@as([*:0]u8, @ptrCast(err))),
+                },
+            );
             return CompileError.Unrecoverable;
         }
 

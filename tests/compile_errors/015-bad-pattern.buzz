@@ -1,0 +1,6 @@
+| Could not compile pattern, error at 5: unknown property name after \P or \p
+import "std";
+
+test "bad pattern" {
+    pat bad = $"bad\pattern";
+}
