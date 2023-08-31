@@ -572,12 +572,12 @@ pub const GarbageCollector = struct {
 
                 // Calling eventual destructor method
                 if (obj_objectinstance.object) |object| {
-                    const collect_key = self.strings.get("collect").?;
-                    if (object.methods.get(collect_key) != null) {
+                    const collect_key = self.strings.get("collect");
+                    if (collect_key != null and object.methods.get(collect_key.?) != null) {
                         buzz_api.bz_invoke(
                             obj_objectinstance.vm,
                             obj_objectinstance.toValue(),
-                            collect_key,
+                            collect_key.?,
                             null,
                             0,
                             null,
