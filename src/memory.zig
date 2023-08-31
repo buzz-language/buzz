@@ -137,6 +137,7 @@ pub const GarbageCollector = struct {
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
+    collecting: bool = false,
 
     debugger: ?GarbageCollectorDebugger,
     where: ?Token = null,
@@ -457,23 +458,23 @@ pub const GarbageCollector = struct {
         obj.is_dirty = false;
 
         _ = try switch (obj.obj_type) {
-            .String => ObjString.cast(obj).?.mark(self),
-            .Type => ObjTypeDef.cast(obj).?.mark(self),
-            .UpValue => ObjUpValue.cast(obj).?.mark(self),
-            .Closure => ObjClosure.cast(obj).?.mark(self),
-            .Function => ObjFunction.cast(obj).?.mark(self),
-            .ObjectInstance => ObjObjectInstance.cast(obj).?.mark(self),
-            .Object => ObjObject.cast(obj).?.mark(self),
-            .List => ObjList.cast(obj).?.mark(self),
-            .Map => ObjMap.cast(obj).?.mark(self),
-            .Enum => ObjEnum.cast(obj).?.mark(self),
-            .EnumInstance => ObjEnumInstance.cast(obj).?.mark(self),
-            .Bound => ObjBoundMethod.cast(obj).?.mark(self),
-            .Native => ObjNative.cast(obj).?.mark(self),
-            .UserData => ObjUserData.cast(obj).?.mark(self),
-            .Pattern => ObjPattern.cast(obj).?.mark(self),
-            .Fiber => try ObjFiber.cast(obj).?.mark(self),
-            .ForeignStruct => try ObjForeignStruct.cast(obj).?.mark(self),
+            .String => obj.access(ObjString, .String, self).?.mark(self),
+            .Type => obj.access(ObjTypeDef, .Type, self).?.mark(self),
+            .UpValue => obj.access(ObjUpValue, .UpValue, self).?.mark(self),
+            .Closure => obj.access(ObjClosure, .Closure, self).?.mark(self),
+            .Function => obj.access(ObjFunction, .Function, self).?.mark(self),
+            .ObjectInstance => obj.access(ObjObjectInstance, .ObjectInstance, self).?.mark(self),
+            .Object => obj.access(ObjObject, .Object, self).?.mark(self),
+            .List => obj.access(ObjList, .List, self).?.mark(self),
+            .Map => obj.access(ObjMap, .Map, self).?.mark(self),
+            .Enum => obj.access(ObjEnum, .Enum, self).?.mark(self),
+            .EnumInstance => obj.access(ObjEnumInstance, .EnumInstance, self).?.mark(self),
+            .Bound => obj.access(ObjBoundMethod, .Bound, self).?.mark(self),
+            .Native => obj.access(ObjNative, .Native, self).?.mark(self),
+            .UserData => obj.access(ObjUserData, .UserData, self).?.mark(self),
+            .Pattern => obj.access(ObjPattern, .Pattern, self).?.mark(self),
+            .Fiber => obj.access(ObjFiber, .Fiber, self).?.mark(self),
+            .ForeignStruct => obj.access(ObjForeignStruct, .ForeignStruct, self).?.mark(self),
         };
 
         if (BuildOptions.gc_debug) {
@@ -574,6 +575,9 @@ pub const GarbageCollector = struct {
                 if (obj_objectinstance.object) |object| {
                     const collect_key = self.strings.get("collect");
                     if (collect_key != null and object.methods.get(collect_key.?) != null) {
+                        if (self.debugger != null) {
+                            self.debugger.?.invoking_collector = true;
+                        }
                         buzz_api.bz_invoke(
                             obj_objectinstance.vm,
                             obj_objectinstance.toValue(),
@@ -582,6 +586,9 @@ pub const GarbageCollector = struct {
                             0,
                             null,
                         );
+                        if (self.debugger != null) {
+                            self.debugger.?.invoking_collector = false;
+                        }
 
                         // Remove void result of the collect call
                         _ = obj_objectinstance.vm.pop();
@@ -850,6 +857,13 @@ pub const GarbageCollector = struct {
             return;
         }
 
+        if (self.collecting) {
+            return;
+        }
+
+        // Avoid triggering another sweep while running collectors
+        self.collecting = true;
+
         const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
@@ -897,6 +911,8 @@ pub const GarbageCollector = struct {
         }
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
 
+        self.collecting = false;
+
         self.gc_time += timer.read();
     }
 };
@@ -913,6 +929,7 @@ pub const GarbageCollectorDebugger = struct {
     allocator: std.mem.Allocator,
     reporter: Reporter,
     tracker: std.AutoHashMap(*Obj, Ptr),
+    invoking_collector: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
@@ -939,6 +956,19 @@ pub const GarbageCollectorDebugger = struct {
 
     pub fn collected(self: *Self, ptr: *Obj, at: Token) void {
         if (self.tracker.getPtr(ptr)) |tracked| {
+            if (tracked.collected_at) |collected_at| {
+                self.reporter.reportWithOrigin(
+                    .gc,
+                    at,
+                    collected_at,
+                    "Trying to collected already collected {} {*}",
+                    .{ tracked.what, ptr },
+                    "first collected here",
+                );
+
+                unreachable;
+            }
+
             tracked.collected_at = at;
         } else {
             unreachable;
@@ -946,6 +976,8 @@ pub const GarbageCollectorDebugger = struct {
     }
 
     pub fn accessed(self: *Self, ptr: *Obj, at: ?Token) void {
+        if (self.invoking_collector) return;
+
         if (self.tracker.getPtr(ptr)) |tracked| {
             if (tracked.collected_at) |collected_at| {
                 var items = std.ArrayList(Reporter.ReportItem).init(self.allocator);
@@ -955,7 +987,7 @@ pub const GarbageCollectorDebugger = struct {
                 defer message.deinit();
 
                 message.writer().print(
-                    "Access to already collected {} {*}:",
+                    "Access to already collected {} {*}",
                     .{
                         tracked.what,
                         ptr,

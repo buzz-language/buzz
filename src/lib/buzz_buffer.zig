@@ -357,7 +357,10 @@ export fn BufferCursor(ctx: *api.NativeCtx) c_int {
 export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
-    if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as([*]const u8, @ptrCast(buffer.buffer.items)) else null, buffer.buffer.items.len)) |objstring| {
+    if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as(
+        [*]const u8,
+        @ptrCast(buffer.buffer.items),
+    ) else null, buffer.buffer.items.len)) |objstring| {
         ctx.vm.bz_pushString(objstring);
     } else {
         @panic("Out of memory");
