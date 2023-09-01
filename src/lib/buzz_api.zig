@@ -108,8 +108,15 @@ pub const VM = opaque {
     }
 
     pub inline fn pushErrorEnum(self: *VM, qualified_name: []const u8, case: []const u8) void {
-        self.bz_pushErrorEnum(qualified_name.ptr, qualified_name.len, case.ptr, case.len);
+        self.bz_pushErrorEnum(
+            qualified_name.ptr,
+            qualified_name.len,
+            case.ptr,
+            case.len,
+        );
     }
+
+    pub extern fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value;
 
     pub extern fn bz_throw(vm: *VM, value: Value) void;
     pub extern fn bz_rethrow(vm: *VM) void;

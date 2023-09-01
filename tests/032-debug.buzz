@@ -1,6 +1,6 @@
 import "std";
 import "debug" as debug;
-import "json";
+import "serialize";
 
 test "Get AST" {
     str source = debug.ast(`
@@ -9,9 +9,9 @@ test "Get AST" {
         fun main([str] args) > void -> print(\"hello world\");
     `, scriptName: "test");
 
-    Boxed jsonAST = decode(source);
+    Boxed jsonAST = jsonDecode(source);
 
-    print(encode(jsonAST));
+    print(jsonEncode(jsonAST));
 }
 
 enum MyEnum {

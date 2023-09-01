@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const _obj = @import("obj.zig");
+const VM = @import("vm.zig").VM;
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Obj = _obj.Obj;
 const objToString = _obj.objToString;
@@ -154,6 +155,14 @@ pub const Value = packed struct {
             },
         );
     }
+
+    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMap(*Obj, void)) !Value {
+        if (self.isObj()) {
+            return try self.obj().serialize(vm, seen);
+        }
+
+        return self;
+    }
 };
 
 test "NaN boxing" {
@@ -169,6 +178,8 @@ test "NaN boxing" {
     std.debug.assert(Value.False.isBool());
     std.debug.assert(Value.True.isBool());
 }
+
+// TODO: move those in Value struct
 
 pub fn valueToStringAlloc(allocator: Allocator, value: Value) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
     var str = std.ArrayList(u8).init(allocator);

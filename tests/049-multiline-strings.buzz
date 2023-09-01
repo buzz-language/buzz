@@ -1,5 +1,5 @@
 import "std";
-import "json";
+import "serialize";
 
 test "Multiline strings" {
     str multi = `\{
@@ -10,8 +10,8 @@ test "Multiline strings" {
         `}
     }`;
 
-    Boxed json = decode(multi);
+    Boxed json = jsonDecode(multi);
 
-    assert(json.q(["yes"]).integer == 15, message: "multiline string is valid");
-    assert(json.q(["another"]).string == "one", message: "multiline string is valid");
+    assert(json.q(["yes"]).integer() == 15, message: "multiline string is valid");
+    assert(json.q(["another"]).string() == "one", message: "multiline string is valid");
 }

@@ -2,7 +2,7 @@
 
 import "std";
 import "io";
-import "json";
+import "serialize";
 import "os" as os;
 import "debug" as debug;
 import "errors";
@@ -115,15 +115,16 @@ fun readContentLength() > int? !> LSPError {
 fun respond(str? strId, int? numId, Boxed result) > void !> LSPError
  {
     try {
-        const Boxed response = Boxed{
-            map = {
-                "jsonrpc": Boxed{ string = "2.0" },
-                "id": Boxed{ string = strId, integer = numId },
+        const Boxed response = Boxed.init(
+            {
+                <str, any>,
+                "jsonrpc": "2.0",
+                "id": if (strId != null) (strId as? any) else (numId as? any),
                 "result": result
             }
-        };
+        );
 
-        const str stringResponse = encode(response);
+        const str stringResponse = jsonEncode(response);
 
         stderr.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
         stdout.write("Content-Length: {stringResponse.len()}\r\n\r\n{stringResponse}");
@@ -134,10 +135,10 @@ fun respond(str? strId, int? numId, Boxed result) > void !> LSPError
 
 fun withinNode(Boxed node, str uri, int line, int column) > bool {
     const str script = node.q(["location", "script"]).stringValue();
-    const int startLine = node.q(["location", "start_line"]).integer ?? -1;
-    const int startColumn = node.q(["location", "start_column"]).integer ?? -1;
-    const int endLine = node.q(["location", "end_line"]).integer ?? -1;
-    const int endColumn = node.q(["location", "end_column"]).integer ?? -1;
+    const int startLine = node.q(["location", "start_line"]).integer() ?? -1;
+    const int startColumn = node.q(["location", "start_column"]).integer() ?? -1;
+    const int endLine = node.q(["location", "end_line"]).integer() ?? -1;
+    const int endColumn = node.q(["location", "end_column"]).integer() ?? -1;
 
     const bool result = uri.endsWith(script)
         and line >= startLine
@@ -159,7 +160,7 @@ fun findNodeUnder([Boxed] trail, Boxed root, str uri, int line, int column) > vo
 
     trail.append(root);
 
-    const str node = root.q(["node"]).string ?? "-";
+    const str node = root.q(["node"]).string() ?? "-";
 
     if (node == "Function") {
         const Boxed body = root.q(["body"]);
@@ -342,7 +343,7 @@ fun findNodeUnder([Boxed] trail, Boxed root, str uri, int line, int column) > vo
     if (node == "NamedVariable") {
         const Boxed value = root.q(["value"]);
 
-        if (value.map != null and withinNode(value, uri: uri, line: line, column: column)) {
+        if (value.map() != null and withinNode(value, uri: uri, line: line, column: column)) {
             findNodeUnder(trail, root: value, uri: uri, line: line, column: column);
 
             return;
@@ -832,7 +833,7 @@ fun getAst(LspState state, str filename) > Boxed !> LSPError {
 
             str astString = debug.ast(source!, scriptName: filename);
 
-            state.ast[filename] = decode(astString);
+            state.ast[filename] = jsonDecode(astString);
         } catch {
             throw LSPError.init(LSPErrorType.ParseError);
         }
@@ -841,7 +842,7 @@ fun getAst(LspState state, str filename) > Boxed !> LSPError {
     return state.ast[filename]!;
 }
 
-fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
+fun getSymbolsAt(Boxed node, [Boxed] declarations) > void !> CircularReference, NotSerializable {
     const str ndType = node.q(["node"]).stringValue();
 
     if (ndType == "Function") {
@@ -851,27 +852,29 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
     }
     
     if (ndType == "Enum") {
-        declarations.append(Boxed{
-            map = {
-                "name": Boxed{ string = node.q(["type_def"]).stringValue().sub(5) },
-                "kind": Boxed{ integer = SymbolKind.Enum.value },
-                "range": locationToRange(node.q(["location"])),
-                "selectionRange": locationToRange(node.q(["location"])),
+        declarations.append(Boxed.init(
+            {
+                <str, any>,
+                "name": node.q(["type_def"]).stringValue().sub(5),
+                "kind": SymbolKind.Enum.value,
+                "range": locationToRange(node.q(["location"])).data,
+                "selectionRange": locationToRange(node.q(["location"])).data,
             }
-        });
+        ));
 
         return;
     }
     
     if (ndType == "VarDeclaration") {
-        declarations.append(Boxed{
-            map = {
-                "name": Boxed{ string = node.q(["name"]).stringValue() },
-                "kind": Boxed{ integer = SymbolKind.Variable.value },
-                "range": locationToRange(node.q(["location"])),
-                "selectionRange": locationToRange(node.q(["location"])),
+        declarations.append(Boxed.init(
+            {
+                <str, any>,
+                "name": node.q(["name"]).stringValue(),
+                "kind": SymbolKind.Variable.value,
+                "range": locationToRange(node.q(["location"])).data,
+                "selectionRange": locationToRange(node.q(["location"])).data,
             }
-        });
+        ));
 
         return;
     }
@@ -880,14 +883,15 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
         pat namePattern = $"fun (.+)\(";
         str name = namePattern.match(node.q(["type_def"]).stringValue())![1];
 
-        declarations.append(Boxed{
-            map = {
-                "name": Boxed{ string = name },
-                "kind": Boxed{ integer = SymbolKind.KFunction.value },
-                "range": locationToRange(node.q(["location"])),
-                "selectionRange": locationToRange(node.q(["location"])),
+        declarations.append(Boxed.init(
+            {
+                <str, any>,
+                "name": name,
+                "kind": SymbolKind.KFunction.value,
+                "range": locationToRange(node.q(["location"])).data,
+                "selectionRange": locationToRange(node.q(["location"])).data,
             }
-        });
+        ));
 
         return;
     }
@@ -898,36 +902,39 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
         SymbolKind kind = SymbolKind.Object;
         str name = match[2];
 
-        declarations.append(Boxed{
-            map = {
-                "name": Boxed{ string = name },
-                "kind": Boxed{ integer = kind.value },
-                "range": locationToRange(node.q(["location"])),
-                "selectionRange": locationToRange(node.q(["location"])),
+        declarations.append(Boxed.init(
+            {
+                <str, any>,
+                "name": name,
+                "kind": kind.value,
+                "range": locationToRange(node.q(["location"])).data,
+                "selectionRange": locationToRange(node.q(["location"])).data,
             }
-        });
+        ));
 
         foreach (str methodName, Boxed method in node.q(["methods"]).mapValue()) {
-            declarations.append(Boxed{
-                map = {
-                    "name": Boxed{ string = methodName },
-                    "kind": Boxed{ integer = SymbolKind.Method.value },
-                    "range": locationToRange(method.q(["location"])),
-                    "selectionRange": locationToRange(method.q(["location"])),
+            declarations.append(Boxed.init(
+                {
+                    <str, any>,
+                    "name": methodName,
+                    "kind": SymbolKind.Method.value,
+                    "range": locationToRange(method.q(["location"])).data,
+                    "selectionRange": locationToRange(method.q(["location"])).data,
                 }
-            });
+            ));
         }
 
         foreach (str propertyName, Boxed def in node.q(["members"]).mapValue()) {
-            declarations.append(Boxed{
-                map = {
-                    "name": Boxed{ string = propertyName },
-                    "kind": Boxed{ integer = SymbolKind.Property.value },
+            declarations.append(Boxed.init(
+                {
+                    <str, any>,
+                    "name": propertyName,
+                    "kind": SymbolKind.Property.value,
                     | TODO: add property location
-                    "range": locationToRange(node.q(["location"])),
-                    "selectionRange": locationToRange(node.q(["location"])),
+                    "range": locationToRange(node.q(["location"])).data,
+                    "selectionRange": locationToRange(node.q(["location"])).data,
                 }
-            });
+            ));
         }
 
         return;
@@ -978,41 +985,40 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void {
     }
 }
 
-fun getSymbols(LspState state, {str, Boxed} request) > Boxed {
+fun getSymbols(LspState state, {str, Boxed} request) > Boxed !> CircularReference, NotSerializable {
     const Boxed ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "") catch Boxed{};
 
     [Boxed] declarations = [<Boxed>];
     
     getSymbolsAt(ast, declarations: declarations);
 
-    return Boxed{ list = declarations };
+    return Boxed.init(declarations);
 }
 
-fun locationToRange(Boxed location) > Boxed {
-    const int startLine = location.q(["start_line"]).integer ?? -1;
-    const int startColumn = location.q(["start_column"]).integer ?? -1;
-    const int endLine = location.q(["end_line"]).integer ?? -1;
-    const int endColumn = location.q(["end_column"]).integer ?? -1;
+fun locationToRange(Boxed location) > Boxed !> CircularReference, NotSerializable {
+    const int startLine = location.q(["start_line"]).integer() ?? -1;
+    const int startColumn = location.q(["start_column"]).integer() ?? -1;
+    const int endLine = location.q(["end_line"]).integer() ?? -1;
+    const int endColumn = location.q(["end_column"]).integer() ?? -1;
 
-    return Boxed{
-        map = {
-            "start": Boxed{
-                map = {
-                    "line": Boxed{ integer = startLine },
-                    "character": Boxed{ integer = startColumn },
-                }
+    return Boxed.init(
+        {
+            <str, any>,
+            "start": {
+                <str, any>,
+                "line": startLine,
+                "character": startColumn,
             },
-            "end": Boxed{
-                map = {
-                    "line": Boxed{ integer = endLine },
-                    "character": Boxed{ integer = endColumn },
-                }
+            "end": {
+                <str, any>,
+                "line": endLine,
+                "character": endColumn,
             }
         }
-    };
+    );
 }
 
-fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError {
+fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError, CircularReference, NotSerializable {
     const {str, Boxed} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Boxed>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
     const {str, Boxed} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Boxed>};
@@ -1022,7 +1028,7 @@ fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError {
     Boxed ast = getAst(state, filename: uri);
 
     | Skip entry point
-    [Boxed] roots = ast.q(["body", "statements"]).list ?? [<Boxed>];
+    [Boxed] roots = ast.q(["body", "statements"]).list() ?? [<Boxed>];
     foreach (int i, Boxed root in roots) {
         [Boxed] trail = [ast];
         
@@ -1032,12 +1038,13 @@ fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError {
             Boxed? declaration = findDeclaration(trail);
 
             if (declaration != null) {
-                return Boxed{
-                    map = {
-                        "uri": Boxed{ string = uri },
-                        "range": locationToRange(declaration!.q(["location"])),
+                return Boxed.init(
+                    {
+                        <str, any>,
+                        "uri": uri,
+                        "range": locationToRange(declaration!.q(["location"])).data,
                     }
-                };
+                );
             }
 
             break;
@@ -1058,23 +1065,22 @@ const {str, Function(LspState state, {str, Boxed} request) > Boxed} handlers = {
     "exit": stop,
     "shutdown": stop,
     "initialize": fun (LspState state, {str, Boxed} request)
-        -> Boxed{
-            map = {
-                "capabilities": Boxed{
-                    map = {
-                        "declarationProvider": Boxed{ boolean = true },
-                        "definitionProvider": Boxed{ boolean = true },
-                        "documentSymbolProvider": Boxed{ boolean = true },
-                    }
+        -> Boxed.init(
+            {
+                <str, any>,
+                "capabilities": {
+                    <str, any>,
+                    "declarationProvider": true,
+                    "definitionProvider": true,
+                    "documentSymbolProvider": true,
                 },
-                "serverInfo": Boxed{
-                    map = {
-                        "name": Boxed{ string = "buzz-lsp" },
-                        "version": Boxed{ string= "0.0.1" },
-                    },
+                "serverInfo": {
+                    <str, any>,
+                    "name": "buzz-lsp",
+                    "version": "0.0.1",
                 },
             },
-        },
+        ) catch Boxed{},
     | There's not really a difference between declaration and definition in buzz
     "textDocument/declaration": gotoDefinition,
     "textDocument/definition": gotoDefinition,
@@ -1102,8 +1108,8 @@ fun main([str] args) > void !> any {
             throw "Could not read request";
         }
 
-        {str, Boxed} request = (decode(requestRaw!) catch Boxed{}).mapValue();
-        const str? method = request["method"]?.string;
+        {str, Boxed} request = (jsonDecode(requestRaw!) catch Boxed{}).mapValue();
+        const str? method = request["method"]?.string();
 
         stderr.write("Method is: `{method ?? "none"}`\n") catch void;
 
@@ -1113,8 +1119,8 @@ fun main([str] args) > void !> any {
         }
 
         respond(
-            strId: request["id"]?.string,
-            numId: request["id"]?.integer,
+            strId: request["id"]?.string(),
+            numId: request["id"]?.integer(),
             result: result,
         );
     }
@@ -1126,9 +1132,9 @@ test "documentSymbol" {
         ast = {<str, Boxed>},
     };
 
-    {str, Boxed} request = decode(
-        `\{"jsonrpc":"2.0","id":163,"method":"textDocument/definition","params":\{"textDocument":\{"uri":"file:///Users/giann/git/buzz/src/lib/json.buzz"},"position":\{"line":307,"character":64}}}`
+    {str, Boxed} request = jsonDecode(
+        `\{"jsonrpc":"2.0","id":163,"method":"textDocument/definition","params":\{"textDocument":\{"uri":"file:///Users/giann/git/buzz/src/lib/serialize.buzz"},"position":\{"line":300,"character":22}}}`
     ).mapValue();
 
-    print(encode(handlers["textDocument/definition"]!(state, request: request)));
+    print(jsonEncode(handlers["textDocument/definition"]!(state, request: request)));
 }

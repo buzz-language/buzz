@@ -1,42 +1,38 @@
 import "std";
-import "json";
+import "serialize";
 
 test "Json.encode" {
-    Boxed json = Boxed {
-        map = {
-            "hello": Boxed { string = "world" },
-            "bye": Boxed { integer = 42 },
-        },
+    {str, any} data = {
+        "hello": "world",
+        "bye": 42,
     };
 
     assert(
-        encode(json) == `\{"hello":"world","bye":42}`,
+        jsonEncode(Boxed.init(data)) == `\{"hello":"world","bye":42}`,
         message: "valid encode"
     );
 }
 
 test "Json.decode" {
     assert(
-        decode(`[ -12, true, "hello" ]`).listValue()[2].string == "hello",
+        jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
         message: "could decode simple JSON"
     );
 }
 
 test "Boxed.q" {
-    Boxed json = Boxed {
-        map = {
-            "submap": Boxed{
-                map = {
-                    "subsubmap": Boxed{
-                        map = {
-                            "one": Boxed{ integer = 1 },
-                            "two": Boxed{ integer = 2 },
-                        }
-                    }
-                }
+    {str, any} data = {
+        "submap": {
+            <str, any>,
+            "subsubmap": {
+                <str, any>,
+                "one": 1,
+                "two": 2,
             }
-        },
+        }
     };
 
-    assert(json.q(["submap", "subsubmap", "one"]).integer == 1, message: "Boxed.q");
+    Boxed boxed = Boxed.init(data);
+
+    assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
 }

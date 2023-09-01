@@ -32,6 +32,12 @@ const valueEql = _value.valueEql;
 const valueIs = _value.valueIs;
 const valueTypeEql = _value.valueTypeEql;
 
+pub const SerializeError = error{
+    CircularReference,
+    NotSerializable,
+    OutOfMemory,
+};
+
 pub const ObjType = enum {
     String,
     Type,
@@ -75,6 +81,229 @@ pub const Obj = struct {
         }
 
         return obj.cast(T, obj_type);
+    }
+
+    pub fn serialize(self: *Self, vm: *VM, seen: *std.AutoHashMap(*Self, void)) SerializeError!Value {
+        if (seen.get(self) != null) {
+            return error.CircularReference;
+        }
+
+        try seen.put(self, {});
+
+        switch (self.obj_type) {
+            .String => return Value.fromObj(self),
+
+            .Pattern => {
+                const pattern = self.access(ObjPattern, .Pattern, vm.gc).?;
+
+                return (vm.gc.copyString(pattern.source) catch return error.OutOfMemory).toValue();
+            },
+
+            .Fiber,
+            .Object,
+            .Enum,
+            .Function,
+            .Closure,
+            .Bound,
+            .UserData,
+            .Native,
+            => return error.NotSerializable,
+
+            .UpValue => {
+                const upvalue = self.access(ObjUpValue, .UpValue, vm.gc).?;
+
+                return try (upvalue.closed orelse upvalue.location.*).serialize(vm, seen);
+            },
+
+            // We could also serialize the actual structure of a typedef
+            // But do we need to? At deserialization we can just parse the type?
+            .Type => {
+                const type_def = self.access(ObjTypeDef, .Type, vm.gc).?;
+
+                const type_str = type_def.toStringAlloc(vm.gc.allocator) catch return error.OutOfMemory;
+                defer type_str.deinit();
+
+                return (vm.gc.copyString(type_str.items) catch return error.OutOfMemory).toValue();
+            },
+
+            .EnumInstance => {
+                const enum_instance = self.access(ObjEnumInstance, .EnumInstance, vm.gc).?;
+
+                return try enum_instance.enum_ref.cases.items[enum_instance.case].serialize(vm, seen);
+            },
+
+            .List => {
+                const list = self.access(ObjList, .List, vm.gc).?;
+
+                const list_def = ObjList.ListDef.init(
+                    vm.gc.allocator,
+                    vm.gc.type_registry.getTypeDef(
+                        .{ .def_type = .Any },
+                    ) catch return error.OutOfMemory,
+                );
+
+                const resolved_type = ObjTypeDef.TypeUnion{ .List = list_def };
+
+                const list_type = vm.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .List,
+                        .resolved_type = resolved_type,
+                    },
+                ) catch return error.OutOfMemory;
+
+                const serialized_list = vm.gc.allocateObject(
+                    ObjList,
+                    ObjList.init(
+                        vm.gc.allocator,
+                        list_type,
+                    ),
+                ) catch return error.OutOfMemory;
+
+                for (list.items.items) |item| {
+                    try serialized_list.rawAppend(
+                        vm.gc,
+                        try item.serialize(vm, seen),
+                    );
+                }
+
+                return serialized_list.toValue();
+            },
+
+            .Map => {
+                const map = self.access(ObjMap, .Map, vm.gc).?;
+                const any = vm.gc.type_registry.getTypeDef(
+                    .{ .def_type = .Any },
+                ) catch return error.OutOfMemory;
+
+                const map_def = ObjMap.MapDef.init(
+                    vm.gc.allocator,
+                    any,
+                    any,
+                );
+
+                const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
+
+                const map_type = vm.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .Map,
+                        .resolved_type = resolved_type,
+                    },
+                ) catch return error.OutOfMemory;
+
+                const serialized_map = vm.gc.allocateObject(
+                    ObjMap,
+                    ObjMap.init(
+                        vm.gc.allocator,
+                        map_type,
+                    ),
+                ) catch return error.OutOfMemory;
+
+                for (map.map.keys()) |key| {
+                    try serialized_map.set(
+                        vm.gc,
+                        try key.serialize(vm, seen),
+                        try map.map.get(key).?.serialize(vm, seen),
+                    );
+                }
+
+                return serialized_map.toValue();
+            },
+
+            .ObjectInstance => {
+                const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
+                const object_def = (instance.type_def orelse instance.object.?.type_def).resolved_type.?.Object;
+
+                const any = vm.gc.type_registry.getTypeDef(
+                    .{ .def_type = .Any },
+                ) catch return error.OutOfMemory;
+
+                const map_def = ObjMap.MapDef.init(
+                    vm.gc.allocator,
+                    any,
+                    any,
+                );
+
+                const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
+
+                const map_type = vm.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .Map,
+                        .resolved_type = resolved_type,
+                    },
+                ) catch return error.OutOfMemory;
+
+                const serialized_instance = vm.gc.allocateObject(
+                    ObjMap,
+                    ObjMap.init(
+                        vm.gc.allocator,
+                        map_type,
+                    ),
+                ) catch return error.OutOfMemory;
+
+                for (object_def.fields.keys()) |property| {
+                    const property_str = (vm.gc.copyString(property) catch return error.OutOfMemory);
+                    serialized_instance.set(
+                        vm.gc,
+                        property_str.toValue(),
+                        try instance.fields.get(property_str).?.serialize(vm, seen),
+                    ) catch return error.OutOfMemory;
+                }
+
+                return serialized_instance.toValue();
+            },
+
+            .ForeignStruct => {
+                const fstruct = self.access(ObjForeignStruct, .ForeignStruct, vm.gc).?;
+                const fstruct_def = fstruct.type_def.resolved_type.?.ForeignStruct;
+
+                const any = vm.gc.type_registry.getTypeDef(
+                    .{ .def_type = .Any },
+                ) catch return error.OutOfMemory;
+
+                const map_def = ObjMap.MapDef.init(
+                    vm.gc.allocator,
+                    any,
+                    any,
+                );
+
+                const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
+
+                const map_type = vm.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .Map,
+                        .resolved_type = resolved_type,
+                    },
+                ) catch return error.OutOfMemory;
+
+                const serialized_instance = vm.gc.allocateObject(
+                    ObjMap,
+                    ObjMap.init(
+                        vm.gc.allocator,
+                        map_type,
+                    ),
+                ) catch return error.OutOfMemory;
+
+                var it = fstruct_def.fields.iterator();
+                while (it.next()) |kv| {
+                    var dupped = try vm.gc.allocator.dupeZ(u8, kv.key_ptr.*);
+                    defer vm.gc.allocator.free(dupped);
+
+                    try serialized_instance.set(
+                        vm.gc,
+                        (vm.gc.copyString(kv.key_ptr.*) catch return error.OutOfMemory).toValue(),
+                        kv.value_ptr.*.getter(
+                            vm,
+                            @ptrCast(dupped),
+                        ),
+                    );
+                }
+
+                return serialized_instance.toValue();
+            },
+        }
     }
 
     pub fn typeOf(self: *Self, gc: *GarbageCollector) anyerror!*ObjTypeDef {

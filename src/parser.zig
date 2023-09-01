@@ -2503,7 +2503,11 @@ pub const Parser = struct {
 
         try self.consume(.Semicolon, "Expected `;` after import.");
 
-        var import = try self.importScript(file_name, if (prefix) |pr| pr.lexeme else null, &imported_symbols);
+        var import = try self.importScript(
+            file_name,
+            if (prefix) |pr| pr.lexeme else null,
+            &imported_symbols,
+        );
 
         if (imported_symbols.count() > 0) {
             var it = imported_symbols.iterator();
@@ -5200,7 +5204,14 @@ pub const Parser = struct {
 
                     // Search for name collision
                     if ((try self.resolveGlobal(prefix, Token.identifier(global.name.string))) != null) {
-                        self.reportErrorFmt(.shadowed_global, "Shadowed global `{s}`", .{global.name.string});
+                        self.reporter.reportWithOrigin(
+                            .shadowed_global,
+                            self.parser.previous_token.?,
+                            global.location,
+                            "Shadowed global `{s}`",
+                            .{global.name.string},
+                            null,
+                        );
                     }
 
                     global.*.prefix = prefix;

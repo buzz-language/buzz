@@ -1,6 +1,6 @@
 import "std";
 import "debug";
-import "json";
+import "serialize";
 import "io";
 import "fs";
 import "errors";
@@ -98,11 +98,11 @@ fun extractDeclarations([Boxed] statements) > [Declaration] !> JsonParseError {
             Declaration declaration = Declaration.init(
                 declarationType: nodeType,
                 typeDef: statement.q(["type_def"]).stringValue(),
-                docblock: statement.q(["docblock"]).string,
+                docblock: statement.q(["docblock"]).string(),
             );
 
             if (nodeType == "VarDeclaration") {
-                declaration.name = statement.q(["name"]).string;
+                declaration.name = statement.q(["name"]).string();
             }
 
             if (nodeType == "ObjectDeclaration") {
@@ -118,7 +118,7 @@ fun extractDeclarations([Boxed] statements) > [Declaration] !> JsonParseError {
                         Declaration.init(
                             declarationType: "member",
                             typeDef: displayName,
-                            docblock: member.mapValue()["docblock"]?.string,
+                            docblock: member.mapValue()["docblock"]?.string(),
                         );
                 }
             }
@@ -148,7 +148,7 @@ fun getDeclarations(str path) > [Declaration]
     Boxed? root = null;
 
     try {
-        root = decode(source);
+        root = jsonDecode(source);
     } catch (JsonParseError error) {
         print("Could not decode ast of for {path}");
 
@@ -156,7 +156,7 @@ fun getDeclarations(str path) > [Declaration]
     }
 
     | Root must be a function
-    assert(root?.q(["node"]).string ?? "" == "Function", message: "Expected root node to be a function");
+    assert(root?.q(["node"]).string() ?? "" == "Function", message: "Expected root node to be a function");
 
     return extractDeclarations(root?.q(["body", "statements"]).listValue() ?? [<Boxed>]);
 }

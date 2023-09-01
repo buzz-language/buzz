@@ -367,6 +367,7 @@ pub fn build(b: *Build) !void {
         "src/lib/buzz_crypto.zig",
         "src/lib/buzz_http.zig",
         "src/lib/buzz_ffi.zig",
+        "src/lib/buzz_serialize.zig",
     };
     // Zig only libs
     const lib_names = [_][]const u8{
@@ -381,6 +382,7 @@ pub fn build(b: *Build) !void {
         "crypto",
         "http",
         "ffi",
+        "serialize",
     };
     const all_lib_names = [_][]const u8{
         "std",
@@ -392,11 +394,10 @@ pub fn build(b: *Build) !void {
         "debug",
         "buffer",
         "crypto",
-        "json",
         "http",
         "errors",
-        "serialize",
         "ffi",
+        "serialize",
     };
 
     // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries

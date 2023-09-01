@@ -763,6 +763,30 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
     return instance.toValue();
 }
 
+fn instanciateError(
+    vm: *VM,
+    qualified_name: [*]const u8,
+    len: usize,
+    message: ?[*]const u8,
+    mlen: usize,
+) Value {
+    const instance = bz_instanceQualified(vm, qualified_name, len);
+
+    if (message) |msg| {
+        const obj_instance = ObjObjectInstance.cast(instance.obj()).?;
+        const message_key = vm.gc.strings.get("message").?;
+
+        if (obj_instance.fields.get(message_key) != null) {
+            obj_instance.fields.put(
+                message_key,
+                (vm.gc.copyString(msg[0..mlen]) catch @panic("Out of memory")).toValue(),
+            ) catch @panic("Out of memory");
+        }
+    }
+
+    return instance;
+}
+
 // Assumes the global exists
 export fn bz_pushError(
     self: *VM,
@@ -771,21 +795,15 @@ export fn bz_pushError(
     message: ?[*]const u8,
     mlen: usize,
 ) void {
-    const instance = bz_instanceQualified(self, qualified_name, len);
-
-    if (message) |msg| {
-        const obj_instance = ObjObjectInstance.cast(instance.obj()).?;
-        const message_key = self.gc.strings.get("message").?;
-
-        if (obj_instance.fields.get(message_key) != null) {
-            obj_instance.fields.put(
-                message_key,
-                (self.gc.copyString(msg[0..mlen]) catch @panic("Out of memory")).toValue(),
-            ) catch @panic("Out of memory");
-        }
-    }
-
-    self.push(instance);
+    self.push(
+        instanciateError(
+            self,
+            qualified_name,
+            len,
+            message,
+            mlen,
+        ),
+    );
 }
 
 export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {
@@ -1638,6 +1656,39 @@ export fn bz_fstructFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: u
 export fn bz_zigTypeSize(self: *ZigType) usize {
     return self.size();
 }
+
 export fn bz_zigTypeAlignment(self: *ZigType) u16 {
     return self.alignment();
+}
+
+export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value {
+    var seen = std.AutoHashMap(*Obj, void).init(vm.gc.allocator);
+    defer seen.deinit();
+
+    return value.serialize(vm, &seen) catch |err| s: {
+        switch (err) {
+            error.CircularReference => {
+                // TODO: not ideal to do this here, will fail if serialize was not imported in the script...
+                error_value.* = instanciateError(
+                    vm,
+                    "serialize.CircularReference",
+                    "serialize.CircularReference".len,
+                    null,
+                    0,
+                );
+                break :s Value.Void;
+            },
+            error.NotSerializable => {
+                error_value.* = instanciateError(
+                    vm,
+                    "serialize.NotSerializable",
+                    "serialize.NotSerializable".len,
+                    null,
+                    0,
+                );
+                break :s Value.Void;
+            },
+            else => @panic("Out of memory"),
+        }
+    };
 }
