@@ -1,0 +1,461 @@
+import "std";
+import "ffi";
+
+zdef("SDL2", `
+    const SDL_Window = opaque{};
+    const SDL_Renderer = opaque{};
+    const SDL_Texture = opaque{};
+
+    // TODO: union
+    const SDL_Event = extern struct{
+        type: u32,
+        pad01: i32,
+        pad02: i32,
+        pad03: i32,
+        pad04: i32,
+        pad05: i32,
+        pad06: i32,
+        pad07: i32,
+        pad08: i32,
+        pad09: i32,
+        pad10: i32,
+        pad11: i32,
+        pad12: i32,
+        pad13: i32,
+    };
+
+    const SDL_Rect = extern struct {
+        x: c_int,
+        y: c_int,
+        w: c_int,
+        h: c_int,
+    };
+
+    fn SDL_GetError() [*:0]const u8;
+    fn SDL_Init(flags: u32) c_int;
+    fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;
+    fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;
+    fn SDL_CreateRenderer(window: *SDL_Window, index: c_int, flags: u32) ?*SDL_Renderer;
+    fn SDL_RenderPresent(renderer: *SDL_Renderer) void;
+    fn SDL_DestroyWindow(window: *SDL_Window) void;
+    fn SDL_Delay(ms: u32) void;
+    fn SDL_Quit() void;
+    fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;
+    fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;
+    fn SDL_PollEvent(event: *SDL_Event) c_int;
+    fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;
+    fn SDL_DestroyTexture(texture: *SDL_Texture) void;
+    fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;
+    fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;
+`);
+
+export enum(int) EventType {
+    FirstEvent               = 0,
+    Quit                     = 256,
+    AppTerminating           = 257,
+    AppLowMemory             = 258,
+    AppWillEnterBackground   = 259,
+    AppDidEnterBackground    = 260,
+    AppWillEnterForeground   = 261,
+    AppDidEnterForeground    = 262,
+    DisplayEvent             = 336,
+    WindowEvent              = 512,
+    SyswmEvent               = 513,
+    KeyDown                  = 768,
+    KeyUp                    = 769,
+    TextEditing              = 770,
+    TextInput                = 771,
+    KeymapChanged            = 772,
+    MouseMotion              = 1024,
+    MouseButtonDown          = 1025,
+    MouseButtonUp            = 1026,
+    MouseWheel               = 1027,
+    JoyAxisMotion            = 1536,
+    JoyBallMotion            = 1537,
+    JoyHatMotion             = 1538,
+    JoyButtonDown            = 1539,
+    JoyButtonUp              = 1540,
+    JoyDeviceAdded           = 1541,
+    JoyDeviceRemoved         = 1542,
+    ControllerAxisMotion     = 1616,
+    ControllerButtonDown     = 1617,
+    ControllerButtonUp       = 1618,
+    ControllerDeviceAdded    = 1619,
+    ControllerDeviceRemoved  = 1620,
+    ControllerDeviceRemapped = 1621,
+    FingerDown               = 1792,
+    FingerUp                 = 1793,
+    FingerMotion             = 1794,
+    DollarGesture            = 2048,
+    DollarRecord             = 2049,
+    MultiGesture             = 2050,
+    ClipboardUpdate          = 2304,
+    DropFile                 = 4096,
+    DropText                 = 4097,
+    DropBegin                = 4098,
+    DropComplete             = 4099,
+    AudioDeviceAdded         = 4352,
+    AudioDeviceRemoved       = 4353,
+    SensorUpdate             = 4608,
+    RenderTargetsReset       = 8192,
+    RenderDeviceReset        = 8193,
+    UserEvent                = 32768,
+    LastEvent                = 65535,
+}
+
+export enum(int) WindowFlag {
+    Fullscreen        = 1,
+    OpenGL            = 2,
+    Shown             = 4,
+    Hidden            = 8,
+    Borderless        = 16,
+    Resizable         = 32,
+    Minimized         = 64,
+    Maximized         = 128,
+    InputGrabbed      = 256,
+    InputFocus        = 512,
+    MouseFocus        = 1024,
+    FullscreenDesktop = 4097,
+    Foreign           = 2048,
+    AllowHighDPI      = 8192,
+    MouseCapture      = 16384,
+    AlwaysOnTop       = 32768,
+    SkipTaskbar       = 65536,
+    Utility           = 131072,
+    Tooltip           = 262144,
+    PopupMenu         = 524288,
+    Vulkan            = 268435456,
+}
+
+export enum(int) RendererFlag {
+    Software      = 1,
+    Accelerated   = 2,
+    PresentVsync  = 4,
+    TargetTexture = 8,
+}
+
+export enum(int) Subsystem {
+    Timer          = 0x0001,
+    Audio          = 0x0010,
+    Video          = 0x0020,
+    Events         = 0x4000,
+    Joystick       = 0x0200,
+    Haptic         = 0x1000,
+    Gamecontroller = 0x2000,
+    Sensor         = 0x8000,
+}
+
+| Those don't seem to fit in i32
+export enum(int) PixelFormat {
+    UNKNOWN      = 0,
+    INDEX1LSB    = 286261504,
+    INDEX1MSB    = 287310080,
+    INDEX4LSB    = 303039488,
+    INDEX4MSB    = 304088064,
+    INDEX8       = 318769153,
+    RGB332       = 336660481,
+    RGB444       = 353504258,
+    RGB555       = 353570562,
+    BGR555       = 357764866,
+    ARGB4444     = 355602434,
+    RGBA4444     = 356651010,
+    ABGR4444     = 359796738,
+    BGRA4444     = 360845314,
+    ARGB1555     = 355667970,
+    RGBA5551     = 356782082,
+    ABGR1555     = 359862274,
+    BGRA5551     = 360976386,
+    RGB565       = 353701890,
+    BGR565       = 357896194,
+    RGB24        = 386930691,
+    BGR24        = 390076419,
+    RGB888       = 370546692,
+    RGBX8888     = 371595268,
+    BGR888       = 374740996,
+    BGRX8888     = 375789572,
+    ARGB8888     = 372645892,
+    RGBA8888     = 373694468,
+    ABGR8888     = 376840196,
+    BGRA8888     = 377888772,
+    ARGB2101010  = 372711428,
+    RGBA32       = 376840196,
+    ARGB32       = 377888772,
+    BGRA32       = 372645892,
+    ABGR32       = 373694468,
+    YV12         = 842094169,
+    IYUV         = 1448433993,
+    YUY2         = 844715353,
+    UYVY         = 1498831189,
+    YVYU         = 1431918169,
+    NV12         = 842094158,
+    NV21         = 825382478,
+    EXTERNAL_OES = 542328143,
+}
+
+export enum(int) TextureAccess {
+    Static    = 0,
+    Streaming = 1,
+    Target    = 2,
+}
+
+export object SDLError {
+    str message,
+}
+
+export object SDL {
+    SDL_Event event,
+
+    static fun init([Subsystem] subsystems) > SDL !> SDLError {
+        int flags = 0;
+        foreach (Subsystem subsystem in subsystems) {
+            flags = flags \ subsystem.value;
+        }
+
+        if (SDL_Init(toFloat(flags)) != 0) {
+            throw SDLError{
+                message = "SDL_Init error: {SDL_GetError()}",
+            };
+        }
+
+        return SDL{
+            event = SDL_Event{
+                @"type" = 0.0,
+                | Would be useful to define default values in zig and get them back in buzz
+                pad01 = 0,
+                pad02 = 0,
+                pad03 = 0,
+                pad04 = 0,
+                pad05 = 0,
+                pad06 = 0,
+                pad07 = 0,
+                pad08 = 0,
+                pad09 = 0,
+                pad10 = 0,
+                pad11 = 0,
+                pad12 = 0,
+                pad13 = 0,
+            },
+        };
+    }
+
+    fun quit() > void {
+        SDL_Quit();
+    }
+
+    fun pollEvent() > SDL_Event? {
+        if (SDL_PollEvent(this.event) != 0) {
+            return this.event;
+        }
+
+        return null;
+    }
+
+    fun delay(float ms) > void {
+        SDL_Delay(ms);
+    }
+}
+
+export object Texture {
+    SDL_Texture texture,
+
+    fun collect() > void {
+        SDL_DestroyTexture(this.texture);
+    }
+}
+
+export object Rect {
+    int x,
+    int y,
+    int width,
+    int height,
+}
+
+export object Color {
+    int red,
+    int green,
+    int blue,
+    int alpha = 0xff,
+}
+
+export object Renderer {
+    SDL_Renderer renderer,
+
+    fun createTexture(
+        PixelFormat format,
+        TextureAccess access,
+        int width,
+        int height
+    ) > Texture !> SDLError {
+        const SDL_Texture? texture = SDL_CreateTexture(
+            this.renderer,
+            format: toFloat(format.value),
+            access: access.value,
+            w: width,
+            h: height,
+        );
+
+        if (texture -> unwrapped) {
+            return Texture{
+                texture = unwrapped,
+            };
+        }
+
+        throw SDLError{
+            message = "SDL_CreateTexture error: {SDL_GetError()}",
+        };
+    }
+
+    fun setRenderTarget(Texture? texture) > void !> SDLError {
+        const int result = SDL_SetRenderTarget(
+            this.renderer,
+            texture: if (texture != null)
+                texture!.texture
+            else 
+                null
+        );
+
+        if (result != 0) {
+            throw SDLError{
+                message = "SDL_SetRenderTarget error: {SDL_GetError()}",
+            };
+        }
+    }
+
+    fun setRenderDrawColor(Color color) > void !> SDLError {
+        const int result = SDL_SetRenderDrawColor(
+            this.renderer,
+            r: color.red,
+            g: color.green,
+            b: color.blue,
+            a: color.alpha,
+        );
+
+        if (result != 0) {
+            throw SDLError{
+                message = "SDL_SetRenderDrawColor error: {SDL_GetError()}",
+            };
+        }
+    }
+
+    fun fillRect(Rect rect) > void !> SDLError {
+        const int result = SDL_RenderFillRect(
+            this.renderer,
+            rect: SDL_Rect{
+                x = rect.x,
+                y = rect.y,
+                w = rect.width,
+                h = rect.height,
+            },
+        );
+
+        if (result != 0) {
+            throw SDLError{
+                message = "SDL_RenderFillRect error: {SDL_GetError()}",
+            };
+        }
+    }
+
+    fun renderCopy(Texture texture, Rect? srcRect = null, Rect? dstRect = null) > void !> SDLError {
+        const int result = SDL_RenderCopy(
+            this.renderer,
+            texture: texture.texture,
+            srcrect: if (srcRect != null)
+                    SDL_Rect{
+                        x = srcRect!.x,
+                        y = srcRect!.y,
+                        w = srcRect!.width,
+                        h = srcRect!.height,
+                    }
+                else null,
+            dstrect: if (dstRect != null)
+                    SDL_Rect{
+                        x = dstRect!.x,
+                        y = dstRect!.y,
+                        w = dstRect!.width,
+                        h = dstRect!.height,
+                    }
+                else null,
+        );
+
+        if (result != 0) {
+            throw SDLError{
+                message = "SDL_RenderCopy error: {SDL_GetError()}",
+            };
+        }
+    }
+
+    fun renderPresent() > void {
+        SDL_RenderPresent(this.renderer);
+    }
+
+    fun collect() > void {
+        SDL_DestroyRenderer(this.renderer);
+    }
+}
+
+export object Window {
+    SDL_Window window,
+
+    static fun init(
+        str name,
+        int x = 0x2FFF0000,
+        int y = 0x2FFF0000,
+        int width,
+        int height,
+        [WindowFlag] flags
+    ) > Window {
+        int windowFlags = 0;
+        foreach (WindowFlag flag in flags) {
+            windowFlags = windowFlags \ flag.value;
+        }
+
+        const SDL_Window? window = SDL_CreateWindow(
+            cstr(name),
+            x: x,
+            y: y,
+            w: width,
+            h: height,
+            flags: toFloat(windowFlags),
+        );
+
+        if (window -> unwrapped) {
+            return Window{
+                window = unwrapped,
+            };
+        }
+
+        throw SDLError{
+            message = "SDL_CreateWindow error: {SDL_GetError()}",
+        };
+    }
+
+    fun createRenderer(
+        int index,
+        [RendererFlag] flags
+    ) > Renderer !> SDLError {
+        int rendererFlags = 0;
+        foreach (RendererFlag flag in flags) {
+            rendererFlags = rendererFlags \ flag.value;
+        }
+
+        const SDL_Renderer? renderer = SDL_CreateRenderer(
+            this.window,
+            index: index,
+            flags: toFloat(rendererFlags),
+        );
+
+        if (renderer -> unwrapped) {
+            return Renderer{
+                renderer = unwrapped
+            };
+        }
+
+        throw SDLError{
+            message = "SDL_CreateRenderer error: {SDL_GetError()}",
+        };
+    }
+
+    fun collect() > void {
+        SDL_DestroyWindow(this.window);
+    }
+}

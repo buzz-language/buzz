@@ -1,224 +1,70 @@
 import "std";
-import "ffi";
-import "buffer";
-import "debug";
+import "examples/sdl-wrapped";
 
-zdef("SDL2", `
-    const SDL_Window = opaque{};
-    const SDL_Renderer = opaque{};
-    const SDL_Texture = opaque{};
+fun main([str] args) > int !> SDLError {
+    SDL sdl = SDL.init([Subsystem.Video]);
 
-    // TODO: union
-    const SDL_Event = extern struct{
-        type: u32,
-        pad01: i32,
-        pad02: i32,
-        pad03: i32,
-        pad04: i32,
-        pad05: i32,
-        pad06: i32,
-        pad07: i32,
-        pad08: i32,
-        pad09: i32,
-        pad10: i32,
-        pad11: i32,
-        pad12: i32,
-        pad13: i32,
-    };
-
-    const SDL_Rect = extern struct {
-        x: c_int,
-        y: c_int,
-        w: c_int,
-        h: c_int,
-    };
-
-    fn SDL_GetError() [*:0]const u8;
-    fn SDL_Init(flags: u32) c_int;
-    fn SDL_CreateWindow(title: [*:0]const u8, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) ?*SDL_Window;
-    fn SDL_DestroyRenderer(renderer: *SDL_Renderer) void;
-    fn SDL_CreateRenderer(window: *SDL_Window, index: c_int, flags: u32) ?*SDL_Renderer;
-    fn SDL_RenderPresent(renderer: *SDL_Renderer) void;
-    fn SDL_DestroyWindow(window: *SDL_Window) void;
-    fn SDL_Delay(ms: u32) void;
-    fn SDL_Quit() void;
-    fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;
-    fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;
-    fn SDL_PollEvent(event: *SDL_Event) c_int;
-    fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;
-    fn SDL_DestroyTexture(texture: *SDL_Texture) void;
-    fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;
-    fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;
-`);
-
-const float SDL_INIT_VIDEO = 32.0;
-const int SDL_WINDOWPOS_CENTERED_MASK = 0x2FFF0000;
-const int SDL_WINDOW_OPENGL = 2;
-const int SDL_WINDOW_ALLOW_HIGHDPI = 8192;
-const int SDL_RENDERER_ACCELERATED = 2;
-const int SDL_RENDERER_TARGETTEXTURE = 8;
-const int SDL_PIXELFORMAT_RGBA8888 = 373694468;
-const int SDL_TEXTUREACCESS_TARGET = 2;
-
-enum(int) SDL_EventType {
-    SDL_FIRSTEVENT = 0,
-    SDL_QUIT = 256,
-    SDL_APP_TERMINATING = 257,
-    SDL_APP_LOWMEMORY = 258,
-    SDL_APP_WILLENTERBACKGROUND = 259,
-    SDL_APP_DIDENTERBACKGROUND = 260,
-    SDL_APP_WILLENTERFOREGROUND = 261,
-    SDL_APP_DIDENTERFOREGROUND = 262,
-    SDL_DISPLAYEVENT = 336,
-    SDL_WINDOWEVENT = 512,
-    SDL_SYSWMEVENT = 513,
-    SDL_KEYDOWN = 768,
-    SDL_KEYUP = 769,
-    SDL_TEXTEDITING = 770,
-    SDL_TEXTINPUT = 771,
-    SDL_KEYMAPCHANGED = 772,
-    SDL_MOUSEMOTION = 1024,
-    SDL_MOUSEBUTTONDOWN = 1025,
-    SDL_MOUSEBUTTONUP = 1026,
-    SDL_MOUSEWHEEL = 1027,
-    SDL_JOYAXISMOTION = 1536,
-    SDL_JOYBALLMOTION = 1537,
-    SDL_JOYHATMOTION = 1538,
-    SDL_JOYBUTTONDOWN = 1539,
-    SDL_JOYBUTTONUP = 1540,
-    SDL_JOYDEVICEADDED = 1541,
-    SDL_JOYDEVICEREMOVED = 1542,
-    SDL_CONTROLLERAXISMOTION = 1616,
-    SDL_CONTROLLERBUTTONDOWN = 1617,
-    SDL_CONTROLLERBUTTONUP = 1618,
-    SDL_CONTROLLERDEVICEADDED = 1619,
-    SDL_CONTROLLERDEVICEREMOVED = 1620,
-    SDL_CONTROLLERDEVICEREMAPPED = 1621,
-    SDL_FINGERDOWN = 1792,
-    SDL_FINGERUP = 1793,
-    SDL_FINGERMOTION = 1794,
-    SDL_DOLLARGESTURE = 2048,
-    SDL_DOLLARRECORD = 2049,
-    SDL_MULTIGESTURE = 2050,
-    SDL_CLIPBOARDUPDATE = 2304,
-    SDL_DROPFILE = 4096,
-    SDL_DROPTEXT = 4097,
-    SDL_DROPBEGIN = 4098,
-    SDL_DROPCOMPLETE = 4099,
-    SDL_AUDIODEVICEADDED = 4352,
-    SDL_AUDIODEVICEREMOVED = 4353,
-    SDL_SENSORUPDATE = 4608,
-    SDL_RENDER_TARGETS_RESET = 8192,
-    SDL_RENDER_DEVICE_RESET = 8193,
-    SDL_USEREVENT = 32768,
-    SDL_LASTEVENT = 65535,
-}
-
-fun main([str] args) > int {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        print("SDL_Init error: {SDL_GetError()}");
-        return -1;
-    }
-
-    const SDL_Window? windowOpt = SDL_CreateWindow(
-        cstr("SDL FFI test"),
-        x: SDL_WINDOWPOS_CENTERED_MASK,
-        y: SDL_WINDOWPOS_CENTERED_MASK,
-        w: 800,
-        h: 600,
-        flags: toFloat(SDL_WINDOW_OPENGL \ SDL_WINDOW_ALLOW_HIGHDPI),
+    Window window = Window.init(
+        "SDL FFI test",
+        width: 800,
+        height: 600,
+        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
     );
 
-    if (windowOpt == null) {
-        print("SDL_CreateWindow error: {SDL_GetError()}");
-        return -1;
-    }
-
-    const SDL_Window window = windowOpt!;
-
-    const SDL_Renderer? rendererOpt = SDL_CreateRenderer(
-        window,
+    Renderer renderer = window.createRenderer(
         index: -1,
-        flags: toFloat(SDL_RENDERER_ACCELERATED \ SDL_RENDERER_TARGETTEXTURE),
+        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
     );
 
-    if (rendererOpt == null) {
-        print("SDL_CreateRenderer error: {SDL_GetError()}");
-        return -1;
-    }
-
-    const SDL_Renderer renderer = rendererOpt!;
-
-    const SDL_Texture? textureOpt = SDL_CreateTexture(
-        renderer,
-        format: toFloat(SDL_PIXELFORMAT_RGBA8888),
-        access: SDL_TEXTUREACCESS_TARGET,
-        w: 800,
-        h: 600,
+    Texture texture = renderer.createTexture(
+        format: PixelFormat.RGBA8888,
+        access: TextureAccess.Target,
+        width: 800,
+        height: 600,
     );
 
-    if (textureOpt == null) {
-        print("SDL_CreateTexture error: {SDL_GetError()}");
-        return -1;
-    }
+    renderer.setRenderTarget(texture);
+    renderer.setRenderDrawColor(
+        Color{
+            red = 0x01,
+            green = 0x9d,
+            blue = 0xe0,
+        }
+    );
 
-    const SDL_Texture texture = textureOpt!;
-
-    SDL_SetRenderTarget(renderer, texture: texture);
-    SDL_SetRenderDrawColor(renderer, r: 0x01, g: 0x9d, b: 0xe0, a: 0xff);
-
-    SDL_RenderFillRect(
-        renderer,
-        rect: SDL_Rect{
+    renderer.fillRect(
+        Rect{
             x = 200,
             y = 200,
-            w = 200,
-            h = 200,
-        },
+            width = 200,
+            height = 200,
+        }
     );
 
-    SDL_SetRenderTarget(renderer, texture: null);
-    SDL_SetRenderDrawColor(renderer, r: 0, g: 0, b: 0, a: 0xff);
+    renderer.setRenderTarget(null);
+    renderer.setRenderDrawColor(
+        Color{
+            red = 0,
+            green = 0,
+            blue = 0,
+        }
+    );
 
-    SDL_Event event = SDL_Event{
-        @"type" = 0.0,
-        | Would be useful to define default values in zig and get them back in buzz
-        pad01 = 0,
-        pad02 = 0,
-        pad03 = 0,
-        pad04 = 0,
-        pad05 = 0,
-        pad06 = 0,
-        pad07 = 0,
-        pad08 = 0,
-        pad09 = 0,
-        pad10 = 0,
-        pad11 = 0,
-        pad12 = 0,
-        pad13 = 0,
-    };
     while (true) {
-        if (SDL_PollEvent(event) != 0) {
-            if (event.@"type" == SDL_EventType.SDL_QUIT.value) {
+        if (sdl.pollEvent() -> event) {
+            if (event.@"type" == EventType.Quit.value) {
                 break;
             }
         }
 
-        SDL_RenderCopy(
-            renderer,
-            texture: texture,
-            srcrect: null,
-            dstrect: null,
-        );
+        renderer.renderCopy(texture);
 
-        SDL_RenderPresent(renderer);
+        renderer.renderPresent();
 
-        SDL_Delay(10.0);
+        sdl.delay(10.0);
     }
 
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    sdl.quit();
 
     return 0;
 }
