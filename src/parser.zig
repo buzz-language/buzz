@@ -4,21 +4,21 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
-pub const pcre = @import("./pcre.zig").pcre;
+pub const pcre = @import("pcre.zig").pcre;
 
-const _obj = @import("./obj.zig");
-const _node = @import("./node.zig");
-const _token = @import("./token.zig");
-const _vm = @import("./vm.zig");
+const _obj = @import("obj.zig");
+const _node = @import("node.zig");
+const _token = @import("token.zig");
+const _vm = @import("vm.zig");
 const RunFlavor = _vm.RunFlavor;
-const _value = @import("./value.zig");
-const _scanner = @import("./scanner.zig");
-const _chunk = @import("./chunk.zig");
+const _value = @import("value.zig");
+const _scanner = @import("scanner.zig");
+const _chunk = @import("chunk.zig");
 const BuildOptions = @import("build_options");
-const StringParser = @import("./string_parser.zig").StringParser;
-const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const Reporter = @import("./reporter.zig");
-const FFI = @import("./ffi.zig");
+const StringParser = @import("string_parser.zig").StringParser;
+const GarbageCollector = @import("memory.zig").GarbageCollector;
+const Reporter = @import("reporter.zig");
+const FFI = @import("ffi.zig");
 
 const Value = _value.Value;
 const ValueType = _value.ValueType;

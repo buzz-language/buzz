@@ -1,10 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const _value = @import("./value.zig");
-const _vm = @import("./vm.zig");
+const _value = @import("value.zig");
+const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const Value = _value.Value;
-const Token = @import("./token.zig").Token;
+const Token = @import("token.zig").Token;
 
 pub const OpCode = enum(u8) {
     OP_CONSTANT,

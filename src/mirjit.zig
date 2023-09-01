@@ -2,16 +2,16 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
-const jmp = @import("./jmp.zig").jmp;
+const jmp = @import("jmp.zig").jmp;
 
-const ZigType = @import("./zigtypes.zig").Type;
-const r = @import("./vm.zig");
+const ZigType = @import("zigtypes.zig").Type;
+const r = @import("vm.zig");
 const VM = r.VM;
-const m = @import("./mir.zig");
-const n = @import("./node.zig");
-const o = @import("./obj.zig");
-const v = @import("./value.zig");
-const api = @import("./lib/buzz_api.zig");
+const m = @import("mir.zig");
+const n = @import("node.zig");
+const o = @import("obj.zig");
+const v = @import("value.zig");
+const api = @import("lib/buzz_api.zig");
 
 pub const Error = error{CantCompile} || VM.Error;
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 const http = std.http;
 
 fn getProxy() ?std.http.Client.HttpProxy {

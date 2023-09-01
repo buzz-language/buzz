@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 
 export fn sleep(ctx: *api.NativeCtx) c_int {

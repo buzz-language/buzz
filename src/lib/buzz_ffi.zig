@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 
 export fn alignOf(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;

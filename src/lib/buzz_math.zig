@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 
 export fn abs(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();

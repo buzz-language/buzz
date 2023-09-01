@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 
 fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const tk = @import("./token.zig");
+const tk = @import("token.zig");
 const Token = tk.Token;
 const TokenType = tk.TokenType;
 

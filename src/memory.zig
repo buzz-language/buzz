@@ -1,18 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const _vm = @import("./vm.zig");
+const _vm = @import("vm.zig");
 const Fiber = _vm.Fiber;
-const _value = @import("./value.zig");
-const _obj = @import("./obj.zig");
-const dumpStack = @import("./disassembler.zig").dumpStack;
+const _value = @import("value.zig");
+const _obj = @import("obj.zig");
+const dumpStack = @import("disassembler.zig").dumpStack;
 const BuildOptions = @import("build_options");
-const VM = @import("./vm.zig").VM;
+const VM = @import("vm.zig").VM;
 const assert = std.debug.assert;
-const Token = @import("./token.zig").Token;
-const buzz_api = @import("./buzz_api.zig");
-const Reporter = @import("./reporter.zig");
+const Token = @import("token.zig").Token;
+const buzz_api = @import("buzz_api.zig");
+const Reporter = @import("reporter.zig");
 
-pub const pcre = @import("./pcre.zig").pcre;
+pub const pcre = @import("pcre.zig").pcre;
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;

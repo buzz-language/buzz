@@ -1,4 +1,4 @@
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 const std = @import("std");
 
 fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {

@@ -1,10 +1,10 @@
 const std = @import("std");
 const print = std.debug.print;
-const _chunk = @import("./chunk.zig");
-const _value = @import("./value.zig");
-const _obj = @import("./obj.zig");
-const _vm = @import("./vm.zig");
-const global_allocator = @import("./buzz_api.zig").allocator;
+const _chunk = @import("chunk.zig");
+const _value = @import("value.zig");
+const _obj = @import("obj.zig");
+const _vm = @import("vm.zig");
+const global_allocator = @import("buzz_api.zig").allocator;
 
 const VM = _vm.VM;
 const Chunk = _chunk.Chunk;

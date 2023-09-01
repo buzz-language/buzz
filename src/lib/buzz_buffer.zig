@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 export fn BufferNew(ctx: *api.NativeCtx) c_int {

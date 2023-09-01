@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 
 export fn getStdIn(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdIn().handle));

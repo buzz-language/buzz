@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Token = @import("./token.zig").Token;
+const Token = @import("token.zig").Token;
 const o = @import("obj.zig");
 const ObjTypeDef = o.ObjTypeDef;
 const PlaceholderDef = o.PlaceholderDef;

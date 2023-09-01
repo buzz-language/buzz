@@ -1,23 +1,23 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const _vm = @import("./vm.zig");
+const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const RunFlavor = _vm.RunFlavor;
 const ImportRegistry = _vm.ImportRegistry;
-const _parser = @import("./parser.zig");
+const _parser = @import("parser.zig");
 const Parser = _parser.Parser;
 const CompileError = _parser.CompileError;
-const CodeGen = @import("./codegen.zig").CodeGen;
-const _obj = @import("./obj.zig");
+const CodeGen = @import("codegen.zig").CodeGen;
+const _obj = @import("obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
-const TypeRegistry = @import("./memory.zig").TypeRegistry;
-const FunctionNode = @import("./node.zig").FunctionNode;
+const TypeRegistry = @import("memory.zig").TypeRegistry;
+const FunctionNode = @import("node.zig").FunctionNode;
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
-const GarbageCollector = @import("./memory.zig").GarbageCollector;
-const MIRJIT = @import("./mirjit.zig");
+const GarbageCollector = @import("memory.zig").GarbageCollector;
+const MIRJIT = @import("mirjit.zig");
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -186,7 +186,7 @@ pub fn main() !void {
     var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
         gpa.allocator()
     else if (BuildOptions.mimalloc)
-        @import("./mimalloc.zig").mim_allocator
+        @import("mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const api = @import("./buzz_api.zig");
+const api = @import("buzz_api.zig");
 const _obj = @import("../obj.zig");
 const _parser = @import("../parser.zig");
 const Parser = _parser.Parser;

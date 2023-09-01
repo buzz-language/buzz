@@ -1,13 +1,13 @@
 const std = @import("std");
 const Ast = std.zig.Ast;
 
-const o = @import("./obj.zig");
-const t = @import("./token.zig");
-const m = @import("./memory.zig");
-const v = @import("./value.zig");
-const p = @import("./parser.zig");
-const ZigType = @import("./zigtypes.zig").Type;
-const Reporter = @import("./reporter.zig");
+const o = @import("obj.zig");
+const t = @import("token.zig");
+const m = @import("memory.zig");
+const v = @import("value.zig");
+const p = @import("parser.zig");
+const ZigType = @import("zigtypes.zig").Type;
+const Reporter = @import("reporter.zig");
 
 const Self = @This();
 
