@@ -137,7 +137,8 @@ pub const GarbageCollector = struct {
     objects: std.TailQueue(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
-    collecting: bool = false,
+    // Obj being collected, useful to avoid setting object instance dirty while running its collector method
+    obj_collected: ?*Obj = null,
 
     debugger: ?GarbageCollectorDebugger,
     where: ?Token = null,
@@ -385,7 +386,7 @@ pub const GarbageCollector = struct {
     }
 
     pub fn markObjDirty(self: *Self, obj: *Obj) !void {
-        if (!obj.is_dirty) {
+        if (!obj.is_dirty and self.obj_collected != obj) {
             obj.is_dirty = true;
 
             // std.debug.print(
@@ -406,7 +407,7 @@ pub const GarbageCollector = struct {
     }
 
     pub fn markObj(self: *Self, obj: *Obj) !void {
-        if (obj.is_marked) {
+        if (obj.is_marked or self.obj_collected == obj) {
             if (BuildOptions.gc_debug) {
                 std.debug.print(
                     "{*} {s} already marked or old\n",
@@ -496,6 +497,8 @@ pub const GarbageCollector = struct {
         if (BuildOptions.gc_debug_access) {
             self.debugger.?.collected(obj, self.where.?);
         }
+
+        self.obj_collected = obj;
 
         self.allocator.destroy(obj.node.?);
 
@@ -641,6 +644,8 @@ pub const GarbageCollector = struct {
                 free(self, ObjForeignStruct, obj_foreignstruct);
             },
         }
+
+        self.obj_collected = null;
     }
 
     pub fn markValue(self: *Self, value: Value) !void {
@@ -857,12 +862,10 @@ pub const GarbageCollector = struct {
             return;
         }
 
-        if (self.collecting) {
+        // Avoid triggering another sweep while running collectors
+        if (self.obj_collected != null) {
             return;
         }
-
-        // Avoid triggering another sweep while running collectors
-        self.collecting = true;
 
         const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
@@ -910,8 +913,6 @@ pub const GarbageCollector = struct {
             std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
         }
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
-
-        self.collecting = false;
 
         self.gc_time += timer.read();
     }
