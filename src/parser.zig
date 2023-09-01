@@ -266,42 +266,42 @@ pub const Parser = struct {
     };
 
     const search_paths = [_][]const u8{
-        "./?.x",
-        "./?/main.x",
-        "./?/src/main.x",
-        "./?/src/?.x",
-        "/usr/share/buzz/?.x",
-        "/usr/share/buzz/?/main.x",
-        "/usr/share/buzz/?/src/main.x",
-        "/usr/local/share/buzz/?/src/?.x",
-        "/usr/local/share/buzz/?.x",
-        "/usr/local/share/buzz/?/main.x",
-        "/usr/local/share/buzz/?/src/main.x",
-        "/usr/local/share/buzz/?/src/?.x",
-        "$/?.x",
-        "$/?/main.x",
-        "$/?/src/?.x",
-        "$/?/src/main.x",
+        "./?.!",
+        "./?/main.!",
+        "./?/src/main.!",
+        "./?/src/?.!",
+        "/usr/share/buzz/?.!",
+        "/usr/share/buzz/?/main.!",
+        "/usr/share/buzz/?/src/main.!",
+        "/usr/local/share/buzz/?/src/?.!",
+        "/usr/local/share/buzz/?.!",
+        "/usr/local/share/buzz/?/main.!",
+        "/usr/local/share/buzz/?/src/main.!",
+        "/usr/local/share/buzz/?/src/?.!",
+        "$/?.!",
+        "$/?/main.!",
+        "$/?/src/?.!",
+        "$/?/src/main.!",
     };
 
     const lib_search_paths = [_][]const u8{
-        "./lib?.x",
-        "./?/src/lib?.x",
-        "/usr/share/buzz/lib?.x",
-        "/usr/share/buzz/?/src/lib?.x",
-        "/usr/share/local/buzz/lib?.x",
-        "/usr/share/local/buzz/?/src/lib?.x",
-        "$/lib?.x",
-        "$/?/src/lib?.x",
+        "./lib?.!",
+        "./?/src/lib?.!",
+        "/usr/share/buzz/lib?.!",
+        "/usr/share/buzz/?/src/lib?.!",
+        "/usr/share/local/buzz/lib?.!",
+        "/usr/share/local/buzz/?/src/lib?.!",
+        "$/lib?.!",
+        "$/?/src/lib?.!",
     };
 
     const zdef_search_paths = [_][]const u8{
-        "./?.x",
-        "/usr/lib/?.x",
-        "/usr/local/lib/?.x",
-        "./lib?.x",
-        "/usr/lib/lib?.x",
-        "/usr/local/lib/lib?.x",
+        "./?.!",
+        "/usr/lib/?.!",
+        "/usr/local/lib/?.!",
+        "./lib?.!",
+        "/usr/lib/lib?.!",
+        "/usr/local/lib/lib?.!",
     };
 
     const rules = [_]ParseRule{
@@ -4939,7 +4939,7 @@ pub const Parser = struct {
         for (search_paths) |path| {
             const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
             defer self.gc.allocator.free(filled);
-            const suffixed = try std.mem.replaceOwned(u8, self.gc.allocator, filled, "x", "buzz");
+            const suffixed = try std.mem.replaceOwned(u8, self.gc.allocator, filled, "!", "buzz");
             defer self.gc.allocator.free(suffixed);
             const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzz_lib_path());
 
@@ -4959,7 +4959,7 @@ pub const Parser = struct {
                 u8,
                 self.gc.allocator,
                 filled,
-                "x",
+                "!",
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
                     .windows => "dll",
@@ -5030,7 +5030,7 @@ pub const Parser = struct {
                 u8,
                 self.gc.allocator,
                 filled,
-                "x",
+                "!",
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
                     .windows => "dll",
