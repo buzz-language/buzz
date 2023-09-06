@@ -24,6 +24,7 @@
     - `Buffer.readUserData`, `Buffer.writeUserData`
 - `std.serialize` takes any buzz value and return a serializable version of it (objects become maps, etc.) provided the data is has no circular reference and does not contain not serializable values (functions, fibers, etc.)
 - UTF8 helpers: `str.utf8Len`, `str.utf8Codepoints`, `str.utf8Valid`
+- New integer literal for single chars: `'A' == 65`
 
 ## Changed
 

@@ -356,5 +356,9 @@ export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
 || @param str json The JSON string
 || @return Boxed
 export fun jsonDecode(str json) > Boxed !> JsonParseError, WriteWhileReadingError {
-    return Boxed{ data = JsonParser{ source = json }.next() };
+    return Boxed{
+        data = JsonParser{
+            source = json
+        }.next()
+    };
 }

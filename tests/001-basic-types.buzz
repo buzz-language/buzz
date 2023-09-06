@@ -1,6 +1,22 @@
+import "std";
+
 test "Basic types" {
     str string = "hello world";
     float floating = 3.14;
     int integer = 3;
     bool boolean = true;
+}
+
+test "Char literal" {
+    int char = 'A';
+
+    assert(char == 65, message: "Could use char literal");
+
+    int quote = '\'';
+
+    assert(quote == 39, message: "Could escape ' in char literal");
+
+    int slash = '\\';
+
+    assert(slash == 92, message: "Could escape \\ in char literal");
 }

@@ -121,6 +121,7 @@ pub const Scanner = struct {
             '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '"' => self.string(false),
             '`' => self.string(true),
+            '\'' => self.byte(),
             '@' => self.atIdentifier(),
             '|' => self.docblock(),
             '$' => self.pattern(),
@@ -273,6 +274,42 @@ pub const Scanner = struct {
             null,
             if (is_float) try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) else null,
             if (!is_float) try std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) else null,
+        );
+    }
+
+    fn byte(self: *Self) Token {
+        const is_escape_sequence = self.match('\\');
+        const literal_integer = if (is_escape_sequence)
+            self.advance()
+        else
+            self.advance();
+
+        if (is_escape_sequence and literal_integer != '\\' and literal_integer != '\'') {
+            return self.makeToken(
+                .Error,
+                "Invalid escape sequence in char literal.",
+                null,
+                null,
+            );
+        }
+
+        // Skip closing
+        if (self.isEOF() or self.peek() != '\'') {
+            return self.makeToken(
+                .Error,
+                "Unterminated char literal.",
+                null,
+                null,
+            );
+        } else {
+            _ = self.advance();
+        }
+
+        return self.makeToken(
+            .IntegerValue,
+            null,
+            null,
+            @intCast(literal_integer),
         );
     }
 
