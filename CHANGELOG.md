@@ -17,10 +17,18 @@
     - New `typeof` operator returns type of any value: `typeof "hello"` -> `<str>`
 - Delimiters for non-standard identifiers (https://github.com/buzz-language/buzz/issues/138)
 - Collectors (https://github.com/buzz-language/buzz/issues/2): if an `object` has a `fun collect() > void` method, it will be called before an instance of this object is collected by the garbage collector
+- Helpers around `ud`
+    - `std.toUd`, returns userdata from an int or float
+    - `bz_valueToObjUserData`
+    - `bz_getUserDataPtr`
+    - `Buffer.readUserData`, `Buffer.writeUserData`
+- `std.serialize` takes any buzz value and return a serializable version of it (objects become maps, etc.) provided the data is has no circular reference and does not contain not serializable values (functions, fibers, etc.)
+- UTF8 helpers: `str.utf8Len`, `str.utf8Codepoints`, `str.utf8Valid`
 
 ## Changed
 
-- `Json` now return a `Box` object (which can be reused in other contexts than JSON)
+- `json` lib is renamed `serialize`
+- `Json` now returns a `Boxed` object (which can be reused in other contexts than JSON)
 - Identifiers can now have `_` since pattern delimiters have changed
 - Changed pattern delimiters (https://github.com/buzz-language/buzz/issues/165)
 
@@ -28,6 +36,7 @@
 
 - Some bugs `any`
 - Runtime error stack trace was wrong
+- Local name checking failed in some instances
 
 # 0.2.0 (07-26-2023)
 
