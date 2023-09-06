@@ -18,11 +18,15 @@ extern fun BufferReadBoolean(ud userdata) > bool?;
 || @private
 extern fun BufferWriteBoolean(ud userdata, bool b) > void !> WriteWhileReadingError;
 || @private
-extern fun BufferWriteInt(ud userdata, int n) > str !> WriteWhileReadingError;
+extern fun BufferWriteInt(ud userdata, int n) > void !> WriteWhileReadingError;
 || @private
 extern fun BufferReadInt(ud userdata) > int?;
 || @private
-extern fun BufferWriteFloat(ud userdata, float n) > str !> WriteWhileReadingError;
+extern fun BufferWriteUserData(ud userdata, ud ptr) > void !> WriteWhileReadingError;
+|| @private
+extern fun BufferReadUserData(ud userdata) > ud?;
+|| @private
+extern fun BufferWriteFloat(ud userdata, float n) > void !> WriteWhileReadingError;
 || @private
 extern fun BufferReadFloat(ud userdata) > float?;
 || @private
@@ -70,6 +74,15 @@ export object Buffer {
         };
     }
 
+    static fun fromStr(str string) > Buffer {
+        Buffer buffer = Buffer.init();
+        
+        | We're sure we did not read this buffer before
+        buffer.write(string) catch void;
+
+        return buffer;
+    }
+
     || Frees the buffer
     fun collect() > void {
         | Avoid double free
@@ -81,7 +94,7 @@ export object Buffer {
 
     || Reads `n` bytes
     || @return Read bytes or `null` if nothing to read
-    fun read(int n) > str? {
+    fun read(int n = 1) > str? {
         return BufferRead(this.buffer, n: n);
     }
 
@@ -146,6 +159,18 @@ export object Buffer {
     || @param number Integer to write
     fun writeInt(int number) > void !> WriteWhileReadingError {
         BufferWriteInt(this.buffer, n: number);
+    }
+
+    || Reads an ud
+    || @return Read ud or `null` if nothing to read
+    fun readUserData() > ud? {
+        return BufferReadUserData(this.buffer);
+    }
+
+    || Writes an ud
+    || @param number UserDataeger to write
+    fun writeUserData(ud userdata) > void !> WriteWhileReadingError {
+        BufferWriteUserData(this.buffer, ptr: userdata);
     }
 
     || Reads a float

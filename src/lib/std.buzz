@@ -27,6 +27,12 @@ export extern fun toInt(float n) > int;
 || @return casted value
 export extern fun toFloat(int n) > float;
 
+| FIXME: once we have type composition this might be more elegant
+|| Cast float or integer to userdata
+|| @param n value to cast
+|| @return casted value or 0 if value provided is not a number
+export extern fun toUd(any n) > ud;
+
 || Return ascii char for given byte
 export extern fun char(int byte) > str;
 

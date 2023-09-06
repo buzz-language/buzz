@@ -748,7 +748,7 @@ pub const ObjString = struct {
             .{ "utf8Valid", "extern Function utf8Valid() > bool" },
             .{ "utf8Codepoints", "extern Function utf8Codepoints() > [str]" },
             .{ "trim", "extern Function trim() > str" },
-            .{ "byte", "extern Function byte(int at) > int" },
+            .{ "byte", "extern Function byte(int at = 0) > int" },
             .{ "indexOf", "extern Function indexOf(str needle) > int?" },
             .{ "startsWith", "extern Function startsWith(str needle) > bool" },
             .{ "endsWith", "extern Function endsWith(str needle) > bool" },

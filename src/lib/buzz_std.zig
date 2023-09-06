@@ -69,6 +69,25 @@ export fn toFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
+export fn toUd(ctx: *api.NativeCtx) c_int {
+    const value = ctx.vm.bz_peek(0);
+    const ud: u64 = if (value.isInteger())
+        @intCast(value.integer())
+    else if (value.isFloat())
+        @intFromFloat(value.float())
+    else
+        0;
+
+    const userdata = api.ObjUserData.bz_newUserData(
+        ctx.vm,
+        @ptrFromInt(ud),
+    ).?.bz_userDataToValue();
+
+    ctx.vm.bz_push(userdata);
+
+    return 1;
+}
+
 export fn parseInt(ctx: *api.NativeCtx) c_int {
     const string_value = ctx.vm.bz_peek(0);
 

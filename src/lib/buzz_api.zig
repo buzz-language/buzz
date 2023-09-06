@@ -267,6 +267,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToObjString(value: Value) *ObjString;
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToCString(value: Value) ?[*:0]const u8;
+    pub extern fn bz_valueToObjUserData(value: Value) *ObjUserData;
     pub extern fn bz_valueToUserData(value: Value) *UserData;
     pub extern fn bz_valueToObjTypeDef(value: Value) *ObjTypeDef;
     pub extern fn bz_valueToForeignStructPtr(value: Value) [*]u8;
@@ -326,6 +327,7 @@ pub const UserData = anyopaque;
 pub const ObjUserData = opaque {
     pub extern fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData;
     pub extern fn bz_userDataToValue(userdata: *ObjUserData) Value;
+    pub extern fn bz_getUserDataPtr(userdata: *ObjUserData) *UserData;
 };
 
 pub const ObjObjectInstance = opaque {};

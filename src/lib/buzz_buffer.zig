@@ -112,7 +112,6 @@ const Buffer = struct {
         try self.buffer.append(if (value) 1 else 0);
     }
 
-    // Assumes we read the int/float flag
     pub fn readInteger(self: *Self) !?i32 {
         if (self.cursor > self.buffer.items.len) {
             return null;
@@ -139,7 +138,35 @@ const Buffer = struct {
         try writer.writeIntNative(i32, integer);
     }
 
-    // Assumes we read the int/float flag
+    pub fn readUserData(self: *Self, vm: *api.VM) !?*api.ObjUserData {
+        if (self.cursor > self.buffer.items.len) {
+            return null;
+        }
+
+        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
+        var reader = buffer_stream.reader();
+
+        const number = try reader.readIntNative(u64);
+
+        self.cursor += @sizeOf(u64);
+
+        return api.ObjUserData.bz_newUserData(vm, @ptrFromInt(number));
+    }
+
+    pub fn writeUserData(self: *Self, userdata: *api.ObjUserData) !void {
+        if (self.cursor > 0) {
+            return Error.WriteWhileReading;
+        }
+
+        var writer = self.buffer.writer();
+
+        // Flag so we know it an integer
+        try writer.writeIntNative(
+            u64,
+            @intFromPtr(userdata.bz_getUserDataPtr()),
+        );
+    }
+
     pub fn readFloat(self: *Self) !?f64 {
         if (self.cursor > self.buffer.items.len) {
             return null;
@@ -276,6 +303,27 @@ export fn BufferReadInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
+export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+
+    if (buffer.readUserData(ctx.vm) catch |err| {
+        switch (err) {
+            error.EndOfStream => {
+                ctx.vm.bz_pushNull();
+
+                return 1;
+            },
+        }
+    }) |value| {
+        ctx.vm.bz_push(value.bz_userDataToValue());
+
+        return 1;
+    }
+
+    ctx.vm.bz_pushNull();
+    return 1;
+}
+
 export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
@@ -302,6 +350,22 @@ export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
     const number = ctx.vm.bz_peek(0);
 
     buffer.writeInteger(number.integer()) catch |err| {
+        switch (err) {
+            Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
+            error.OutOfMemory => @panic("Out of memory"),
+        }
+
+        return -1;
+    };
+
+    return 0;
+}
+
+export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const userdata = ctx.vm.bz_peek(0);
+
+    buffer.writeUserData(userdata.bz_valueToObjUserData()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => @panic("Out of memory"),

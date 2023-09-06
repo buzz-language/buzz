@@ -355,6 +355,10 @@ export fn bz_valueToUserData(value: Value) *UserData {
     return ObjUserData.cast(value.obj()).?.userdata;
 }
 
+export fn bz_valueToObjUserData(value: Value) *ObjUserData {
+    return ObjUserData.cast(value.obj()).?;
+}
+
 // FIXME: move this is ObjForeignStruct?
 export fn bz_valueToForeignStructPtr(value: Value) [*]u8 {
     return ObjForeignStruct.cast(value.obj()).?.data.ptr;
@@ -582,6 +586,10 @@ export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     ) catch {
         return null;
     };
+}
+
+export fn bz_getUserDataPtr(userdata: *ObjUserData) *UserData {
+    return userdata.userdata;
 }
 
 export fn bz_userDataToValue(userdata: *ObjUserData) Value {
