@@ -2222,7 +2222,7 @@ pub const UnaryNode = struct {
                 .Bang => Value.fromBoolean(!value.boolean()),
                 .Minus => number: {
                     if (value.isInteger()) {
-                        break :number Value.fromInteger(-value.integer());
+                        break :number Value.fromInteger(-%value.integer());
                     } else {
                         break :number Value.fromFloat(-value.float());
                     }
@@ -2519,7 +2519,7 @@ pub const BinaryNode = struct {
                     } else if (right_f != null or left_f != null) {
                         return Value.fromFloat((right_f orelse @as(f64, @floatFromInt(right_i.?))) + (left_f orelse @as(f64, @floatFromInt(left_i.?))));
                     } else if (right_i != null or left_i != null) {
-                        return Value.fromInteger(right_i.? + left_i.?);
+                        return Value.fromInteger(right_i.? +% left_i.?);
                     } else if (right_l != null) {
                         var new_list = std.ArrayList(Value).init(gc.allocator);
                         try new_list.appendSlice(left_l.?.items.items);
@@ -2560,14 +2560,14 @@ pub const BinaryNode = struct {
                         return Value.fromFloat((right_f orelse @as(f64, @floatFromInt(right_i.?))) - (left_f orelse @as(f64, @floatFromInt(left_i.?))));
                     }
 
-                    return Value.fromInteger(right_i.? - left_i.?);
+                    return Value.fromInteger(right_i.? -% left_i.?);
                 },
                 .Star => {
                     if (right_f != null or left_f != null) {
                         return Value.fromFloat((right_f orelse @as(f64, @floatFromInt(right_i.?))) * (left_f orelse @as(f64, @floatFromInt(left_i.?))));
                     }
 
-                    return Value.fromInteger(right_i.? * left_i.?);
+                    return Value.fromInteger(right_i.? *% left_i.?);
                 },
                 .Slash => {
                     if (right_f != null or left_f != null) {

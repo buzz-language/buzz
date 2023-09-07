@@ -105,12 +105,6 @@ pub const TokenType = enum {
     GreaterEqual, // >=
     LessEqual, // <=
     QuestionQuestion, // ??
-    PlusEqual, // +=
-    MinusEqual, // -=
-    StarEqual, // *=
-    SlashEqual, // /=
-    Increment, // ++
-    Decrement, // --
     Arrow, // ->
     True, // true
     False, // false

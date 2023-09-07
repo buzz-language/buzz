@@ -1034,7 +1034,7 @@ pub const VM = struct {
         const value = self.pop();
 
         if (value.isInteger()) {
-            self.push(Value.fromInteger(-value.integer()));
+            self.push(Value.fromInteger(-%value.integer()));
         } else {
             self.push(Value.fromFloat(-value.float()));
         }
@@ -2949,7 +2949,7 @@ pub const VM = struct {
             self.push(Value.fromFloat((left_f orelse @as(f64, @floatFromInt(left_i.?)) + (right_f orelse @as(f64, @floatFromInt(right_i.?))))));
         } else {
             // both integers
-            self.push(Value.fromInteger(left_i.? + right_i.?));
+            self.push(Value.fromInteger(left_i.? +% right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2978,7 +2978,7 @@ pub const VM = struct {
         if (right_f != null or left_f != null) {
             self.push(Value.fromFloat((left_f orelse @as(f64, @floatFromInt(left_i.?))) - (right_f orelse @as(f64, @floatFromInt(right_i.?)))));
         } else {
-            self.push(Value.fromInteger(left_i.? - right_i.?));
+            self.push(Value.fromInteger(left_i.? -% right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -3007,7 +3007,7 @@ pub const VM = struct {
         if (right_f != null or left_f != null) {
             self.push(Value.fromFloat((left_f orelse @as(f64, @floatFromInt(left_i.?))) * (right_f orelse @as(f64, @floatFromInt(right_i.?)))));
         } else {
-            self.push(Value.fromInteger(left_i.? * right_i.?));
+            self.push(Value.fromInteger(left_i.? *% right_i.?));
         }
 
         const next_full_instruction: u32 = self.readInstruction();

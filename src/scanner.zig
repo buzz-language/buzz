@@ -58,9 +58,9 @@ pub const Scanner = struct {
             'b' => self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => self.identifier(),
             '0' => if (self.match('x'))
-                try self.hexa()
+                self.hexa()
             else if (self.match('b'))
-                try self.binary()
+                self.binary()
             else
                 try self.number(),
             '1'...'9' => try self.number(),
@@ -92,23 +92,14 @@ pub const Scanner = struct {
             '~' => self.makeToken(.Bnot, null, null, null),
             '^' => self.makeToken(.Xor, null, null, null),
             '\\' => self.makeToken(.Bor, null, null, null),
-            '+' => if (self.match('+'))
-                self.makeToken(.Increment, null, null, null)
-            else if (self.match('='))
-                self.makeToken(.PlusEqual, null, null, null)
-            else
-                self.makeToken(.Plus, null, null, null),
-            '-' => if (self.match('-'))
-                self.makeToken(.Decrement, null, null, null)
-            else if (self.match('='))
-                self.makeToken(.MinusEqual, null, null, null)
-            else if (self.match('>'))
+            '+' => self.makeToken(.Plus, null, null, null),
+            '-' => if (self.match('>'))
                 self.makeToken(.Arrow, null, null, null)
             else
                 self.makeToken(.Minus, null, null, null),
             '&' => self.makeToken(.Ampersand, null, null, null),
-            '*' => self.makeToken(if (self.match('=')) .StarEqual else .Star, null, null, null),
-            '/' => self.makeToken(if (self.match('=')) .SlashEqual else .Slash, null, null, null),
+            '*' => self.makeToken(.Star, null, null, null),
+            '/' => self.makeToken(.Slash, null, null, null),
             '%' => self.makeToken(.Percent, null, null, null),
             '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
             '!' => if (self.match('='))
@@ -269,11 +260,35 @@ pub const Scanner = struct {
             }
         }
 
+        const float = if (is_float)
+            std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) catch {
+                return self.makeToken(
+                    .Error,
+                    "float overflow",
+                    null,
+                    null,
+                );
+            }
+        else
+            null;
+
+        const int = if (!is_float)
+            std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) catch {
+                return self.makeToken(
+                    .Error,
+                    "int overflow",
+                    null,
+                    null,
+                );
+            }
+        else
+            null;
+
         return self.makeToken(
             if (is_float) .FloatValue else .IntegerValue,
             null,
-            if (is_float) try std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) else null,
-            if (!is_float) try std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) else null,
+            float,
+            int,
         );
     }
 
@@ -313,7 +328,7 @@ pub const Scanner = struct {
         );
     }
 
-    fn binary(self: *Self) !Token {
+    fn binary(self: *Self) Token {
         var peeked: u8 = self.peek();
         while (peeked == '0' or peeked == '1') {
             _ = self.advance();
@@ -325,11 +340,18 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            try std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 2),
+            std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 2) catch {
+                return self.makeToken(
+                    .Error,
+                    "int overflow",
+                    null,
+                    null,
+                );
+            },
         );
     }
 
-    fn hexa(self: *Self) !Token {
+    fn hexa(self: *Self) Token {
         _ = self.advance(); // Consume 'x'
 
         var peeked: u8 = self.peek();
@@ -343,7 +365,14 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            try std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 16),
+            std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 16) catch {
+                return self.makeToken(
+                    .Error,
+                    "int overflow",
+                    null,
+                    null,
+                );
+            },
         );
     }
 

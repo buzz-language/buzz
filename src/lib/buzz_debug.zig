@@ -54,8 +54,6 @@ export fn ast(ctx: *api.NativeCtx) c_int {
     const root = parser.parse(source.?[0..source_len], script_name.?[0..script_len]) catch |err| {
         switch (err) {
             error.OutOfMemory,
-            error.Overflow,
-            error.InvalidCharacter,
             error.NoSpaceLeft,
             => @panic("Out of memory"),
         }

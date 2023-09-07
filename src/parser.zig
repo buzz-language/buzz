@@ -332,12 +332,6 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // GreaterEqual
         .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // LessEqual
         .{ .prefix = null, .infix = binary, .precedence = .NullCoalescing }, // QuestionQuestion
-        .{ .prefix = null, .infix = null, .precedence = .None }, // PlusEqual
-        .{ .prefix = null, .infix = null, .precedence = .None }, // MinusEqual
-        .{ .prefix = null, .infix = null, .precedence = .None }, // StarEqual
-        .{ .prefix = null, .infix = null, .precedence = .None }, // SlashEqual
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Increment
-        .{ .prefix = null, .infix = null, .precedence = .None }, // Decrement
         .{ .prefix = null, .infix = null, .precedence = .None }, // Arrow
         .{ .prefix = literal, .infix = null, .precedence = .None }, // True
         .{ .prefix = literal, .infix = null, .precedence = .None }, // False
@@ -489,7 +483,12 @@ pub const Parser = struct {
         try self.advance();
 
         while (!(try self.match(.Eof))) {
-            if (self.declarationsOrExport(true) catch return null) |decl| {
+            if (self.declarationsOrExport(true) catch |err| {
+                if (BuildOptions.debug) {
+                    std.debug.print("Parsing failed with error {}\n", .{err});
+                }
+                return null;
+            }) |decl| {
                 try function_node.body.?.statements.append(decl);
             }
         }

@@ -301,7 +301,10 @@ pub fn main() !void {
         res.positionals[0],
         positionals.items[1..],
         flavor,
-    ) catch {
+    ) catch |err| {
+        if (BuildOptions.debug) {
+            std.debug.print("Failed with error {}\n", .{err});
+        }
         // TODO: should probably choses appropriate error code
         std.os.exit(1);
     };
