@@ -4117,7 +4117,14 @@ pub const Parser = struct {
                 }
 
                 if (node.node.type_def == null) {
-                    self.reportError(.enum_case, "Enum case doesn't exists.");
+                    // TODO: reportWithOrigin
+                    self.reportErrorFmt(
+                        .enum_case,
+                        "Enum case `{s}` does not exists.",
+                        .{
+                            member_name,
+                        },
+                    );
                 }
             },
             .EnumInstance => {

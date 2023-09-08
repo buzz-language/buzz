@@ -35,12 +35,21 @@ const basic_types = std.ComptimeStringMap(
         .{ "bool", .{ .def_type = .Bool } },
 
         .{ "void", .{ .def_type = .Void } },
+        .{ "anyopaque", .{ .def_type = .Void } },
     },
 );
 
 const zig_basic_types = std.ComptimeStringMap(
     ZigType,
     .{
+        .{
+            "anyopaque",
+            ZigType{
+                .Opaque = .{
+                    .decls = &[_]ZigType.Declaration{},
+                },
+            },
+        },
         .{
             "c_int",
             ZigType{
