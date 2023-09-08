@@ -644,15 +644,13 @@ pub const ObjPattern = struct {
     }
 };
 
-pub const UserData = anyopaque;
-
 /// User data, type around an opaque pointer
 pub const ObjUserData = struct {
     const Self = @This();
 
     obj: Obj = .{ .obj_type = .UserData },
 
-    userdata: *UserData,
+    userdata: u64,
 
     pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
@@ -3812,7 +3810,7 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
         .UserData => {
             var userdata: *ObjUserData = ObjUserData.cast(obj).?;
 
-            try writer.print("userdata: 0x{x}", .{@intFromPtr(userdata)});
+            try writer.print("userdata: 0x{x}", .{userdata.userdata});
         },
         .ForeignStruct => {
             const foreign = ObjForeignStruct.cast(obj).?;

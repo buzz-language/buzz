@@ -80,7 +80,7 @@ export fn toUd(ctx: *api.NativeCtx) c_int {
 
     const userdata = api.ObjUserData.bz_newUserData(
         ctx.vm,
-        @ptrFromInt(ud),
+        ud,
     ).?.bz_userDataToValue();
 
     ctx.vm.bz_push(userdata);

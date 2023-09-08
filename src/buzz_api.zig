@@ -39,7 +39,6 @@ const ObjFiber = _obj.ObjFiber;
 const ObjForeignStruct = _obj.ObjForeignStruct;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
-const UserData = _obj.UserData;
 const TypeRegistry = memory.TypeRegistry;
 const Parser = _parser.Parser;
 const CodeGen = _codegen.CodeGen;
@@ -351,7 +350,7 @@ export fn bz_valueDump(value: Value, vm: *VM) void {
 
 // Obj manipulations
 
-export fn bz_valueToUserData(value: Value) *UserData {
+export fn bz_valueToUserData(value: Value) u64 {
     return ObjUserData.cast(value.obj()).?.userdata;
 }
 
@@ -579,7 +578,7 @@ export fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value {
     }) catch @panic("Could not concatenate maps")).toValue();
 }
 
-export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
+export fn bz_newUserData(vm: *VM, userdata: u64) ?*ObjUserData {
     return vm.gc.allocateObject(
         ObjUserData,
         ObjUserData{ .userdata = userdata },
@@ -588,7 +587,7 @@ export fn bz_newUserData(vm: *VM, userdata: *UserData) ?*ObjUserData {
     };
 }
 
-export fn bz_getUserDataPtr(userdata: *ObjUserData) *UserData {
+export fn bz_getUserDataPtr(userdata: *ObjUserData) u64 {
     return userdata.userdata;
 }
 
@@ -1400,9 +1399,9 @@ export fn bz_readZigValueFromBuffer(
                         ObjUserData,
                         .{
                             .userdata = @as(
-                                *UserData,
+                                u64,
                                 if (ztype.Int.signedness == .unsigned)
-                                    @ptrFromInt(
+                                    @intCast(
                                         @as(
                                             usize,
                                             @intCast(
@@ -1414,7 +1413,7 @@ export fn bz_readZigValueFromBuffer(
                                         ),
                                     )
                                 else
-                                    @ptrFromInt(
+                                    @intCast(
                                         @as(
                                             usize,
                                             @intCast(
@@ -1514,12 +1513,7 @@ export fn bz_readZigValueFromBuffer(
             const userdata = vm.gc.allocateObject(
                 ObjUserData,
                 .{
-                    .userdata = @as(
-                        *UserData,
-                        @ptrFromInt(
-                            std.mem.bytesToValue(u64, bytes[0..8]),
-                        ),
-                    ),
+                    .userdata = std.mem.bytesToValue(u64, bytes[0..8]),
                 },
             ) catch @panic("Out of memory");
 
@@ -1557,7 +1551,7 @@ export fn bz_writeZigValueToBuffer(
         .Int => {
             switch (ztype.Int.bits) {
                 64 => {
-                    const unwrapped = @intFromPtr(ObjUserData.cast(value.obj()).?.userdata);
+                    const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
                     var bytes = std.mem.asBytes(&unwrapped);
 
                     buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
@@ -1601,7 +1595,7 @@ export fn bz_writeZigValueToBuffer(
         .Fn,
         .Opaque,
         => {
-            const unwrapped = @intFromPtr(ObjUserData.cast(value.obj()).?.userdata);
+            const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
             var bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");

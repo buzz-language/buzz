@@ -12,7 +12,7 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
         @panic("Out of memory");
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @as(*api.UserData, @ptrCast(buffer)))) |userdata| {
+    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(buffer))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
 
         return 1;
@@ -40,8 +40,8 @@ const Buffer = struct {
     buffer: std.ArrayList(u8),
     cursor: usize = 0,
 
-    pub fn fromUserData(userdata: *api.UserData) *Self {
-        return @ptrCast(@alignCast(userdata));
+    pub fn fromUserData(userdata: u64) *Self {
+        return @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
     }
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
@@ -150,7 +150,7 @@ const Buffer = struct {
 
         self.cursor += @sizeOf(u64);
 
-        return api.ObjUserData.bz_newUserData(vm, @ptrFromInt(number));
+        return api.ObjUserData.bz_newUserData(vm, number);
     }
 
     pub fn writeUserData(self: *Self, userdata: *api.ObjUserData) !void {
@@ -163,7 +163,7 @@ const Buffer = struct {
         // Flag so we know it an integer
         try writer.writeIntNative(
             u64,
-            @intFromPtr(userdata.bz_getUserDataPtr()),
+            userdata.bz_getUserDataPtr(),
         );
     }
 
@@ -441,7 +441,7 @@ export fn BufferPtr(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.ObjUserData.bz_newUserData(
             ctx.vm,
-            @ptrCast(&buffer.buffer.items.ptr[@intCast(at * alignment)]),
+            @intFromPtr(&buffer.buffer.items.ptr[@intCast(at * alignment)]),
         ).?.bz_userDataToValue(),
     );
 

@@ -29,7 +29,7 @@ export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
         .proxy = getProxy(),
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @ptrCast(client))) |userdata| {
+    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
 
         return 1;
@@ -40,7 +40,7 @@ export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
 
 export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
-    const client = @as(*http.Client, @ptrCast(@alignCast(userdata)));
+    const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     client.deinit();
 
@@ -49,7 +49,7 @@ export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
 
 export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
-    const client = @as(*http.Client, @ptrCast(@alignCast(userdata)));
+    const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     const method: http.Method = @enumFromInt(api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).integer());
 
@@ -99,7 +99,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @ptrCast(request))) |request_ud| {
+    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(request))) |request_ud| {
         ctx.vm.bz_pushUserData(request_ud);
 
         return 1;
@@ -111,7 +111,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
 export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(userdata)));
+    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     request.wait() catch |err| {
         handleWaitError(ctx, err);
@@ -127,7 +127,7 @@ export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
 export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(userdata)));
+    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     var body_raw = std.ArrayList(u8).init(api.VM.allocator);
     defer body_raw.deinit();
