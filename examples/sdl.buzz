@@ -1,7 +1,7 @@
 import "std";
 import "examples/sdl-wrapped";
 
-| buzz -L/path/to/SDL2.dylib/so/dll sdl.buzz
+| buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
 fun main([str] args) > int !> SDLError {
     SDL sdl = SDL.init([Subsystem.Video]);
 

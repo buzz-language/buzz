@@ -47,6 +47,7 @@ zdef("SDL2", `
     fn SDL_DestroyTexture(texture: *SDL_Texture) void;
     fn SDL_SetRenderTarget(renderer: *SDL_Renderer, texture: ?*SDL_Texture) c_int;
     fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: ?*const SDL_Rect, dstrect: ?*const SDL_Rect) c_int;
+    fn SDL_GetTicks() u32;
 `);
 
 export enum(int) EventType {
@@ -252,6 +253,10 @@ export object SDL {
 
     fun delay(float ms) > void {
         SDL_Delay(ms);
+    }
+
+    fun ticks() > float {
+        return SDL_GetTicks();
     }
 }
 

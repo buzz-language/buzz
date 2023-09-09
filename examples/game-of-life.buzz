@@ -2,8 +2,9 @@ import "std";
 import "io" as io;
 import "os";
 import "debug";
-| import "examples/sdl-wrapped";
+import "examples/sdl-wrapped";
 
+| buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
 object World {
     int width,
     int height,
@@ -63,20 +64,103 @@ object World {
             io.stdout.write("\n") catch void;
         }
     }
+
+    fun draw(Renderer renderer) > void !> SDLError {
+        const int cellWidth = 800 / this.width;
+        const int cellHeight = 600 / this.height;
+
+        for (int y = 0; y < this.height; y = y + 1) {
+            for (int x = 0; x < this.width; x = x + 1) {
+                renderer.setRenderDrawColor(
+                    if (this.cells[y * this.width + x])
+                        Color{
+                            red = 0x01,
+                            green = 0x9d,
+                            blue = 0xe0,
+                        }
+                    else
+                        Color{
+                            red = 0xff,
+                            green = 0xff,
+                            blue = 0xff,
+                        }
+                );
+
+                renderer.fillRect(
+                    Rect{
+                        x = cellWidth * x,
+                        y = cellHeight * y,
+                        width = cellWidth,
+                        height = cellHeight,
+                    }
+                );
+            }
+        }
+
+        renderer.setRenderTarget(null);
+        renderer.setRenderDrawColor(
+            Color{
+                red = 0,
+                green = 0,
+                blue = 0,
+            }
+        );
+    }
 }
 
-fun main([str] args) > void {
+fun main([str] args) > void !> SDLError {
+    SDL sdl = SDL.init([Subsystem.Video]);
+
+    Window window = Window.init(
+        "buzz example: Game of Life",
+        width: 800,
+        height: 600,
+        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+    );
+
+    Renderer renderer = window.createRenderer(
+        index: -1,
+        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+    );
+
+    Texture texture = renderer.createTexture(
+        format: PixelFormat.RGBA8888,
+        access: TextureAccess.Target,
+        width: 800,
+        height: 600,
+    );
+
     int? width = if (args.len() > 0) parseInt(args[0]) else null;
     int? height = if (args.len() > 1) parseInt(args[1]) else null;
 
-    World world = World.init(width: width ?? 10, height: height ?? 10);
+    World world = World.init(
+        width: width ?? 10,
+        height: height ?? 10,
+    );
 
+    float dt = sdl.ticks();
     while (true) {
-        io.stdout.write("\027[2J") catch void;
+        if (sdl.pollEvent() -> event) {
+            if (event.@"type" == EventType.Quit.value) {
+                break;
+            }
+        }
 
-        world.dump();
-        world.step();
+        if (sdl.ticks() - dt > 300) {
+            dt = sdl.ticks();
+            renderer.setRenderTarget(texture);
+            world.draw(renderer);
+            renderer.setRenderTarget(null);
 
-        sleep(500.0);
+            world.step();
+        }
+
+        renderer.renderCopy(texture);
+
+        renderer.renderPresent();
+
+        sdl.delay(100.0);
     }
+
+    sdl.quit();
 }
