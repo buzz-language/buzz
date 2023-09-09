@@ -8,7 +8,7 @@ export extern fun time() > float;
 
 || Returns environment variable under `key`
 || @param key environment variable name
-export extern fun env(str key) > str? !> InvalidArgumentError;
+export extern fun env(str key) > str?;
 
 || @return path to system temp directory
 export extern fun tmpDir() > str;

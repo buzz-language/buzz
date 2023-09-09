@@ -19,25 +19,15 @@ export fn env(ctx: *api.NativeCtx) c_int {
     const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        ctx.vm.bz_pushNull();
 
-        return -1;
+        return 1;
     }
 
-    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch null;
-    defer {
-        if (key_slice != null) {
-            api.VM.allocator.free(key_slice.?);
-        }
-    }
+    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch @panic("Out of memory");
+    defer api.VM.allocator.free(key_slice);
 
-    if (key_slice == null) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
-
-        return -1;
-    }
-
-    if (std.os.getenvZ(key_slice.?)) |value| {
+    if (std.os.getenvZ(key_slice)) |value| {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
             @panic("Out of memory");
         });
