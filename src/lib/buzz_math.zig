@@ -74,20 +74,38 @@ export fn bzlog(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn max(ctx: *api.NativeCtx) c_int {
-    const a_f: f64 = ctx.vm.bz_peek(0).float();
-    const b_f: f64 = ctx.vm.bz_peek(1).float();
+export fn maxFloat(ctx: *api.NativeCtx) c_int {
+    const a_f = ctx.vm.bz_peek(0).float();
+    const b_f = ctx.vm.bz_peek(1).float();
 
     ctx.vm.bz_pushFloat(@max(a_f, b_f));
 
     return 1;
 }
 
-export fn min(ctx: *api.NativeCtx) c_int {
-    const a_f: f64 = ctx.vm.bz_peek(0).float();
-    const b_f: f64 = ctx.vm.bz_peek(1).float();
+export fn minFloat(ctx: *api.NativeCtx) c_int {
+    const a_f = ctx.vm.bz_peek(0).float();
+    const b_f = ctx.vm.bz_peek(1).float();
 
     ctx.vm.bz_pushFloat(@min(a_f, b_f));
+
+    return 1;
+}
+
+export fn maxInt(ctx: *api.NativeCtx) c_int {
+    const a_f = ctx.vm.bz_peek(0).integer();
+    const b_f = ctx.vm.bz_peek(1).integer();
+
+    ctx.vm.bz_pushInteger(@max(a_f, b_f));
+
+    return 1;
+}
+
+export fn minInt(ctx: *api.NativeCtx) c_int {
+    const a_f = ctx.vm.bz_peek(0).integer();
+    const b_f = ctx.vm.bz_peek(1).integer();
+
+    ctx.vm.bz_pushInteger(@min(a_f, b_f));
 
     return 1;
 }

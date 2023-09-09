@@ -36,10 +36,16 @@ extern fun bzfloor(float n) > int;
 extern fun bzlog(float base, float n) > float;
 
 || @return max of a and b
-extern fun max(float a, float b) > float;
+extern fun maxFloat(float a, float b) > float;
 
 || @return min of a and b
-extern fun min(float a, float b) > float;
+extern fun minFloat(float a, float b) > float;
+
+|| @return max of a and b
+extern fun maxInt(int a, int b) > int;
+
+|| @return min of a and b
+extern fun minInt(int a, int b) > int;
 
 || Convert degree to radian
 fun rad(float n) > float {
@@ -72,8 +78,10 @@ export deg;
 export bzexp as exp;
 export bzfloor as floor;
 export bzlog as log;
-export max;
-export min;
+export minFloat;
+export maxFloat;
+export minInt;
+export maxInt;
 export pi;
 export rad;
 export random;
