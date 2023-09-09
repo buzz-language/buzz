@@ -1623,14 +1623,14 @@ pub const VM = struct {
             };
 
             // Top of stack is how many export we got
-            var exported_count: u8 = @intCast(vm.peek(0).integer());
+            var exported_count = vm.peek(0).integer();
 
             // Copy them to this vm globals
             var import_cache = std.ArrayList(Value).init(self.gc.allocator);
             if (exported_count > 0) {
-                var i: u8 = exported_count;
+                var i = exported_count;
                 while (i > 0) : (i -= 1) {
-                    const global = vm.peek(i);
+                    const global = vm.peek(@intCast(i));
                     self.globals.append(global) catch |e| {
                         panic(e);
                         unreachable;
