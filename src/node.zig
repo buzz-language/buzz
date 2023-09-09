@@ -4341,24 +4341,26 @@ pub const CallNode = struct {
         const yield_type = function_type.resolved_type.?.Function.yield_type;
 
         // Function being called and current function should have matching yield type unless the current function is an entrypoint
-        const current_function_typedef = codegen.current.?.function_node.node.type_def.?.resolved_type.?.Function;
-        const current_function_type = current_function_typedef.function_type;
-        const current_function_yield_type = current_function_typedef.yield_type;
-        switch (current_function_type) {
-            // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
-            .Function, .Method, .Anonymous => {
-                if (!current_function_yield_type.eql(yield_type)) {
-                    codegen.reporter.reportTypeCheck(
-                        .yield_type,
-                        codegen.current.?.function_node.node.location,
-                        current_function_yield_type,
-                        node.location,
-                        yield_type,
-                        "Bad function yield type",
-                    );
-                }
-            },
-            else => {},
+        if (!self.async_call) {
+            const current_function_typedef = codegen.current.?.function_node.node.type_def.?.resolved_type.?.Function;
+            const current_function_type = current_function_typedef.function_type;
+            const current_function_yield_type = current_function_typedef.yield_type;
+            switch (current_function_type) {
+                // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
+                .Function, .Method, .Anonymous => {
+                    if (!current_function_yield_type.eql(yield_type)) {
+                        codegen.reporter.reportTypeCheck(
+                            .yield_type,
+                            codegen.current.?.function_node.node.location,
+                            current_function_yield_type,
+                            node.location,
+                            yield_type,
+                            "Bad function yield type",
+                        );
+                    }
+                },
+                else => {},
+            }
         }
 
         // Arguments
