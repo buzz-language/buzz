@@ -906,7 +906,9 @@ pub const GarbageCollector = struct {
         }
 
         self.next_gc = self.bytes_allocated * BuildOptions.next_gc_ratio;
-        self.next_full_gc = self.next_gc * BuildOptions.next_full_gc_ratio;
+        if (mode == .Full) {
+            self.next_full_gc = self.next_gc * BuildOptions.next_full_gc_ratio;
+        }
         self.last_gc = mode;
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
