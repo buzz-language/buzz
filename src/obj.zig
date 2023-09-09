@@ -528,6 +528,9 @@ pub const ObjFiber = struct {
 
             try vm.gc.objfiber_members.put(method, native);
 
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+
             return native;
         }
 
@@ -624,6 +627,9 @@ pub const ObjPattern = struct {
             );
 
             try vm.gc.objpattern_members.put(method, native);
+
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
             return native;
         }
@@ -779,6 +785,9 @@ pub const ObjString = struct {
             );
 
             try vm.gc.objstring_members.put(method, native);
+
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
             return native;
         }
@@ -1539,6 +1548,9 @@ pub const ObjList = struct {
             );
 
             try self.methods.put(method, native);
+
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
             return native;
         }
@@ -2351,6 +2363,9 @@ pub const ObjMap = struct {
             );
 
             try self.methods.put(method, native);
+
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
             return native;
         }

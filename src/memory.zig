@@ -872,7 +872,8 @@ pub const GarbageCollector = struct {
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             std.debug.print("-- gc starts mode {}, {} bytes, {} objects\n", .{ mode, self.bytes_allocated, self.objects.len });
 
-            // try dumpStack(self);
+            // var it = self.active_vms.iterator();
+            // dumpStack(it.next().?.key_ptr.*);
         }
 
         var it = self.active_vms.iterator();
@@ -907,12 +908,20 @@ pub const GarbageCollector = struct {
 
         self.next_gc = self.bytes_allocated * BuildOptions.next_gc_ratio;
         if (mode == .Full) {
-            self.next_full_gc = self.next_gc * BuildOptions.next_full_gc_ratio;
+            self.next_full_gc = self.bytes_allocated * BuildOptions.next_full_gc_ratio;
         }
         self.last_gc = mode;
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-            std.debug.print("-- gc end, {} bytes, {} objects\n", .{ self.bytes_allocated, self.objects.len });
+            std.debug.print(
+                "-- gc end, {} bytes, {} objects, next_gc {}, next_full_gc {}\n",
+                .{
+                    self.bytes_allocated,
+                    self.objects.len,
+                    self.next_gc,
+                    self.next_full_gc,
+                },
+            );
         }
         // std.debug.print("gc took {}ms\n", .{timer.read() / 1000000});
 
