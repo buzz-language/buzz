@@ -4337,18 +4337,13 @@ pub const Parser = struct {
             .Minus,
             .Star,
             .Percent,
+            .Slash,
             => try self.gc.type_registry.getTypeDef(
                 ObjTypeDef{
                     .def_type = if ((left.type_def != null and left.type_def.?.def_type == .Float) or (right.type_def != null and right.type_def.?.def_type == .Float))
                         .Float
                     else
                         .Integer,
-                },
-            ),
-
-            .Slash => try self.gc.type_registry.getTypeDef(
-                ObjTypeDef{
-                    .def_type = .Float,
                 },
             ),
 

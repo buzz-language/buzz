@@ -3033,9 +3033,17 @@ pub const VM = struct {
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
-        self.push(
-            Value.fromFloat((left_f orelse @as(f64, @floatFromInt(left_i.?))) / (right_f orelse @as(f64, @floatFromInt(right_i.?)))),
-        );
+        if (left_f != null or right_f != null) {
+            self.push(
+                Value.fromFloat(
+                    (left_f orelse @as(f64, @floatFromInt(left_i.?))) / (right_f orelse @as(f64, @floatFromInt(right_i.?))),
+                ),
+            );
+        } else {
+            self.push(
+                Value.fromInteger(@divTrunc(left_i.?, right_i.?)),
+            );
+        }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

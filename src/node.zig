@@ -2574,7 +2574,7 @@ pub const BinaryNode = struct {
                         return Value.fromFloat((right_f orelse @as(f64, @floatFromInt(right_i.?))) / (left_f orelse @as(f64, @floatFromInt(left_i.?))));
                     }
 
-                    return Value.fromFloat(@as(f64, @floatFromInt(right_i.?)) / @as(f64, @floatFromInt(left_i.?)));
+                    return Value.fromInteger(@divTrunc(right_i.?, left_i.?));
                 },
                 .Percent => {
                     if (right_f != null or left_f != null) {
