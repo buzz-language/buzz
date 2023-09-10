@@ -4779,26 +4779,27 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
     defer self.state.?.function = previous;
 
     const ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
-    if (function_type == .Test or (function_def.error_types != null and function_def.error_types.?.len > 0)) {
-        const index = try self.REG("index", m.MIR_T_I64);
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, index),
-            m.MIR_new_uint_op(self.ctx, 0),
-        );
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
 
-        const vm_reg = try self.REG("vm", m.MIR_T_I64);
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, vm_reg),
-            m.MIR_new_mem_op(
-                self.ctx,
-                m.MIR_T_P,
-                @offsetOf(o.NativeCtx, "vm"),
-                ctx_reg,
-                index,
-                0,
-            ),
-        );
+    const vm_reg = try self.REG("vm", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, vm_reg),
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_P,
+            @offsetOf(o.NativeCtx, "vm"),
+            ctx_reg,
+            index,
+            0,
+        ),
+    );
 
+    const should_try = function_type == .Test or (function_def.error_types != null and function_def.error_types.?.len > 0);
+    if (should_try) {
         // Catch any error to forward them as a buzz error (push payload + return -1)
         // Set it as current jump env
         const try_ctx = m.MIR_new_reg_op(
@@ -4848,6 +4849,15 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
             m.MIR_new_uint_op(self.ctx, 0),
         );
 
+        // Unwind TryCtx
+        try self.buildExternApiCall(
+            .bz_popTryCtx,
+            null,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, vm_reg),
+            },
+        );
+
         // Payload already on stack so juste return -1;
         self.RET(m.MIR_new_int_op(self.ctx, -1));
 
@@ -4882,6 +4892,17 @@ fn generateNativeFn(self: *Self, function_node: *n.FunctionNode, raw_fn: m.MIR_i
         try self.buildPush(result);
     } else {
         try self.buildPush(m.MIR_new_uint_op(self.ctx, v.Value.Void.val));
+    }
+
+    if (should_try) {
+        // Unwind TryCtx
+        try self.buildExternApiCall(
+            .bz_popTryCtx,
+            null,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, vm_reg),
+            },
+        );
     }
 
     self.RET(
