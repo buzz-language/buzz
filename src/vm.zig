@@ -4134,7 +4134,7 @@ pub const VM = struct {
         return if (BuildOptions.jit_always_on)
             return true
         else
-            (BuildOptions.jit_debug and user_hot) or
+            user_hot or
                 (closure.function.call_count > 10 and
                 (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.mir_jit.?.call_count))) > BuildOptions.jit_prof_threshold);
     }
