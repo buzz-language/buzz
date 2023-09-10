@@ -1053,6 +1053,8 @@ export fn bz_valueIs(self: Value, type_def: Value) Value {
 }
 
 export fn bz_setTryCtx(self: *VM) *TryCtx {
+    // It would be better that this was in an ALLOCA, but with it memory keeps slowing leaking
+    // Maybe the jmp throws off the stack?
     var try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
     try_ctx.* = .{
         .previous = self.current_fiber.try_context,

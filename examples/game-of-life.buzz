@@ -108,6 +108,33 @@ object World {
     }
 }
 
+|| @hot
+fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDLError {
+    float dt = sdl.ticks();
+    while (true) {
+        if (sdl.pollEvent() -> event) {
+            if (event.@"type" == EventType.Quit.value) {
+                break;
+            }
+        }
+
+        if (sdl.ticks() - dt > 300) {
+            dt = sdl.ticks();
+            renderer.setRenderTarget(texture);
+            world.draw(renderer);
+            renderer.setRenderTarget(null);
+
+            world.step();
+        }
+
+        renderer.renderCopy(texture);
+
+        renderer.renderPresent();
+
+        sdl.delay(100.0);
+    }
+}
+
 fun main([str] args) > void !> SDLError {
     SDL sdl = SDL.init([Subsystem.Video]);
 
@@ -138,29 +165,12 @@ fun main([str] args) > void !> SDLError {
         height: height ?? 10,
     );
 
-    float dt = sdl.ticks();
-    while (true) {
-        if (sdl.pollEvent() -> event) {
-            if (event.@"type" == EventType.Quit.value) {
-                break;
-            }
-        }
-
-        if (sdl.ticks() - dt > 300) {
-            dt = sdl.ticks();
-            renderer.setRenderTarget(texture);
-            world.draw(renderer);
-            renderer.setRenderTarget(null);
-
-            world.step();
-        }
-
-        renderer.renderCopy(texture);
-
-        renderer.renderPresent();
-
-        sdl.delay(100.0);
-    }
+    loop(
+        world: world,
+        sdl: sdl,
+        texture: texture,
+        renderer: renderer,
+    );
 
     sdl.quit();
 }
