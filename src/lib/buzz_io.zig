@@ -19,6 +19,16 @@ export fn getStdErr(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
+export fn FileIsTTY(ctx: api.NativeCtx) c_int {
+    const handle: std.fs.File.Handle = @intCast(
+        ctx.vm.bz_peek(0).integer(),
+    );
+
+    ctx.vm.bz_pushBool(std.os.isatty(handle));
+
+    return 1;
+}
+
 fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,

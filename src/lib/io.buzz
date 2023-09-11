@@ -18,6 +18,8 @@ extern fun getStdIn() > int;
 extern fun getStdOut() > int;
 || @private
 extern fun getStdErr() > int;
+|| @private
+extern fun FileIsTTY(int fd) > bool;
 
 || File mode with which you can open a file
 export enum FileMode {
@@ -69,6 +71,11 @@ export object File {
     || @param bytes string to write
     fun write(str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError {
         FileWrite(this.fd, bytes: bytes);
+    }
+
+    || @return true if file is TTY
+    fun isTTY() > bool {
+        return FileIsTTY(this.fd);
     }
 }
 
