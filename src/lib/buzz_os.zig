@@ -158,17 +158,18 @@ export fn execute(ctx: *api.NativeCtx) c_int {
     var child_process = std.ChildProcess.init(command.items, api.VM.allocator);
     child_process.disable_aslr = builtin.target.isDarwin();
 
-    child_process.spawn() catch |err| {
+    const term = child_process.spawnAndWait() catch |err| {
         handleSpawnError(ctx, err);
 
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast((child_process.wait() catch |err| {
-        handleSpawnError(ctx, err);
-
-        return -1;
-    }).Exited));
+    switch (term) {
+        .Exited => ctx.vm.bz_pushInteger(@intCast(term.Exited)),
+        .Signal => ctx.vm.bz_pushInteger(@intCast(term.Signal)),
+        .Stopped => ctx.vm.bz_pushInteger(@intCast(term.Stopped)),
+        .Unknown => ctx.vm.bz_pushInteger(@intCast(term.Unknown)),
+    }
 
     return 1;
 }
