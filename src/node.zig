@@ -3303,8 +3303,13 @@ pub const TryNode = struct {
         defer exit_jumps.deinit();
 
         codegen.patchTry(try_jump);
+        var has_unconditional = self.unconditional_clause != null;
         for (self.clauses.keys()) |error_type| {
             const clause = self.clauses.get(error_type).?;
+
+            if (error_type.eql((try codegen.gc.type_registry.getTypeDef(.{ .def_type = .Any })))) {
+                has_unconditional = true;
+            }
 
             // We assume the error is on top of the stack
             try codegen.emitOpCode(clause.location, .OP_COPY); // Copy error value since its argument to the catch clause
@@ -3358,20 +3363,22 @@ pub const TryNode = struct {
         try codegen.emitOpCode(node.location, .OP_TRY_END);
 
         // Did we handle all errors not specified in current function signature?
-        var it = codegen.current.?.try_should_handle.?.iterator();
-        while (it.next()) |kv| {
-            if (self.unconditional_clause == null and self.clauses.get(try kv.key_ptr.*.toParentType(codegen.gc.allocator, &codegen.gc.type_registry)) == null) {
-                const err_str = try kv.key_ptr.*.toStringAlloc(codegen.gc.allocator);
-                defer err_str.deinit();
+        if (!has_unconditional) {
+            var it = codegen.current.?.try_should_handle.?.iterator();
+            while (it.next()) |kv| {
+                if (self.clauses.get(try kv.key_ptr.*.toParentType(codegen.gc.allocator, &codegen.gc.type_registry)) == null) {
+                    const err_str = try kv.key_ptr.*.toStringAlloc(codegen.gc.allocator);
+                    defer err_str.deinit();
 
-                codegen.reporter.reportWithOrigin(
-                    .error_not_handled,
-                    node.location,
-                    kv.value_ptr.*,
-                    "Error type `{s}` not handled",
-                    .{err_str.items},
-                    "can occur here",
-                );
+                    codegen.reporter.reportWithOrigin(
+                        .error_not_handled,
+                        node.location,
+                        kv.value_ptr.*,
+                        "Error type `{s}` not handled",
+                        .{err_str.items},
+                        "can occur here",
+                    );
+                }
             }
         }
 

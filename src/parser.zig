@@ -2195,6 +2195,7 @@ pub const Parser = struct {
         var clause_identifiers = std.ArrayList([]const u8).init(self.gc.allocator);
         var clauses = std.AutoArrayHashMap(*ObjTypeDef, *ParseNode).init(self.gc.allocator);
         var unconditional_clause: ?*ParseNode = null;
+        // either catch with no type of catch any
         while (try self.match(.Catch)) {
             if (try self.match(.LeftParen)) {
                 if (unconditional_clause != null) {
