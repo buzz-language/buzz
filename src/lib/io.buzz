@@ -43,6 +43,10 @@ export object File {
         };
     }
 
+    fun collect() > void {
+        this.close();
+    }
+
     || Close file
     fun close() > void {
         FileClose(this.fd);
