@@ -4320,7 +4320,7 @@ pub const Parser = struct {
         };
 
         node.node.type_def = switch (operator) {
-            .QuestionQuestion => if (right.type_def orelse left.type_def) |type_def| try type_def.cloneNonOptional(&self.gc.type_registry) else null,
+            .QuestionQuestion => right.type_def,
 
             .Greater,
             .Less,
