@@ -653,7 +653,7 @@ pub const Parser = struct {
 
         while (true) {
             self.parser.current_token = if (self.parser.ahead.items.len > 0)
-                self.parser.ahead.swapRemove(0)
+                self.parser.ahead.orderedRemove(0)
             else
                 try self.scanner.?.scanToken();
             if (self.parser.current_token.?.token_type != .Error) {
@@ -967,7 +967,11 @@ pub const Parser = struct {
                         assert(child_placeholder.name != null);
 
                         if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
-                            try self.resolvePlaceholder(child, resolved_type.resolved_type.?.EnumInstance, false);
+                            try self.resolvePlaceholder(
+                                child,
+                                resolved_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type,
+                                false,
+                            );
                         } else {
                             self.reporter.reportErrorAt(.property_does_not_exists, child_placeholder.where, "Enum instance only has field `value`");
                             return;

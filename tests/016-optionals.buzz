@@ -57,3 +57,19 @@ test "Field access on map subscript" {
 
     assert(map["yo"]?.name == "joe", message: "could field access map subscript");
 }
+
+object A {
+    static A? instance = null;
+
+    str msg,
+
+    fun hello() > str {
+        return this.msg;
+    }
+}
+
+test "Check ahead" {
+    A.instance = A{ msg = "hello" };
+
+    A.instance?.hello();
+}
