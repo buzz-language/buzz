@@ -3869,345 +3869,349 @@ pub const Parser = struct {
         node.node.location = start_location;
 
         // Check that name is a property
-        const callee_def_type = if (callee.type_def) |type_def| type_def.def_type else .Placeholder;
-        switch (callee_def_type) {
-            .String => {
-                if (try ObjString.memberDef(self, member_name)) |member| {
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        node.node.type_def = member;
-                        node.member_type_def = member;
 
-                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+        // If not even a placeholder, we most likely raised an error before
+        if (callee.type_def != null) {
+            const callee_def_type = callee.type_def.?.def_type;
+            switch (callee_def_type) {
+                .String => {
+                    if (try ObjString.memberDef(self, member_name)) |member| {
+                        if (try self.match(.LeftParen)) {
+                            // `call` will look to the parent node for the function definition
+                            node.node.type_def = member;
+                            node.member_type_def = member;
 
-                        // Node type is the return type of the call
-                        node.node.type_def = node.call.?.node.type_def;
+                            node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                            // Node type is the return type of the call
+                            node.node.type_def = node.call.?.node.type_def;
+                        } else {
+                            // String has only native functions members
+                            node.node.type_def = member;
+                        }
                     } else {
-                        // String has only native functions members
-                        node.node.type_def = member;
+                        self.reportError(.property_does_not_exists, "String property doesn't exist.");
                     }
-                } else {
-                    self.reportError(.property_does_not_exists, "String property doesn't exist.");
-                }
-            },
-            .Pattern => {
-                if (try ObjPattern.memberDef(self, member_name)) |member| {
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        node.node.type_def = member;
-                        node.member_type_def = member;
+                },
+                .Pattern => {
+                    if (try ObjPattern.memberDef(self, member_name)) |member| {
+                        if (try self.match(.LeftParen)) {
+                            // `call` will look to the parent node for the function definition
+                            node.node.type_def = member;
+                            node.member_type_def = member;
 
-                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                            node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
-                        // Node type is the return type of the call
-                        node.node.type_def = node.call.?.node.type_def;
+                            // Node type is the return type of the call
+                            node.node.type_def = node.call.?.node.type_def;
+                        } else {
+                            // Pattern has only native functions members
+                            node.node.type_def = member;
+                        }
                     } else {
-                        // Pattern has only native functions members
-                        node.node.type_def = member;
+                        self.reportError(.property_does_not_exists, "Pattern property doesn't exist.");
                     }
-                } else {
-                    self.reportError(.property_does_not_exists, "Pattern property doesn't exist.");
-                }
-            },
-            .Fiber => {
-                if (try ObjFiber.memberDef(self, member_name)) |member| {
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        node.node.type_def = member;
-                        node.member_type_def = member;
+                },
+                .Fiber => {
+                    if (try ObjFiber.memberDef(self, member_name)) |member| {
+                        if (try self.match(.LeftParen)) {
+                            // `call` will look to the parent node for the function definition
+                            node.node.type_def = member;
+                            node.member_type_def = member;
 
-                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                            node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
 
-                        // Node type is the return type of the call
-                        node.node.type_def = node.call.?.node.type_def;
+                            // Node type is the return type of the call
+                            node.node.type_def = node.call.?.node.type_def;
+                        } else {
+                            // Fiber has only native functions members
+                            node.node.type_def = member;
+                        }
                     } else {
-                        // Fiber has only native functions members
-                        node.node.type_def = member;
+                        self.reportError(.property_does_not_exists, "Fiber property doesn't exist.");
                     }
-                } else {
-                    self.reportError(.property_does_not_exists, "Fiber property doesn't exist.");
-                }
-            },
-            .Object => {
-                var obj_def: ObjObject.ObjectDef = callee.type_def.?.resolved_type.?.Object;
+                },
+                .Object => {
+                    var obj_def: ObjObject.ObjectDef = callee.type_def.?.resolved_type.?.Object;
 
-                var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name) orelse obj_def.static_placeholders.get(member_name);
+                    var property_type: ?*ObjTypeDef = obj_def.static_fields.get(member_name) orelse obj_def.static_placeholders.get(member_name);
 
-                // Not found, create a placeholder, this is a root placeholder not linked to anything
-                // TODO: test with something else than a name
-                if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
-                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
-                    };
-                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name_token.lexeme);
-
-                    var placeholder: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
-                        .optional = false,
-                        .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
-                    });
-
-                    if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
-                            "static placeholder @{} for `{s}`\n",
-                            .{
-                                @intFromPtr(placeholder),
-                                member_name_token.lexeme,
-                            },
-                        );
-                    }
-                    try callee.type_def.?.resolved_type.?.Object.static_placeholders.put(member_name, placeholder);
-
-                    property_type = placeholder;
-                } else if (property_type == null) {
-                    self.reportErrorFmt(.property_does_not_exists, "Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
-                }
-
-                // Do we assign it ?
-                if (can_assign and try self.match(.Equal)) {
-                    node.value = try self.expression(false);
-
-                    node.node.type_def = property_type;
-                } else if (try self.match(.LeftParen)) { // Do we call it
-                    // `call` will look to the parent node for the function definition
-                    node.node.type_def = property_type;
-                    node.member_type_def = property_type;
-
-                    node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
-
-                    // Node type is the return type of the call
-                    node.node.type_def = node.call.?.node.type_def;
-                } else { // access only
-                    node.node.type_def = property_type;
-                }
-            },
-            .ForeignStruct => {
-                const f_def = callee.type_def.?.resolved_type.?.ForeignStruct;
-
-                if (f_def.buzz_type.get(member_name)) |field| {
-                    if (can_assign and try self.match(.Equal)) {
-                        node.value = try self.expression(false);
-                    }
-
-                    node.node.type_def = field;
-                } else {
-                    self.reportErrorFmt(
-                        .property_does_not_exists,
-                        "Property `{s}` does not exists in object `{s}`",
-                        .{
-                            member_name,
-                            f_def.name.string,
-                        },
-                    );
-                }
-            },
-            .ObjectInstance => {
-                var object: *ObjTypeDef = callee.type_def.?.resolved_type.?.ObjectInstance;
-                var obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
-
-                // Is it a method
-                var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name);
-
-                // Is it a property
-                property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name);
-
-                // Else create placeholder
-                if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
-                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
-                    };
-                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
-
-                    var placeholder: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
-                        .optional = false,
-                        .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
-                    });
-
-                    if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
-                            "property placeholder @{} for `{s}.{s}`\n",
-                            .{
-                                @intFromPtr(placeholder),
-                                object.resolved_type.?.Object.name.string,
-                                member_name_token.lexeme,
-                            },
-                        );
-                    }
-                    try object.resolved_type.?.Object.placeholders.put(member_name, placeholder);
-
-                    property_type = placeholder;
-                } else if (property_type == null) {
-                    self.reportErrorFmt(
-                        .property_does_not_exists,
-                        "Property `{s}` does not exists in object `{s}`",
-                        .{ member_name, obj_def.name.string },
-                    );
-                }
-
-                // If its a field or placeholder, we can assign to it
-                // TODO: here get info that field is constant or not
-                if (can_assign and try self.match(.Equal)) {
-                    node.value = try self.expression(false);
-
-                    node.node.type_def = property_type;
-                } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it
-                    // `call` will look to the parent node for the function definition
-                    node.node.type_def = property_type;
-                    node.member_type_def = property_type;
-
-                    node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
-
-                    // Node type is the return type of the call
-                    node.node.type_def = node.call.?.node.type_def;
-                } else {
-                    node.node.type_def = property_type;
-                }
-            },
-            .ProtocolInstance => {
-                var protocol: *ObjTypeDef = callee.type_def.?.resolved_type.?.ProtocolInstance;
-                var protocol_def: ObjObject.ProtocolDef = protocol.resolved_type.?.Protocol;
-
-                var method_type: ?*ObjTypeDef = protocol_def.methods.get(member_name);
-
-                // Else create placeholder
-                if (method_type == null) {
-                    self.reportErrorFmt(
-                        .property_does_not_exists,
-                        "Method `{s}` does not exists in protocol `{s}`",
-                        .{
-                            member_name,
-                            protocol_def.name.string,
-                        },
-                    );
-                }
-
-                // Only call is allowed
-                if (try self.match(.LeftParen)) {
-                    // `call` will look to the parent node for the function definition
-                    node.node.type_def = method_type;
-                    node.member_type_def = method_type;
-
-                    node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
-
-                    // Node type is the return type of the call
-                    node.node.type_def = node.call.?.node.type_def;
-                } else {
-                    node.node.type_def = method_type;
-                }
-            },
-            .Enum => {
-                const enum_def = callee.type_def.?.resolved_type.?.Enum;
-
-                for (enum_def.cases.items, 0..) |case, index| {
-                    if (mem.eql(u8, case, member_name)) {
-                        var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
-                            .EnumInstance = callee.type_def.?,
+                    // Not found, create a placeholder, this is a root placeholder not linked to anything
+                    // TODO: test with something else than a name
+                    if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
+                        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                            .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
                         };
+                        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name_token.lexeme);
 
-                        var enum_instance: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
+                        var placeholder: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
                             .optional = false,
-                            .def_type = .EnumInstance,
-                            .resolved_type = enum_instance_resolved_type,
+                            .def_type = .Placeholder,
+                            .resolved_type = placeholder_resolved_type,
                         });
 
-                        node.node.type_def = enum_instance;
-                        node.enum_index = index;
-                        break;
-                    }
-                }
+                        if (BuildOptions.debug_placeholders) {
+                            std.debug.print(
+                                "static placeholder @{} for `{s}`\n",
+                                .{
+                                    @intFromPtr(placeholder),
+                                    member_name_token.lexeme,
+                                },
+                            );
+                        }
+                        try callee.type_def.?.resolved_type.?.Object.static_placeholders.put(member_name, placeholder);
 
-                if (node.node.type_def == null) {
-                    // TODO: reportWithOrigin
-                    self.reportErrorFmt(
-                        .enum_case,
-                        "Enum case `{s}` does not exists.",
+                        property_type = placeholder;
+                    } else if (property_type == null) {
+                        self.reportErrorFmt(.property_does_not_exists, "Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
+                    }
+
+                    // Do we assign it ?
+                    if (can_assign and try self.match(.Equal)) {
+                        node.value = try self.expression(false);
+
+                        node.node.type_def = property_type;
+                    } else if (try self.match(.LeftParen)) { // Do we call it
+                        // `call` will look to the parent node for the function definition
+                        node.node.type_def = property_type;
+                        node.member_type_def = property_type;
+
+                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                        // Node type is the return type of the call
+                        node.node.type_def = node.call.?.node.type_def;
+                    } else { // access only
+                        node.node.type_def = property_type;
+                    }
+                },
+                .ForeignStruct => {
+                    const f_def = callee.type_def.?.resolved_type.?.ForeignStruct;
+
+                    if (f_def.buzz_type.get(member_name)) |field| {
+                        if (can_assign and try self.match(.Equal)) {
+                            node.value = try self.expression(false);
+                        }
+
+                        node.node.type_def = field;
+                    } else {
+                        self.reportErrorFmt(
+                            .property_does_not_exists,
+                            "Property `{s}` does not exists in object `{s}`",
+                            .{
+                                member_name,
+                                f_def.name.string,
+                            },
+                        );
+                    }
+                },
+                .ObjectInstance => {
+                    var object: *ObjTypeDef = callee.type_def.?.resolved_type.?.ObjectInstance;
+                    var obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
+
+                    // Is it a method
+                    var property_type: ?*ObjTypeDef = obj_def.methods.get(member_name);
+
+                    // Is it a property
+                    property_type = property_type orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name);
+
+                    // Else create placeholder
+                    if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
+                        var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                            .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
+                        };
+                        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
+
+                        var placeholder: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
+                            .optional = false,
+                            .def_type = .Placeholder,
+                            .resolved_type = placeholder_resolved_type,
+                        });
+
+                        if (BuildOptions.debug_placeholders) {
+                            std.debug.print(
+                                "property placeholder @{} for `{s}.{s}`\n",
+                                .{
+                                    @intFromPtr(placeholder),
+                                    object.resolved_type.?.Object.name.string,
+                                    member_name_token.lexeme,
+                                },
+                            );
+                        }
+                        try object.resolved_type.?.Object.placeholders.put(member_name, placeholder);
+
+                        property_type = placeholder;
+                    } else if (property_type == null) {
+                        self.reportErrorFmt(
+                            .property_does_not_exists,
+                            "Property `{s}` does not exists in object `{s}`",
+                            .{ member_name, obj_def.name.string },
+                        );
+                    }
+
+                    // If its a field or placeholder, we can assign to it
+                    // TODO: here get info that field is constant or not
+                    if (can_assign and try self.match(.Equal)) {
+                        node.value = try self.expression(false);
+
+                        node.node.type_def = property_type;
+                    } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it
+                        // `call` will look to the parent node for the function definition
+                        node.node.type_def = property_type;
+                        node.member_type_def = property_type;
+
+                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                        // Node type is the return type of the call
+                        node.node.type_def = node.call.?.node.type_def;
+                    } else {
+                        node.node.type_def = property_type;
+                    }
+                },
+                .ProtocolInstance => {
+                    var protocol: *ObjTypeDef = callee.type_def.?.resolved_type.?.ProtocolInstance;
+                    var protocol_def: ObjObject.ProtocolDef = protocol.resolved_type.?.Protocol;
+
+                    var method_type: ?*ObjTypeDef = protocol_def.methods.get(member_name);
+
+                    // Else create placeholder
+                    if (method_type == null) {
+                        self.reportErrorFmt(
+                            .property_does_not_exists,
+                            "Method `{s}` does not exists in protocol `{s}`",
+                            .{
+                                member_name,
+                                protocol_def.name.string,
+                            },
+                        );
+                    }
+
+                    // Only call is allowed
+                    if (try self.match(.LeftParen)) {
+                        // `call` will look to the parent node for the function definition
+                        node.node.type_def = method_type;
+                        node.member_type_def = method_type;
+
+                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                        // Node type is the return type of the call
+                        node.node.type_def = node.call.?.node.type_def;
+                    } else {
+                        node.node.type_def = method_type;
+                    }
+                },
+                .Enum => {
+                    const enum_def = callee.type_def.?.resolved_type.?.Enum;
+
+                    for (enum_def.cases.items, 0..) |case, index| {
+                        if (mem.eql(u8, case, member_name)) {
+                            var enum_instance_resolved_type: ObjTypeDef.TypeUnion = .{
+                                .EnumInstance = callee.type_def.?,
+                            };
+
+                            var enum_instance: *ObjTypeDef = try self.gc.type_registry.getTypeDef(.{
+                                .optional = false,
+                                .def_type = .EnumInstance,
+                                .resolved_type = enum_instance_resolved_type,
+                            });
+
+                            node.node.type_def = enum_instance;
+                            node.enum_index = index;
+                            break;
+                        }
+                    }
+
+                    if (node.node.type_def == null) {
+                        // TODO: reportWithOrigin
+                        self.reportErrorFmt(
+                            .enum_case,
+                            "Enum case `{s}` does not exists.",
+                            .{
+                                member_name,
+                            },
+                        );
+                    }
+                },
+                .EnumInstance => {
+                    // Only available field is `.value` to get associated value
+                    if (!mem.eql(u8, member_name, "value")) {
+                        self.reportError(.property_does_not_exists, "Enum provides only field `value`.");
+                    }
+
+                    node.node.type_def = callee.type_def.?.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
+                },
+                .List => {
+                    if (try ObjList.ListDef.member(callee.type_def.?, self, member_name)) |member| {
+                        if (try self.match(.LeftParen)) {
+                            // `call` will look to the parent node for the function definition
+                            node.node.type_def = member;
+                            node.member_type_def = member;
+
+                            node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                            // Node type is the return type of the call
+                            node.node.type_def = node.call.?.node.type_def;
+                        } else {
+                            node.node.type_def = member;
+                        }
+                    } else {
+                        self.reportError(.property_does_not_exists, "List property doesn't exist.");
+                    }
+                },
+                .Map => {
+                    if (try ObjMap.MapDef.member(callee.type_def.?, self, member_name)) |member| {
+                        if (try self.match(.LeftParen)) {
+                            // `call` will look to the parent node for the function definition
+                            node.node.type_def = member;
+                            node.member_type_def = member;
+
+                            node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+
+                            // Node type is the return type of the call
+                            node.node.type_def = node.call.?.node.type_def;
+                        } else {
+                            node.node.type_def = member;
+                        }
+                    } else {
+                        self.reportError(.property_does_not_exists, "Map property doesn't exist.");
+                    }
+                },
+                .Placeholder => {
+                    // We know nothing of the field
+                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                        .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
+                    };
+
+                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
+
+                    var placeholder = try self.gc.type_registry.getTypeDef(
                         .{
-                            member_name,
+                            .def_type = .Placeholder,
+                            .resolved_type = placeholder_resolved_type,
                         },
                     );
-                }
-            },
-            .EnumInstance => {
-                // Only available field is `.value` to get associated value
-                if (!mem.eql(u8, member_name, "value")) {
-                    self.reportError(.property_does_not_exists, "Enum provides only field `value`.");
-                }
 
-                node.node.type_def = callee.type_def.?.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
-            },
-            .List => {
-                if (try ObjList.ListDef.member(callee.type_def.?, self, member_name)) |member| {
-                    if (try self.match(.LeftParen)) {
+                    try PlaceholderDef.link(callee.type_def.?, placeholder, .FieldAccess);
+
+                    if (can_assign and try self.match(.Equal)) {
+                        node.value = try self.expression(false);
+                    } else if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
-                        node.node.type_def = member;
-                        node.member_type_def = member;
+                        node.node.type_def = placeholder;
+                        node.member_type_def = placeholder;
 
                         node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
+                        // TODO: here maybe we invoke instead of call??
 
                         // Node type is the return type of the call
                         node.node.type_def = node.call.?.node.type_def;
                     } else {
-                        node.node.type_def = member;
+                        node.node.type_def = placeholder;
                     }
-                } else {
-                    self.reportError(.property_does_not_exists, "List property doesn't exist.");
-                }
-            },
-            .Map => {
-                if (try ObjMap.MapDef.member(callee.type_def.?, self, member_name)) |member| {
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        node.node.type_def = member;
-                        node.member_type_def = member;
-
-                        node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
-
-                        // Node type is the return type of the call
-                        node.node.type_def = node.call.?.node.type_def;
-                    } else {
-                        node.node.type_def = member;
-                    }
-                } else {
-                    self.reportError(.property_does_not_exists, "Map property doesn't exist.");
-                }
-            },
-            .Placeholder => {
-                // We know nothing of the field
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(self.gc.allocator, member_name_token),
-                };
-
-                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
-
-                var placeholder = try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
-                    },
-                );
-
-                try PlaceholderDef.link(callee.type_def.?, placeholder, .FieldAccess);
-
-                if (can_assign and try self.match(.Equal)) {
-                    node.value = try self.expression(false);
-                } else if (try self.match(.LeftParen)) {
-                    // `call` will look to the parent node for the function definition
-                    node.node.type_def = placeholder;
-                    node.member_type_def = placeholder;
-
-                    node.call = CallNode.cast(try self.call(can_assign, &node.node)).?;
-                    // TODO: here maybe we invoke instead of call??
-
-                    // Node type is the return type of the call
-                    node.node.type_def = node.call.?.node.type_def;
-                } else {
-                    node.node.type_def = placeholder;
-                }
-            },
-            else => {
-                self.reporter.reportErrorAt(.field_access, node.node.location, "Not field accessible");
-            },
+                },
+                else => {
+                    self.reporter.reportErrorAt(.field_access, node.node.location, "Not field accessible");
+                },
+            }
         }
 
         node.node.end_location = self.parser.previous_token.?;

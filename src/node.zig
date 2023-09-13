@@ -2672,7 +2672,7 @@ pub const BinaryNode = struct {
                 if (!left_type.optional) {
                     codegen.reporter.reportErrorAt(
                         .optional,
-                        node.location,
+                        self.left.location,
                         "Not an optional",
                     );
                 }
