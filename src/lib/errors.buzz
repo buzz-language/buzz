@@ -14,12 +14,14 @@ export enum FileSystemError {
     IsDir,
     LinkQuotaExceeded,
     NameTooLong,
+    NetworkNotFound,
     NoDevice,
     NonCanonical,
     NoSpaceLeft,
     NotDir,
     NotSupported,
     PathAlreadyExists,
+    PermissionDenied,
     PipeBusy,
     ProcessFdQuotaExceeded,
     ReadOnlyFileSystem,
@@ -29,7 +31,6 @@ export enum FileSystemError {
     SystemFdQuotaExceeded,
     SystemResources,
     WouldBlock,
-    NetworkNotFound,
 }
 
 export enum ExecError {

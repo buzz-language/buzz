@@ -312,3 +312,25 @@ export fn list(ctx: *api.NativeCtx) c_int {
 
     return 1;
 }
+
+export fn exists(ctx: *api.NativeCtx) c_int {
+    var len: usize = 0;
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename_slice = filename.?[0..len];
+
+    var accessed = true;
+
+    if (std.fs.path.isAbsolute(filename_slice)) {
+        std.fs.accessAbsolute(filename_slice, .{ .mode = .read_write }) catch {
+            accessed = false;
+        };
+    } else {
+        std.fs.cwd().access(filename_slice, .{ .mode = .read_write }) catch {
+            accessed = false;
+        };
+    }
+
+    ctx.vm.bz_pushBool(accessed);
+
+    return 1;
+}

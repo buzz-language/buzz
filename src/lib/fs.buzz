@@ -32,3 +32,8 @@ export extern fun move(str source, str destination) > void !> FileSystemError, U
 || List files under path
 || @param path directory to list
 export extern fun list(str path) > [str] !> FileSystemError, UnexpectedError;
+
+|| Returns true if path exists
+|| @param path directory/file to test
+|| @return wether file exists
+export extern fun exists(str path) > bool !> FileSystemError;
