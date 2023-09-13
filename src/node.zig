@@ -8064,13 +8064,21 @@ pub const ZdefNode = struct {
             switch (element.zdef.type_def.def_type) {
                 .Function => {
                     if (element.obj_native == null) {
+                        var timer = std.time.Timer.start() catch unreachable;
+
                         element.obj_native = try codegen.mir_jit.?.compileZdef(element);
+
+                        codegen.mir_jit.?.jit_time += timer.read();
 
                         try codegen.emitConstant(node.location, element.obj_native.?.toValue());
                     }
                 },
                 .ForeignStruct => {
+                    var timer = std.time.Timer.start() catch unreachable;
+
                     try codegen.mir_jit.?.compileZdefStruct(element);
+
+                    codegen.mir_jit.?.jit_time += timer.read();
 
                     try codegen.emitConstant(node.location, element.zdef.type_def.toValue());
                 },
