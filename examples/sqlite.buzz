@@ -1,0 +1,339 @@
+import "ffi";
+import "std";
+import "buffer";
+import "serialize";
+import "log";
+
+zdef("sqlite3", `
+    fn sqlite3_initialize() c_int;
+    fn sqlite3_shutdown() c_int;
+    // Right now we can't express a ptr to an opaque struct because we need to know its size
+    fn sqlite3_open_v2(filename: [*:0]const u8, ppDb: **anyopaque, flags: c_int, zVfs: ?[*:0]const u8) c_int;
+    fn sqlite3_close_v2(db: *anyopaque) c_int;
+    fn sqlite3_errmsg(db: *anyopaque) [*:0]const u8;
+    fn sqlite3_prepare_v2(db: *anyopaque, zSql: [*:0]const u8, nBytes: c_int, ppStmt: **anyopaque, pzTail: ?*[*]const u8) c_int;
+    fn sqlite3_finalize(pStmt: *anyopaque) c_int;
+    fn sqlite3_step(pStmt: *anyopaque) c_int;
+    fn sqlite3_column_count(pStmt: *anyopaque) c_int;
+    fn sqlite3_column_type(pStmt: *anyopaque, col: c_int) c_int;
+    fn sqlite3_column_blob(pStmt: *anyopaque, col: c_int) *anyopaque;
+    fn sqlite3_column_double(pStmt: *anyopaque, col: c_int) f64;
+    fn sqlite3_column_int(pStmt: *anyopaque, col: c_int) c_int;
+    fn sqlite3_column_int64(pStmt: *anyopaque, col: c_int) i64;
+    fn sqlite3_column_text(pStmt: *anyopaque, col: c_int) [*:0]const u8;
+    fn sqlite3_mprintf(str: [*:0]const u8) ?[*:0]const u8;
+`);
+
+enum(int) ResultCode {
+    Ok         = 0,   | Successful result
+    Error      = 1,   | Generic error
+    Internal   = 2,   | Internal logic error in SQLite
+    Perm       = 3,   | Access permission denied
+    Abort      = 4,   | Callback routine requested an abort
+    Busy       = 5,   | The database file is locked
+    Locked     = 6,   | A table in the database is locked
+    NoMem      = 7,   | A malloc() failed
+    Readonly   = 8,   | Attempt to write a readonly database
+    Interrupt  = 9,   | Operation terminated by sqlite3_interrupt(
+    IoErr      = 10,  | Some kind of disk I/O error occurred
+    Corrupt    = 11,  | The database disk image is malformed
+    NotFound   = 12,  | Unknown opcode in sqlite3_file_control()
+    Full       = 13,  | Insertion failed because database is full
+    CantOpen   = 14,  | Unable to open the database file
+    Protocol   = 15,  | Database lock protocol error
+    Empty      = 16,  | Internal use only
+    Schema     = 17,  | The database schema changed
+    TooBig     = 18,  | String or BLOB exceeds size limit
+    Constraint = 19,  | Abort due to constraint violation
+    Mismatch   = 20,  | Data type mismatch
+    Misuse     = 21,  | Library used incorrectly
+    NoLfs      = 22,  | Uses OS features not supported on host
+    Auth       = 23,  | Authorization denied
+    Format     = 24,  | Not used
+    Range      = 25,  | 2nd parameter to sqlite3_bind out of range
+    NotADB     = 26,  | File opened that is not a database file
+    Notice     = 27,  | Notifications from sqlite3_log()
+    Warning    = 28,  | Warnings from sqlite3_log()
+    Row        = 100, | sqlite3_step() has another row ready
+    Done       = 101, | sqlite3_step() has finished executing
+}
+
+export object SQLiteError {
+    ResultCode code,
+    str? message = "Error occured while interacting with SQLite database",
+}
+
+export enum(int) OpenFlag {
+    Readonly      = 0x00000001,
+    ReadWrite     = 0x00000002,
+    Create        = 0x00000004,
+    DeleteOnClose = 0x00000008,
+    Exclusive     = 0x00000010,
+    Autoproxy     = 0x00000020,
+    Uri           = 0x00000040,
+    Memory        = 0x00000080,
+    MainDb        = 0x00000100,
+    TempDb        = 0x00000200,
+    TransientDb   = 0x00000400,
+    MainJournal   = 0x00000800,
+    TempJournal   = 0x00001000,
+    SubJournal    = 0x00002000,
+    SuperJournal  = 0x00004000,
+    NoMutex       = 0x00008000,
+    FullMutex     = 0x00010000,
+    SharedCache   = 0x00020000,
+    PrivateCache  = 0x00040000,
+    Wal           = 0x00080000,
+    Nofollow      = 0x01000000,
+    ExResCode     = 0x02000000,
+}
+
+enum(int) Type {
+    Integer = 1,
+    Float   = 2,
+    Text    = 3,
+    Blob    = 4,
+    Null    = 5,
+}
+
+export object Query {
+    str query = "",
+
+    fun branch(str keyword, str expression) > Query {
+        return Query{
+            query = "{this.query} {keyword.upper()} {expression}"
+        };
+    }
+
+    fun select([str] columns) > Query {
+        return this.branch("select", expression: columns.join(", "));
+    }
+
+    fun delete(str expression) > Query {
+        return this.branch("delete", expression: expression);
+    }
+
+    fun insertInto(str table, [str] columns) > Query {
+        return this.branch("insert into", expression: "{table} ({columns.join(", ")})");
+    }
+
+    fun @"from"(str expression) > Query {
+        return this.branch("from", expression: expression);
+    }
+
+    fun where(str expression) > Query {
+        return this.branch("where", expression: expression);
+    }
+
+    fun orderBy(str expression) > Query {
+        return this.branch("order by", expression: expression);
+    }
+
+    fun groupBy(str expression) > Query {
+        return this.branch("group by", expression: expression);
+    }
+
+    fun values([str] values) > Query {
+        return this.branch("values", expression: "({values.join(", ")})");
+    }
+
+    fun prepare(Database db) > Statement !> SQLiteError {
+        return db.prepare(this);
+    }
+
+    fun execute(Database db) > [[Boxed]] > [Boxed]? !> SQLiteError {
+        return db.prepare(this).execute();
+    }
+}
+
+export object Statement {
+    str query,
+    ud db,
+    ud stmt,
+
+    fun execute() > [[Boxed]] > [Boxed]? !> SQLiteError {
+        Logger.instance?.debug("Executing query `{this.query}`", namespace: "SQL");
+        ResultCode code = ResultCode.Ok;
+
+        [[Boxed]] rows = [<[Boxed]>];
+        while (code != ResultCode.Done) {
+            code = ResultCode(sqlite3_step(this.stmt)) ?? ResultCode.Error;
+            if (code != ResultCode.Ok and code != ResultCode.Row and code != ResultCode.Done) {
+                throw SQLiteError{
+                    code = code,
+                    message = "Could not execute statement `{this.query}`: {code} {sqlite3_errmsg(this.db)}"
+                };
+            }
+
+            if (code == ResultCode.Done) {
+                break;
+            }
+
+            const int columnCount = sqlite3_column_count(this.stmt);
+            [any] row = [<any>];
+            for (int i = 0; i < columnCount; i = i + 1) {
+                const Type columnType = Type(sqlite3_column_type(this.stmt, col: i)) ?? Type.Null;
+
+                if (columnType == Type.Integer) {
+                    row.append(
+                        sqlite3_column_int(this.stmt, col: i)
+                    );
+                } else if (columnType == Type.Float) {
+                    row.append(
+                        sqlite3_column_double(this.stmt, col: i)
+                    );
+                } else if (columnType == Type.Text) {
+                    row.append(
+                        sqlite3_column_text(this.stmt, col: i)
+                    );
+                } else if (columnType == Type.Blob) {
+                    row.append(
+                        sqlite3_column_blob(this.stmt, col: i)
+                    );
+                } else {
+                    row.append(null);
+                }
+            }
+
+            const [Boxed] boxedRow = (Boxed.init(row) catch void).listValue();
+            rows.append(boxedRow);
+
+            yield boxedRow;
+        }
+
+        return rows;
+    }
+
+    fun collect() > void {
+        sqlite3_finalize(this.stmt);
+    }
+}
+
+export object Database {
+    ud db,
+
+    fun collect() > void {
+        const ResultCode code = ResultCode(sqlite3_close_v2(this.db)) ?? ResultCode.Error;
+        if (code != ResultCode.Ok) {
+            throw SQLiteError{
+                code = code,
+                message = "Could not close database: {code} {sqlite3_errmsg(this.db)}"
+            };
+        }
+    }
+
+    fun prepare(Query query) > Statement !> SQLiteError {
+        return this.prepareRaw(query.query);
+    }
+
+    fun prepareRaw(str query) > Statement !> SQLiteError {
+        Buffer buffer = Buffer.init();
+        buffer.writeUserData(toUd(0)) catch void;
+
+        const ResultCode code = ResultCode(
+            sqlite3_prepare_v2(
+                db: this.db,
+                zSql: cstr(query),
+                nBytes: -1,
+                ppStmt: buffer.ptr(),
+                pzTail: null,
+            )
+        ) ?? ResultCode.Error;
+        if (code != ResultCode.Ok) {
+            throw SQLiteError{
+                code = code,
+                message = "Could not prepareRaw query `{query}`: {code} {sqlite3_errmsg(this.db)}"
+            };
+        }
+
+        return Statement{
+            query = query,
+            stmt = buffer.readUserData()!,
+            db = this.db,
+        };
+    }
+}
+
+export object SQLite {
+    static fun init() > SQLite !> SQLiteError {
+        const ResultCode code = ResultCode(sqlite3_initialize()) ?? ResultCode.Error;
+        if (code != ResultCode.Ok) {
+            throw SQLiteError{
+                code = code,
+                message = "Could not initialize SQLite: {code}"
+            };
+        }
+
+        return SQLite{};
+    }
+
+    static fun escape(str string) > str {
+        return sqlite3_mprintf(cstr(string)) ?? "";
+    } 
+
+    fun collect() > void {
+        sqlite3_shutdown();
+    }
+
+    fun open(str filename, [OpenFlag] flags) > Database !> SQLiteError {
+        int cFlags = 0;
+        foreach (OpenFlag flag in flags) {
+            cFlags = cFlags \ flag.value;
+        }
+
+        Buffer buffer = Buffer.init();
+        buffer.writeUserData(toUd(0)) catch void;
+
+        const ResultCode code = ResultCode(
+            sqlite3_open_v2(
+                filename: cstr(filename),
+                ppDb: buffer.ptr(),
+                flags: cFlags,
+                zVfs: null
+            )
+        ) ?? ResultCode.Error;
+
+        if (code != ResultCode.Ok) {
+            throw SQLiteError{
+                code = code,
+                message = "Could not open database `{filename}`: {code}"
+            };
+        }
+
+        Logger.instance?.info("Database `{filename}` opened", namespace: "SQL");
+
+        return Database {
+            db = buffer.readUserData()!,
+        };
+    }
+}
+
+test "Testing sqlite" {
+    SQLite sqlite = SQLite.init();
+
+    Database database = sqlite.open("./test.db", flags: [OpenFlag.ReadWrite, OpenFlag.Create]);
+
+    Statement statement = database.prepareRaw(`
+        CREATE TABLE IF NOT EXISTS test (
+            name TEXT NOT NULL
+        )
+    `);
+
+    statement.execute();
+
+    foreach (str name in ["john", "joe", "janet", "joline"]) {
+        Query{}
+            .insertInto("test", columns: [ "name" ])
+            .values([ "'{name}'" ])
+            .execute(database);
+    }
+
+    Statement select = Query{}
+        .select([ "rowid", "name" ])
+        .@"from"("test")
+        .prepare(database);
+
+    foreach ([Boxed] row in &select.execute()) {
+        print("{row[0].integerValue()}: {row[1].stringValue()}");
+    }
+}
