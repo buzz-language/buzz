@@ -165,15 +165,18 @@ export fn assert(ctx: *api.NativeCtx) c_int {
     const message_value = ctx.vm.bz_peek(0);
 
     if (!condition_value.boolean()) {
-        var len: usize = 0;
-        const message = api.Value.bz_valueToString(message_value, &len).?;
-        // TODO: debug.getTrace
-        std.io.getStdOut().writer().print(
-            "Assert failed: {s}\n",
-            .{
-                message[0..len],
-            },
-        ) catch unreachable;
+        if (message_value.isObj()) {
+            var len: usize = 0;
+            const message = api.Value.bz_valueToString(message_value, &len).?;
+            std.io.getStdOut().writer().print(
+                "Assert failed: {s}\n",
+                .{
+                    message[0..len],
+                },
+            ) catch unreachable;
+        } else {
+            std.io.getStdOut().writer().print("Assert failed\n", .{}) catch unreachable;
+        }
 
         std.os.exit(1);
     }

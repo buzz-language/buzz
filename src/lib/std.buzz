@@ -1,7 +1,7 @@
 || If condition is false print message and exit program
 || @param condition assert condition
 || @param message message printed if `condition` is false
-export extern fun assert(bool condition, str message) > void;
+export extern fun assert(bool condition, str? message = null) > void;
 
 || Prints value on stdout
 || @param value value to print
