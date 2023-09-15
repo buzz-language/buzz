@@ -11,10 +11,7 @@ const Value = _value.Value;
 pub fn trim(ctx: *NativeCtx) c_int {
     const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var trimmed = std.mem.trim(u8, str.string, " ");
-    trimmed = std.mem.trim(u8, trimmed, "\t");
-    trimmed = std.mem.trim(u8, trimmed, "\r");
-    trimmed = std.mem.trim(u8, trimmed, "\n");
+    const trimmed = std.mem.trim(u8, str.string, " \t\r\n");
 
     ctx.vm.push((ctx.vm.gc.copyString(trimmed) catch @panic("Could not create string")).toValue());
 
