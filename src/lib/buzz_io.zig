@@ -342,7 +342,7 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
     defer api.VM.allocator.free(source);
 
     // Init new VM
-    var vm = ctx.vm.bz_newVM();
+    var vm = ctx.vm.bz_newVM() orelse @panic("Out of memory");
     defer vm.bz_deinitVM();
 
     // Compile

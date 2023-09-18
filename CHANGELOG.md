@@ -1,6 +1,11 @@
 # Unreleased
 
+## Added
+
+- `thread` (https://github.com/buzz-language/buzz/issues/176) std library with `Thread`, `Mutext` and `Semaphore`
+
 # 0.3.0 (10-14-2023)
+
 ## Added
 
 - FFI (https://github.com/buzz-language/buzz/issues/109)
@@ -49,6 +54,7 @@
 - Nullable object fields and nullable variables have a `null` initial value if none is provided
 - Migrated to pcre2 which is now a submodule built by build.zig
 - Mimalloc is now a submodule built by build.zig
+- `assert` message parameter can be omitted
 
 ## Fixed
 

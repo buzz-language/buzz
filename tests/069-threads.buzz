@@ -1,0 +1,43 @@
+import "std";
+import "thread";
+
+test "Spawning multiple threads and use mutex" {
+    [int?] sums = [<int?>];
+    foreach (int _ in 0..10) {
+        sums.append(null);
+    }
+
+    var mutex = initMutex();
+    [Thread] pool = [<Thread>];
+    foreach (int n in 0..10) {
+        pool.append(
+            Thread.spawn(
+                function: fun (int threadId, int n) > void {
+                    int sum = 0;
+                    foreach (int i in 0..n) {
+                        sum = sum + i;
+                    }
+
+                    print("{threadId} sum is {sum}");
+
+                    lockMutex(mutex);
+
+                    sums[threadId] = sum;
+
+                    unlockMutex(mutex);
+                },
+                arguments: [ n, 10 ],
+            )
+        );
+    }
+
+    foreach (Thread thread in pool) {
+        thread.join();
+    }
+
+    collectMutex(mutex);
+
+    foreach (int? sum in sums) {
+        assert(sum == 45, message: "could run multiple threads");
+    }
+}

@@ -538,6 +538,10 @@ export fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void {
     ) catch @panic("Could not set element in list");
 }
 
+export fn bz_listPtr(self: *ObjList) [*]Value {
+    return self.items.items.ptr;
+}
+
 export fn bz_listLen(self: *ObjList) usize {
     return self.items.items.len;
 }
@@ -601,7 +605,7 @@ export fn bz_newVM(self: *VM) ?*VM {
     var gc = self.gc.allocator.create(GarbageCollector) catch {
         return null;
     };
-    // FIXME: should share strings between gc
+
     gc.* = GarbageCollector.init(self.gc.allocator);
     gc.type_registry = TypeRegistry{
         .gc = gc,
@@ -622,14 +626,27 @@ export fn bz_newVM(self: *VM) ?*VM {
 }
 
 export fn bz_startVM(self: *VM) void {
+    const fiber_def = ObjFiber.FiberDef{
+        .return_type = self.gc.type_registry.getTypeDef(.{ .def_type = .Void }) catch @panic("Out of memory"),
+        .yield_type = self.gc.type_registry.getTypeDef(.{ .def_type = .Void }) catch @panic("Out of memory"),
+    };
+
+    const type_union: ObjTypeDef.TypeUnion = .{ .Fiber = fiber_def };
+
     self.current_fiber.* = _vm.Fiber.init(
         self.gc.allocator,
-        null, // parent fiber
-        null, // stack_slice
-        .OP_CALL, // call_type
-        1, // arg_count
-        false, // catch_count
-        null, // method/member
+        self.gc.type_registry.getTypeDef(
+            .{
+                .def_type = .Fiber,
+                .resolved_type = type_union,
+            },
+        ) catch @panic("Out of memory"),
+        null,
+        null,
+        .OP_CALL,
+        1,
+        false,
+        null,
     ) catch @panic("Out of memory");
 }
 
@@ -739,14 +756,14 @@ pub export fn bz_invoke(
 pub export fn bz_call(
     self: *VM,
     closure: *ObjClosure,
-    arguments: ?[*]const *const Value,
+    arguments: ?[*]const Value,
     len: u8,
-    catch_value: ?*Value,
+    catch_value: ?*const Value,
 ) void {
     self.push(closure.toValue());
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        self.push(arguments.?[i].*);
+        self.push(arguments.?[i]);
     }
 
     // TODO: catch properly
