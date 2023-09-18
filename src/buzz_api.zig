@@ -15,6 +15,7 @@ const FunctionNode = @import("node.zig").FunctionNode;
 const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
 const Token = @import("token.zig").Token;
+const MIRJIT = @import("mirjit.zig");
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -612,11 +613,31 @@ export fn bz_newVM(self: *VM) ?*VM {
         return null;
     };
 
+    vm.mir_jit = if (BuildOptions.jit)
+        MIRJIT.init(vm)
+    else
+        null;
+
     return vm;
 }
 
-export fn bz_deinitVM(_: *VM) void {
-    // self.deinit();
+export fn bz_startVM(self: *VM) void {
+    self.current_fiber.* = _vm.Fiber.init(
+        self.gc.allocator,
+        null, // parent fiber
+        null, // stack_slice
+        .OP_CALL, // call_type
+        1, // arg_count
+        false, // catch_count
+        null, // method/member
+    ) catch @panic("Out of memory");
+}
+
+export fn bz_deinitVM(self: *VM) void {
+    if (self.mir_jit) |*jit| {
+        jit.deinit();
+    }
+    self.deinit();
 }
 
 export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction {
