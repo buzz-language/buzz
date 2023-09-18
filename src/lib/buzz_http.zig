@@ -236,7 +236,7 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.OutOfMemory => @panic("Out of memory"),
 
-        error.CannotRedirect,
+        error.RedirectRequiresResend,
         error.CertificateBundleLoadFailure,
         error.CompressionInitializationFailed,
         error.CompressionNotSupported,

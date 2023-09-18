@@ -5,7 +5,6 @@ import "io";
 import "errors";
 
 export enum HttpError {
-    CannotRedirect,
     CertificateBundleLoadFailure,
     CompressionInitializationFailed,
     CompressionNotSupported,
@@ -31,6 +30,7 @@ export enum HttpError {
     NameServerFailure,
     NetworkUnreachable,
     Overflow,
+    RedirectRequiresResend
     StreamTooLong,
     TemporaryNameServerFailure,
     TlsAlert,
