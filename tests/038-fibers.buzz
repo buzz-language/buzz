@@ -28,7 +28,7 @@ fun count(int n) > str > int? {
 
     for (int i = 0; i < n; i = i + 1) {
         | error or yield is ignored if not called with a async call?
-        yield i;
+        _ = yield i;
     }
 
     return "Counting is done!";

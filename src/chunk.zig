@@ -153,8 +153,8 @@ pub const Chunk = struct {
     }
 
     pub fn write(self: *Self, code: u32, where: Token) !void {
-        _ = try self.code.append(code);
-        _ = try self.lines.append(where);
+        try self.code.append(code);
+        try self.lines.append(where);
     }
 
     pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {

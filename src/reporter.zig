@@ -97,6 +97,8 @@ pub const Error = enum(u8) {
     collect_signature = 85,
     tostring_signature = 86,
     gc = 87,
+    discarded_value = 88,
+    unused_argument = 89,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -126,6 +128,14 @@ pub const ReportKind = enum {
             .@"error" => " error",
             .warning => " warning",
             .hint => " note",
+        };
+    }
+
+    pub fn prefix(self: ReportKind) []const u8 {
+        return switch (self) {
+            .@"error" => "E",
+            .warning => "W",
+            .hint => "I",
         };
     }
 };
@@ -171,12 +181,13 @@ pub const Report = struct {
         const main_item = self.items[0];
 
         try out.print(
-            "\n{s}:{}:{}: \x1b[{d}m[E{d}] {s}{s}:\x1b[0m {s}\n",
+            "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
             .{
                 main_item.location.script_name,
                 main_item.location.line + 1,
                 main_item.location.column,
                 main_item.kind.color(),
+                main_item.kind.prefix(),
                 @intFromEnum(self.error_type),
                 if (reporter.error_prefix) |prefix|
                     prefix
@@ -381,6 +392,23 @@ panic_mode: bool = false,
 had_error: bool = false,
 error_prefix: ?[]const u8 = null,
 
+pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+    var error_report = Report{
+        .message = message,
+        .error_type = error_type,
+        .items = &[_]ReportItem{
+            ReportItem{
+                .kind = .warning,
+                .location = token,
+                .message = message,
+            },
+        },
+        .notes = &[_]Note{},
+    };
+
+    error_report.reportStderr(self) catch @panic("Unable to report error");
+}
+
 pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8) void {
     self.panic_mode = true;
     self.had_error = true;
@@ -408,6 +436,10 @@ pub fn reportErrorAt(self: *Self, error_type: Error, token: Token, message: []co
     self.report(error_type, token, message);
 }
 
+pub fn warnAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+    self.warn(error_type, token, message);
+}
+
 pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
@@ -416,6 +448,16 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt
     writer.print(fmt, args) catch @panic("Unable to report error");
 
     self.reportErrorAt(error_type, token, message.items);
+}
+
+pub fn warnFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
+    var message = std.ArrayList(u8).init(self.allocator);
+    defer message.deinit();
+
+    var writer = message.writer();
+    writer.print(fmt, args) catch @panic("Unable to report error");
+
+    self.warnAt(error_type, token, message.items);
 }
 
 pub fn reportWithOrigin(

@@ -4,7 +4,7 @@ test "foreach on list" {
     [int] list = [1, 2, 3];
 
     int sum = 0;
-    foreach (int index, int item in list) {
+    foreach (int item in list) {
         sum = sum + item;
     }
 
@@ -26,7 +26,7 @@ test "foreach on map" {
     };
 
     int sum = 0;
-    foreach (str key, int value in map) {
+    foreach (int value in map) {
         sum = sum + value;
     }
 
@@ -50,7 +50,7 @@ test "foreach on enum" {
 
 test "foreach on str" {
     str hello = "";
-    foreach (int index, str char in "hello world") {
+    foreach (str char in "hello world") {
         hello = "{hello}{char}";
     }
 

@@ -13,7 +13,7 @@ fun dumpType(type myType) > void {
 protocol C {}
 
 test "Types as value" {
-    type myType = <A>;
+    type _ = <A>;
     type another = <str>;
     type again = <str>;
 

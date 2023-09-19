@@ -9,7 +9,7 @@ fun partialCatch() > void !> str {
         willFail();
 
         throw 12;
-    } catch (int error) {
+    } catch (int _) {
         assert(false, message: "unreachable");
     }
 }
@@ -19,7 +19,7 @@ fun returnFromCatch() > int {
         willFail();
 
         return 12;
-    } catch (str error) {
+    } catch (str _) {
         return 21;
     }
 
@@ -30,7 +30,7 @@ test "Try catch" {
     str setme = "";
 
     try {
-        str local = "i'm local to this try block";
+        str _ = "i'm local to this try block";
 
         setme = "yes";
 
@@ -40,10 +40,10 @@ test "Try catch" {
 
         assert(false, message: "unreachable");
     } catch (str error) {
-        str local = "a local in catch clause";
+        str _ = "a local in catch clause";
 
         assert(error == "Yolo", message: "caught error");
-    } catch (int error) {
+    } catch (int _) {
         assert(false, message: "unreachable");
     } catch {
         assert(false, message: "unreachable");

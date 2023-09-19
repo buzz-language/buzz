@@ -1,0 +1,14 @@
+| Unused local of type `int`
+import "std";
+
+fun hey(int unused) > void {
+    print("hey you missed me");
+}
+
+test "discarded value" {
+    print("hello world");
+
+    "forgot me?";
+
+    int unused = 42;
+}

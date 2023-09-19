@@ -164,6 +164,17 @@ pub const Local = struct {
     depth: i32,
     is_captured: bool,
     constant: bool,
+    referenced: bool = false,
+
+    pub fn isReferenced(self: Local) bool {
+        // zig fmt: off
+        return self.referenced
+            or self.type_def.def_type == .Void
+            or self.type_def.def_type == .Placeholder
+            or self.name.string[0] == '$'
+            or (self.name.string[0] == '_' and self.name.string.len == 1);
+        // zig fmt: on
+    }
 };
 
 pub const Global = struct {
@@ -176,8 +187,26 @@ pub const Global = struct {
     export_alias: ?[]const u8 = null,
     hidden: bool = false,
     constant: bool,
+    referenced: bool = false,
     // When resolving a placeholder, the start of the resolution is the global
     // If `constant` is true, we can search for any `.Assignment` link and fail then.
+
+    pub fn isReferenced(self: Global) bool {
+        const function_type = if (self.type_def.def_type == .Function)
+            self.type_def.resolved_type.?.Function.function_type
+        else
+            null;
+
+        // zig fmt: off
+        return self.referenced
+            or self.type_def.def_type == .Void
+            or self.type_def.def_type == .Placeholder
+            or (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint))
+            or self.name.string[0] == '$'
+            or (self.name.string[0] == '_' and self.name.string.len == 1)
+            or self.exported;
+        // zig fmt: on
+    }
 };
 
 pub const UpValue = struct { index: u8, is_local: bool };
@@ -602,6 +631,46 @@ pub const Parser = struct {
     }
 
     fn endFrame(self: *Self) *FunctionNode {
+        var i: usize = 0;
+        while (i < self.current.?.local_count) : (i += 1) {
+            const local = self.current.?.locals[i];
+
+            // Check discarded locals
+            if (!local.isReferenced()) {
+                const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
+                defer type_def_str.deinit();
+
+                self.reporter.warnFmt(
+                    .unused_argument,
+                    local.location,
+                    "Unused local of type `{s}`",
+                    .{
+                        type_def_str.items,
+                    },
+                );
+            }
+        }
+
+        // If global scope, check unused globals
+        const function_type = self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type;
+        if (function_type == .Script or function_type == .ScriptEntryPoint) {
+            for (self.globals.items) |global| {
+                if (!global.isReferenced()) {
+                    const type_def_str = global.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
+                    defer type_def_str.deinit();
+
+                    self.reporter.warnFmt(
+                        .unused_argument,
+                        global.location,
+                        "Unused global of type `{s}`",
+                        .{
+                            type_def_str.items,
+                        },
+                    );
+                }
+            }
+        }
+
         var current_node = self.current.?.function_node;
         self.current = self.current.?.enclosing;
 
@@ -618,10 +687,27 @@ pub const Parser = struct {
         current.scope_depth -= 1;
 
         while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
-            if (current.locals[current.local_count - 1].is_captured) {
+            const local = current.locals[current.local_count - 1];
+
+            if (local.is_captured) {
                 try closing.append(.OP_CLOSE_UPVALUE);
             } else {
                 try closing.append(.OP_POP);
+            }
+
+            // Check discarded locals
+            if (!local.isReferenced()) {
+                const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
+                defer type_def_str.deinit();
+
+                self.reporter.warnFmt(
+                    .unused_argument,
+                    local.location,
+                    "Unused local of type `{s}`",
+                    .{
+                        type_def_str.items,
+                    },
+                );
             }
 
             current.local_count -= 1;
@@ -1210,6 +1296,13 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
+            else if (self.parser.current_token != null and self.parser.current_token.?.token_type == .Identifier and self.parser.current_token.?.lexeme.len == 1 and self.parser.current_token.?.lexeme[0] == '_')
+                try self.varDeclaration(
+                    try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+                    .Semicolon,
+                    constant,
+                    true,
+                )
             else if (try self.match(.Fib))
                 try self.varDeclaration(
                     try self.parseFiberType(null),
@@ -1314,6 +1407,13 @@ pub const Parser = struct {
                 true,
             );
         } else if (try self.match(.Any)) {
+            return try self.varDeclaration(
+                try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+                .Semicolon,
+                constant,
+                true,
+            );
+        } else if (self.parser.current_token != null and self.parser.current_token.?.token_type == .Identifier and self.parser.current_token.?.lexeme.len == 1 and self.parser.current_token.?.lexeme[0] == '_') {
             return try self.varDeclaration(
                 try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                 .Semicolon,
@@ -1837,12 +1937,11 @@ pub const Parser = struct {
     }
 
     fn expressionStatement(self: *Self, hanging: bool) !*ParseNode {
-        const start_location = self.parser.previous_token.?;
         var node = try self.gc.allocator.create(ExpressionNode);
         node.* = ExpressionNode{
             .expression = try self.expression(hanging),
         };
-        node.node.location = start_location;
+        node.node.location = node.expression.location;
         node.node.end_location = self.parser.previous_token.?;
 
         try self.consume(.Semicolon, "Expected `;` after expression.");
@@ -2549,6 +2648,7 @@ pub const Parser = struct {
             // Search for a global with that name
             if (try self.resolveGlobal(null, identifier)) |slot| {
                 const global: *Global = &self.globals.items[slot];
+                global.referenced = true;
                 var alias: ?Token = null;
 
                 global.exported = true;
@@ -2575,6 +2675,8 @@ pub const Parser = struct {
         } else {
             self.exporting = true;
             if (try self.declarationsOrExport(false)) |decl| {
+                self.globals.items[self.globals.items.len - 1].referenced = true;
+
                 self.exporting = false;
                 var node = try self.gc.allocator.create(ExportNode);
                 node.* = ExportNode{
@@ -4930,6 +5032,10 @@ pub const Parser = struct {
 
         const function_node = try self.function(name_token, FunctionType.Test, null);
 
+        if (function_node.type_def) |type_def| {
+            self.globals.items[slot].type_def = type_def;
+        }
+
         // Make it as a global definition
         var node = try self.gc.allocator.create(VarDeclarationNode);
         node.* = VarDeclarationNode{
@@ -5718,7 +5824,7 @@ pub const Parser = struct {
                         break;
                     }
 
-                    if (mem.eql(u8, name.lexeme, local.name.string)) {
+                    if (!mem.eql(u8, name.lexeme, "_") and mem.eql(u8, name.lexeme, local.name.string)) {
                         self.reporter.reportWithOrigin(
                             .variable_already_exists,
                             name,
@@ -5737,8 +5843,8 @@ pub const Parser = struct {
         } else {
             if (check_name) {
                 // Check a global with the same name doesn't exists
-                for (self.globals.items, 0..) |global, index| {
-                    if (mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
+                for (self.globals.items, 0..) |*global, index| {
+                    if (!mem.eql(u8, name.lexeme, "_") and mem.eql(u8, name.lexeme, global.name.string) and !global.hidden) {
                         // If we found a placeholder with that name, try to resolve it with `variable_type`
                         if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and mem.eql(u8, name.lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
                             // A function declares a global with an incomplete typedef so that it can handle recursion
@@ -5759,6 +5865,8 @@ pub const Parser = struct {
                                 try self.resolvePlaceholder(global.type_def, variable_type, constant);
                             }
 
+                            global.referenced = true;
+
                             return index;
                         } else if (global.prefix == null) {
                             self.reportError(.variable_already_exists, "A global with the same name already exists.");
@@ -5777,6 +5885,7 @@ pub const Parser = struct {
             return 0;
         }
 
+        const function_type = self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type;
         self.current.?.locals[self.current.?.local_count] = Local{
             .name = try self.gc.copyString(name.lexeme),
             .location = name,
@@ -5784,6 +5893,8 @@ pub const Parser = struct {
             .is_captured = false,
             .type_def = local_type,
             .constant = constant,
+            // Extern and abstract function arguments are considered referenced
+            .referenced = function_type == .Extern or function_type == .Abstract,
         };
 
         self.current.?.local_count += 1;
@@ -5844,6 +5955,10 @@ pub const Parser = struct {
             return null;
         }
 
+        if (std.mem.eql(u8, name.lexeme, "_")) {
+            return null;
+        }
+
         var i: usize = frame.local_count - 1;
         while (i >= 0) : (i -= 1) {
             var local: *Local = &frame.locals[i];
@@ -5852,6 +5967,7 @@ pub const Parser = struct {
                     self.reportError(.local_initializer, "Can't read local variable in its own initializer.");
                 }
 
+                local.referenced = true;
                 return i;
             }
 
@@ -5867,6 +5983,10 @@ pub const Parser = struct {
             return null;
         }
 
+        if (std.mem.eql(u8, name.lexeme, "_")) {
+            return null;
+        }
+
         var i: usize = self.globals.items.len - 1;
         while (i >= 0) : (i -= 1) {
             var global: *Global = &self.globals.items[i];
@@ -5878,6 +5998,8 @@ pub const Parser = struct {
                         .{global.name.string},
                     );
                 }
+
+                global.referenced = true;
 
                 return i;
                 // Is it an import prefix?

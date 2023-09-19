@@ -71,5 +71,5 @@ object A {
 test "Check ahead" {
     A.instance = A{ msg = "hello" };
 
-    A.instance?.hello();
+    _ = A.instance?.hello();
 }

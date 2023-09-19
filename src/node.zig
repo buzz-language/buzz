@@ -259,6 +259,16 @@ pub const ExpressionNode = struct {
         return GenError.NotConstant;
     }
 
+    fn isLoneExpression(self: *Self) bool {
+        // zig fmt: off
+        return (self.expression.node_type != .NamedVariable or NamedVariableNode.cast(self.expression).?.value == null)
+            and (self.expression.node_type != .Subscript or SubscriptNode.cast(self.expression).?.value == null)
+            and (self.expression.node_type != .Dot or DotNode.cast(self.expression).?.value == null)
+            and self.expression.type_def != null
+            and self.expression.type_def.?.def_type != .Void;
+        // zig fmt: on
+    }
+
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
         const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
@@ -272,6 +282,20 @@ pub const ExpressionNode = struct {
         _ = try self.expression.toByteCode(self.expression, codegen, breaks);
 
         try codegen.emitOpCode(node.location, .OP_POP);
+
+        if (self.isLoneExpression()) {
+            const type_def_str = self.expression.type_def.?.toStringAlloc(codegen.gc.allocator) catch unreachable;
+            defer type_def_str.deinit();
+
+            codegen.reporter.warnFmt(
+                .discarded_value,
+                node.location,
+                "Discarded value of type `{s}`",
+                .{
+                    type_def_str.items,
+                },
+            );
+        }
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);

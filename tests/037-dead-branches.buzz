@@ -9,7 +9,7 @@ test "if" {
 }
 
 test "foreach" {
-    foreach (str key, str value in {<str, str>}) {
+    foreach (str _ in {<str, str>}) {
         assert(false, message: "unreachable");
     }
 }

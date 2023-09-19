@@ -6,7 +6,7 @@ test "Maps" {
         "bye": 2,
     };
 
-    {<int, bool>, 1: true, 2: false};
+    _ = {<int, bool>, 1: true, 2: false};
 
     assert(map["bye"] is int?, message: "yeah");
 

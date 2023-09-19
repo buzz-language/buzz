@@ -9,8 +9,8 @@ test "Lists" {
     assert(strList[0] == "hello", message: "subscript");
 
     | A lone list expression
-    [<str>, "hello", "world"];
-    [<[str]>, ["hello"], ["world"]];
+    _ = [<str>, "hello", "world"];
+    _ = [<[str]>, ["hello"], ["world"]];
 
     [[str]] nestedList = [["hello"], ["world"]];
     

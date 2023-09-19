@@ -57,6 +57,13 @@ pub const Scanner = struct {
         return try switch (char) {
             'b' => self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => self.identifier(),
+            // `_` identifier is used to discard expressions or locals, but we don't allow identifiers starting with `_`, so we stop there
+            '_' => self.makeToken(
+                .Identifier,
+                self.source[self.current.start..self.current.offset],
+                null,
+                null,
+            ),
             '0' => if (self.match('x'))
                 self.hexa()
             else if (self.match('b'))

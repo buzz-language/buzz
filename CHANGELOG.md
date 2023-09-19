@@ -25,6 +25,7 @@
 - `std.serialize` takes any buzz value and return a serializable version of it (objects become maps, etc.) provided the data is has no circular reference and does not contain not serializable values (functions, fibers, etc.)
 - UTF8 helpers: `str.utf8Len`, `str.utf8Codepoints`, `str.utf8Valid`
 - New integer literal for single chars: `'A' == 65`
+- Compiler will warn you when a local or global is never used or when an expression value is discarded. To silence those warnings you can use the `_ = <expression>` or named the local/global `_`.
 
 ## Changed
 
@@ -32,6 +33,7 @@
 - `Json` now returns a `Boxed` object (which can be reused in other contexts than JSON)
 - Identifiers can now have `_` since pattern delimiters have changed
 - Changed pattern delimiters (https://github.com/buzz-language/buzz/issues/165)
+- `list.append` does not returned the appended value anymore
 
 ## Fixed
 

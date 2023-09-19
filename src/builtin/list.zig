@@ -27,9 +27,7 @@ pub fn append(ctx: *NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.push(list_value);
-
-    return 1;
+    return 0;
 }
 
 pub fn insert(ctx: *NativeCtx) c_int {
