@@ -451,6 +451,12 @@ pub const Obj = struct {
 
                 return self_enum_instance.enum_ref == other_enum_instance.enum_ref and self_enum_instance.case == other_enum_instance.case;
             },
+            .UserData => {
+                const self_userdata: *ObjUserData = ObjUserData.cast(self).?;
+                const other_userdata: *ObjUserData = ObjUserData.cast(other).?;
+
+                return self_userdata.userdata == other_userdata.userdata;
+            },
             .Bound,
             .Closure,
             .Function,
@@ -460,7 +466,6 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .Native,
-            .UserData,
             .Fiber,
             .ForeignStruct,
             => {

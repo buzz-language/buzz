@@ -102,7 +102,7 @@ export fn parseInt(ctx: *api.NativeCtx) c_int {
 
     const string_slice = string.?[0..len];
 
-    const number: i32 = std.fmt.parseInt(i32, string_slice, 10) catch {
+    const number = std.fmt.parseInt(i32, string_slice, 10) catch {
         ctx.vm.bz_push(api.Value.Null);
 
         return 1;
@@ -111,6 +111,35 @@ export fn parseInt(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(api.Value.fromInteger(number));
 
     return 1;
+}
+
+export fn parseUd(ctx: *api.NativeCtx) c_int {
+    const string_value = ctx.vm.bz_peek(0);
+
+    var len: usize = 0;
+    const string = string_value.bz_valueToString(&len);
+
+    if (len == 0) {
+        ctx.vm.bz_push(api.Value.Null);
+
+        return 1;
+    }
+
+    const string_slice = string.?[0..len];
+
+    const number = std.fmt.parseInt(u64, string_slice, 10) catch {
+        ctx.vm.bz_push(api.Value.Null);
+
+        return 1;
+    };
+
+    if (api.ObjUserData.bz_newUserData(ctx.vm, number)) |userdata| {
+        ctx.vm.bz_pushUserData(userdata);
+
+        return 1;
+    } else {
+        @panic("Out of memory");
+    }
 }
 
 export fn parseFloat(ctx: *api.NativeCtx) c_int {

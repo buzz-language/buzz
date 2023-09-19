@@ -7,12 +7,12 @@ export extern fun assert(bool condition, str? message = null) > void;
 || @param value value to print
 export extern fun print(str value) > void;
 
-|| Parse number, returns false if string does not represent a number
+|| Parse integer, returns false if string does not represent a integer
 || @param string string to parse
 || @return integer parsed or null
 export extern fun parseInt(str string) > int?;
 
-|| Parse number, returns false if string does not represent a number
+|| Parse float, returns false if string does not represent a float
 || @param string string to parse
 || @return float parsed or null
 export extern fun parseFloat(str string) > float?;
@@ -32,6 +32,11 @@ export extern fun toFloat(int n) > float;
 || @param n value to cast
 || @return casted value or 0 if value provided is not a number
 export extern fun toUd(any n) > ud;
+
+|| Parse ud, returns false if string does not represent a ud (u64)
+|| @param string string to parse
+|| @return ud parsed or null
+export extern fun parseUd(str string) > ud?;
 
 || Return ascii char for given byte
 export extern fun char(int byte) > str;

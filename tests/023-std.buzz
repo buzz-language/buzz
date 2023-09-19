@@ -9,6 +9,8 @@ test "parseInt/Float" {
     assert(toFloat(23) == 23.0, message: "Could cast int to float");
     assert(toUd(23) is ud, message: "Could cast int to ud");
     assert(toUd(23.0) is ud, message: "Could cast float to ud");
+
+    assert(parseUd("42") == toUd(42), message: "Could parse ud");
 }
 
 test "char" {
