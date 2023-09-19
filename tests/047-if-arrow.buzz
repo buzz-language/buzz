@@ -4,7 +4,7 @@ test "If arrow" {
     int? opt = null;
     str? optS = "hello";
 
-    if (opt -> unwrapped) {
+    if (opt -> _) {
         assert(false, message: "unreachable");
     }
 

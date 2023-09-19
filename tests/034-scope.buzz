@@ -3,11 +3,11 @@ import "std";
 test "locals inside a foreach" {
     str hello = "";
 
-    foreach (int index, str char in "hello world") {
+    foreach (str _ in "hello world") {
         str new = "yo";
         str old = "lo";
 
-        foreach (int jndex, str cchar in "goodbye world") {
+        foreach (str _ in "goodbye world") {
             str newnew = "yoyo";
             str oldold = "lolo";
 
@@ -16,6 +16,8 @@ test "locals inside a foreach" {
             assert(newnew == "yoyo", message: "locals are ok");
             assert(oldold == "lolo", message: "locals are ok");
         }
+
+        assert(hello == "");
     }
 
     for (int i = 0; i < 3; i = i + 1) {

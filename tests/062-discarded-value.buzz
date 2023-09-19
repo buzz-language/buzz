@@ -1,0 +1,7 @@
+import "std";
+
+_ = "unused";
+
+test "discarding value" {
+    _ = "i'm discarded";
+}

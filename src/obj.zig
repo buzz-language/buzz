@@ -1641,7 +1641,7 @@ pub const ObjList = struct {
                     .name = try parser.gc.copyString("append"),
                     .parameters = parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_list,
+                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .function_type = .Extern,

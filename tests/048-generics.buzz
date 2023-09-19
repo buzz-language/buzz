@@ -70,12 +70,12 @@ fun genericReturn(<T>, T value) > T {
 }
 
 test "generic return" {
-    int number = genericReturn(<int>, 12);
+    assert(genericReturn(<int>, 12) == 12, message: "could use return of generic type");
 }
 
 fun fiber(<T>, [T] data) > void > T? {
-    foreach (int i, T element in data) {
-        yield element;
+    foreach (T element in data) {
+        _ = yield element;
     }
 }
 

@@ -14,9 +14,9 @@ object Kill {
 
 test "GC, collecting unreferenced objects" {
     int i = 0;
-    Kill k = Kill{}; | Should be kept longer
+    _ = Kill{}; | Should be kept longer
     while (i < 100) {
-        Kill{ yo = i }; | Should be collected since not referenced anywhere
+        _ = Kill{ yo = i }; | Should be collected since not referenced anywhere
 
         i = i + 1;
     }

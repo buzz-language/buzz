@@ -32,7 +32,7 @@ test "pointer with Buffer" {
         | Since we cache the result of the type parsing this roughly equivalent
         buffer.writeZ(<int>, "u64", values: [1]);
         assert(false, message: "Using bad buzz type triggers error");
-    } catch (FFITypeMismatchError error) {
+    } catch (FFITypeMismatchError _) {
         assert(true, message: "Using bad buzz type triggers error");
     }
 

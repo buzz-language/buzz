@@ -155,7 +155,7 @@ object JsonParser {
             const str? char = this.peek();
 
             if (char == " " or char == "\r" or char == "\t" or char == "\n") {
-                this.advance();
+                _ = this.advance();
             } else {
                 return;
             }

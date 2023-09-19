@@ -2,8 +2,8 @@ import "std";
 
 test "break properly jumps and closes scope" {
     [int] list = [1, 2, 3, 4, 5];
-    foreach (int i, int value in list) {
-        str randomLocal = "hello there!";
+    foreach (int value in list) {
+        str _ = "hello there!";
         if (value == 3) {
             if (true) {
                 continue;
@@ -18,14 +18,14 @@ test "break properly jumps and closes scope" {
 
 test "break properly jumps and closes scope" {
     [int] list = [1, 2, 3, 4, 5];
-    foreach (int i, int value in list) {
-        str randomLocal = "hello there!";
+    foreach (int value in list) {
+        str _ = "hello there!";
         if (value == 3) {
             if (true) {
                 break;
             }
         }
-        str randomLocalAfterBreak = "after break";
+        str _ = "after break";
     }
 
     str anotherRandomLocal = "bye there";
