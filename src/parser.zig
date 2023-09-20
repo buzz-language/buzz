@@ -1748,6 +1748,8 @@ pub const Parser = struct {
                     if (!default.?.isConstant(default.?)) {
                         self.reporter.reportErrorAt(.constant_default, default.?.location, "Default value must be constant");
                     }
+                } else if (property_type.optional) {
+                    default = try self.nullLiteral();
                 }
 
                 if (static) {
@@ -3623,6 +3625,22 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    fn nullLiteral(self: *Self) !*ParseNode {
+        const start_location = self.parser.previous_token.?;
+        var node = try self.gc.allocator.create(NullNode);
+
+        node.* = NullNode{};
+
+        node.node.type_def = try self.gc.type_registry.getTypeDef(.{
+            .def_type = .Void,
+        });
+
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
     fn literal(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
@@ -3655,20 +3673,7 @@ pub const Parser = struct {
 
                 return &node.node;
             },
-            .Null => {
-                var node = try self.gc.allocator.create(NullNode);
-
-                node.* = NullNode{};
-
-                node.node.type_def = try self.gc.type_registry.getTypeDef(.{
-                    .def_type = .Void,
-                });
-
-                node.node.location = start_location;
-                node.node.end_location = self.parser.previous_token.?;
-
-                return &node.node;
-            },
+            .Null => return self.nullLiteral(),
             .Void => {
                 var node = try self.gc.allocator.create(VoidNode);
 

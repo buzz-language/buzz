@@ -1,0 +1,14 @@
+import "std";
+
+object Person {
+    str name,
+    int? age,
+}
+
+test "Nullable object field have a default value at null" {
+    Person person = Person{
+        name = "Joe"
+    };
+
+    assert(person.age == null, message: "Nullable object field have a default value at null");
+}
