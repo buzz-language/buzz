@@ -134,8 +134,11 @@ pub const Fiber = struct {
     // When within a try catch in a JIT compiled function
     try_context: ?*TryCtx = null,
 
+    type_def: *ObjTypeDef,
+
     pub fn init(
         allocator: Allocator,
+        type_def: *ObjTypeDef,
         parent_fiber: ?*Fiber,
         stack_slice: ?[]Value,
         call_type: OpCode,
@@ -145,6 +148,7 @@ pub const Fiber = struct {
     ) !Self {
         var self: Self = .{
             .allocator = allocator,
+            .type_def = type_def,
             .parent_fiber = parent_fiber,
             .stack = try allocator.alloc(Value, 100000),
             .stack_top = undefined,
@@ -331,6 +335,7 @@ pub const VM = struct {
 
     gc: *GarbageCollector,
     current_fiber: *Fiber,
+    main_fiber: *Fiber,
     globals: std.ArrayList(Value),
     import_registry: *ImportRegistry,
     mir_jit: ?MIRJIT = null,
@@ -339,11 +344,14 @@ pub const VM = struct {
     ffi: FFI,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
+        var main_fiber = try gc.allocator.create(Fiber);
+
         var self: Self = .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
-            .current_fiber = try gc.allocator.create(Fiber),
+            .current_fiber = main_fiber,
+            .main_fiber = main_fiber,
             .flavor = flavor,
             .reporter = Reporter{ .allocator = gc.allocator },
             .ffi = FFI.init(gc),
@@ -470,8 +478,24 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) MIRJIT.Error!void {
+        const fiber_def = ObjFiber.FiberDef{
+            .return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+        };
+
+        const resolved_type = ObjTypeDef.TypeUnion{
+            .Fiber = fiber_def,
+        };
+
+        const type_def = try self.gc.type_registry.getTypeDef(ObjTypeDef{
+            .optional = false,
+            .def_type = .Fiber,
+            .resolved_type = resolved_type,
+        });
+
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
+            type_def,
             null, // parent fiber
             null, // stack_slice
             .OP_CALL, // call_type
@@ -1135,6 +1159,7 @@ pub const VM = struct {
         };
         fiber.* = Fiber.init(
             self.gc.allocator,
+            undefined,
             self.current_fiber,
             stack_slice,
             instruction,
@@ -1149,12 +1174,11 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
+        fiber.type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
 
         // Put new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
-            .type_def = type_def,
         }) catch |e| {
             panic(e);
             unreachable;
@@ -1192,6 +1216,7 @@ pub const VM = struct {
         };
         fiber.* = Fiber.init(
             self.gc.allocator,
+            undefined,
             self.current_fiber,
             stack_slice,
             instruction,
@@ -1206,12 +1231,11 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        const type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
+        fiber.type_def = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
 
         // Push new fiber on the stack
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
-            .type_def = type_def,
         }) catch |e| {
             panic(e);
             unreachable;

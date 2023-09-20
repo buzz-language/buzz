@@ -135,6 +135,7 @@ pub const VM = opaque {
     pub extern fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value;
     pub extern fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque;
     pub extern fn bz_clone(vm: *VM, value: Value) Value;
+    pub extern fn bz_currentFiber(vm: *VM) Value;
 
     pub extern fn bz_dumpStack(vm: *VM) void;
 
@@ -355,6 +356,7 @@ pub const ObjPattern = opaque {
 
 pub const ObjFiber = opaque {
     pub extern fn bz_getFiberField(vm: *VM, field_name_value: Value) Value;
+    pub extern fn bz_isMainFiber(self: *ObjFiber, vm: *VM) Value;
 };
 
 pub const ObjForeignStruct = opaque {

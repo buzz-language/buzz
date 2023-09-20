@@ -22,9 +22,8 @@ test "fiber" {
 
 | returns str, yields int
 fun count(int n) > str > int? {
-    | TODO: how to do this? types prevent us from having a generic currentFiber function
-    |       do we need `any` type? do we need first citizen/generic types to do currentRoute<str, int>()?
-    | assert(currentFiber() is fib<str, int>, message: "Can get current fiber")
+    assert(currentFiber() is fib<str, int?>, message: "Can get current fiber");
+    assert(!currentFiber().isMain(), message: "Can know if fiber is main one");
 
     for (int i = 0; i < n; i = i + 1) {
         | error or yield is ignored if not called with a async call?

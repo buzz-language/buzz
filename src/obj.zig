@@ -349,7 +349,7 @@ pub const Obj = struct {
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
             .Pattern => type_def.def_type == .Pattern,
-            .Fiber => type_def.def_type == .Fiber,
+            .Fiber => ObjFiber.cast(self).?.is(type_def),
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
@@ -457,6 +457,12 @@ pub const Obj = struct {
 
                 return self_userdata.userdata == other_userdata.userdata;
             },
+            .Fiber => {
+                const self_fiber: *ObjFiber = ObjFiber.cast(self).?;
+                const other_fiber: *ObjFiber = ObjFiber.cast(other).?;
+
+                return self_fiber.fiber == other_fiber.fiber;
+            },
             .Bound,
             .Closure,
             .Function,
@@ -466,7 +472,6 @@ pub const Obj = struct {
             .Map,
             .Enum,
             .Native,
-            .Fiber,
             .ForeignStruct,
             => {
                 return self == other;
@@ -482,11 +487,8 @@ pub const ObjFiber = struct {
 
     fiber: *Fiber,
 
-    type_def: *ObjTypeDef,
-
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markFiber(self.fiber);
-        try gc.markObj(self.type_def.toObj());
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -506,6 +508,7 @@ pub const ObjFiber = struct {
         .{
             .{ "over", buzz_builtin.fiber.over },
             .{ "cancel", buzz_builtin.fiber.cancel },
+            .{ "isMain", buzz_builtin.fiber.isMain },
         },
     );
 
@@ -514,6 +517,7 @@ pub const ObjFiber = struct {
         .{
             .{ "over", "extern Function over() > bool" },
             .{ "cancel", "extern Function cancel() > void" },
+            .{ "isMain", "extern Function isMain() > bool" },
         },
     );
 
@@ -552,6 +556,10 @@ pub const ObjFiber = struct {
         try parser.gc.objfiber_memberDefs.put(method, native_type);
 
         return native_type;
+    }
+
+    fn is(self: *Self, type_def: *ObjTypeDef) bool {
+        return type_def.eql(self.fiber.type_def);
     }
 
     pub const FiberDef = struct {

@@ -1696,3 +1696,12 @@ export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value {
         }
     };
 }
+
+export fn bz_currentFiber(vm: *VM) Value {
+    return (vm.gc.allocateObject(
+        ObjFiber,
+        .{
+            .fiber = vm.current_fiber,
+        },
+    ) catch @panic("Out of memory")).toValue();
+}
