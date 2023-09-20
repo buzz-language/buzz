@@ -657,6 +657,7 @@ pub const GarbageCollector = struct {
     pub fn markFiber(self: *Self, fiber: *Fiber) !void {
         var current_fiber: ?*Fiber = fiber;
         while (current_fiber) |ufiber| {
+            try self.markObj(ufiber.type_def.toObj());
             // Mark main fiber
             if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING STACK OF FIBER @{}\n", .{@intFromPtr(ufiber)});

@@ -212,3 +212,9 @@ export fn assert(ctx: *api.NativeCtx) c_int {
 
     return 0;
 }
+
+export fn currentFiber(ctx: *api.NativeCtx) c_int {
+    ctx.vm.bz_push(ctx.vm.bz_currentFiber());
+
+    return 1;
+}

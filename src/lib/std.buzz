@@ -46,3 +46,6 @@ export extern fun char(int byte) > str;
 || @param max Maximum value, if omitted `min + 1`
 || @return Random value
 export extern fun random(int? min = null, int? max = null) > int;
+
+|| @return Current fiber
+export extern fun currentFiber() > fib<any, any?>;
