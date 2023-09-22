@@ -191,6 +191,35 @@ pub fn sort(ctx: *NativeCtx) c_int {
     return 1;
 }
 
+pub fn diff(ctx: *NativeCtx) c_int {
+    const lhs: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const rhs: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+
+    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
+        ObjMap,
+        ObjMap.init(
+            ctx.vm.gc.allocator,
+            lhs.type_def,
+        ),
+    ) catch unreachable;
+
+    var it = lhs.map.iterator();
+    while (it.next()) |kv| {
+        // If not present in rhs map, add it to the new map
+        if (rhs.map.get(kv.key_ptr.*) == null) {
+            new_map.set(
+                ctx.vm.gc,
+                kv.key_ptr.*,
+                kv.value_ptr.*,
+            ) catch unreachable;
+        }
+    }
+
+    ctx.vm.push(new_map.toValue());
+
+    return 1;
+}
+
 pub fn size(ctx: *NativeCtx) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
