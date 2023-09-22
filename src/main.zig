@@ -24,6 +24,7 @@ fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
 }
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
+    var total_timer = std.time.Timer.start() catch unreachable;
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
     gc.type_registry = TypeRegistry{
@@ -137,17 +138,17 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                 else
                     0;
                 std.debug.print(
-                    "\u{001b}[2mParsing: {d} ms | Codegen: {d} ms | Run: {d} ms | Total: {d} ms\nGC: {d} ms | Full GC: {} | GC: {} | Max allocated: {} bytes\nJIT: {d} ms\n\u{001b}[0m",
+                    "\u{001b}[2mParsing: {d} ms\nCodegen: {d} ms\nRun: {d} ms\nJIT: {d} ms\nGC: {d} ms\nTotal: {d} ms\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
                     .{
                         parsing_ms,
                         codegen_ms,
                         running_ms,
-                        parsing_ms + codegen_ms + running_ms,
+                        jit_ms,
                         gc_ms,
+                        @as(f64, @floatFromInt(total_timer.read())) / 1000000,
                         gc.full_collection_count,
                         gc.light_collection_count,
                         gc.max_allocated,
-                        jit_ms,
                     },
                 );
             }

@@ -30,7 +30,8 @@ fun itemCheck(Node tree) > int {
     return 0;
 }
 
-fun btree(int N) > void !> OverflowError, UnderflowError {
+|| @hot
+fun btree(int N) > void {
     int mindepth = 4;
     int maxdepth = mindepth + 2;
     if (maxdepth < N) {
@@ -43,7 +44,7 @@ fun btree(int N) > void !> OverflowError, UnderflowError {
 
     Node longlivedtree = bottomUpTree(maxdepth);
     for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        int iterations = toInt(math.pow(x: 2.0, y: toFloat(maxdepth - depth + mindepth)));
+        int iterations = toInt(math.pow(x: 2.0, y: toFloat(maxdepth - depth + mindepth)) catch 0.0);
         int check = 0;
         for (int i = 0; i < iterations; i = i + 1) {
             check = check + itemCheck(bottomUpTree(depth));

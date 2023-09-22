@@ -102,18 +102,13 @@ const SortContext = struct {
 };
 
 fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
-    var args = std.ArrayList(*const Value).init(context.ctx.vm.gc.allocator);
-    defer args.deinit();
-
-    // TODO: handle error
-    args.append(&lhs) catch unreachable;
-    args.append(&rhs) catch unreachable;
+    var args = [_]*const Value{ &lhs, &rhs };
 
     buzz_api.bz_call(
         context.ctx.vm,
         context.sort_closure,
-        @as([*]const *const Value, @ptrCast(args.items)),
-        @as(u8, @intCast(args.items.len)),
+        @ptrCast(&args),
+        @intCast(args.len),
         null,
     );
 

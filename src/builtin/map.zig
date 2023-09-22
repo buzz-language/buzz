@@ -14,8 +14,49 @@ const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
+const SortContext = struct {
+    sort_closure: *ObjClosure,
+    ctx: *NativeCtx,
+    map: *ObjMap,
+
+    pub fn lessThan(context: SortContext, lhs_index: usize, rhs_index: usize) bool {
+        const map_keys = context.map.map.keys();
+        const lhs = map_keys[lhs_index];
+        const rhs = map_keys[rhs_index];
+
+        var args = [_]*const Value{ &lhs, &rhs };
+
+        buzz_api.bz_call(
+            context.ctx.vm,
+            context.sort_closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        );
+
+        return context.ctx.vm.pop().boolean();
+    }
+};
+
+pub fn sort(ctx: *NativeCtx) c_int {
+    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+
+    self.map.sort(
+        SortContext{
+            .sort_closure = sort_closure,
+            .ctx = ctx,
+            .map = self,
+        },
+    );
+
+    ctx.vm.push(self.toValue());
+
+    return 1;
+}
+
 pub fn size(ctx: *NativeCtx) c_int {
-    var map: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+    const map: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     ctx.vm.push(Value.fromInteger(@as(i32, @intCast(map.map.count()))));
 
