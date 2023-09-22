@@ -34,3 +34,21 @@ test "map.values" {
 
     assert({<str, str>}.keys().len() == 0, message: "yo empty map");
 }
+
+test "map.diff" {
+    {str, int} first = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    {str, int} second = {
+        "two": 22,
+        "three": 33,
+        "four": 4,
+    };
+
+    {str, int} diff = first.diff(second);
+
+    assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
+}

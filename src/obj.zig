@@ -2362,6 +2362,7 @@ pub const ObjMap = struct {
             .{ "map", buzz_builtin.map.map },
             .{ "filter", buzz_builtin.map.filter },
             .{ "reduce", buzz_builtin.map.reduce },
+            .{ "diff", buzz_builtin.map.diff },
         },
     );
 
@@ -2673,6 +2674,41 @@ pub const ObjMap = struct {
                 );
 
                 try self.methods.put("sort", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "diff")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("other"),
+                    obj_map,
+                );
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("diff"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_map,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("diff", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "forEach")) {
