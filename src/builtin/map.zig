@@ -15,6 +15,40 @@ const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
+pub fn filter(ctx: *NativeCtx) c_int {
+    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+
+    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
+        ObjMap,
+        ObjMap.init(
+            ctx.vm.gc.allocator,
+            self.type_def,
+        ),
+    ) catch unreachable;
+
+    var it = self.map.iterator();
+    while (it.next()) |kv| {
+        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+
+        buzz_api.bz_call(
+            ctx.vm,
+            closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        );
+
+        if (ctx.vm.pop().boolean()) {
+            new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch unreachable;
+        }
+    }
+
+    ctx.vm.push(new_map.toValue());
+
+    return 1;
+}
+
 pub fn forEach(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
