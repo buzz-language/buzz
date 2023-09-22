@@ -52,3 +52,21 @@ test "map.diff" {
 
     assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
 }
+
+test "map.intersect" {
+    {str, int} first = {
+        "one": 1,
+        "two": 2,
+        "five": 5,
+    };
+
+    {str, int} second = {
+        "two": 22,
+        "three": 33,
+        "four": 4,
+    };
+
+    {str, int} intersect = first.intersect(second);
+
+    assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
+}

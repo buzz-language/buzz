@@ -27,6 +27,7 @@
 - New integer literal for single chars: `'A' == 65`
 - Compiler will warn you when a local or global is never used or when an expression value is discarded. To silence those warnings you can use the `_ = <expression>` or name the local/global `_`.
 - `std.currentFiber`, `fiber.isMain`
+- `map.sort`, `map.forEach`, `map.map`, `map.filter`, `map.reduce`, `map.diff`, `map.intersect`
 
 ## Changed
 
