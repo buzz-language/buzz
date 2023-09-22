@@ -84,6 +84,21 @@ test "map.map" {
     }
 }
 
+test "map.filter" {
+    {str, int} map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    {str, int} filtered = map.filter(
+        fun (str _, int value) -> value % 2 != 0
+    );
+
+    assert(filtered["two"] == null, message: "Could use map.filter");
+}
+
 test "map.sort" {
     {str, int} map = {
         "five": 5,

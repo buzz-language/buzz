@@ -2360,6 +2360,7 @@ pub const ObjMap = struct {
             .{ "sort", buzz_builtin.map.sort },
             .{ "forEach", buzz_builtin.map.forEach },
             .{ "map", buzz_builtin.map.map },
+            .{ "filter", buzz_builtin.map.filter },
         },
     );
 
@@ -2869,6 +2870,68 @@ pub const ObjMap = struct {
                 );
 
                 try self.methods.put("map", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "filter")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try callback_parameters.put(
+                    try parser.gc.copyString("key"),
+                    self.key_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("value"),
+                    self.value_type,
+                );
+
+                var callback_method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    // TODO: is this ok?
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("anonymous"),
+                    .parameters = callback_parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+
+                var callback_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = callback_resolved_type,
+                    },
+                );
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("callback"),
+                    callback_type,
+                );
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("filter"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_map,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+
+                try self.methods.put("filter", native_type);
 
                 return native_type;
             }

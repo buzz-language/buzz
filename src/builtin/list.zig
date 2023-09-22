@@ -314,9 +314,9 @@ pub fn filter(ctx: *NativeCtx) c_int {
         ObjList,
         ObjList.init(
             ctx.vm.gc.allocator,
-            list.type_def.resolved_type.?.List.item_type,
+            list.type_def,
         ),
-    ) catch unreachable; // TODO: handle error
+    ) catch unreachable;
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
