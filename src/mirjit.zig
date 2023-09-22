@@ -4720,7 +4720,12 @@ fn generateFunction(self: *Self, function_node: *n.FunctionNode) Error!?m.MIR_op
     );
 
     if (function_node.arrow_expr) |arrow_expr| {
-        try self.buildReturn((try self.generateNode(arrow_expr)).?);
+        try self.buildReturn(
+            (try self.generateNode(arrow_expr)) orelse m.MIR_new_uint_op(
+                self.ctx,
+                v.Value.Void.val,
+            ),
+        );
 
         self.state.?.return_emitted = true;
     } else {
