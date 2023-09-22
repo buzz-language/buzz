@@ -4868,6 +4868,9 @@ pub const FunDeclarationNode = struct {
 
         var self = Self.cast(node).?;
 
+        // Give the docblock to the function itself
+        self.function.node.docblock = self.function.node.docblock orelse node.docblock;
+
         _ = try self.function.node.toByteCode(&self.function.node, codegen, breaks);
 
         if (self.slot_type == .Global) {

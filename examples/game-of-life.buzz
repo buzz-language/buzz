@@ -108,7 +108,6 @@ object World {
     }
 }
 
-|| @hot
 fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDLError {
     float dt = sdl.ticks();
     while (true) {

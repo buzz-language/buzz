@@ -48,3 +48,25 @@ test "list.sort" {
         assert(data[i] == value, message: "list is not ordered");
     }
 }
+
+test "map.sort" {
+    {str, int} map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+
+    _ = map.sort(
+        fun (str lhs, str rhs) -> map[lhs]! < map[rhs]!
+    );
+
+    [str] ordered = [ "one", "two", "three", "five" ];
+    int i = 0;
+    foreach (str key in map.keys()) {
+        assert(ordered[i] == key, message: "Could sort map");
+
+        i = i + 1;
+    }
+}

@@ -538,7 +538,7 @@ pub const Parser = struct {
         var test_locations = std.ArrayList(Token).init(self.gc.allocator);
         // Create an entry point wich runs all `test`
         for (self.globals.items, 0..) |global, index| {
-            if (global.name.string.len > 5 and mem.eql(u8, global.name.string[0..5], "$test") and !global.hidden and global.prefix == null) {
+            if (mem.startsWith(u8, global.name.string, "$test") and !global.hidden and global.prefix == null) {
                 try test_slots.append(index);
                 try test_locations.append(global.location);
             }
