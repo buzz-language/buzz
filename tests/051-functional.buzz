@@ -99,6 +99,23 @@ test "map.filter" {
     assert(filtered["two"] == null, message: "Could use map.filter");
 }
 
+test "map.reduce" {
+    {str, int} map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    int sum = map.reduce(
+        <int>,
+        fun (str _, int value, int accumulator) -> accumulator + value,
+        initial: 0
+    );
+
+    assert(sum == 11, message: "could use reduce");
+}
+
 test "map.sort" {
     {str, int} map = {
         "five": 5,

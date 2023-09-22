@@ -2361,6 +2361,7 @@ pub const ObjMap = struct {
             .{ "forEach", buzz_builtin.map.forEach },
             .{ "map", buzz_builtin.map.map },
             .{ "filter", buzz_builtin.map.filter },
+            .{ "reduce", buzz_builtin.map.reduce },
         },
     );
 
@@ -2932,6 +2933,96 @@ pub const ObjMap = struct {
                 var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("filter", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "reduce")) {
+                const reduce_origin = ObjFunction.FunctionDef.nextId();
+
+                // Mapped type
+                const generic = ObjTypeDef.GenericDef{
+                    .origin = reduce_origin,
+                    .index = 0,
+                };
+                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
+                const generic_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Generic,
+                        .resolved_type = generic_resolved_type,
+                    },
+                );
+
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try callback_parameters.put(
+                    try parser.gc.copyString("key"),
+                    self.key_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("value"),
+                    self.value_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("accumulator"),
+                    generic_type,
+                );
+
+                var callback_method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    // TODO: is this ok?
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("anonymous"),
+                    .parameters = callback_parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = generic_type,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                };
+
+                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+
+                var callback_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = callback_resolved_type,
+                    },
+                );
+
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                try parameters.put(
+                    try parser.gc.copyString("callback"),
+                    callback_type,
+                );
+                try parameters.put(
+                    try parser.gc.copyString("initial"),
+                    generic_type,
+                );
+
+                var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                try generic_types.put(try parser.gc.copyString("T"), generic_type);
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = reduce_origin,
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("reduce"),
+                    .parameters = parameters,
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = generic_type,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = generic_types,
+                    .function_type = .Extern,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("reduce", native_type);
 
                 return native_type;
             }
