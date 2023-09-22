@@ -15,6 +15,31 @@ const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
+pub fn reduce(ctx: *NativeCtx) c_int {
+    const self = ObjMap.cast(ctx.vm.peek(2).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
+    var accumulator = ctx.vm.peek(0);
+
+    var it = self.map.iterator();
+    while (it.next()) |kv| {
+        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr, &accumulator };
+
+        buzz_api.bz_call(
+            ctx.vm,
+            closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        );
+
+        accumulator = ctx.vm.pop();
+    }
+
+    ctx.vm.push(accumulator);
+
+    return 1;
+}
+
 pub fn filter(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
