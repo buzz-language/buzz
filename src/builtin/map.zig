@@ -14,6 +14,26 @@ const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
+pub fn forEach(ctx: *NativeCtx) c_int {
+    const map = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+
+    var it = map.map.iterator();
+    while (it.next()) |kv| {
+        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+
+        buzz_api.bz_call(
+            ctx.vm,
+            closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        );
+    }
+
+    return 0;
+}
+
 const SortContext = struct {
     sort_closure: *ObjClosure,
     ctx: *NativeCtx,

@@ -8,7 +8,7 @@ test "list.forEach" {
         sum = sum + element;
     });
 
-    assert(sum == 10, message: "could use forEach");
+    assert(sum == 10, message: "could use list.forEach");
 }
 
 test "list.map" {
@@ -47,6 +47,22 @@ test "list.sort" {
     foreach (int i, int value in [-3, 0, 1, 3, 10, 12]) {
         assert(data[i] == value, message: "list is not ordered");
     }
+}
+
+test "map.forEach" {
+    {str, int} map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    int sum = 0;
+    map.forEach(
+        fun (str _, int value) > void -> sum = sum + value
+    );
+
+    assert(sum == 11, message: "could use map.forEach");
 }
 
 test "map.sort" {
