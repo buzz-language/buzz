@@ -264,19 +264,15 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     for (list.items.items, 0..) |item, index| {
-        var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
-        defer args.deinit();
-
-        // TODO: handle error
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        args.append(&index_value) catch unreachable;
-        args.append(&item) catch unreachable;
+
+        var args = [_]*const Value{ &index_value, &item };
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @as([*]const *const Value, @ptrCast(args.items)),
-            @as(u8, @intCast(args.items.len)),
+            @ptrCast(&args),
+            @intCast(args.len),
             null,
         );
     }
@@ -290,20 +286,15 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     var accumulator = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
-        var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
-        defer args.deinit();
-
-        // TODO: handle error
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        args.append(&index_value) catch unreachable;
-        args.append(&item) catch unreachable;
-        args.append(&accumulator) catch unreachable;
+
+        var args = [_]*const Value{ &index_value, &item, &accumulator };
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @as([*]const *const Value, @ptrCast(args.items)),
-            @as(u8, @intCast(args.items.len)),
+            @ptrCast(&args),
+            @intCast(args.len),
             null,
         );
 
@@ -328,19 +319,14 @@ pub fn filter(ctx: *NativeCtx) c_int {
     ) catch unreachable; // TODO: handle error
 
     for (list.items.items, 0..) |item, index| {
-        var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
-        defer args.deinit();
-
-        // TODO: handle error
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        args.append(&index_value) catch unreachable;
-        args.append(&item) catch unreachable;
+        var args = [_]*const Value{ &index_value, &item };
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @as([*]const *const Value, @ptrCast(args.items)),
-            @as(u8, @intCast(args.items.len)),
+            @ptrCast(&args),
+            @intCast(args.len),
             null,
         );
 
@@ -369,19 +355,14 @@ pub fn map(ctx: *NativeCtx) c_int {
     ) catch unreachable; // TODO: handle error
 
     for (list.items.items, 0..) |item, index| {
-        var args = std.ArrayList(*const Value).init(ctx.vm.gc.allocator);
-        defer args.deinit();
-
-        // TODO: handle error
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        args.append(&index_value) catch unreachable;
-        args.append(&item) catch unreachable;
+        var args = [_]*const Value{ &index_value, &item };
 
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @as([*]const *const Value, @ptrCast(args.items)),
-            @as(u8, @intCast(args.items.len)),
+            @ptrCast(&args),
+            @intCast(args.len),
             null,
         );
 
