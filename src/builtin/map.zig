@@ -5,6 +5,7 @@ const ObjMap = _obj.ObjMap;
 const ObjList = _obj.ObjList;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjClosure = _obj.ObjClosure;
+const ObjObjectInstance = _obj.ObjObjectInstance;
 const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
 const _value = @import("../value.zig");
@@ -15,10 +16,10 @@ const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
 pub fn forEach(ctx: *NativeCtx) c_int {
-    const map = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
-    var it = map.map.iterator();
+    var it = self.map.iterator();
     while (it.next()) |kv| {
         var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
 
@@ -32,6 +33,62 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     }
 
     return 0;
+}
+
+pub fn map(ctx: *NativeCtx) c_int {
+    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+
+    const mapped_type = closure.function.type_def.resolved_type.?.Function.return_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+
+    const map_def = ObjMap.MapDef.init(
+        ctx.vm.gc.allocator,
+        mapped_type.fields.get("key").?,
+        mapped_type.fields.get("value").?,
+    );
+
+    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+        .Map = map_def,
+    };
+
+    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
+        ObjMap,
+        ObjMap.init(
+            ctx.vm.gc.allocator,
+            ctx.vm.gc.type_registry.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Map,
+                    .resolved_type = resolved_type,
+                },
+            ) catch unreachable,
+        ),
+    ) catch unreachable; // TODO: handle error
+
+    const key_str = ctx.vm.gc.copyString("key") catch unreachable;
+    const value_str = ctx.vm.gc.copyString("value") catch unreachable;
+    var it = self.map.iterator();
+    while (it.next()) |kv| {
+        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+
+        buzz_api.bz_call(
+            ctx.vm,
+            closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        );
+
+        const entry = ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
+        const key = entry.fields.get(key_str).?;
+        const value = entry.fields.get(value_str).?;
+
+        new_map.set(ctx.vm.gc, key, value) catch unreachable;
+    }
+
+    ctx.vm.push(new_map.toValue());
+
+    return 1;
 }
 
 const SortContext = struct {
@@ -76,18 +133,18 @@ pub fn sort(ctx: *NativeCtx) c_int {
 }
 
 pub fn size(ctx: *NativeCtx) c_int {
-    const map: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(map.map.count()))));
+    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(self.map.count()))));
 
     return 1;
 }
 
 pub fn remove(ctx: *NativeCtx) c_int {
-    var map: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    var map_key = ctx.vm.peek(0);
+    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const map_key = ctx.vm.peek(0);
 
-    if (map.map.fetchOrderedRemove(map_key)) |removed| {
+    if (self.map.fetchOrderedRemove(map_key)) |removed| {
         ctx.vm.push(removed.value);
     } else {
         ctx.vm.push(Value.Null);
@@ -97,9 +154,9 @@ pub fn remove(ctx: *NativeCtx) c_int {
 }
 
 pub fn keys(ctx: *NativeCtx) c_int {
-    var self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var map_keys = self.map.keys();
+    const map_keys = self.map.keys();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     for (map_keys) |key| {
         result.append(key) catch {
@@ -153,9 +210,9 @@ pub fn keys(ctx: *NativeCtx) c_int {
 }
 
 pub fn values(ctx: *NativeCtx) c_int {
-    var self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var map_values: []Value = self.map.values();
+    const map_values: []Value = self.map.values();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     result.appendSlice(map_values) catch {
         var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;

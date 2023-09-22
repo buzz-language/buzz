@@ -344,13 +344,12 @@ pub fn map(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
-    // FIXME: how to get concret generic type here? for now we use the generic type
-    var function_generic_types = closure.function.type_def.resolved_type.?.Function.return_type;
+    const mapped_type = closure.function.type_def.resolved_type.?.Function.return_type;
     var new_list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(
             ctx.vm.gc.allocator,
-            function_generic_types,
+            mapped_type,
         ),
     ) catch unreachable; // TODO: handle error
 
