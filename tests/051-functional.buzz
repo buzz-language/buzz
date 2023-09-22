@@ -65,6 +65,25 @@ test "map.forEach" {
     assert(sum == 11, message: "could use map.forEach");
 }
 
+test "map.map" {
+    {str, int} map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    | fun map(<K, V>, Function(str key, int value) > obj{ K key, V value }) > {K, V}
+    {int, str} inverted = map.map(
+        <int, str>,
+        fun (str key, int value) -> .{ key = value, value = key },
+    );
+
+    foreach (str key, int value in map) {
+        assert(inverted[value] == key, message: "Could use map.map");
+    }
+}
+
 test "map.sort" {
     {str, int} map = {
         "five": 5,
