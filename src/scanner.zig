@@ -253,8 +253,15 @@ pub const Scanner = struct {
     }
 
     fn number(self: *Self) !Token {
-        while (isNumber(self.peek())) {
+        var peeked: u8 = self.peek();
+        while (isNumber(peeked) or peeked == '_') {
             _ = self.advance();
+
+            peeked = self.peek();
+        }
+
+        if (self.source[self.current.offset - 1] == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
         }
 
         var is_float: bool = false;
@@ -262,9 +269,16 @@ pub const Scanner = struct {
             is_float = true;
             _ = self.advance(); // Consume .
 
-            while (isNumber(self.peek())) {
+            peeked = self.peek();
+            while (isNumber(peeked) or peeked == '_') {
                 _ = self.advance();
+
+                peeked = self.peek();
             }
+        }
+
+        if (self.source[self.current.offset - 1] == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
         }
 
         const float = if (is_float)
@@ -337,10 +351,18 @@ pub const Scanner = struct {
 
     fn binary(self: *Self) Token {
         var peeked: u8 = self.peek();
-        while (peeked == '0' or peeked == '1') {
+        if (peeked == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
+        }
+
+        while (peeked == '0' or peeked == '1' or peeked == '_') {
             _ = self.advance();
 
             peeked = self.peek();
+        }
+
+        if (self.source[self.current.offset - 1] == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
         }
 
         return self.makeToken(
@@ -359,13 +381,20 @@ pub const Scanner = struct {
     }
 
     fn hexa(self: *Self) Token {
-        _ = self.advance(); // Consume 'x'
+        if (self.peek() == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
+        }
 
+        _ = self.advance(); // Consume 'x'
         var peeked: u8 = self.peek();
-        while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F') or (peeked >= 'a' and peeked <= 'f')) {
+        while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F') or (peeked >= 'a' and peeked <= 'f') or peeked == '_') {
             _ = self.advance();
 
             peeked = self.peek();
+        }
+
+        if (self.source[self.current.offset - 1] == '_') {
+            return self.makeToken(.Error, "'_' must be between digits", null, null);
         }
 
         return self.makeToken(
