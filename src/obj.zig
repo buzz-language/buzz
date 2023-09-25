@@ -3186,6 +3186,8 @@ pub const ObjEnum = struct {
         enum_type: *ObjTypeDef,
         // TODO: should be a slice
         cases: std.ArrayList([]const u8),
+        // Circular reference but needed so that we can generate enum case at compile time
+        value: ?*ObjEnum = null,
 
         pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
             return EnumDefSelf{

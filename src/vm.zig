@@ -670,8 +670,6 @@ pub const VM = struct {
         OP_SET_INSTANCE_PROPERTY,
         OP_SET_FCONTAINER_INSTANCE_PROPERTY,
 
-        OP_ENUM,
-        OP_ENUM_CASE,
         OP_GET_ENUM_CASE,
         OP_GET_ENUM_CASE_VALUE,
         OP_GET_ENUM_CASE_FROM_VALUE,
@@ -2139,60 +2137,6 @@ pub const VM = struct {
 
         // Push the value
         self.push(value);
-
-        const next_full_instruction: u32 = self.readInstruction();
-        @call(
-            .always_tail,
-            dispatch,
-            .{
-                self,
-                self.currentFrame().?,
-                next_full_instruction,
-                getCode(next_full_instruction),
-                getArg(next_full_instruction),
-            },
-        );
-    }
-
-    fn OP_ENUM(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var enum_: *ObjEnum = self.gc.allocateObject(
-            ObjEnum,
-            ObjEnum.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
-        ) catch |e| {
-            panic(e);
-            unreachable;
-        };
-
-        self.push(Value.fromObj(enum_.toObj()));
-
-        const next_full_instruction: u32 = self.readInstruction();
-        @call(
-            .always_tail,
-            dispatch,
-            .{
-                self,
-                self.currentFrame().?,
-                next_full_instruction,
-                getCode(next_full_instruction),
-                getArg(next_full_instruction),
-            },
-        );
-    }
-
-    fn OP_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_: *ObjEnum = self.peek(1).obj().access(ObjEnum, .Enum, self.gc).?;
-        var enum_value: Value = self.peek(0);
-
-        enum_.cases.append(enum_value) catch |e| {
-            panic(e);
-            unreachable;
-        };
-        self.gc.markObjDirty(&enum_.obj) catch |e| {
-            panic(e);
-            unreachable;
-        };
-
-        _ = self.pop();
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

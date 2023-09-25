@@ -19,6 +19,14 @@ enum NaturalEnum {
     two,
 }
 
+fun getValue(NaturalEnum case = NaturalEnum.zero) > int {
+    return case.value;
+}
+
+object Natural {
+    NaturalEnum natural = NaturalEnum.zero,
+}
+
 test "Enums" {
     assert(StrEnum.one.value == "one", message: "str enum");
 
@@ -31,6 +39,12 @@ test "Enums" {
     assert(myCase.value == 2, message: "enum instance");
 
     NaturalEnum? fromValue = NaturalEnum(0);
-    assert(fromValue != null, message: "could get enum instance from value");
-    assert(fromValue!.value == 0, message: "could get correct enum instance from value");
+    assert(fromValue != null, message: "Could get enum instance from value");
+    assert(fromValue!.value == 0, message: "Could get correct enum instance from value");
+}
+
+test "Enum case as default value" {
+    assert(getValue() == 0, message: "Could use enum case as function argument default value");
+
+    assert(Natural{}.natural == NaturalEnum.zero, message: "Could use enum case as object field default value");
 }
