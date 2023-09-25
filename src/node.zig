@@ -6875,7 +6875,7 @@ pub const DotNode = struct {
             .String,
             .Pattern,
             .Fiber,
-            .ForeignStruct,
+            .ForeignContainer,
             => {},
             else => codegen.reporter.reportErrorAt(
                 .field_access,
@@ -6895,7 +6895,7 @@ pub const DotNode = struct {
         var get_code: ?OpCode = switch (callee_type.def_type) {
             .Object => .OP_GET_OBJECT_PROPERTY,
             .ObjectInstance, .ProtocolInstance => .OP_GET_INSTANCE_PROPERTY,
-            .ForeignStruct => .OP_GET_FSTRUCT_INSTANCE_PROPERTY,
+            .ForeignContainer => .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
             .List => .OP_GET_LIST_PROPERTY,
             .Map => .OP_GET_MAP_PROPERTY,
             .String => .OP_GET_STRING_PROPERTY,
@@ -6918,7 +6918,7 @@ pub const DotNode = struct {
                     );
                 }
             },
-            .ForeignStruct, .ObjectInstance, .Object => {
+            .ForeignContainer, .ObjectInstance, .Object => {
                 if (self.value) |value| {
                     if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                         codegen.reporter.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
@@ -6930,13 +6930,13 @@ pub const DotNode = struct {
                         self.node.location,
                         switch (callee_type.def_type) {
                             .ObjectInstance => .OP_SET_INSTANCE_PROPERTY,
-                            .ForeignStruct => .OP_SET_FSTRUCT_INSTANCE_PROPERTY,
+                            .ForeignContainer => .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
                             else => .OP_SET_OBJECT_PROPERTY,
                         },
                         try codegen.identifierConstant(self.identifier.lexeme),
                     );
                 } else if (self.call) |call| {
-                    if (callee_type.def_type == .ForeignStruct) {
+                    if (callee_type.def_type == .ForeignContainer) {
                         codegen.reporter.reportErrorAt(
                             .callable,
                             self.callee.location,
@@ -7129,7 +7129,7 @@ pub const ObjectInitNode = struct {
 
         if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
-        } else if (node.type_def.?.def_type != .ObjectInstance and node.type_def.?.def_type != .ForeignStruct) {
+        } else if (node.type_def.?.def_type != .ObjectInstance and node.type_def.?.def_type != .ForeignContainer) {
             codegen.reporter.reportErrorAt(
                 .expected_object,
                 node.location,
@@ -7142,18 +7142,18 @@ pub const ObjectInitNode = struct {
             if (node.type_def.?.def_type == .ObjectInstance)
                 .OP_INSTANCE
             else
-                .OP_FSTRUCT_INSTANCE,
+                .OP_FCONTAINER_INSTANCE,
         );
 
         const fields = if (node.type_def.?.def_type == .ObjectInstance)
             node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
         else
-            node.type_def.?.resolved_type.?.ForeignStruct.buzz_type;
+            node.type_def.?.resolved_type.?.ForeignContainer.buzz_type;
 
         const location = if (node.type_def.?.def_type == .ObjectInstance)
             node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.location
         else
-            node.type_def.?.resolved_type.?.ForeignStruct.location;
+            node.type_def.?.resolved_type.?.ForeignContainer.location;
 
         const fields_location = if (node.type_def.?.def_type == .ObjectInstance)
             node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_locations
@@ -7207,7 +7207,7 @@ pub const ObjectInitNode = struct {
                     if (node.type_def.?.def_type == .ObjectInstance)
                         .OP_SET_INSTANCE_PROPERTY
                     else
-                        .OP_SET_FSTRUCT_INSTANCE_PROPERTY,
+                        .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
                     property_name_constant,
                 );
                 try codegen.emitOpCode(self.node.location, .OP_POP); // Pop property value
@@ -7224,15 +7224,18 @@ pub const ObjectInitNode = struct {
         }
 
         // Did we initialized all properties without a default value?
-        try self.checkOmittedProperty(
-            codegen,
-            fields,
-            if (node.type_def.?.def_type == .ObjectInstance)
-                node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_defaults
-            else
-                null,
-            init_properties,
-        );
+        // If union we're statisfied with only on field initialized
+        if (node.type_def.?.def_type != .ForeignContainer or node.type_def.?.resolved_type.?.ForeignContainer.zig_type != .Union or init_properties.count() == 0) {
+            try self.checkOmittedProperty(
+                codegen,
+                fields,
+                if (node.type_def.?.def_type == .ObjectInstance)
+                    node.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_defaults
+                else
+                    null,
+                init_properties,
+            );
+        }
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -8100,10 +8103,10 @@ pub const ZdefNode = struct {
                         try codegen.emitConstant(node.location, element.obj_native.?.toValue());
                     }
                 },
-                .ForeignStruct => {
+                .ForeignContainer => {
                     var timer = std.time.Timer.start() catch unreachable;
 
-                    try codegen.mir_jit.?.compileZdefStruct(element);
+                    try codegen.mir_jit.?.compileZdefContainer(element);
 
                     codegen.mir_jit.?.jit_time += timer.read();
 

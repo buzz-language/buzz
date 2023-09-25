@@ -287,7 +287,7 @@ fn reset(self: *Self) void {
     self.state = null;
 }
 
-pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElement) Error!void {
+pub fn compileZdefContainer(self: *Self, zdef_element: *const n.ZdefNode.ZdefElement) Error!void {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
@@ -316,34 +316,66 @@ pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElemen
     };
     defer self.reset();
 
-    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignStruct;
+    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
 
     var getters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
     defer getters.deinit();
     var setters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
     defer setters.deinit();
-    for (foreign_def.zig_type.Struct.fields) |field| {
-        var struct_field = foreign_def.fields.getEntry(field.name).?;
 
-        try getters.append(
-            try self.buildZdefStructGetter(
-                struct_field.value_ptr.*.offset,
-                foreign_def.name.string,
-                field.name,
-                foreign_def.buzz_type.get(field.name).?,
-                field.type,
-            ),
-        );
+    switch (foreign_def.zig_type) {
+        .Struct => {
+            for (foreign_def.zig_type.Struct.fields) |field| {
+                var container_field = foreign_def.fields.getEntry(field.name).?;
 
-        try setters.append(
-            try self.buildZdefStructSetter(
-                struct_field.value_ptr.*.offset,
-                foreign_def.name.string,
-                field.name,
-                foreign_def.buzz_type.get(field.name).?,
-                field.type,
-            ),
-        );
+                try getters.append(
+                    try self.buildZdefContainerGetter(
+                        container_field.value_ptr.*.offset,
+                        foreign_def.name.string,
+                        field.name,
+                        foreign_def.buzz_type.get(field.name).?,
+                        field.type,
+                    ),
+                );
+
+                try setters.append(
+                    try self.buildZdefContainerSetter(
+                        container_field.value_ptr.*.offset,
+                        foreign_def.name.string,
+                        field.name,
+                        foreign_def.buzz_type.get(field.name).?,
+                        field.type,
+                    ),
+                );
+            }
+        },
+
+        .Union => {
+            for (foreign_def.zig_type.Union.fields) |field| {
+                var container_field = foreign_def.fields.getEntry(field.name).?;
+                _ = container_field;
+
+                try getters.append(
+                    try self.buildZdefUnionGetter(
+                        foreign_def.name.string,
+                        field.name,
+                        foreign_def.buzz_type.get(field.name).?,
+                        field.type,
+                    ),
+                );
+
+                try setters.append(
+                    try self.buildZdefUnionSetter(
+                        foreign_def.name.string,
+                        field.name,
+                        foreign_def.buzz_type.get(field.name).?,
+                        field.type,
+                    ),
+                );
+            }
+        },
+
+        else => unreachable,
     }
 
     if (BuildOptions.jit_debug) {
@@ -380,23 +412,254 @@ pub fn compileZdefStruct(self: *Self, zdef_element: *const n.ZdefNode.ZdefElemen
     defer m.MIR_gen_finish(self.ctx);
 
     // Gen getters/setters
-    for (foreign_def.zig_type.Struct.fields, 0..) |field, idx| {
-        var struct_field = foreign_def.fields.getEntry(field.name).?;
-        struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
-            self.ctx,
-            0,
-            getters.items[idx],
-        ) orelse unreachable));
+    switch (foreign_def.zig_type) {
+        .Struct => {
+            for (foreign_def.zig_type.Struct.fields, 0..) |field, idx| {
+                var struct_field = foreign_def.fields.getEntry(field.name).?;
+                struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
+                    self.ctx,
+                    0,
+                    getters.items[idx],
+                ) orelse unreachable));
 
-        struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
-            self.ctx,
-            0,
-            setters.items[idx],
-        ) orelse unreachable));
+                struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
+                    self.ctx,
+                    0,
+                    setters.items[idx],
+                ) orelse unreachable));
+            }
+        },
+        .Union => {
+            for (foreign_def.zig_type.Union.fields, 0..) |field, idx| {
+                var struct_field = foreign_def.fields.getEntry(field.name).?;
+                struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
+                    self.ctx,
+                    0,
+                    getters.items[idx],
+                ) orelse unreachable));
+
+                struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
+                    self.ctx,
+                    0,
+                    setters.items[idx],
+                ) orelse unreachable));
+            }
+        },
+        else => unreachable,
     }
 }
 
-fn buildZdefStructGetter(
+fn buildZdefUnionGetter(
+    self: *Self,
+    union_name: []const u8,
+    field_name: []const u8,
+    buzz_type: *o.ObjTypeDef,
+    zig_type: *const ZigType,
+) Error!m.MIR_item_t {
+    var getter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer getter_name.deinit();
+
+    try getter_name.writer().print(
+        "zdef_union_{s}_{s}_getter\x00",
+        .{
+            union_name,
+            field_name,
+        },
+    );
+
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(vm_name);
+    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(data_name);
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(getter_name.items.ptr),
+        1,
+        &[_]m.MIR_type_t{m.MIR_T_U64},
+        2,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(vm_name.ptr),
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(data_name.ptr),
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+    self.state.?.vm_reg = m.MIR_reg(self.ctx, "vm", function.u.func);
+
+    const result_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "result_value",
+            m.MIR_T_I64,
+        ),
+    );
+
+    const data_reg = m.MIR_reg(self.ctx, "data", function.u.func);
+
+    // Getting an union field is essentialy casting it the concrete buzz type
+    switch (zig_type.*) {
+        .Struct, .Union => {
+            try self.buildExternApiCall(
+                .bz_containerFromSlice,
+                result_value,
+                &[_]m.MIR_op_t{
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                    m.MIR_new_uint_op(self.ctx, @intFromPtr(buzz_type)),
+                    m.MIR_new_reg_op(self.ctx, data_reg),
+                    m.MIR_new_uint_op(self.ctx, zig_type.size()),
+                },
+            );
+        },
+        else => {
+            const index = try self.REG("index", m.MIR_T_I64);
+            self.MOV(
+                m.MIR_new_reg_op(self.ctx, index),
+                m.MIR_new_uint_op(self.ctx, 0),
+            );
+
+            const field_ptr = m.MIR_new_mem_op(
+                self.ctx,
+                zigToMIRType(zig_type.*),
+                0,
+                data_reg,
+                index,
+                0,
+            );
+
+            try self.buildZigValueToBuzzValue(
+                buzz_type,
+                zig_type.*,
+                field_ptr,
+                result_value,
+            );
+        },
+    }
+
+    self.RET(result_value);
+
+    m.MIR_finish_func(self.ctx);
+
+    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.items.ptr));
+
+    return function;
+}
+
+fn buildZdefUnionSetter(
+    self: *Self,
+    union_name: []const u8,
+    field_name: []const u8,
+    buzz_type: *o.ObjTypeDef,
+    zig_type: *const ZigType,
+) Error!m.MIR_item_t {
+    var setter_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer setter_name.deinit();
+
+    try setter_name.writer().print(
+        "zdef_union_{s}_{s}_setter\x00",
+        .{
+            union_name,
+            field_name,
+        },
+    );
+
+    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
+    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(vm_name);
+    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(data_name);
+    var new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(new_value_name);
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(setter_name.items.ptr),
+        0,
+        null,
+        3,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(vm_name.ptr),
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(data_name.ptr),
+                .size = undefined,
+            },
+            .{
+                .type = m.MIR_T_U64,
+                .name = @ptrCast(new_value_name.ptr),
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+    self.state.?.vm_reg = m.MIR_reg(self.ctx, "vm", function.u.func);
+
+    const data_reg = m.MIR_reg(self.ctx, "data", function.u.func);
+    const new_value_reg = m.MIR_new_reg_op(self.ctx, m.MIR_reg(self.ctx, "new_value", function.u.func));
+    switch (zig_type.*) {
+        .Struct, .Union => {
+            const ptr_reg = m.MIR_new_reg_op(self.ctx, try self.REG("ptr_reg", m.MIR_T_I64));
+            try self.buildValueToForeignContainerPtr(
+                new_value_reg,
+                ptr_reg,
+            );
+
+            try self.buildExternApiCall(
+                .memcpy,
+                null,
+                &[_]m.MIR_op_t{
+                    m.MIR_new_reg_op(self.ctx, data_reg),
+                    m.MIR_new_uint_op(self.ctx, zig_type.size()),
+                    ptr_reg,
+                    m.MIR_new_uint_op(self.ctx, zig_type.size()),
+                },
+            );
+        },
+        else => {
+            const index = try self.REG("index", m.MIR_T_I64);
+            self.MOV(
+                m.MIR_new_reg_op(self.ctx, index),
+                m.MIR_new_uint_op(self.ctx, 0),
+            );
+
+            const field_ptr = m.MIR_new_mem_op(
+                self.ctx,
+                zigToMIRType(zig_type.*),
+                0,
+                data_reg,
+                index,
+                0,
+            );
+
+            try self.buildBuzzValueToZigValue(
+                buzz_type,
+                zig_type.*,
+                new_value_reg,
+                field_ptr,
+            );
+        },
+    }
+
+    m.MIR_finish_func(self.ctx);
+
+    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.items.ptr));
+
+    return function;
+}
+
+fn buildZdefContainerGetter(
     self: *Self,
     offset: usize,
     struct_name: []const u8,
@@ -484,7 +747,7 @@ fn buildZdefStructGetter(
     return function;
 }
 
-fn buildZdefStructSetter(
+fn buildZdefContainerSetter(
     self: *Self,
     offset: usize,
     struct_name: []const u8,
@@ -599,8 +862,8 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 and zig_type.Pointer.child.Int.signedness == .unsigned) {
                 // zig fmt: on
                 try self.buildValueToCString(buzz_value, dest);
-            } else if (zig_type.Pointer.child.* == .Struct) {
-                try self.buildValueToForeignStructPtr(buzz_value, dest);
+            } else if (zig_type.Pointer.child.* == .Struct or zig_type.Pointer.child.* == .Union) {
+                try self.buildValueToForeignContainerPtr(buzz_value, dest);
             } else {
                 try self.buildValueToUserData(buzz_value, dest);
             }
@@ -614,7 +877,7 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 // zig fmt: on
                 try self.buildValueToOptionalCString(buzz_value, dest);
             } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
-                try self.buildValueToOptionalForeignStructPtr(buzz_value, dest);
+                try self.buildValueToOptionalForeignContainerPtr(buzz_value, dest);
             } else {
                 try self.buildValueToOptionalUserData(buzz_value, dest);
             }
@@ -649,7 +912,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Float => self.buildValueFromFloat(zig_value, dest),
         .Bool => self.buildValueFromBoolean(zig_value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
-        .Struct => unreachable, // FIXME: should call an api function build a ObjForeignStruct
+        .Union, .Struct => unreachable, // FIXME: should call an api function build a ObjForeignContainer
         .Pointer => {
             // Is it a [*:0]const u8
             // zig fmt: off
@@ -659,7 +922,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                     // zig fmt: on
                 try self.buildValueFromCString(zig_value, dest);
             } else if (zig_type.Pointer.child.* == .Struct) {
-                try self.buildValueFromForeignStructPtr(buzz_type, zig_value, dest);
+                try self.buildValueFromForeignContainerPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromUserData(zig_value, dest);
             }
@@ -673,7 +936,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                     // zig fmt: on
                 try self.buildValueFromOptionalCString(zig_value, dest);
             } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
-                try self.buildValueFromOptionalForeignStructPtr(buzz_type, zig_value, dest);
+                try self.buildValueFromOptionalForeignContainerPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromOptionalUserData(zig_value, dest);
             }
@@ -1624,28 +1887,28 @@ fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void 
     );
 }
 
-fn buildValueToForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildValueToForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_valueToForeignStructPtr,
+        .bz_valueToForeignContainerPtr,
         dest,
         &[_]m.MIR_op_t{value},
     );
 }
 
-fn buildValueFromForeignStructPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildValueFromForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_fstructFromSlice,
+        .bz_containerFromSlice,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
             value,
-            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignStruct.zig_type.size()),
+            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignContainer.zig_type.size()),
         },
     );
 }
 
-fn buildValueFromOptionalForeignStructPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildValueFromOptionalForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     const null_label = m.MIR_new_label(self.ctx);
 
     self.MOV(
@@ -1660,20 +1923,20 @@ fn buildValueFromOptionalForeignStructPtr(self: *Self, type_def: *o.ObjTypeDef, 
     );
 
     try self.buildExternApiCall(
-        .bz_fstructFromSlice,
+        .bz_containerFromSlice,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
             value,
-            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignStruct.zig_type.size()),
+            m.MIR_new_uint_op(self.ctx, type_def.resolved_type.?.ForeignContainer.zig_type.size()),
         },
     );
 
     self.append(null_label);
 }
 
-fn buildValueToOptionalForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildValueToOptionalForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     const null_label = m.MIR_new_label(self.ctx);
 
     self.MOV(
@@ -1688,7 +1951,7 @@ fn buildValueToOptionalForeignStructPtr(self: *Self, value: m.MIR_op_t, dest: m.
     );
 
     try self.buildExternApiCall(
-        .bz_valueToForeignStructPtr,
+        .bz_valueToForeignContainerPtr,
         dest,
         &[_]m.MIR_op_t{value},
     );
@@ -1814,7 +2077,7 @@ fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
-fn buildValueToForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildValueToForeignContainer(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     const index = try self.REG("index", m.MIR_T_I64);
     self.MOV(
         m.MIR_new_reg_op(self.ctx, index),
@@ -1823,7 +2086,7 @@ fn buildValueToForeignStruct(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !
 
     const foreign = try self.REG("foreign", m.MIR_T_P);
     try self.buildExternApiCall(
-        .bz_valueToForeignStructPtr,
+        .bz_valueToForeignContainerPtr,
         m.MIR_new_reg_op(self.ctx, foreign),
         &[_]m.MIR_op_t{value},
     );
@@ -1863,7 +2126,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
         .Fiber,
         .UserData,
         => self.buildValueToObj(value, dest),
-        .ForeignStruct => try self.buildValueToForeignStruct(value, dest),
+        .ForeignContainer => try self.buildValueToForeignContainer(value, dest),
         .Placeholder,
         .Generic,
         .Any,
@@ -1893,7 +2156,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
         .Fiber,
         .UserData,
         => self.buildValueFromObj(value, dest),
-        .ForeignStruct,
+        .ForeignContainer,
         .Placeholder,
         .Generic,
         .Any,
@@ -3757,12 +4020,12 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
             return res;
         },
 
-        .ForeignStruct => {
+        .ForeignContainer => {
             if (dot_node.value) |value| {
                 const gen_value = (try self.generateNode(value)).?;
 
                 try self.buildExternApiCall(
-                    .bz_fstructSet,
+                    .bz_containerSet,
                     null,
                     &[_]m.MIR_op_t{
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -3781,7 +4044,7 @@ fn generateDot(self: *Self, dot_node: *n.DotNode) Error!?m.MIR_op_t {
                 );
 
                 try self.buildExternApiCall(
-                    .bz_fstructGet,
+                    .bz_containerGet,
                     res,
                     &[_]m.MIR_op_t{
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4319,16 +4582,13 @@ fn generateUnwrap(self: *Self, unwrap_node: *n.UnwrapNode) Error!?m.MIR_op_t {
     return value;
 }
 
-fn generateForeignStructInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m.MIR_op_t {
-    const fdef = object_init_node.node.type_def.?.resolved_type.?.ForeignStruct;
-    _ = fdef;
-
+fn generateForeignContainerInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m.MIR_op_t {
     const instance = m.MIR_new_reg_op(
         self.ctx,
         try self.REG("instance", m.MIR_T_I64),
     );
     try self.buildExternApiCall(
-        .bz_fstructInstance,
+        .bz_containerInstance,
         instance,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4340,7 +4600,7 @@ fn generateForeignStructInit(self: *Self, object_init_node: *n.ObjectInitNode) E
         const value = object_init_node.properties.get(property_name).?;
 
         try self.buildExternApiCall(
-            .bz_fstructSet,
+            .bz_containerSet,
             null,
             &[_]m.MIR_op_t{
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4356,8 +4616,8 @@ fn generateForeignStructInit(self: *Self, object_init_node: *n.ObjectInitNode) E
 }
 
 fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m.MIR_op_t {
-    if (object_init_node.node.type_def.?.def_type == .ForeignStruct) {
-        return self.generateForeignStructInit(object_init_node);
+    if (object_init_node.node.type_def.?.def_type == .ForeignContainer) {
+        return self.generateForeignContainerInit(object_init_node);
     }
 
     const object = if (object_init_node.object) |node|
@@ -5728,13 +5988,13 @@ pub const ExternApi = enum {
     bz_valueToCString,
     bz_valueToUserData,
     bz_userDataToValue,
-    bz_valueToForeignStructPtr,
+    bz_valueToForeignContainerPtr,
     bz_stringZ,
-    bz_fstructGet,
-    bz_fstructSet,
-    bz_fstructInstance,
+    bz_containerGet,
+    bz_containerSet,
+    bz_containerInstance,
     bz_valueTypeOf,
-    bz_fstructFromSlice,
+    bz_containerFromSlice,
 
     bz_dumpStack,
 
@@ -5742,6 +6002,7 @@ pub const ExternApi = enum {
     setjmp,
     // libc exit: https://man7.org/linux/man-pages/man3/exit.3.html
     exit,
+    memcpy,
 
     dumpInt,
     bz_valueDump,
@@ -6411,7 +6672,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_valueToForeignStructPtr => m.MIR_new_proto_arr(
+            .bz_valueToForeignContainerPtr => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -6444,7 +6705,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_fstructGet => m.MIR_new_proto_arr(
+            .bz_containerGet => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -6473,7 +6734,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_fstructSet => m.MIR_new_proto_arr(
+            .bz_containerSet => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 0,
@@ -6507,7 +6768,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_fstructInstance => m.MIR_new_proto_arr(
+            .bz_containerInstance => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -6545,7 +6806,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_fstructFromSlice => m.MIR_new_proto_arr(
+            .bz_containerFromSlice => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -6570,6 +6831,35 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "len",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .memcpy => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                4,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "dest",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "dest_len",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "source",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "source_len",
                         .size = undefined,
                     },
                 },
@@ -6625,13 +6915,14 @@ pub const ExternApi = enum {
             .bz_valueToCString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToCString))),
             .bz_valueToUserData => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToUserData))),
             .bz_userDataToValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjUserData.bz_userDataToValue))),
-            .bz_valueToForeignStructPtr => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToForeignStructPtr))),
+            .bz_valueToForeignContainerPtr => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToForeignContainerPtr))),
             .bz_stringZ => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_stringZ))),
-            .bz_fstructGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructGet))),
-            .bz_fstructSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructSet))),
-            .bz_fstructInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructInstance))),
+            .bz_containerGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerGet))),
+            .bz_containerSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerSet))),
+            .bz_containerInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerInstance))),
             .bz_valueTypeOf => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueTypeOf))),
-            .bz_fstructFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignStruct.bz_fstructFromSlice))),
+            .bz_containerFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerFromSlice))),
+            .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -6699,13 +6990,14 @@ pub const ExternApi = enum {
             .bz_valueToCString => "bz_valueToCString",
             .bz_valueToUserData => "bz_valueToUserData",
             .bz_userDataToValue => "bz_userDataToValue",
-            .bz_valueToForeignStructPtr => "bz_valueToForeignStructPtr",
+            .bz_valueToForeignContainerPtr => "bz_valueToForeignContainerPtr",
             .bz_stringZ => "bz_stringZ",
-            .bz_fstructGet => "bz_fstructGet",
-            .bz_fstructSet => "bz_fstructSet",
-            .bz_fstructInstance => "bz_fstructInstance",
+            .bz_containerGet => "bz_containerGet",
+            .bz_containerSet => "bz_containerSet",
+            .bz_containerInstance => "bz_containerInstance",
             .bz_valueTypeOf => "bz_valueTypeOf",
-            .bz_fstructFromSlice => "bz_fstructFromSlice",
+            .bz_containerFromSlice => "bz_containerFromSlice",
+            .memcpy => "bz_memcpy",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
@@ -6767,13 +7059,14 @@ pub const ExternApi = enum {
             .bz_valueToCString => "p_bz_valueToCString",
             .bz_valueToUserData => "p_bz_valueToUserData",
             .bz_userDataToValue => "p_bz_userDataToValue",
-            .bz_valueToForeignStructPtr => "p_bz_valueToForeignStructPtr",
+            .bz_valueToForeignContainerPtr => "p_bz_valueToForeignContainerPtr",
             .bz_stringZ => "p_bz_stringZ",
-            .bz_fstructGet => "p_bz_fstructGet",
-            .bz_fstructSet => "p_bz_fstructSet",
-            .bz_fstructInstance => "p_bz_fstructInstance",
+            .bz_containerGet => "p_bz_containerGet",
+            .bz_containerSet => "p_bz_containerSet",
+            .bz_containerInstance => "p_bz_containerInstance",
             .bz_valueTypeOf => "p_bz_valueTypeOf",
-            .bz_fstructFromSlice => "p_bz_fstructFromSlice",
+            .bz_containerFromSlice => "p_bz_containerFromSlice",
+            .memcpy => "p_bz_memcpy",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",

@@ -42,7 +42,7 @@ const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
-const ObjForeignStruct = _obj.ObjForeignStruct;
+const ObjForeignContainer = _obj.ObjForeignContainer;
 const FunctionNode = _node.FunctionNode;
 const cloneObject = _obj.cloneObject;
 const OpCode = _chunk.OpCode;
@@ -650,12 +650,12 @@ pub const VM = struct {
 
         OP_OBJECT,
         OP_INSTANCE,
-        OP_FSTRUCT_INSTANCE,
+        OP_FCONTAINER_INSTANCE,
         OP_METHOD,
         OP_PROPERTY,
         OP_GET_OBJECT_PROPERTY,
         OP_GET_INSTANCE_PROPERTY,
-        OP_GET_FSTRUCT_INSTANCE_PROPERTY,
+        OP_GET_FCONTAINER_INSTANCE_PROPERTY,
         OP_GET_LIST_PROPERTY,
         OP_GET_MAP_PROPERTY,
         OP_GET_STRING_PROPERTY,
@@ -663,7 +663,7 @@ pub const VM = struct {
         OP_GET_FIBER_PROPERTY,
         OP_SET_OBJECT_PROPERTY,
         OP_SET_INSTANCE_PROPERTY,
-        OP_SET_FSTRUCT_INSTANCE_PROPERTY,
+        OP_SET_FCONTAINER_INSTANCE_PROPERTY,
 
         OP_ENUM,
         OP_ENUM_CASE,
@@ -2286,11 +2286,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_FSTRUCT_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+    fn OP_FCONTAINER_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const typedef = self.pop().obj().access(ObjTypeDef, .Type, self.gc);
         const instance = (self.gc.allocateObject(
-            ObjForeignStruct,
-            ObjForeignStruct.init(
+            ObjForeignContainer,
+            ObjForeignContainer.init(
                 self,
                 typedef.?,
             ) catch @panic("Out of memory"),
@@ -2445,13 +2445,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_FSTRUCT_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+    fn OP_GET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const instance_value = self.peek(0);
         const name: *ObjString = self.readString(arg);
 
         const struct_instance = instance_value.obj().access(
-            ObjForeignStruct,
-            .ForeignStruct,
+            ObjForeignContainer,
+            .ForeignContainer,
             self.gc,
         ).?;
 
@@ -2678,13 +2678,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SET_FSTRUCT_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+    fn OP_SET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const instance_value = self.peek(1);
         const name: *ObjString = self.readString(arg);
 
         const struct_instance = instance_value.obj().access(
-            ObjForeignStruct,
-            .ForeignStruct,
+            ObjForeignContainer,
+            .ForeignContainer,
             self.gc,
         ).?;
 
@@ -2692,7 +2692,7 @@ pub const VM = struct {
             self,
             name.string,
             self.peek(0),
-        );
+        ) catch @panic("Out of memory");
 
         // Get the new value from stack, pop the instance and push value again
         const value: Value = self.pop();

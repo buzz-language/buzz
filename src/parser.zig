@@ -990,11 +990,11 @@ pub const Parser = struct {
                             );
                         }
                     },
-                    .ForeignStruct => {
+                    .ForeignContainer => {
                         // We can't create a field access placeholder without a name
                         assert(child_placeholder.name != null);
 
-                        const f_def = resolved_type.resolved_type.?.ForeignStruct;
+                        const f_def = resolved_type.resolved_type.?.ForeignContainer;
 
                         // Search for a field matching the placeholder
                         if (f_def.buzz_type.get(child_placeholder.name.?.string)) |field| {
@@ -4095,8 +4095,8 @@ pub const Parser = struct {
                         node.node.type_def = property_type;
                     }
                 },
-                .ForeignStruct => {
-                    const f_def = callee.type_def.?.resolved_type.?.ForeignStruct;
+                .ForeignContainer => {
+                    const f_def = callee.type_def.?.resolved_type.?.ForeignContainer;
 
                     if (f_def.buzz_type.get(member_name)) |field| {
                         if (can_assign and try self.match(.Equal)) {

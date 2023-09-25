@@ -561,7 +561,7 @@ inline fn rawWriteStruct(
         }
 
         var len: usize = 0;
-        const ptr = api.ObjForeignStruct.bz_fstructSlice(value, &len);
+        const ptr = api.ObjForeignContainer.bz_containerSlice(value, &len);
 
         buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
         buffer.buffer.expandToCapacity();
@@ -612,12 +612,12 @@ inline fn rawReadStruct(
     type_def_value: api.Value,
 ) api.Value {
     const type_def = type_def_value.bz_valueToObjTypeDef();
-    const size = type_def.bz_fstructTypeSize();
+    const size = type_def.bz_containerTypeSize();
 
     const from = (at orelse buffer.cursor);
     const slice = buffer.buffer.items[from .. from + size];
 
-    return api.ObjForeignStruct.bz_fstructFromSlice(vm, type_def, slice.ptr, slice.len);
+    return api.ObjForeignContainer.bz_containerFromSlice(vm, type_def, slice.ptr, slice.len);
 }
 
 export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {

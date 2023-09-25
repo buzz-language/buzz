@@ -61,13 +61,13 @@ test "pointer with Buffer" {
 
 zdef("tests/utils/libforeign", `
     const Data = extern struct {
-        msg: [*:0]const u8,
         id: i32,
+        msg: [*:0]const u8,
     };
-`);
 
-zdef("tests/utils/libforeign", "fn get_data_msg(data: *Data) [*:0]const u8;");
-zdef("tests/utils/libforeign", "fn set_data_id(data: *Data) void;");
+    fn get_data_msg(data: *Data) [*:0]const u8;
+    fn set_data_id(data: *Data) void;
+`);
 
 test "struct" {
     Data data = Data{
@@ -107,4 +107,45 @@ test "write/read struct in buffer" {
         read.msg == data.msg and read.id == data.id,
         message: "Could read struct from buffer"
     );
+}
+
+zdef("tests/utils/libforeign", `
+    pub const Flag = extern struct {
+        id: i32,
+        value: bool,
+    };
+
+    pub const Misc = extern union {
+        id: i32,
+        data: Data,
+        flag: Flag,
+    };
+
+    fn get_misc_msg(misc: *Misc) [*:0]const u8;
+    fn get_misc_flag(misc: *Misc) bool;
+    fn set_misc_id(misc: *Misc, new_id: i32) void;
+`);
+
+test "union" {
+    Misc misc = Misc{
+        data = Data{
+            id = 123,
+            msg = cstr("hello world"),
+        }
+    };
+
+    assert(get_misc_msg(misc) == cstr("hello world"), message: "Could read union field");
+
+    misc.flag = Flag{
+        id = 123,
+        value = true,
+    };
+
+    assert(get_misc_flag(misc), message: "Could read union field");
+
+    misc.id = 321;
+
+    assert(misc.id == 321, message: "Got expected memory layout of a C union");
+    assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
+    assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
 }

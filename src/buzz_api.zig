@@ -36,7 +36,7 @@ const ObjClosure = _obj.ObjClosure;
 const ObjNative = _obj.ObjNative;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjFiber = _obj.ObjFiber;
-const ObjForeignStruct = _obj.ObjForeignStruct;
+const ObjForeignContainer = _obj.ObjForeignContainer;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const TypeRegistry = memory.TypeRegistry;
@@ -311,9 +311,9 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 std.debug.print("}}", .{});
             },
 
-            .ForeignStruct => {
-                const foreign = ObjForeignStruct.cast(value.obj()).?;
-                const foreign_def = foreign.type_def.resolved_type.?.ForeignStruct;
+            .ForeignContainer => {
+                const foreign = ObjForeignContainer.cast(value.obj()).?;
+                const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
 
                 std.debug.print(
                     "{s}{{ ",
@@ -358,9 +358,9 @@ export fn bz_valueToObjUserData(value: Value) *ObjUserData {
     return ObjUserData.cast(value.obj()).?;
 }
 
-// FIXME: move this is ObjForeignStruct?
-export fn bz_valueToForeignStructPtr(value: Value) [*]u8 {
-    return ObjForeignStruct.cast(value.obj()).?.data.ptr;
+// FIXME: move this is ObjForeignContainer?
+export fn bz_valueToForeignContainerPtr(value: Value) [*]u8 {
+    return ObjForeignContainer.cast(value.obj()).?.data.ptr;
 }
 
 /// Converts a c string to a *ObjString
@@ -473,14 +473,14 @@ export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
     return typedef.toValue();
 }
 
-export fn bz_fstructTypeSize(type_def: *ObjTypeDef) usize {
-    const struct_def = type_def.resolved_type.?.ForeignStruct;
+export fn bz_containerTypeSize(type_def: *ObjTypeDef) usize {
+    const struct_def = type_def.resolved_type.?.ForeignContainer;
 
     return struct_def.zig_type.size();
 }
 
-export fn bz_fstructTypeAlign(type_def: *ObjTypeDef) usize {
-    const struct_def = type_def.resolved_type.?.ForeignStruct;
+export fn bz_containerTypeAlign(type_def: *ObjTypeDef) usize {
+    const struct_def = type_def.resolved_type.?.ForeignContainer;
 
     return struct_def.zig_type.alignment();
 }
@@ -1606,55 +1606,57 @@ export fn bz_writeZigValueToBuffer(
     }
 }
 
-export fn bz_fstructGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value {
-    const fstruct = ObjForeignStruct.cast(value.obj()).?;
+export fn bz_containerGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value {
+    const container = ObjForeignContainer.cast(value.obj()).?;
     // Oh right that's beautiful enough...
-    return fstruct.type_def.resolved_type.?.ForeignStruct.fields.get(field[0..len]).?.getter(
+    return container.type_def.resolved_type.?.ForeignContainer.fields.get(field[0..len]).?.getter(
         vm,
-        fstruct.data.ptr,
+        container.data.ptr,
     );
 }
 
-export fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void {
-    const fstruct = ObjForeignStruct.cast(value.obj()).?;
+export fn bz_containerSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void {
+    const container = ObjForeignContainer.cast(value.obj()).?;
     // Oh right that's beautiful enough...
-    return fstruct.type_def.resolved_type.?.ForeignStruct.fields.get(field[0..len]).?.setter(
+    return container.type_def.resolved_type.?.ForeignContainer.fields.get(field[0..len]).?.setter(
         vm,
-        fstruct.data.ptr,
+        container.data.ptr,
         new_value,
     );
 }
 
-export fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value {
+export fn bz_containerInstance(vm: *VM, typedef_value: Value) Value {
     return (vm.gc.allocateObject(
-        ObjForeignStruct,
-        ObjForeignStruct.init(
+        ObjForeignContainer,
+        ObjForeignContainer.init(
             vm,
             ObjTypeDef.cast(typedef_value.obj()).?,
         ) catch @panic("Out of memory"),
     ) catch @panic("Out of memory")).toValue();
 }
 
-export fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8 {
-    const fstruct = ObjForeignStruct.cast(fstruct_value.obj()).?;
-
-    len.* = fstruct.data.len;
-
-    return fstruct.data.ptr;
+export fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) void {
+    @memcpy(dest[0..dest_len], source[0..source_len]);
 }
 
-export fn bz_fstructFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value {
-    var fstruct = (vm.gc.allocateObject(
-        ObjForeignStruct,
-        ObjForeignStruct.init(
-            vm,
-            type_def,
-        ) catch @panic("Out of memory"),
+export fn bz_containerSlice(container_value: Value, len: *usize) [*]u8 {
+    const container = ObjForeignContainer.cast(container_value.obj()).?;
+
+    len.* = container.data.len;
+
+    return container.data.ptr;
+}
+
+export fn bz_containerFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value {
+    var container = (vm.gc.allocateObject(
+        ObjForeignContainer,
+        .{
+            .type_def = type_def,
+            .data = ptr[0..len],
+        },
     ) catch @panic("Out of memory"));
 
-    fstruct.data = ptr[0..len];
-
-    return fstruct.toValue();
+    return container.toValue();
 }
 
 export fn bz_zigTypeSize(self: *ZigType) usize {

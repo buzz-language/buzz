@@ -153,17 +153,13 @@ const zig_basic_types = std.ComptimeStringMap(
         .{
             "f32",
             ZigType{
-                .Float = .{
-                    .bits = 32,
-                },
+                .Float = .{ .bits = 32 },
             },
         },
         .{
             "f64",
             ZigType{
-                .Float = .{
-                    .bits = 64,
-                },
+                .Float = .{ .bits = 64 },
             },
         },
 
@@ -173,9 +169,7 @@ const zig_basic_types = std.ComptimeStringMap(
         },
         .{
             "void",
-            ZigType{
-                .Void = {},
-            },
+            ZigType{ .Void = {} },
         },
     },
 );
@@ -187,6 +181,7 @@ pub const Zdef = struct {
 };
 
 pub const State = struct {
+    script: []const u8,
     source: t.Token,
     ast: Ast,
     parser: ?*p.Parser,
@@ -246,6 +241,10 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
     // defer self.gc.allocator.free(duped);
 
     self.state = .{
+        .script = if (parser) |uparser|
+            try std.mem.replaceOwned(u8, self.gc.allocator, uparser.script_name, "/", ".")
+        else
+            "zdef",
         .parsing_type_expr = parsing_type_expr,
         .source = source,
         .parser = parser,
@@ -412,7 +411,8 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         else => unreachable,
     };
 
-    if ((container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) and self.state.?.ast.tokens.get(container.ast.main_token).tag != .keyword_opaque) {
+    const main_token = self.state.?.ast.tokens.get(container.ast.main_token).tag;
+    if ((container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) and main_token != .keyword_opaque) {
         self.reporter.reportErrorAt(
             .zdef,
             self.state.?.source,
@@ -420,16 +420,122 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         );
     }
 
-    if (self.state.?.ast.tokens.get(container_node.main_token).tag != .keyword_struct and self.state.?.ast.tokens.get(container_node.main_token).tag != .keyword_opaque) {
-        self.reporter.reportErrorAt(
-            .zdef,
-            self.state.?.source,
-            "Only `extern` and `opaque` structs are supported",
+    return switch (main_token) {
+        .keyword_opaque, .keyword_struct => self.structContainer(name, container),
+        .keyword_union => self.unionContainer(name, container),
+
+        else => unsupported: {
+            self.reporter.reportErrorFmt(
+                .zdef,
+                self.state.?.source,
+                "Unsupported container {s}",
+                .{self.state.?.ast.tokenSlice(container.ast.main_token)},
+            );
+
+            const zdef = try self.gc.allocator.create(Zdef);
+            zdef.* = .{
+                .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                .zig_type = ZigType{ .Void = {} },
+                .name = name,
+            };
+
+            break :unsupported zdef;
+        },
+    };
+}
+
+fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
+    var fields = std.ArrayList(ZigType.UnionField).init(self.gc.allocator);
+    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
+    var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
+    var decls = std.ArrayList(ZigType.Declaration).init(self.gc.allocator);
+    var next_field: ?*Zdef = null;
+    for (container.ast.members, 0..) |member, idx| {
+        const member_zdef = next_field orelse try self.getZdef(member);
+
+        next_field = if (idx < container.ast.members.len - 1)
+            try self.getZdef(container.ast.members[idx + 1])
+        else
+            null;
+
+        try fields.append(
+            ZigType.UnionField{
+                .name = member_zdef.?.name,
+                .type = &member_zdef.?.zig_type,
+                .alignment = member_zdef.?.zig_type.alignment(),
+            },
+        );
+
+        try decls.append(
+            ZigType.Declaration{
+                .name = member_zdef.?.name,
+            },
+        );
+
+        try buzz_fields.put(
+            member_zdef.?.name,
+            member_zdef.?.type_def,
+        );
+
+        try get_set_fields.put(
+            member_zdef.?.name,
+            .{
+                // Always 0 since this is an enum
+                .offset = 0,
+                .getter = undefined,
+                .setter = undefined,
+            },
         );
     }
 
+    const zig_type = ZigType{
+        .Union = .{
+            .layout = .Extern,
+            .fields = fields.items,
+            .decls = decls.items,
+            .tag_type = null,
+        },
+    };
+
+    var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+    defer qualified_name.deinit();
+
+    try qualified_name.writer().print(
+        "{s}.{s}",
+        .{
+            self.state.?.script,
+            name,
+        },
+    );
+
+    const foreign_def = o.ObjForeignContainer.ContainerDef{
+        .location = self.state.?.source,
+        .name = try self.gc.copyString(name),
+        // FIXME
+        .qualified_name = try self.gc.copyString(qualified_name.items),
+        .zig_type = zig_type,
+        .buzz_type = buzz_fields,
+        .fields = get_set_fields,
+    };
+
+    const type_def = o.ObjTypeDef{
+        .def_type = .ForeignContainer,
+        .resolved_type = .{ .ForeignContainer = foreign_def },
+    };
+
+    const zdef = try self.gc.allocator.create(Zdef);
+    zdef.* = .{
+        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .zig_type = zig_type,
+        .name = name,
+    };
+
+    return zdef;
+}
+
+fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
     var fields = std.ArrayList(ZigType.StructField).init(self.gc.allocator);
-    var get_set_fields = std.StringArrayHashMap(o.ObjForeignStruct.StructDef.StructField).init(self.gc.allocator);
+    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
     var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
     var decls = std.ArrayList(ZigType.Declaration).init(self.gc.allocator);
     var offset: usize = 0;
@@ -496,7 +602,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         },
     };
 
-    const foreign_def = o.ObjForeignStruct.StructDef{
+    const foreign_def = o.ObjForeignContainer.ContainerDef{
         .location = self.state.?.source,
         .name = try self.gc.copyString(name),
         // FIXME
@@ -507,8 +613,8 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
     };
 
     const type_def = o.ObjTypeDef{
-        .def_type = .ForeignStruct,
-        .resolved_type = .{ .ForeignStruct = foreign_def },
+        .def_type = .ForeignContainer,
+        .resolved_type = .{ .ForeignContainer = foreign_def },
     };
 
     const zdef = try self.gc.allocator.create(Zdef);
@@ -549,15 +655,15 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
         else
             null;
 
-        if (global != null and global.?.type_def.def_type == .ForeignStruct) {
+        if (global != null and global.?.type_def.def_type == .ForeignContainer) {
             type_def = global.?.type_def.*;
-            zig_type = global.?.type_def.resolved_type.?.ForeignStruct.zig_type;
+            zig_type = global.?.type_def.resolved_type.?.ForeignContainer.zig_type;
         }
 
         if (global == null) {
-            if (self.state.?.structs.get(id)) |fstruct| {
-                type_def = fstruct.type_def.*;
-                zig_type = fstruct.zig_type;
+            if (self.state.?.structs.get(id)) |container| {
+                type_def = container.type_def.*;
+                zig_type = container.zig_type;
             }
         }
     }
@@ -618,7 +724,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             },
             .name = "ptr",
         }
-    else if (child_type.type_def.def_type == .ForeignStruct)
+    else if (child_type.type_def.def_type == .ForeignContainer)
         .{
             .type_def = child_type.type_def,
             .zig_type = ZigType{

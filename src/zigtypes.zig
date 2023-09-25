@@ -74,6 +74,15 @@ pub const Type = union(enum) {
 
                 break :str struct_size;
             },
+            .Union => uni: {
+                const union_type = self.Union;
+                var union_size: usize = 0;
+                for (union_type.fields) |field| {
+                    union_size = @max(union_size, field.type.size());
+                }
+
+                break :uni union_size;
+            },
             else => unreachable,
         };
     }
@@ -93,6 +102,17 @@ pub const Type = union(enum) {
                         max_align;
                 }
                 break :str max_align;
+            },
+            .Union => uni: {
+                const union_type = self.Union;
+                var max_align: u16 = 0;
+                for (union_type.fields) |field| {
+                    max_align = if (field.alignment > max_align)
+                        field.alignment
+                    else
+                        max_align;
+                }
+                break :uni max_align;
             },
             .Pointer => 8,
             else => unreachable,
