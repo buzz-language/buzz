@@ -3356,7 +3356,6 @@ pub const Parser = struct {
                 const fiber = fiber_type.?.resolved_type.?.Fiber;
 
                 // Resume returns null if nothing was yielded and/or fiber reached its return statement
-                assert(fiber.yield_type.optional or fiber.yield_type.def_type == .Void);
                 node.node.type_def = fiber.yield_type;
             }
         }

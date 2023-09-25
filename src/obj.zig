@@ -720,7 +720,12 @@ pub const ObjString = struct {
     pub fn next(self: *Self, vm: *VM, str_index: ?i32) !?i32 {
         if (str_index) |index| {
             if (index < 0 or index >= @as(i32, @intCast(self.string.len))) {
-                try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to str")).toValue());
+                try vm.throw(
+                    VM.Error.OutOfBound,
+                    (try vm.gc.copyString("Out of bound access to str")).toValue(),
+                    null,
+                    null,
+                );
             }
 
             return if (index + 1 >= @as(i32, @intCast(self.string.len)))
@@ -1590,7 +1595,12 @@ pub const ObjList = struct {
     pub fn rawNext(self: *Self, vm: *VM, list_index: ?i32) !?i32 {
         if (list_index) |index| {
             if (index < 0 or index >= @as(i32, @intCast(self.items.items.len))) {
-                try vm.throw(VM.Error.OutOfBound, (try vm.gc.copyString("Out of bound access to list")).toValue());
+                try vm.throw(
+                    VM.Error.OutOfBound,
+                    (try vm.gc.copyString("Out of bound access to list")).toValue(),
+                    null,
+                    null,
+                );
             }
 
             return if (index + 1 >= @as(i32, @intCast(self.items.items.len)))

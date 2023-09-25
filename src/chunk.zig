@@ -75,8 +75,8 @@ pub const OpCode = enum(u8) {
     OP_CLOSURE,
     OP_CLOSE_UPVALUE,
 
-    OP_ROUTINE,
-    OP_INVOKE_ROUTINE,
+    OP_FIBER,
+    OP_INVOKE_FIBER,
     OP_RESUME,
     OP_RESOLVE,
     OP_YIELD,
