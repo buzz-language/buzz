@@ -7,6 +7,8 @@ const jmp = @import("../jmp.zig").jmp;
 // FIXME: some should only be available to the JIT compiler
 // FIXME: naming is not consistant
 
+pub extern fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) void;
+
 pub const ObjUpValue = opaque {};
 
 pub const ObjNative = opaque {
@@ -271,7 +273,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToObjUserData(value: Value) *ObjUserData;
     pub extern fn bz_valueToUserData(value: Value) u64;
     pub extern fn bz_valueToObjTypeDef(value: Value) *ObjTypeDef;
-    pub extern fn bz_valueToForeignStructPtr(value: Value) [*]u8;
+    pub extern fn bz_valueToForeignContainerPtr(value: Value) [*]u8;
 
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
 
@@ -286,8 +288,8 @@ pub const ObjClosure = opaque {};
 pub const ObjTypeDef = opaque {
     pub extern fn bz_stringType(vm: *VM) Value;
     pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value;
-    pub extern fn bz_fstructTypeSize(self: *ObjTypeDef) usize;
-    pub extern fn bz_fstructTypeAlign(type_def: *ObjTypeDef) usize;
+    pub extern fn bz_containerTypeSize(self: *ObjTypeDef) usize;
+    pub extern fn bz_containerTypeAlign(type_def: *ObjTypeDef) usize;
 };
 
 pub const ObjString = opaque {
@@ -359,12 +361,12 @@ pub const ObjFiber = opaque {
     pub extern fn bz_isMainFiber(self: *ObjFiber, vm: *VM) Value;
 };
 
-pub const ObjForeignStruct = opaque {
-    pub extern fn bz_fstructGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value;
-    pub extern fn bz_fstructSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
-    pub extern fn bz_fstructInstance(vm: *VM, typedef_value: Value) Value;
-    pub extern fn bz_fstructSlice(fstruct_value: Value, len: *usize) [*]u8;
-    pub extern fn bz_fstructFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value;
+pub const ObjForeignContainer = opaque {
+    pub extern fn bz_containerGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value;
+    pub extern fn bz_containerSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
+    pub extern fn bz_containerInstance(vm: *VM, typedef_value: Value) Value;
+    pub extern fn bz_containerSlice(container_value: Value, len: *usize) [*]u8;
+    pub extern fn bz_containerFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value;
 };
 
 pub extern fn dumpInt(value: u64) void;

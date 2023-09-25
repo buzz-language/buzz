@@ -33,7 +33,7 @@ const ObjNative = _obj.ObjNative;
 const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
 const ObjFiber = _obj.ObjFiber;
-const ObjForeignStruct = _obj.ObjForeignStruct;
+const ObjForeignContainer = _obj.ObjForeignContainer;
 
 pub const TypeRegistry = struct {
     const Self = @This();
@@ -262,7 +262,7 @@ pub const GarbageCollector = struct {
             ObjUserData => ObjUserData.toObj(obj),
             ObjPattern => ObjPattern.toObj(obj),
             ObjFiber => ObjFiber.toObj(obj),
-            ObjForeignStruct => ObjForeignStruct.toObj(obj),
+            ObjForeignContainer => ObjForeignContainer.toObj(obj),
             else => {},
         };
 
@@ -295,7 +295,7 @@ pub const GarbageCollector = struct {
                     ObjUserData => .UserData,
                     ObjPattern => .Pattern,
                     ObjFiber => .Fiber,
-                    ObjForeignStruct => .ForeignStruct,
+                    ObjForeignContainer => .ForeignContainer,
                     else => {},
                 },
             );
@@ -475,7 +475,7 @@ pub const GarbageCollector = struct {
             .UserData => obj.access(ObjUserData, .UserData, self).?.mark(self),
             .Pattern => obj.access(ObjPattern, .Pattern, self).?.mark(self),
             .Fiber => obj.access(ObjFiber, .Fiber, self).?.mark(self),
-            .ForeignStruct => obj.access(ObjForeignStruct, .ForeignStruct, self).?.mark(self),
+            .ForeignContainer => obj.access(ObjForeignContainer, .ForeignContainer, self).?.mark(self),
         };
 
         if (BuildOptions.gc_debug) {
@@ -636,12 +636,12 @@ pub const GarbageCollector = struct {
 
                 free(self, ObjFiber, obj_fiber);
             },
-            .ForeignStruct => {
-                var obj_foreignstruct = ObjForeignStruct.cast(obj).?;
+            .ForeignContainer => {
+                var obj_foreignstruct = ObjForeignContainer.cast(obj).?;
 
                 self.freeMany(u8, obj_foreignstruct.data);
 
-                free(self, ObjForeignStruct, obj_foreignstruct);
+                free(self, ObjForeignContainer, obj_foreignstruct);
             },
         }
 
