@@ -26,6 +26,7 @@ const ObjFunction = _obj.ObjFunction;
 const ObjObject = _obj.ObjObject;
 const ObjList = _obj.ObjList;
 const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
 const ObjBoundMethod = _obj.ObjBoundMethod;
@@ -5091,11 +5092,29 @@ pub const EnumNode = struct {
         return false;
     }
 
-    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        return GenError.NotConstant;
+    pub fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        if (node.type_def.?.resolved_type.?.Enum.value) |enum_| {
+            return enum_.toValue();
+        }
+
+        var enum_ = try gc.allocateObject(
+            ObjEnum,
+            ObjEnum.init(gc.allocator, node.type_def.?),
+        );
+
+        for (self.cases.items) |case| {
+            try enum_.cases.append(try case.toValue(case, gc));
+        }
+
+        node.type_def.?.resolved_type.?.Enum.value = enum_;
+
+        return enum_.toValue();
     }
 
-    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
         var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
@@ -5121,11 +5140,6 @@ pub const EnumNode = struct {
             },
         }
 
-        try codegen.emitCodeArg(self.node.location, .OP_ENUM, try codegen.makeConstant(node.type_def.?.toValue()));
-        try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
-
-        try codegen.emitCodeArg(self.node.location, .OP_GET_GLOBAL, @intCast(self.slot));
-
         for (self.cases.items) |case| {
             if (case.type_def == null or case.type_def.?.def_type == .Placeholder) {
                 codegen.reporter.reportPlaceholder(case.type_def.?.resolved_type.?.Placeholder);
@@ -5139,13 +5153,17 @@ pub const EnumNode = struct {
                     "Bad enum case type",
                 );
             }
-
-            _ = try case.toByteCode(case, codegen, breaks);
-
-            try codegen.emitOpCode(self.node.location, .OP_ENUM_CASE);
         }
 
-        try codegen.emitOpCode(self.node.location, .OP_POP);
+        // Since an enum contains only constant values we can make the constant right away
+        try codegen.emitCodeArg(
+            self.node.location,
+            .OP_CONSTANT,
+            try codegen.makeConstant(
+                try val(self.toNode(), codegen.gc),
+            ),
+        );
+        try codegen.emitCodeArg(self.node.location, .OP_DEFINE_GLOBAL, @intCast(self.slot));
 
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
@@ -6837,13 +6855,28 @@ pub const DotNode = struct {
     call: ?*CallNode = null,
     enum_index: ?usize = null,
 
-    fn constant(_: *anyopaque) bool {
-        // TODO: should be true, but we have to evaluate a constant call
-        return false;
+    fn constant(nodePtr: *anyopaque) bool {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        return self.callee.type_def.?.def_type == .Enum and self.callee.type_def.?.resolved_type.?.Enum.value != null;
     }
 
-    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        return GenError.NotConstant;
+    fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        if (self.callee.type_def.?.def_type != .Enum or self.callee.type_def.?.resolved_type.?.Enum.value == null) {
+            return GenError.NotConstant;
+        }
+
+        return (try gc.allocateObject(
+            ObjEnumInstance,
+            ObjEnumInstance{
+                .enum_ref = self.callee.type_def.?.resolved_type.?.Enum.value.?,
+                .case = @intCast(self.enum_index.?),
+            },
+        )).toValue();
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {

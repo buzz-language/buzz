@@ -3006,6 +3006,8 @@ pub const Parser = struct {
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
 
+        enum_type.resolved_type.?.Enum.value = ObjEnum.cast((try EnumNode.val(&node.node, self.gc)).obj()).?;
+
         return &node.node;
     }
 
