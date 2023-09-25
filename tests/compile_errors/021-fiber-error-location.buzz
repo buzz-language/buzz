@@ -1,0 +1,28 @@
+| :7:13
+import "std";
+
+fun count(int n) > str > int? {
+    for (int i = 0; i < n; i = i + 1) {
+    	if (i == 2) {
+            throw "an error occured";
+        }
+        _ = yield i;
+    }
+
+    return "Counting is done!";
+}
+
+fun run() > void {
+    fib<str, int?> counter = &count(10);
+    
+    int sum = 0;
+    while (!counter.over()) {
+        sum = sum + resume counter ?? 0;
+    }
+
+    print(resolve counter);
+}
+
+test "fiber error location" {
+    run();
+}

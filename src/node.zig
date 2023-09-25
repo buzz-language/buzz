@@ -4161,7 +4161,7 @@ pub const AsyncCallNode = struct {
         var self = Self.cast(node).?; // self
 
         // Push fiber type as constant (we only need it if the fiber is printed out)
-        // Should not interfere with local counts since OP_ROUTINE will consume it right away
+        // Should not interfere with local counts since OP_FIBER will consume it right away
         try codegen.emitConstant(
             node.location,
             node.type_def.?.toValue(),
@@ -4618,7 +4618,7 @@ pub const CallNode = struct {
 
                 try codegen.emitCodeArgs(
                     self.node.location,
-                    .OP_ROUTINE,
+                    .OP_FIBER,
                     call_arg_count,
                     if (self.catch_default != null) 1 else 0,
                 );
@@ -4631,7 +4631,7 @@ pub const CallNode = struct {
                 if (invoked) {
                     try codegen.emitCodeArg(
                         self.node.location,
-                        .OP_INVOKE_ROUTINE,
+                        .OP_INVOKE_FIBER,
                         try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
                     );
                 }

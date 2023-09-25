@@ -183,7 +183,7 @@ pub const Fiber = struct {
         vm.current_fiber = self;
 
         switch (self.call_type) {
-            .OP_ROUTINE => { // | closure | ...args | ?catch |
+            .OP_FIBER => { // | closure | ...args | ?catch |
                 try vm.callValue(
                     vm.peek(self.arg_count),
                     self.arg_count,
@@ -191,7 +191,7 @@ pub const Fiber = struct {
                     true,
                 );
             },
-            .OP_INVOKE_ROUTINE => { // | receiver | ...args | ?catch |
+            .OP_INVOKE_FIBER => { // | receiver | ...args | ?catch |
                 _ = try vm.invoke(
                     self.method.?,
                     self.arg_count,
@@ -238,7 +238,7 @@ pub const Fiber = struct {
         }
     }
 
-    pub fn resume_(self: *Self, vm: *VM) !void {
+    pub fn @"resume"(self: *Self, vm: *VM) !void {
         switch (self.status) {
             .Instanciated => {
                 // No yet started, do so
@@ -253,7 +253,12 @@ pub const Fiber = struct {
             },
             .Over => {
                 // User should check fiber.over() before doing `resume`
-                try vm.throw(VM.Error.FiberOver, (try vm.gc.copyString("Fiber is over")).toValue());
+                try vm.throw(
+                    VM.Error.FiberOver,
+                    (try vm.gc.copyString("Fiber is over")).toValue(),
+                    null,
+                    null,
+                );
             },
             .Running => unreachable,
         }
@@ -264,7 +269,7 @@ pub const Fiber = struct {
 
         switch (self.status) {
             .Instanciated => try self.start(vm),
-            .Yielded => try self.resume_(vm),
+            .Yielded => try self.@"resume"(vm),
             .Over => {
                 // Already over, just take the top value
                 const parent_fiber = vm.current_fiber;
@@ -636,8 +641,8 @@ pub const VM = struct {
         OP_CLOSURE,
         OP_CLOSE_UPVALUE,
 
-        OP_ROUTINE,
-        OP_INVOKE_ROUTINE,
+        OP_FIBER,
+        OP_INVOKE_FIBER,
         OP_RESUME,
         OP_RESOLVE,
         OP_YIELD,
@@ -1145,7 +1150,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_ROUTINE(self: *Self, _: *CallFrame, full_instruction: u32, instruction: OpCode, _: u24) void {
+    fn OP_FIBER(self: *Self, _: *CallFrame, full_instruction: u32, instruction: OpCode, _: u24) void {
         const arg_count: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
         const catch_count: u16 = @intCast(0x0000ffff & full_instruction);
 
@@ -1200,7 +1205,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_INVOKE_ROUTINE(self: *Self, _: *CallFrame, _: u32, instruction: OpCode, arg: u24) void {
+    fn OP_INVOKE_FIBER(self: *Self, _: *CallFrame, _: u32, instruction: OpCode, arg: u24) void {
         const method: *ObjString = self.readString(arg);
         const arg_instruction: u32 = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
@@ -1259,7 +1264,7 @@ pub const VM = struct {
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.resume_(self) catch |e| {
+        obj_fiber.fiber.@"resume"(self) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1728,7 +1733,12 @@ pub const VM = struct {
     }
 
     fn OP_THROW(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.throw(Error.Custom, self.pop()) catch |e| {
+        self.throw(
+            Error.Custom,
+            self.pop(),
+            null,
+            null,
+        ) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1901,10 +1911,15 @@ pub const VM = struct {
         const index = self.peek(0).integer();
 
         if (index < 0) {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -1913,10 +1928,15 @@ pub const VM = struct {
         const list_index: usize = @intCast(index);
 
         if (list_index >= list.items.items.len) {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -1981,10 +2001,15 @@ pub const VM = struct {
         const index = self.peek(0).integer();
 
         if (index < 0) {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound string access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound string access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -2005,10 +2030,15 @@ pub const VM = struct {
             // Push value
             self.push(str_item);
         } else {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound str access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound str access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -2034,10 +2064,15 @@ pub const VM = struct {
         const value = self.peek(0);
 
         if (index.integer() < 0) {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -2059,10 +2094,15 @@ pub const VM = struct {
             // Push the value
             self.push(value);
         } else {
-            self.throw(Error.OutOfBound, (self.gc.copyString("Out of bound list access.") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.OutOfBound,
+                (self.gc.copyString("Out of bound list access.") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -3502,7 +3542,7 @@ pub const VM = struct {
         if (fiber.fiber.status == .Over) {
             value_slot.* = Value.Null;
         } else {
-            fiber.fiber.resume_(self) catch |e| {
+            fiber.fiber.@"resume"(self) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -3525,10 +3565,15 @@ pub const VM = struct {
     fn OP_UNWRAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         if (self.peek(0).isNull()) {
             // TODO: Should we throw or @panic?
-            self.throw(Error.UnwrappedNull, (self.gc.copyString("Force unwrapped optional is null") catch |e| {
-                panic(e);
-                unreachable;
-            }).toValue()) catch |e| {
+            self.throw(
+                Error.UnwrappedNull,
+                (self.gc.copyString("Force unwrapped optional is null") catch |e| {
+                    panic(e);
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -3597,20 +3642,23 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value) MIRJIT.Error!void {
-        var stack = std.ArrayList(CallFrame).init(self.gc.allocator);
-        defer stack.deinit();
+    pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Token) MIRJIT.Error!void {
+        var stack = if (previous_stack) |pstack|
+            pstack.*
+        else
+            std.ArrayList(CallFrame).init(self.gc.allocator);
+        defer {
+            if (previous_stack == null) {
+                stack.deinit();
+            }
+        }
 
-        const error_site = if (self.currentFrame()) |current_frame|
+        const error_site = if (previous_error_site) |perror_site|
+            perror_site
+        else if (self.currentFrame()) |current_frame|
             current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
         else
             null;
-
-        const error_file = if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.type_def.resolved_type.?.Function.script_name.string
-        else
-            null;
-        _ = error_file;
 
         while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
             const frame = self.currentFrame();
@@ -3662,7 +3710,12 @@ pub const VM = struct {
                 // Error raised inside a fiber, forward it to parent fiber
                 self.current_fiber = self.current_fiber.parent_fiber.?;
 
-                try self.throw(code, payload);
+                try self.throw(
+                    code,
+                    payload,
+                    &stack,
+                    error_site,
+                );
 
                 return;
             }
@@ -3695,7 +3748,7 @@ pub const VM = struct {
             defer msg.shrinkAndFree(msg.items.len);
             var writer = msg.writer();
 
-            if (next != null) {
+            if (next) |unext| {
                 writer.print(
                     "\t{s} in \x1b[36m{s}\x1b[0m at {s}",
                     .{
@@ -3705,15 +3758,10 @@ pub const VM = struct {
                             "  ├─"
                         else
                             "  ╰─",
-                        if (next) |unext|
-                            if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
-                                unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
-                            else
-                                unext.closure.function.name.string
-                        else if (frame.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
-                            frame.closure.function.name.string[(std.mem.indexOfScalar(u8, frame.closure.function.name.string, ' ').? + 1)..]
+                        if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
+                            unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
                         else
-                            frame.closure.function.name.string,
+                            unext.closure.function.name.string,
                         if (frame.call_site) |call_site|
                             call_site.script_name
                         else
@@ -3841,8 +3889,11 @@ pub const VM = struct {
             .slots = self.current_fiber.stack_top - arg_count - 1,
             .call_site = if (self.currentFrame()) |current_frame|
                 current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
-            else
-                null,
+            else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
+                const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
+
+                break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
+            } else null,
         };
 
         frame.error_value = catch_value;
@@ -3902,7 +3953,12 @@ pub const VM = struct {
                 frame.ip = try_ip;
             } else {
                 // No error handler or default value was triggered so forward the error
-                try self.throw(Error.Custom, self.peek(0));
+                try self.throw(
+                    Error.Custom,
+                    self.peek(0),
+                    null,
+                    null,
+                );
             }
         }
     }
@@ -3944,7 +4000,12 @@ pub const VM = struct {
                 self.currentFrame().?.ip = self.currentFrame().?.try_ip.?;
             } else {
                 // No error handler or default value was triggered so forward the error
-                try self.throw(Error.Custom, self.peek(0));
+                try self.throw(
+                    Error.Custom,
+                    self.peek(0),
+                    null,
+                    null,
+                );
             }
         }
     }
