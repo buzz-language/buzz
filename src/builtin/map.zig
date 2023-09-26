@@ -15,6 +15,21 @@ const floatToInteger = _value.floatToInteger;
 const valueEql = _value.valueEql;
 const valueToString = _value.valueToString;
 
+pub fn clone(ctx: *NativeCtx) c_int {
+    const self = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+
+    var new_map = ctx.vm.gc.allocateObject(
+        ObjMap,
+        ObjMap.init(ctx.vm.gc.allocator, self.type_def),
+    ) catch @panic("Out of memory");
+    new_map.map.deinit();
+    new_map.map = self.map.clone() catch @panic("Out of memory");
+
+    ctx.vm.push(new_map.toValue());
+
+    return 1;
+}
+
 pub fn reduce(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(2).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;

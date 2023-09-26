@@ -9,8 +9,8 @@ test "Lists" {
     assert(strList[0] == "hello", message: "subscript");
 
     | A lone list expression
-    _ = [<str>, "hello", "world"];
-    _ = [<[str]>, ["hello"], ["world"]];
+    _ = ["hello", "world"];
+    _ = [["hello"], ["world"]];
 
     [[str]] nestedList = [["hello"], ["world"]];
     
@@ -47,4 +47,14 @@ test "list.join" {
 
 test "list concat" {
     assert(([1, 2, 3] + [4, 5, 6]).join(",") == "1,2,3,4,5,6", message: "list concat");
+}
+
+test "list.clone" {
+    [int] list = [1, 2, 3];
+    [int] copy = list.clone();
+
+    assert(list.len() == copy.len(), message: "Could clone list");
+    foreach (int i, int el in copy) {
+        assert(list[i] == el, message: "Could clone list");
+    }
 }

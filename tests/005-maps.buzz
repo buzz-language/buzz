@@ -6,7 +6,7 @@ test "Maps" {
         "bye": 2,
     };
 
-    _ = {<int, bool>, 1: true, 2: false};
+    _ = {1: true, 2: false};
 
     assert(map["bye"] is int?, message: "yeah");
 
@@ -69,4 +69,18 @@ test "map.intersect" {
     {str, int} intersect = first.intersect(second);
 
     assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
+}
+
+test "map.clone" {
+    {str, int} first = {
+        "one": 1,
+        "two": 2,
+        "five": 5,
+    };
+    {str, int} copy = first.clone();
+
+    assert(copy.size() == first.size(), message: "Could clone map");
+    foreach (str key, int value in copy) {
+        assert(first[key] == value, message: "Could clone map");
+    }
 }

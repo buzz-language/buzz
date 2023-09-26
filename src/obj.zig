@@ -1534,19 +1534,20 @@ pub const ObjList = struct {
         NativeFn,
         .{
             .{ "append", buzz_builtin.list.append },
-            .{ "remove", buzz_builtin.list.remove },
-            .{ "len", buzz_builtin.list.len },
-            .{ "next", buzz_builtin.list.next },
-            .{ "sub", buzz_builtin.list.sub },
-            .{ "indexOf", buzz_builtin.list.indexOf },
-            .{ "join", buzz_builtin.list.join },
-            .{ "insert", buzz_builtin.list.insert },
-            .{ "pop", buzz_builtin.list.pop },
-            .{ "forEach", buzz_builtin.list.forEach },
-            .{ "map", buzz_builtin.list.map },
+            .{ "clone", buzz_builtin.list.clone },
             .{ "filter", buzz_builtin.list.filter },
+            .{ "forEach", buzz_builtin.list.forEach },
+            .{ "indexOf", buzz_builtin.list.indexOf },
+            .{ "insert", buzz_builtin.list.insert },
+            .{ "join", buzz_builtin.list.join },
+            .{ "len", buzz_builtin.list.len },
+            .{ "map", buzz_builtin.list.map },
+            .{ "next", buzz_builtin.list.next },
+            .{ "pop", buzz_builtin.list.pop },
             .{ "reduce", buzz_builtin.list.reduce },
+            .{ "remove", buzz_builtin.list.remove },
             .{ "sort", buzz_builtin.list.sort },
+            .{ "sub", buzz_builtin.list.sub },
         },
     );
 
@@ -2327,6 +2328,34 @@ pub const ObjList = struct {
                 try self.methods.put("sort", native_type);
 
                 return native_type;
+            } else if (mem.eql(u8, method, "clone")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("clone"),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_list,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("clone", native_type);
+
+                return native_type;
             }
 
             return null;
@@ -2363,17 +2392,18 @@ pub const ObjMap = struct {
     const members = std.ComptimeStringMap(
         NativeFn,
         .{
+            .{ "clone", buzz_builtin.map.clone },
+            .{ "diff", buzz_builtin.map.diff },
+            .{ "filter", buzz_builtin.map.filter },
+            .{ "forEach", buzz_builtin.map.forEach },
+            .{ "intersect", buzz_builtin.map.intersect },
+            .{ "keys", buzz_builtin.map.keys },
+            .{ "map", buzz_builtin.map.map },
+            .{ "reduce", buzz_builtin.map.reduce },
             .{ "remove", buzz_builtin.map.remove },
             .{ "size", buzz_builtin.map.size },
-            .{ "keys", buzz_builtin.map.keys },
-            .{ "values", buzz_builtin.map.values },
             .{ "sort", buzz_builtin.map.sort },
-            .{ "forEach", buzz_builtin.map.forEach },
-            .{ "map", buzz_builtin.map.map },
-            .{ "filter", buzz_builtin.map.filter },
-            .{ "reduce", buzz_builtin.map.reduce },
-            .{ "diff", buzz_builtin.map.diff },
-            .{ "intersect", buzz_builtin.map.intersect },
+            .{ "values", buzz_builtin.map.values },
         },
     );
 
@@ -3105,6 +3135,34 @@ pub const ObjMap = struct {
                 );
 
                 try self.methods.put("reduce", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "clone")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                var method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("clone"),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_map,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
+                };
+
+                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                var native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("clone", native_type);
 
                 return native_type;
             }
