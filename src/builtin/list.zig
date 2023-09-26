@@ -136,8 +136,8 @@ pub fn sort(ctx: *NativeCtx) c_int {
 }
 
 pub fn indexOf(ctx: *NativeCtx) c_int {
-    var self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var needle: Value = ctx.vm.peek(0);
+    const self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const needle: Value = ctx.vm.peek(0);
 
     var index: ?usize = null;
     var i: usize = 0;
@@ -151,6 +151,20 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push(if (index) |uindex| Value.fromInteger(@as(i32, @intCast(uindex))) else Value.Null);
+
+    return 1;
+}
+
+pub fn clone(ctx: *NativeCtx) c_int {
+    const self: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
+
+    var new_list = ctx.vm.gc.allocateObject(
+        ObjList,
+        ObjList.init(ctx.vm.gc.allocator, self.type_def),
+    ) catch @panic("Out of memory");
+    new_list.items.appendSlice(self.items.items) catch @panic("Out of memory");
+
+    ctx.vm.push(new_list.toValue());
 
     return 1;
 }
