@@ -284,7 +284,7 @@ pub const ExpressionNode = struct {
 
         try codegen.emitOpCode(node.location, .OP_POP);
 
-        if (self.isLoneExpression()) {
+        if (self.isLoneExpression() and self.expression.type_def.?.def_type != .Placeholder) {
             const type_def_str = self.expression.type_def.?.toStringAlloc(codegen.gc.allocator) catch unreachable;
             defer type_def_str.deinit();
 
@@ -5289,31 +5289,32 @@ pub const ThrowNode = struct {
             codegen.reporter.reportPlaceholder(self.error_value.type_def.?.resolved_type.?.Placeholder);
         } else {
             const current_error_types = codegen.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+
+            var found_match = false;
             if (current_error_types != null) {
-                var found_match = false;
                 for (current_error_types.?) |error_type| {
                     if (error_type.eql(self.error_value.type_def.?)) {
                         found_match = true;
                         break;
                     }
                 }
+            }
 
-                if (!found_match) {
-                    if (codegen.current.?.try_should_handle != null) {
-                        // In a try catch remember to check that we handle that error when finishing parsing the try-catch
-                        try codegen.current.?.try_should_handle.?.put(self.error_value.type_def.?, node.location);
-                    } else {
-                        // Not in a try-catch and function signature does not expect this error type
-                        const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
-                        defer error_str.deinit();
+            if (!found_match) {
+                if (codegen.current.?.try_should_handle != null) {
+                    // In a try catch remember to check that we handle that error when finishing parsing the try-catch
+                    try codegen.current.?.try_should_handle.?.put(self.error_value.type_def.?, node.location);
+                } else {
+                    // Not in a try-catch and function signature does not expect this error type
+                    const error_str = try self.error_value.type_def.?.toStringAlloc(codegen.gc.allocator);
+                    defer error_str.deinit();
 
-                        codegen.reporter.reportErrorFmt(
-                            .unexpected_error_type,
-                            node.location,
-                            "Error type `{s}` not expected",
-                            .{error_str.items},
-                        );
-                    }
+                    codegen.reporter.reportErrorFmt(
+                        .unexpected_error_type,
+                        node.location,
+                        "Error type `{s}` not expected",
+                        .{error_str.items},
+                    );
                 }
             }
         }

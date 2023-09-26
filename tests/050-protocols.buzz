@@ -12,7 +12,7 @@ object(Comparable, Nameable) Person {
     str name,
     int age,
 
-    fun greater(Comparable than) > bool {
+    fun greater(Comparable than) > bool !> str {
         if (than as Person other) {
             return this.age > other.age;
         }
