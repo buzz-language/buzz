@@ -1,0 +1,25 @@
+import "std";
+
+fun willFail() > void !> str {
+    if (false) {
+        throw "Hey";
+    }
+}
+
+object SomeError {}
+
+fun run() > void {
+    try {
+        willFail();
+
+        throw SomeError{};
+    } catch (str _) {
+        assert(false, message: "Could throw inside try/catch");
+    } catch (SomeError _) {
+        assert(true, message: "Could throw inside try/catch");
+    }
+}
+
+test "Throw inside try/catch" {
+    run();
+}

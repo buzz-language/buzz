@@ -4462,8 +4462,8 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
         self.BEQ(
             m.MIR_new_label_op(
                 self.ctx,
-                if (index < try_node.clauses.keys().len - 1)
-                    clause_labels.items[index + 1]
+                if (idx < try_node.clauses.keys().len - 1)
+                    clause_labels.items[idx + 1]
                 else if (unconditional_label) |unconditional|
                     unconditional
                 else
