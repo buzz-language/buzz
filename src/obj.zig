@@ -212,7 +212,7 @@ pub const Obj = struct {
 
             .ObjectInstance => {
                 const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
-                const object_def = (instance.type_def orelse instance.object.?.type_def).resolved_type.?.Object;
+                const object_def = instance.type_def.resolved_type.?.Object;
 
                 const any = vm.gc.type_registry.getTypeDef(
                     .{ .def_type = .Any },
@@ -314,16 +314,8 @@ pub const Obj = struct {
             .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
             .Object => ObjObject.cast(self).?.type_def,
             .Enum => ObjEnum.cast(self).?.type_def,
-            .ObjectInstance => instance: {
-                const obj_instance = ObjObjectInstance.cast(self).?;
-
-                if (obj_instance.object) |object| {
-                    break :instance object.type_def;
-                } else {
-                    break :instance obj_instance.type_def.?;
-                }
-            },
-            .EnumInstance => ObjEnumInstance.cast(self).?.enum_ref.type_def,
+            .ObjectInstance => ObjObjectInstance.cast(self).?.type_def,
+            .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(gc.allocator, &gc.type_registry),
             .Function => ObjFunction.cast(self).?.type_def,
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
@@ -353,8 +345,9 @@ pub const Obj = struct {
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
-            .ObjectInstance => type_def.def_type == .Object and ObjObjectInstance.cast(self).?.is(null, type_def),
-            .EnumInstance => type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def,
+            .ObjectInstance => (type_def.def_type == .ObjectInstance or type_def.def_type == .Object or type_def.def_type == .Protocol or type_def.def_type == .ProtocolInstance) and ObjObjectInstance.cast(self).?.is(type_def),
+            .EnumInstance => (type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def) or
+                (type_def.def_type == .EnumInstance and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def.resolved_type.?.EnumInstance),
             .Function => function: {
                 const function: *ObjFunction = ObjFunction.cast(self).?;
                 break :function function.type_def.eql(type_def);
@@ -398,7 +391,7 @@ pub const Obj = struct {
             },
             .ObjectInstance => oi: {
                 var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
-                break :oi type_def.def_type == .ObjectInstance and instance.is(null, type_def.resolved_type.?.ObjectInstance);
+                break :oi type_def.def_type == .ObjectInstance and instance.is(type_def.resolved_type.?.ObjectInstance);
             },
             .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
             .Object => ObjObject.cast(self).?.type_def.eql(type_def),
@@ -1112,8 +1105,8 @@ pub const ObjObjectInstance = struct {
 
     /// Object (null when anonymous)
     object: ?*ObjObject,
-    /// Object type (null when not anonymous)
-    type_def: ?*ObjTypeDef,
+    /// Populated object type
+    type_def: *ObjTypeDef,
     /// Fields value
     fields: std.AutoHashMap(*ObjString, Value),
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
@@ -1124,7 +1117,7 @@ pub const ObjObjectInstance = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn init(vm: *VM, object: ?*ObjObject, type_def: ?*ObjTypeDef) Self {
+    pub fn init(vm: *VM, object: ?*ObjObject, type_def: *ObjTypeDef) Self {
         return Self{
             .vm = vm,
             .object = object,
@@ -1137,9 +1130,7 @@ pub const ObjObjectInstance = struct {
         if (self.object) |object| {
             try gc.markObj(object.toObj());
         }
-        if (self.type_def) |type_def| {
-            try gc.markObj(type_def.toObj());
-        }
+        try gc.markObj(self.type_def.toObj());
         var it = self.fields.iterator();
         while (it.next()) |kv| {
             try gc.markObj(kv.key_ptr.*.toObj());
@@ -1163,15 +1154,15 @@ pub const ObjObjectInstance = struct {
         return obj.cast(Self, .ObjectInstance);
     }
 
-    fn is(self: *Self, instance_type: ?*ObjTypeDef, type_def: *ObjTypeDef) bool {
-        if (type_def.def_type == .Object) {
-            const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
-
-            return object_def == type_def;
+    fn is(self: *Self, type_def: *ObjTypeDef) bool {
+        if (type_def.def_type == .ObjectInstance) {
+            return self.type_def.resolved_type.?.ObjectInstance == type_def.resolved_type.?.ObjectInstance;
         } else if (type_def.def_type == .Protocol) {
-            const object_def: *ObjTypeDef = instance_type orelse (if (self.object) |object| object.type_def else self.type_def.?.resolved_type.?.ObjectInstance);
-
-            return object_def.resolved_type.?.Object.conforms_to.get(type_def) != null;
+            return self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.conforms_to.get(type_def) != null;
+        } else if (type_def.def_type == .Object) {
+            return self.type_def.resolved_type.?.ObjectInstance == type_def;
+        } else if (type_def.def_type == .ProtocolInstance) {
+            return self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.conforms_to.get(type_def.resolved_type.?.ProtocolInstance) != null;
         }
 
         return false;
@@ -1379,8 +1370,9 @@ pub const ObjObject = struct {
     };
 
     pub const ObjectDef = struct {
-        const ObjectDefSelf = @This();
+        var next_id: usize = 0;
 
+        id: usize,
         location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
@@ -1399,8 +1391,23 @@ pub const ObjObject = struct {
         anonymous: bool,
         conforms_to: std.AutoHashMap(*ObjTypeDef, void),
 
-        pub fn init(allocator: Allocator, location: Token, name: *ObjString, qualified_name: *ObjString, anonymous: bool) ObjectDefSelf {
-            return ObjectDefSelf{
+        generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+
+        pub fn nextId() usize {
+            ObjectDef.next_id += 1;
+
+            return ObjectDef.next_id;
+        }
+
+        pub fn init(
+            allocator: Allocator,
+            location: Token,
+            name: *ObjString,
+            qualified_name: *ObjString,
+            anonymous: bool,
+        ) ObjectDef {
+            return ObjectDef{
+                .id = ObjectDef.nextId(),
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
@@ -1415,10 +1422,11 @@ pub const ObjObject = struct {
                 .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .anonymous = anonymous,
                 .conforms_to = std.AutoHashMap(*ObjTypeDef, void).init(allocator),
+                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
             };
         }
 
-        pub fn deinit(self: *ObjectDefSelf) void {
+        pub fn deinit(self: *ObjectDef) void {
             self.fields.deinit();
             self.fields_locations.deinit();
             self.static_fields.deinit();
@@ -1429,10 +1437,11 @@ pub const ObjObject = struct {
             self.placeholders.deinit();
             self.static_placeholders.deinit();
             self.conforms_to.deinit();
+            self.generic_types.deinit();
         }
 
         // Do they both conform to a common protocol?
-        pub fn both_conforms(self: ObjectDefSelf, other: ObjectDefSelf) ?*ObjTypeDef {
+        pub fn both_conforms(self: ObjectDef, other: ObjectDef) ?*ObjTypeDef {
             var it = self.conforms_to.iterator();
             while (it.next()) |kv| {
                 if (other.conforms_to.get(kv.key_ptr.*) != null) {
@@ -1443,7 +1452,7 @@ pub const ObjObject = struct {
             return null;
         }
 
-        pub fn mark(self: *ObjectDefSelf, gc: *GarbageCollector) !void {
+        pub fn mark(self: *ObjectDef, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.qualified_name.toObj());
 
@@ -1475,6 +1484,12 @@ pub const ObjObject = struct {
             var it7 = self.conforms_to.iterator();
             while (it7.next()) |kv| {
                 try gc.markObj(kv.key_ptr.*.toObj());
+            }
+
+            var it8 = self.generic_types.iterator();
+            while (it8.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
+                try gc.markObj(kv.value_ptr.*.toObj());
             }
         }
     };
@@ -3507,7 +3522,15 @@ pub const ObjTypeDef = struct {
 
                 break :fiber try type_registry.getTypeDef(new_fiber);
             },
-            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(origin, generics, type_registry, visited_ptr)).toInstance(type_registry.gc.allocator, type_registry),
+            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(
+                origin,
+                generics,
+                type_registry,
+                visited_ptr,
+            )).toInstance(
+                type_registry.gc.allocator,
+                type_registry,
+            ),
             .Object => object: {
                 // Only anonymous objects can be with generics so no need to check anything other than fields
                 const old_object_def = self.resolved_type.?.Object;
@@ -3519,6 +3542,14 @@ pub const ObjTypeDef = struct {
                     old_object_def.qualified_name,
                     old_object_def.anonymous,
                 );
+
+                {
+                    var it = old_object_def.generic_types.iterator();
+                    var i: usize = 0;
+                    while (it.next()) |kv| : (i += 1) {
+                        try resolved.generic_types.put(kv.key_ptr.*, generics[i]);
+                    }
+                }
 
                 {
                     var fields = std.StringArrayHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
@@ -3826,6 +3857,26 @@ pub const ObjTypeDef = struct {
                         try writer.writeAll(object_def.name.string);
                     }
                 }
+
+                const size = object_def.generic_types.count();
+                if (size > 0) {
+                    try writer.writeAll("::<");
+                    var i: usize = 0;
+                    var it = object_def.generic_types.iterator();
+                    while (it.next()) |kv| : (i = i + 1) {
+                        if (kv.value_ptr.*.def_type != .Generic) {
+                            try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        } else {
+                            try writer.print("{s}", .{kv.key_ptr.*.string});
+                        }
+
+                        if (i < size - 1) {
+                            try writer.writeAll(", ");
+                        }
+                    }
+
+                    try writer.writeAll(">");
+                }
             },
             .Protocol => {
                 const protocol_def = self.resolved_type.?.Protocol;
@@ -3870,6 +3921,26 @@ pub const ObjTypeDef = struct {
                     } else {
                         try writer.writeAll(object_def.name.string);
                     }
+                }
+
+                const size = object_def.generic_types.count();
+                if (size > 0) {
+                    try writer.writeAll("::<");
+                    var i: usize = 0;
+                    var it = object_def.generic_types.iterator();
+                    while (it.next()) |kv| : (i += 1) {
+                        if (kv.value_ptr.*.def_type != .Generic) {
+                            try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        } else {
+                            try writer.print("{s}", .{kv.key_ptr.*.string});
+                        }
+
+                        if (i < size - 1) {
+                            try writer.writeAll(", ");
+                        }
+                    }
+
+                    try writer.writeAll(">");
                 }
             },
             .ForeignContainer => {
@@ -4120,27 +4191,40 @@ pub const ObjTypeDef = struct {
 
             .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
 
-            .Fiber => {
-                return expected.Fiber.return_type.eql(actual.Fiber.return_type) and expected.Fiber.yield_type.eql(actual.Fiber.yield_type);
-            },
+            .Fiber => expected.Fiber.return_type.eql(actual.Fiber.return_type) and expected.Fiber.yield_type.eql(actual.Fiber.yield_type),
 
-            .ObjectInstance => {
-                return expected.ObjectInstance.eql(actual.ObjectInstance) or expected.ObjectInstance == actual.ObjectInstance;
-            },
+            .ObjectInstance => expected.ObjectInstance.eql(actual.ObjectInstance) or expected.ObjectInstance == actual.ObjectInstance,
             .ProtocolInstance => {
                 if (actual == .ProtocolInstance) {
                     return expected.ProtocolInstance.eql(actual.ProtocolInstance) or expected.ProtocolInstance == actual.ProtocolInstance;
                 } else {
+                    // var it = actual.ObjectInstance.resolved_type.?.Object.conforms_to.iterator();
+                    // while (it.next()) |kv| {
+                    //     std.debug.print(
+                    //         "{s}: {*}\n",
+                    //         .{
+                    //             (kv.key_ptr.*.toStringAlloc(std.heap.c_allocator) catch unreachable).items,
+                    //             kv.key_ptr.*,
+                    //         },
+                    //     );
+                    // }
+                    // std.debug.print(
+                    //     "expected: {s} {*}\n",
+                    //     .{
+                    //         (expected.ProtocolInstance.toStringAlloc(std.heap.c_allocator) catch unreachable).items,
+                    //         expected.ProtocolInstance,
+                    //     },
+                    // );
                     assert(actual == .ObjectInstance);
                     return actual.ObjectInstance.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance) != null;
                 }
             },
-            .EnumInstance => return expected.EnumInstance.eql(actual.EnumInstance),
+            .EnumInstance => expected.EnumInstance.eql(actual.EnumInstance),
 
             .Object, .Protocol, .Enum => false, // Those are never equal even if definition is the same
 
-            .List => return expected.List.item_type.eql(actual.List.item_type),
-            .Map => return expected.Map.key_type.eql(actual.Map.key_type) and expected.Map.value_type.eql(actual.Map.value_type),
+            .List => expected.List.item_type.eql(actual.List.item_type),
+            .Map => expected.Map.key_type.eql(actual.Map.key_type) and expected.Map.value_type.eql(actual.Map.value_type),
             .Function => {
                 // Compare return type
                 if (!expected.Function.return_type.eql(actual.Function.return_type)) {
@@ -4310,18 +4394,24 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             const instance = ObjObjectInstance.cast(obj).?;
 
             if (instance.object) |object| {
-                try writer.print("object instance: 0x{x} `{s}`", .{
-                    @intFromPtr(instance),
-                    object.name.string,
-                });
+                try writer.print(
+                    "object instance: 0x{x} `{s}`",
+                    .{
+                        @intFromPtr(instance),
+                        object.name.string,
+                    },
+                );
             } else {
-                try writer.print("object instance: 0x{x} obj{{ ", .{
-                    @intFromPtr(instance),
-                });
+                try writer.print(
+                    "object instance: 0x{x} obj{{ ",
+                    .{
+                        @intFromPtr(instance),
+                    },
+                );
                 var it = instance.fields.iterator();
                 while (it.next()) |kv| {
                     // This line is awesome
-                    try instance.type_def.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(kv.key_ptr.*.string).?.toString(writer);
+                    try instance.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(kv.key_ptr.*.string).?.toString(writer);
                     try writer.print(" {s}, ", .{kv.key_ptr.*.string});
                 }
                 try writer.writeAll("}");

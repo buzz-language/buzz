@@ -229,20 +229,24 @@ pub const Frame = struct {
 
     in_try: bool = false,
 
-    pub fn searchGeneric(self: Self, name: *ObjString) ?*ObjTypeDef {
+    pub fn resolveGeneric(self: Self, name: *ObjString) ?*ObjTypeDef {
         if (self.generics) |generics| {
             if (generics.get(name)) |type_def| {
                 return type_def;
             }
         }
 
-        return if (self.enclosing) |enclosing| enclosing.searchGeneric(name) else null;
+        return if (self.enclosing) |enclosing|
+            enclosing.resolveGeneric(name)
+        else
+            null;
     }
 };
 
-pub const ObjectCompiler = struct {
+pub const ObjectFrame = struct {
     name: Token,
     type_def: *ObjTypeDef,
+    generics: ?*std.AutoArrayHashMap(*ObjString, *ObjTypeDef) = null,
 };
 
 pub const Parser = struct {
@@ -354,6 +358,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = unwrap, .precedence = .Call }, // Question
         .{ .prefix = unary, .infix = forceUnwrap, .precedence = .Call }, // Bang
         .{ .prefix = null, .infix = null, .precedence = .None }, // Colon
+        .{ .prefix = null, .infix = objectInit, .precedence = .None }, // DoubleColon
         .{ .prefix = null, .infix = null, .precedence = .None }, // Equal
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // EqualEqual
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // BangEqual
@@ -452,7 +457,7 @@ pub const Parser = struct {
     imports: *std.StringHashMap(ScriptImport),
     test_count: u64 = 0,
     current: ?*Frame = null,
-    current_object: ?ObjectCompiler = null,
+    current_object: ?ObjectFrame = null,
     globals: std.ArrayList(Global),
     flavor: RunFlavor,
     ffi: FFI,
@@ -763,15 +768,24 @@ pub const Parser = struct {
         self.reportErrorAtCurrent(.syntax, message);
     }
 
+    // Check next token
     fn check(self: *Self, token_type: TokenType) bool {
         return self.parser.current_token.?.token_type == token_type;
     }
 
-    fn checkAhead(self: *Self, token_type: TokenType, n: u32) !bool {
+    // Check `n` tokens ahead
+    fn checkAhead(self: *Self, token_type: TokenType, n: usize) !bool {
+        // Parse tokens if we didn't already look that far ahead
         while (n + 1 > self.parser.ahead.items.len) {
             while (true) {
                 const token = try self.scanner.?.scanToken();
                 try self.parser.ahead.append(token);
+
+                if (token.token_type == .Eof) {
+                    return false;
+                }
+
+                // If error, report it and keep checking ahead
                 if (token.token_type != .Error) {
                     break;
                 }
@@ -781,6 +795,49 @@ pub const Parser = struct {
         }
 
         return self.parser.ahead.items[n].token_type == token_type;
+    }
+
+    // Check for a sequence ahead, a null in the sequence means continue until next token in the sequence is found
+    // Don't use null if you're not sure the following token **must** be found, otherwise it'll check the whole source
+    // Right now the null is only used to parse ahead a generic object type like `Person::<K, V, ...> identifier`
+    fn checkSequenceAhead(self: *Self, sequence: []const ?TokenType, limit: usize) !bool {
+        assert(sequence.len > 0);
+
+        if (!self.check(sequence[0].?)) {
+            return false;
+        }
+
+        var i: usize = 0;
+        for (sequence[1..], 1..) |token_type, n| {
+            // Avoid going to far
+            if (i > limit) {
+                return false;
+            }
+
+            if (token_type) |tt| {
+                if (!try self.checkAhead(tt, i)) {
+                    return false;
+                }
+
+                i += 1;
+            } else {
+                // Advance until next token
+                assert(n < sequence.len - 1 and sequence[n + 1] != null); // There must be at least one more token in the sequence
+                const next_token = sequence[n + 1].?;
+
+                while (!try self.checkAhead(next_token, i)) : (i += 1) {
+                    // Avoid looping forever if found EOF
+                    if (self.parser.ahead.getLastOrNull()) |last| {
+                        if (last.token_type == .Eof) {
+                            std.debug.print("Reached EOF\n", .{});
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     fn match(self: *Self, token_type: TokenType) !bool {
@@ -1494,17 +1551,25 @@ pub const Parser = struct {
                 true,
             );
         } else if (try self.match(.Identifier)) {
-            // A declaration with a object/enum type is one of those:
-            // - Type variable
-            // - Type? variable
-            // - prefix.Type variable
-            // - prefix.Type? variable
             // As of now this is the only place where we need to check more than one token ahead
+            // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
             // zig fmt: off
+                // `Type variable`
             if (self.check(.Identifier)
-                or (self.check(.Dot) and try self.checkAhead(.Identifier, 0) and try self.checkAhead(.Identifier, 1))
-                or (self.check(.Dot) and try self.checkAhead(.Identifier, 0) and try self.checkAhead(.Question, 1) and try self.checkAhead(.Identifier, 2))
-                or (self.check(.Question) and try self.checkAhead(.Identifier, 0))) {
+                // `prefix.Type variable`
+                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .Identifier}, 3)
+                // `prefix.Type? variable`
+                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .Question, .Identifier}, 3)
+                // `Type? variable`
+                or try self.checkSequenceAhead(&[_]?TokenType{.Question, .Identifier}, 2)
+                // `Type::<...> variable`
+                or try self.checkSequenceAhead(&[_]?TokenType{.DoubleColon, .Less, null, .Greater, .Identifier}, 255 * 2)
+                // - Type::<...>? variable
+                or try self.checkSequenceAhead(&[_]?TokenType{.DoubleColon, .Less, null, .Greater, .Question, .Identifier}, 255 * 2)
+                // - prefix.Type::<...> variable
+                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier}, 255 * 2)
+                // - prefix.Type::<...>? variable
+                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier}, 255 * 2)) {
             // zig fmt: on
                 return try self.userVarDeclaration(false, constant);
             } else {
@@ -1599,8 +1664,7 @@ pub const Parser = struct {
 
                 try self.consume(.Identifier, "Expected protocol identifier");
 
-                const protocol_slot = try self.parseUserType();
-                const protocol = self.globals.items[protocol_slot].type_def;
+                const protocol = try self.parseUserType(false);
 
                 if (protocols.get(protocol) != null) {
                     self.reportErrorFmt(.already_conforming_protocol, "Already conforming to `{s}`.", .{protocol.resolved_type.?.Protocol.name.string});
@@ -1650,12 +1714,60 @@ pub const Parser = struct {
             .resolved_type = resolved_type,
         };
 
-        var object_compiler: ObjectCompiler = .{
+        var object_frame: ObjectFrame = .{
             .name = object_name,
             .type_def = object_placeholder,
+            .generics = &object_type.resolved_type.?.Object.generic_types,
         };
 
-        self.current_object = object_compiler;
+        self.current_object = object_frame;
+
+        // Parse generic types
+        if (try self.match(.DoubleColon)) {
+            try self.consume(.Less, "Expected generic types list after `::`");
+            var i: usize = 0;
+            while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+                try self.consume(.Identifier, "Expected generic type identifier");
+
+                const generic_identifier = try self.gc.copyString(self.parser.previous_token.?.lexeme);
+                if (object_type.resolved_type.?.Object.generic_types.get(generic_identifier) == null) {
+                    const generic = ObjTypeDef.GenericDef{
+                        .origin = object_def.id,
+                        .index = i,
+                    };
+                    const resolved_generic_type = ObjTypeDef.TypeUnion{ .Generic = generic };
+                    try object_type.resolved_type.?.Object.generic_types.put(
+                        generic_identifier,
+                        try self.gc.type_registry.getTypeDef(
+                            ObjTypeDef{
+                                .def_type = .Generic,
+                                .resolved_type = resolved_generic_type,
+                            },
+                        ),
+                    );
+                } else {
+                    self.reportErrorFmt(
+                        .generic_type,
+                        "Generic type `{s}` already defined",
+                        .{self.parser.previous_token.?.lexeme},
+                    );
+                }
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            if (object_type.resolved_type.?.Object.generic_types.count() == 0) {
+                self.reportError(
+                    .generic_type,
+                    "Expected at least one generic type",
+                );
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+        }
+
         self.beginScope();
 
         // Body
@@ -1746,7 +1858,7 @@ pub const Parser = struct {
             } else {
                 // TODO: constant object properties
                 // const constant = try self.match(.Const);
-                const property_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                const property_type = try self.parseTypeDef(null, true);
 
                 try self.consume(.Identifier, "Expected property name.");
                 const property_name = self.parser.previous_token.?.clone();
@@ -2057,7 +2169,7 @@ pub const Parser = struct {
 
             unwrapped_identifier = self.parser.previous_token.?;
         } else if (try self.match(.As)) {
-            casted_type = try self.parseTypeDef(null);
+            casted_type = try self.parseTypeDef(null, true);
 
             _ = try self.parseVariable(
                 false,
@@ -2115,7 +2227,7 @@ pub const Parser = struct {
                 VarDeclarationNode.cast(
                     try self.varDeclaration(
                         false,
-                        try self.parseTypeDef(null),
+                        try self.parseTypeDef(null, true),
                         .Nothing,
                         false,
                         true,
@@ -2179,7 +2291,7 @@ pub const Parser = struct {
 
         var key: ?*ParseNode = try self.varDeclaration(
             false,
-            try self.parseTypeDef(null),
+            try self.parseTypeDef(null, true),
             .Nothing,
             false,
             false,
@@ -2188,7 +2300,7 @@ pub const Parser = struct {
         var value: ?*ParseNode = if (try self.match(.Comma))
             try self.varDeclaration(
                 false,
-                try self.parseTypeDef(null),
+                try self.parseTypeDef(null, true),
                 .Nothing,
                 false,
                 false,
@@ -2371,11 +2483,11 @@ pub const Parser = struct {
 
                 self.beginScope();
 
-                const type_def = try self.parseTypeDef(null);
+                const type_def = try self.parseTypeDef(null, true);
 
                 _ = try self.parseVariable(
                     false,
-                    try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
+                    type_def,
                     true, // function arguments are constant
                     "Expected error identifier",
                 );
@@ -2493,10 +2605,6 @@ pub const Parser = struct {
         node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = node.type_def;
 
-        if (terminator == .Semicolon and !self.check(.Semicolon)) {
-            unreachable;
-        }
-
         switch (terminator) {
             .OptComma => _ = try self.match(.Comma),
             .Comma => try self.consume(.Comma, "Expected `,` after variable declaration."),
@@ -2543,6 +2651,45 @@ pub const Parser = struct {
                 );
 
                 _ = try self.declarePlaceholder(user_type_name, var_type);
+            }
+
+            // Concrete generic types list
+            if (try self.match(.DoubleColon)) {
+                try self.consume(.Less, "Expected generic types list after `::`");
+
+                var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+                var i: usize = 0;
+                while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+                    try resolved_generics.append(
+                        try self.parseTypeDef(
+                            if (self.current.?.generics) |generics|
+                                generics.*
+                            else
+                                null,
+                            true,
+                        ),
+                    );
+
+                    if (!self.check(.Greater)) {
+                        try self.consume(.Comma, "Expected `,` between generic types");
+                    }
+                }
+
+                try self.consume(.Greater, "Expected `>` after generic types list");
+
+                resolved_generics.shrinkAndFree(resolved_generics.items.len);
+
+                if (resolved_generics.items.len == 0) {
+                    self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
+                }
+
+                // Shouldn't we populate only in codegen?
+                var_type = try var_type.?.populateGenerics(
+                    var_type.?.resolved_type.?.Object.id,
+                    resolved_generics.items,
+                    &self.gc.type_registry,
+                    null,
+                );
             }
 
             if (try self.match(.Question)) {
@@ -2893,9 +3040,9 @@ pub const Parser = struct {
 
     fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         try self.consume(.Less, "Expected `<` after `fib`");
-        const return_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+        const return_type = try self.parseTypeDef(generic_types, true);
         try self.consume(.Comma, "Expected `,` after fiber return type");
-        const yield_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+        const yield_type = try self.parseTypeDef(generic_types, true);
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
             self.reportError(.yield_type, "Expected optional type or void");
@@ -2920,7 +3067,7 @@ pub const Parser = struct {
     }
 
     fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
-        var list_item_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+        var list_item_type: *ObjTypeDef = try self.parseTypeDef(generic_types, true);
 
         try self.consume(.RightBracket, "Expected `]` after list type.");
 
@@ -2954,11 +3101,11 @@ pub const Parser = struct {
     }
 
     fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
-        var key_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+        var key_type: *ObjTypeDef = try self.parseTypeDef(generic_types, true);
 
         try self.consume(.Comma, "Expected `,` after key type.");
 
-        var value_type: *ObjTypeDef = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+        var value_type: *ObjTypeDef = try self.parseTypeDef(generic_types, true);
 
         try self.consume(.RightBrace, "Expected `}` after value type.");
 
@@ -3001,7 +3148,7 @@ pub const Parser = struct {
         var enum_case_type: *ObjTypeDef = undefined;
         var case_type_picked: bool = false;
         if (try self.match(.LeftParen)) {
-            enum_case_type = try self.parseTypeDef(null);
+            enum_case_type = try self.parseTypeDef(null, true);
             try self.consume(.RightParen, "Expected `)` after enum type.");
 
             case_type_picked = true;
@@ -3189,6 +3336,32 @@ pub const Parser = struct {
         node.* = ObjectInitNode.init(self.gc.allocator, object);
         node.node.location = object.location;
 
+        const object_type = object.type_def;
+
+        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+        if (object_type != null and try self.match(.Less)) {
+            while (!self.check(.Greater) and !self.check(.Eof)) {
+                const resolved_generic = try self.parseTypeDef(null, true);
+
+                if (resolved_generic.def_type == .Any) {
+                    self.reportError(.any_generic, "`any` not allowed as generic type");
+                }
+
+                try resolved_generics.append(resolved_generic);
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+            if (!self.check(.RightBrace)) {
+                try self.consume(.Comma, "Expected `,` after generic types list");
+            }
+        }
+        resolved_generics.shrinkAndFree(resolved_generics.items.len);
+        node.resolved_generics = resolved_generics.items;
+
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             try self.consume(.Identifier, "Expected property name");
 
@@ -3358,7 +3531,10 @@ pub const Parser = struct {
             slot_type = .Global;
         }
 
-        var value = if (can_assign and try self.match(.Equal)) try self.expression(false) else null;
+        const value = if (can_assign and try self.match(.Equal))
+            try self.expression(false)
+        else
+            null;
 
         var node = try self.gc.allocator.create(NamedVariableNode);
         node.* = NamedVariableNode{
@@ -3820,7 +3996,7 @@ pub const Parser = struct {
     fn typeExpression(self: *Self, _: bool) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
-        const type_def = try self.parseTypeDef(null);
+        const type_def = try self.parseTypeDef(null, true);
 
         try self.consume(.Greater, "Expected `>` after type expression.");
 
@@ -3954,7 +4130,7 @@ pub const Parser = struct {
         var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
         if (function_type != null and try self.match(.Less)) {
             while (!self.check(.Greater) and !self.check(.Eof)) {
-                const resolved_generic = try self.parseTypeDef(null);
+                const resolved_generic = try self.parseTypeDef(null, true);
 
                 if (resolved_generic.def_type == .Any) {
                     self.reportError(.any_generic, "`any` not allowed as generic type");
@@ -3975,6 +4151,7 @@ pub const Parser = struct {
                 trailing_comma = false;
             }
         }
+        resolved_generics.shrinkAndFree(resolved_generics.items.len);
 
         var node = try self.gc.allocator.create(CallNode);
         node.* = CallNode{
@@ -4486,7 +4663,7 @@ pub const Parser = struct {
     fn is(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
         const start_location = left.location;
 
-        const constant = (try self.parseTypeDef(null)).toValue();
+        const constant = (try self.parseTypeDef(null, true)).toValue();
 
         var node = try self.gc.allocator.create(IsNode);
         node.* = IsNode{
@@ -4507,7 +4684,7 @@ pub const Parser = struct {
     fn as(self: *Self, _: bool, left: *ParseNode) anyerror!*ParseNode {
         const start_location = left.location;
 
-        const constant = (try self.parseTypeDef(null)).toValue();
+        const constant = (try self.parseTypeDef(null, false)).toValue();
 
         var node = try self.gc.allocator.create(AsNode);
         node.* = AsNode{
@@ -4658,7 +4835,7 @@ pub const Parser = struct {
 
         // A list expression can specify its type `[<int>, ...]`
         if (try self.match(.Less)) {
-            item_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
+            item_type = try self.parseTypeDef(null, true);
 
             try self.consume(.Greater, "Expected `>` after list type.");
         }
@@ -4737,11 +4914,11 @@ pub const Parser = struct {
 
         // A map expression can specify its type `{<str, str>, ...}`
         if (try self.match(.Less)) {
-            key_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
+            key_type = try self.parseTypeDef(null, true);
 
             try self.consume(.Comma, "Expected `,` after key type");
 
-            value_type = try (try self.parseTypeDef(null)).toInstance(self.gc.allocator, &self.gc.type_registry);
+            value_type = try self.parseTypeDef(null, true);
 
             try self.consume(.Greater, "Expected `>` after map type.");
         }
@@ -4898,7 +5075,7 @@ pub const Parser = struct {
                     try self.consume(.Identifier, "Expected generic type identifier");
 
                     const generic_identifier = try self.gc.copyString(self.parser.previous_token.?.lexeme);
-                    if (function_node.node.type_def.?.resolved_type.?.Function.generic_types.get(generic_identifier) == null) {
+                    if ((self.current.?.generics == null or self.current.?.generics.?.get(generic_identifier) == null) and (self.current_object == null or self.current_object.?.generics == null or self.current_object.?.generics.?.get(generic_identifier) == null)) {
                         const generic = ObjTypeDef.GenericDef{
                             .origin = function_node.node.type_def.?.resolved_type.?.Function.id,
                             .index = i,
@@ -4952,7 +5129,7 @@ pub const Parser = struct {
                         );
                     }
 
-                    var param_type: *ObjTypeDef = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                    var param_type: *ObjTypeDef = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types, true)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
                     var slot: usize = try self.parseVariable(
                         false,
@@ -5009,7 +5186,7 @@ pub const Parser = struct {
         // Parse return type
         var parsed_return_type = false;
         if (function_type != .Test and try self.match(.Greater)) {
-            const return_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
+            const return_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types, true);
 
             function_node.node.type_def.?.resolved_type.?.Function.return_type = try return_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
@@ -5018,7 +5195,7 @@ pub const Parser = struct {
 
         // Parse yield type
         if (parsed_return_type and function_type.canYield() and (try self.match(.Greater))) {
-            const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types);
+            const yield_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types, true);
 
             if (!yield_type.optional and yield_type.def_type != .Void) {
                 self.reportError(.yield_type, "Expected optional type or void");
@@ -5034,7 +5211,7 @@ pub const Parser = struct {
             var error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
             const end_token: TokenType = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
             while (!self.check(end_token) and !self.check(.Eof)) {
-                const error_type = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                const error_type = try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types, true);
                 try error_types.append(error_type);
 
                 if (error_type.optional) {
@@ -5623,7 +5800,7 @@ pub const Parser = struct {
                     self.reportErrorAtCurrent(.arguments_count, "Can't have more than 255 arguments.");
                 }
 
-                var param_type: *ObjTypeDef = try (try self.parseTypeDef(merged_generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                var param_type: *ObjTypeDef = try self.parseTypeDef(merged_generic_types, true);
                 try self.consume(.Identifier, "Expected argument name");
                 var param_name: []const u8 = self.parser.previous_token.?.lexeme;
                 var arg_name = try self.gc.copyString(param_name);
@@ -5656,12 +5833,12 @@ pub const Parser = struct {
         try self.consume(.RightParen, "Expected `)` after function parameters.");
 
         var return_type: *ObjTypeDef = if (try self.match(.Greater))
-            try self.parseTypeDef(null)
+            try self.parseTypeDef(null, true)
         else
             try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
         var yield_type: *ObjTypeDef = if (try self.match(.Greater))
-            try self.parseTypeDef(null)
+            try self.parseTypeDef(null, true)
         else
             try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
@@ -5669,7 +5846,7 @@ pub const Parser = struct {
         if (try self.match(.BangGreater)) {
             error_types = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
             while (!self.check(.Eof)) {
-                const error_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+                const error_type = try self.parseTypeDef(generic_types, true);
                 try error_types.?.append(error_type);
 
                 if (error_type.optional) {
@@ -5707,7 +5884,7 @@ pub const Parser = struct {
         return try self.gc.type_registry.getTypeDef(function_typedef);
     }
 
-    fn parseUserType(self: *Self) !usize {
+    fn parseUserType(self: *Self, instance: bool) !*ObjTypeDef {
         var user_type_name: Token = self.parser.previous_token.?.clone();
         var var_type: ?*ObjTypeDef = null;
         var global_slot: ?usize = null;
@@ -5736,7 +5913,48 @@ pub const Parser = struct {
             global_slot = try self.declarePlaceholder(user_type_name, var_type.?);
         }
 
-        return global_slot.?;
+        // Concrete generic types list
+        if (try self.match(.DoubleColon)) {
+            try self.consume(.Less, "Expected generic types list after `::`");
+
+            var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+            var i: usize = 0;
+            while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+                try resolved_generics.append(
+                    try self.parseTypeDef(
+                        if (self.current.?.generics) |generics|
+                            generics.*
+                        else
+                            null,
+                        true,
+                    ),
+                );
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+
+            resolved_generics.shrinkAndFree(resolved_generics.items.len);
+
+            if (resolved_generics.items.len == 0) {
+                self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
+            }
+
+            var_type = try var_type.?.populateGenerics(
+                var_type.?.resolved_type.?.Object.id,
+                resolved_generics.items,
+                &self.gc.type_registry,
+                null,
+            );
+        }
+
+        return if (instance)
+            var_type.?.toInstance(self.gc.allocator, &self.gc.type_registry)
+        else
+            var_type.?;
     }
 
     pub fn parseTypeDefFrom(self: *Self, source: []const u8) anyerror!*ObjTypeDef {
@@ -5749,7 +5967,7 @@ pub const Parser = struct {
 
         _ = try self.advance();
 
-        const parsed_type = try self.parseTypeDef(null);
+        const parsed_type = try self.parseTypeDef(null, true);
 
         // Restore normal scanner and parser state
         self.scanner = scanner;
@@ -5759,7 +5977,7 @@ pub const Parser = struct {
         return parsed_type;
     }
 
-    fn parseTypeDef(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) anyerror!*ObjTypeDef {
+    fn parseTypeDef(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef), instance: bool) anyerror!*ObjTypeDef {
         if (try self.match(.Str)) {
             return try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String });
         } else if (try self.match(.Pat)) {
@@ -5793,7 +6011,7 @@ pub const Parser = struct {
         } else if ((try self.match(.Identifier))) {
             var user_type: ?*ObjTypeDef = null;
             // Is it a generic type defined in enclosing functions?
-            if (self.current.?.searchGeneric(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
+            if (self.resolveGeneric(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
                 user_type = generic_type;
             } else if (generic_types != null) {
                 // Is it generic type defined in a function signature being parsed?
@@ -5804,8 +6022,7 @@ pub const Parser = struct {
 
             // Is it a user defined type (object, enum, etc.) defined in global scope?
             if (user_type == null) {
-                var user_type_index = try self.parseUserType();
-                user_type = self.globals.items[user_type_index].type_def;
+                user_type = try self.parseUserType(instance);
             }
 
             if (try self.match(.Question)) {
@@ -5820,6 +6037,7 @@ pub const Parser = struct {
         }
     }
 
+    // Only used to parse anonymouse object type
     fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*ObjString, *ObjTypeDef)) !*ObjTypeDef {
         const start_location = self.parser.previous_token.?;
 
@@ -5851,7 +6069,7 @@ pub const Parser = struct {
         var fields = std.StringHashMap(void).init(self.gc.allocator);
         defer fields.deinit();
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
-            const property_type = try (try self.parseTypeDef(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
+            const property_type = try self.parseTypeDef(generic_types, true);
 
             try self.consume(.Identifier, "Expected property name.");
             const property_name = self.parser.previous_token.?.clone();
@@ -6065,6 +6283,13 @@ pub const Parser = struct {
         );
 
         return self.globals.items.len - 1;
+    }
+
+    fn resolveGeneric(self: *Self, name: *ObjString) ?*ObjTypeDef {
+        return if (self.current_object != null and self.current_object.?.generics != null)
+            self.current_object.?.generics.?.get(name) orelse self.current.?.resolveGeneric(name)
+        else
+            self.current.?.resolveGeneric(name);
     }
 
     fn resolveLocal(self: *Self, frame: *Frame, name: Token) !?usize {

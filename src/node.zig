@@ -2047,7 +2047,11 @@ pub const IsNode = struct {
 
         _ = try self.left.toByteCode(self.left, codegen, breaks);
 
-        try codegen.emitCodeArg(self.node.location, .OP_CONSTANT, try codegen.makeConstant(self.constant));
+        try codegen.emitCodeArg(
+            self.node.location,
+            .OP_CONSTANT,
+            try codegen.makeConstant(self.constant),
+        );
 
         try codegen.emitOpCode(self.node.location, .OP_IS);
 
@@ -3391,7 +3395,7 @@ pub const TryNode = struct {
         if (!has_unconditional) {
             var it = codegen.current.?.try_should_handle.?.iterator();
             while (it.next()) |kv| {
-                if (self.clauses.get(try kv.key_ptr.*.toParentType(codegen.gc.allocator, &codegen.gc.type_registry)) == null) {
+                if (self.clauses.get(kv.key_ptr.*) == null) {
                     const err_str = try kv.key_ptr.*.toStringAlloc(codegen.gc.allocator);
                     defer err_str.deinit();
 
@@ -4964,6 +4968,8 @@ pub const VarDeclarationNode = struct {
         var self = Self.cast(node).?;
 
         if (self.value) |value| {
+            _ = try value.toByteCode(value, codegen, breaks);
+
             if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {
                 codegen.reporter.reportPlaceholder(value.type_def.?.resolved_type.?.Placeholder);
             } else if (self.type_def.def_type == .Placeholder) {
@@ -4978,8 +4984,6 @@ pub const VarDeclarationNode = struct {
                     "Wrong variable type",
                 );
             }
-
-            _ = try value.toByteCode(value, codegen, breaks);
         } else {
             try codegen.emitOpCode(self.node.location, .OP_NULL);
         }
@@ -7109,6 +7113,7 @@ pub const ObjectInitNode = struct {
 
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
+    resolved_generics: []*ObjTypeDef,
 
     fn checkOmittedProperty(
         self: *Self,
@@ -7152,16 +7157,27 @@ pub const ObjectInitNode = struct {
 
         if (self.object != null and self.object.?.type_def.?.def_type == .Object) {
             _ = try self.object.?.toByteCode(self.object.?, codegen, breaks);
-        } else {
-            // Anonymous object or struct, we push its type
-            try codegen.emitCodeArg(
-                node.location,
-                .OP_CONSTANT,
-                try codegen.makeConstant(node.type_def.?.toValue()),
-            );
+        } else if (node.type_def.?.def_type == .ObjectInstance) {
+            try codegen.emitOpCode(node.location, .OP_NULL);
         }
 
-        if (node.type_def == null or node.type_def.?.def_type == .Placeholder) {
+        node.type_def = if (self.object != null and self.object.?.type_def.?.def_type == .Object)
+            (try node.type_def.?.populateGenerics(
+                self.object.?.type_def.?.resolved_type.?.Object.id,
+                self.resolved_generics,
+                &codegen.gc.type_registry,
+                null,
+            ))
+        else
+            node.type_def;
+
+        try codegen.emitCodeArg(
+            node.location,
+            .OP_CONSTANT,
+            try codegen.makeConstant(node.type_def.?.toValue()),
+        );
+
+        if (node.type_def.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(node.type_def.?.resolved_type.?.Placeholder);
         } else if (node.type_def.?.def_type != .ObjectInstance and node.type_def.?.def_type != .ForeignContainer) {
             codegen.reporter.reportErrorAt(
@@ -7341,9 +7357,10 @@ pub const ObjectInitNode = struct {
     }
 
     pub fn init(allocator: Allocator, object: ?*ParseNode) Self {
-        return Self{
+        return .{
             .object = object,
             .properties = std.StringArrayHashMap(*ParseNode).init(allocator),
+            .resolved_generics = &[_]*ObjTypeDef{},
         };
     }
 
