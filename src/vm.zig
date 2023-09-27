@@ -2157,10 +2157,13 @@ pub const VM = struct {
 
         _ = self.pop();
 
-        var enum_case: *ObjEnumInstance = self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
-            .enum_ref = enum_,
-            .case = @intCast(arg),
-        }) catch |e| {
+        var enum_case: *ObjEnumInstance = self.gc.allocateObject(
+            ObjEnumInstance,
+            ObjEnumInstance{
+                .enum_ref = enum_,
+                .case = @intCast(arg),
+            },
+        ) catch |e| {
             panic(e);
             unreachable;
         };
@@ -2297,9 +2300,12 @@ pub const VM = struct {
     }
 
     fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const object_or_type = self.pop().obj();
-        const object = object_or_type.access(ObjObject, .Object, self.gc);
-        const typedef = object_or_type.access(ObjTypeDef, .Type, self.gc);
+        const typedef = self.pop().obj().access(ObjTypeDef, .Type, self.gc).?;
+        const object_or_null = self.pop();
+        const object = if (object_or_null.isObj())
+            object_or_null.obj().access(ObjObject, .Object, self.gc).?
+        else
+            null;
 
         var obj_instance: *ObjObjectInstance = self.gc.allocateObject(
             ObjObjectInstance,

@@ -447,7 +447,10 @@ pub fn build(b: *Build) !void {
     }
 
     for (all_lib_names) |name| {
-        const step = b.addInstallLibFile(std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})), b.fmt("buzz/{s}.buzz", .{name}));
+        const step = b.addInstallLibFile(
+            std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})),
+            b.fmt("buzz/{s}.buzz", .{name}),
+        );
         install_step.dependOn(&step.step);
     }
 

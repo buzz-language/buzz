@@ -239,7 +239,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                     std.debug.print(")", .{});
                 }
 
-                std.debug.print("{s} {{ ", .{object_def.name.string});
+                std.debug.print(" {s} {{ ", .{object_def.name.string});
 
                 var it = object_def.static_fields.iterator();
                 while (it.next()) |kv| {
@@ -267,13 +267,9 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                     std.debug.print("{s} {s}", .{ field_type_str.items, kv.key_ptr.* });
 
-                    var field_it = object.fields.iterator();
-                    while (field_it.next()) |field_kv| {
-                        if (std.mem.eql(u8, field_kv.key_ptr.*.string, kv.key_ptr.*)) {
-                            std.debug.print(" = ", .{});
-                            valueDump(field_kv.value_ptr.*, vm, seen, depth + 1);
-                            break;
-                        }
+                    if (object.fields.get(vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
+                        std.debug.print(" = ", .{});
+                        valueDump(v, vm, seen, depth + 1);
                     }
 
                     std.debug.print(", ", .{});
@@ -337,6 +333,8 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 std.debug.print("}}", .{});
             },
         }
+
+        _ = seen.remove(value.obj());
     }
 }
 
@@ -751,7 +749,7 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
         ObjObjectInstance.init(
             self,
             object,
-            null,
+            object.type_def.toInstance(self.gc.allocator, &self.gc.type_registry) catch @panic("Out of memory"),
         ),
     ) catch {
         @panic("Could not create error");
@@ -854,7 +852,7 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Va
 
 export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value {
     const object = if (object_value.isObj()) ObjObject.cast(object_value.obj()).? else null;
-    const typedef = if (typedef_value.isObj()) ObjTypeDef.cast(typedef_value.obj()).? else null;
+    const typedef = ObjTypeDef.cast(typedef_value.obj()).?;
 
     const instance = vm.gc.allocateObject(
         ObjObjectInstance,

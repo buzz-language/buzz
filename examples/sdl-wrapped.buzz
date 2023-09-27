@@ -408,7 +408,7 @@ export object Window {
         int width,
         int height,
         [WindowFlag] flags
-    ) > Window {
+    ) > Window !> SDLError {
         int windowFlags = 0;
         foreach (WindowFlag flag in flags) {
             windowFlags = windowFlags \ flag.value;

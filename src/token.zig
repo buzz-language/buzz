@@ -98,6 +98,7 @@ pub const TokenType = enum {
     Question, // ?
     Bang, // !
     Colon, // :
+    DoubleColon, // ::
     Equal, // =
     EqualEqual, // ==
     BangEqual, // !=

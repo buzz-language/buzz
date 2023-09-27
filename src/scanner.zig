@@ -115,7 +115,10 @@ pub const Scanner = struct {
                 self.makeToken(.BangGreater, null, null, null)
             else
                 self.makeToken(.Bang, null, null, null),
-            ':' => self.makeToken(.Colon, null, null, null),
+            ':' => if (self.match(':'))
+                self.makeToken(.DoubleColon, null, null, null)
+            else
+                self.makeToken(.Colon, null, null, null),
             '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
             '"' => self.string(false),
             '`' => self.string(true),
