@@ -429,6 +429,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = null, .precedence = .None }, // any
         .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
         .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
+        .{ .prefix = null, .infix = null, .precedence = .None }, // var
     };
 
     pub const ScriptImport = struct {
@@ -1240,8 +1241,17 @@ pub const Parser = struct {
                 try self.enumDeclaration()
             else if (!constant and try self.match(.Fun))
                 try self.funDeclaration()
+            else if (!constant and try self.match(.Var))
+                try self.varDeclaration(
+                    false,
+                    null,
+                    .Semicolon,
+                    false,
+                    true,
+                )
             else if (try self.match(.Pat))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
                     .Semicolon,
                     constant,
@@ -1249,6 +1259,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Ud))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData }),
                     .Semicolon,
                     constant,
@@ -1256,6 +1267,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Str))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
                     .Semicolon,
                     constant,
@@ -1263,6 +1275,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Int))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer }),
                     .Semicolon,
                     constant,
@@ -1270,6 +1283,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Float))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float }),
                     .Semicolon,
                     constant,
@@ -1277,6 +1291,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Bool))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
                     .Semicolon,
                     constant,
@@ -1284,6 +1299,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Type))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
                     .Semicolon,
                     constant,
@@ -1291,6 +1307,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Any))
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                     .Semicolon,
                     constant,
@@ -1298,6 +1315,7 @@ pub const Parser = struct {
                 )
             else if (self.parser.current_token != null and self.parser.current_token.?.token_type == .Identifier and self.parser.current_token.?.lexeme.len == 1 and self.parser.current_token.?.lexeme[0] == '_')
                 try self.varDeclaration(
+                    false,
                     try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                     .Semicolon,
                     constant,
@@ -1305,6 +1323,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Fib))
                 try self.varDeclaration(
+                    false,
                     try self.parseFiberType(null),
                     .Semicolon,
                     constant,
@@ -1312,6 +1331,7 @@ pub const Parser = struct {
                 )
             else if (try self.match(.Obj))
                 try self.varDeclaration(
+                    false,
                     try self.parseObjType(null),
                     .Semicolon,
                     constant,
@@ -1325,6 +1345,7 @@ pub const Parser = struct {
                 try self.testStatement()
             else if (try self.match(.Function))
                 try self.varDeclaration(
+                    false,
                     try self.parseFunctionType(null),
                     .Semicolon,
                     constant,
@@ -1364,8 +1385,17 @@ pub const Parser = struct {
         // Things we can match with the first token
         if (!constant and try self.match(.Fun)) {
             return try self.funDeclaration();
+        } else if (!constant and try self.match(.Var)) {
+            return try self.varDeclaration(
+                false,
+                null,
+                .Semicolon,
+                false,
+                true,
+            );
         } else if (try self.match(.Str)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
                 .Semicolon,
                 constant,
@@ -1373,6 +1403,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Pat)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
                 .Semicolon,
                 constant,
@@ -1380,6 +1411,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Ud)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData }),
                 .Semicolon,
                 constant,
@@ -1387,6 +1419,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Int)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer }),
                 .Semicolon,
                 constant,
@@ -1394,6 +1427,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Float)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float }),
                 .Semicolon,
                 constant,
@@ -1401,6 +1435,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Bool)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
                 .Semicolon,
                 constant,
@@ -1408,6 +1443,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Any)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                 .Semicolon,
                 constant,
@@ -1415,6 +1451,7 @@ pub const Parser = struct {
             );
         } else if (self.parser.current_token != null and self.parser.current_token.?.token_type == .Identifier and self.parser.current_token.?.lexeme.len == 1 and self.parser.current_token.?.lexeme[0] == '_') {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
                 .Semicolon,
                 constant,
@@ -1422,6 +1459,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Type)) {
             return try self.varDeclaration(
+                false,
                 try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
                 .Semicolon,
                 constant,
@@ -1429,6 +1467,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Fib)) {
             return try self.varDeclaration(
+                false,
                 try self.parseFiberType(null),
                 .Semicolon,
                 constant,
@@ -1436,6 +1475,7 @@ pub const Parser = struct {
             );
         } else if (try self.match(.Obj)) {
             return try self.varDeclaration(
+                false,
                 try self.parseObjType(null),
                 .Semicolon,
                 constant,
@@ -1447,6 +1487,7 @@ pub const Parser = struct {
             return try self.mapDeclaration(constant);
         } else if (try self.match(.Function)) {
             return try self.varDeclaration(
+                false,
                 try self.parseFunctionType(null),
                 .Semicolon,
                 constant,
@@ -1471,8 +1512,15 @@ pub const Parser = struct {
             }
         }
 
+        // Its a const variable declaration with omitted type
         if (constant) {
-            self.reportError(.syntax, "`const` not allowed here.");
+            return try self.varDeclaration(
+                true,
+                null,
+                .Semicolon,
+                true,
+                true,
+            );
         }
 
         return try self.statement(hanging, loop_scope);
@@ -2000,6 +2048,7 @@ pub const Parser = struct {
         var casted_type: ?*ObjTypeDef = null;
         if (try self.match(.Arrow)) {
             _ = try self.parseVariable(
+                false,
                 try condition.type_def.?.cloneNonOptional(&self.gc.type_registry),
                 true,
                 "Expected optional unwrap identifier",
@@ -2011,6 +2060,7 @@ pub const Parser = struct {
             casted_type = try self.parseTypeDef(null);
 
             _ = try self.parseVariable(
+                false,
                 try casted_type.?.toInstance(self.gc.allocator, &self.gc.type_registry),
                 true,
                 "Expected casted identifier",
@@ -2061,7 +2111,17 @@ pub const Parser = struct {
         // Should be either VarDeclaration or expression
         var init_declarations = std.ArrayList(*VarDeclarationNode).init(self.gc.allocator);
         while (!self.check(.Semicolon) and !self.check(.Eof)) {
-            try init_declarations.append(VarDeclarationNode.cast(try self.varDeclaration(try self.parseTypeDef(null), .Nothing, false, true)).?);
+            try init_declarations.append(
+                VarDeclarationNode.cast(
+                    try self.varDeclaration(
+                        false,
+                        try self.parseTypeDef(null),
+                        .Nothing,
+                        false,
+                        true,
+                    ),
+                ).?,
+            );
 
             self.markInitialized();
 
@@ -2118,6 +2178,7 @@ pub const Parser = struct {
         self.beginScope();
 
         var key: ?*ParseNode = try self.varDeclaration(
+            false,
             try self.parseTypeDef(null),
             .Nothing,
             false,
@@ -2126,6 +2187,7 @@ pub const Parser = struct {
 
         var value: ?*ParseNode = if (try self.match(.Comma))
             try self.varDeclaration(
+                false,
                 try self.parseTypeDef(null),
                 .Nothing,
                 false,
@@ -2312,6 +2374,7 @@ pub const Parser = struct {
                 const type_def = try self.parseTypeDef(null);
 
                 _ = try self.parseVariable(
+                    false,
                     try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
                     true, // function arguments are constant
                     "Expected error identifier",
@@ -2376,10 +2439,25 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn varDeclaration(self: *Self, parsed_type: *ObjTypeDef, terminator: DeclarationTerminator, constant: bool, can_assign: bool) !*ParseNode {
-        const var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+    fn varDeclaration(
+        self: *Self,
+        identifier_consumed: bool,
+        parsed_type: ?*ObjTypeDef,
+        terminator: DeclarationTerminator,
+        constant: bool,
+        can_assign: bool,
+    ) !*ParseNode {
+        var var_type = if (parsed_type) |ptype|
+            try ptype.toInstance(self.gc.allocator, &self.gc.type_registry)
+        else
+            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
 
-        const slot: usize = try self.parseVariable(var_type, constant, "Expected variable name.");
+        const slot: usize = try self.parseVariable(
+            identifier_consumed,
+            var_type,
+            constant,
+            "Expected variable name.",
+        );
 
         const name = self.parser.previous_token.?;
         const start_location = name;
@@ -2388,6 +2466,17 @@ pub const Parser = struct {
 
         if (var_type.def_type == .Placeholder and value != null and value.?.type_def != null and value.?.type_def.?.def_type == .Placeholder) {
             try PlaceholderDef.link(var_type, value.?.type_def.?, .Assignment);
+        }
+
+        if (parsed_type == null and value != null and value.?.type_def != null) {
+            self.current.?.locals[slot].type_def = value.?.type_def.?;
+            var_type = value.?.type_def.?;
+        } else if (parsed_type == null) {
+            self.reporter.reportErrorAt(
+                .inferred_type,
+                start_location,
+                "Could not infer variable type.",
+            );
         }
 
         var node = try self.gc.allocator.create(VarDeclarationNode);
@@ -2404,6 +2493,10 @@ pub const Parser = struct {
         node.node.end_location = self.parser.previous_token.?;
         node.node.type_def = node.type_def;
 
+        if (terminator == .Semicolon and !self.check(.Semicolon)) {
+            unreachable;
+        }
+
         switch (terminator) {
             .OptComma => _ = try self.match(.Comma),
             .Comma => try self.consume(.Comma, "Expected `,` after variable declaration."),
@@ -2417,40 +2510,53 @@ pub const Parser = struct {
     }
 
     fn userVarDeclaration(self: *Self, _: bool, constant: bool) !*ParseNode {
-        var user_type_name: Token = self.parser.previous_token.?.clone();
         var var_type: ?*ObjTypeDef = null;
 
-        // Search for a global with that name
-        if (try self.resolveGlobal(null, user_type_name)) |slot| {
-            var_type = self.globals.items[slot].type_def;
+        const inferred_declaration = self.check(.Equal) and constant;
+
+        // If next token is `=`, means the identifier wasn't a user type but the variable name
+        // and the type needs to be inferred
+        if (!inferred_declaration) {
+            var user_type_name: Token = self.parser.previous_token.?.clone();
+
+            // Search for a global with that name
+            if (try self.resolveGlobal(null, user_type_name)) |slot| {
+                var_type = self.globals.items[slot].type_def;
+            }
+
+            // If none found, create a placeholder
+            if (var_type == null) {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    // TODO: token is wrong but what else can we put here?
+                    .Placeholder = PlaceholderDef.init(self.gc.allocator, user_type_name),
+                };
+
+                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
+                    user_type_name.lexeme,
+                );
+
+                var_type = try self.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    },
+                );
+
+                _ = try self.declarePlaceholder(user_type_name, var_type);
+            }
+
+            if (try self.match(.Question)) {
+                var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
+            }
         }
 
-        // If none found, create a placeholder
-        if (var_type == null) {
-            var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                // TODO: token is wrong but what else can we put here?
-                .Placeholder = PlaceholderDef.init(self.gc.allocator, user_type_name),
-            };
-
-            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
-                user_type_name.lexeme,
-            );
-
-            var_type = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type,
-                },
-            );
-
-            _ = try self.declarePlaceholder(user_type_name, var_type);
-        }
-
-        if (try self.match(.Question)) {
-            var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
-        }
-
-        return try self.varDeclaration(var_type.?, .Semicolon, constant, true);
+        return try self.varDeclaration(
+            inferred_declaration,
+            var_type,
+            .Semicolon,
+            constant,
+            true,
+        );
     }
 
     fn zdefStatement(self: *Self) anyerror!*ParseNode {
@@ -2839,6 +2945,7 @@ pub const Parser = struct {
         }
 
         return try self.varDeclaration(
+            false,
             try self.parseListType(null),
             .Semicolon,
             constant,
@@ -2876,6 +2983,7 @@ pub const Parser = struct {
         }
 
         return try self.varDeclaration(
+            false,
             try self.parseMapType(null),
             .Semicolon,
             constant,
@@ -4847,6 +4955,7 @@ pub const Parser = struct {
                     var param_type: *ObjTypeDef = try (try self.parseTypeDef(function_node.node.type_def.?.resolved_type.?.Function.generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry);
 
                     var slot: usize = try self.parseVariable(
+                        false,
                         param_type,
                         true, // function arguments are constant
                         "Expected parameter name",
@@ -5763,8 +5872,10 @@ pub const Parser = struct {
         return try self.gc.type_registry.getTypeDef(object_type);
     }
 
-    fn parseVariable(self: *Self, variable_type: *ObjTypeDef, constant: bool, error_message: []const u8) !usize {
-        try self.consume(.Identifier, error_message);
+    fn parseVariable(self: *Self, identifier_consumed: bool, variable_type: *ObjTypeDef, constant: bool, error_message: []const u8) !usize {
+        if (!identifier_consumed) {
+            try self.consume(.Identifier, error_message);
+        }
 
         return try self.declareVariable(variable_type, null, constant, true);
     }

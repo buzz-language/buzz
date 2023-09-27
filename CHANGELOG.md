@@ -30,6 +30,7 @@
 - `map.sort`, `map.forEach`, `map.map`, `map.filter`, `map.reduce`, `map.diff`, `map.intersect`, `map.clone`
 - `list.clone`
 - Number literals can embed `_`: `1_000_000.300_245`
+- Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"`
 
 ## Changed
 

@@ -175,6 +175,7 @@ pub const TokenType = enum {
     Any, // any
     Zdef, // zdef
     TypeOf, // typeof
+    Var, // var
 };
 
 pub const keywords = std.ComptimeStringMap(
@@ -231,5 +232,6 @@ pub const keywords = std.ComptimeStringMap(
         .{ "zdef", .Zdef },
         .{ "type", .Type },
         .{ "typeof", .TypeOf },
+        .{ "var", .Var },
     },
 );

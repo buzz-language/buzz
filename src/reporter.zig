@@ -99,6 +99,7 @@ pub const Error = enum(u8) {
     gc = 87,
     discarded_value = 88,
     unused_argument = 89,
+    inferred_type = 90,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

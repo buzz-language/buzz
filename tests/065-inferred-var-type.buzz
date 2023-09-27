@@ -1,0 +1,21 @@
+import "std";
+
+object Person {
+    str name = "Joe",
+}
+
+var integer = 42;
+const floating = 42.42;
+
+test "Inferring variable declaration type" {
+    assert(integer is int, message: "Could infer global variable declaration type");
+    assert(floating is float, message: "Could infer global constant declaration type");
+
+    var string = "hello";
+
+    assert(string is str, message: "Could infer variable declaration type");
+
+    const person = Person{};
+
+    assert(person is Person, message: "Could infer constant declaration type");
+}
