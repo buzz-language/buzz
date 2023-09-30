@@ -93,7 +93,9 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    request.start() catch |err| {
+    const options = http.Client.Request.StartOptions{ .raw_uri = false };
+
+    request.start(options) catch |err| {
         handleStartError(ctx, err);
 
         return -1;
