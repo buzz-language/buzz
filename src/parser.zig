@@ -3333,34 +3333,8 @@ pub const Parser = struct {
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
         var node = try self.gc.allocator.create(ObjectInitNode);
-        node.* = ObjectInitNode.init(self.gc.allocator, object);
+        node.* = ObjectInitNode.init(self.gc.allocator, NamedVariableNode.cast(object).?);
         node.node.location = object.location;
-
-        const object_type = object.type_def;
-
-        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
-        if (object_type != null and try self.match(.Less)) {
-            while (!self.check(.Greater) and !self.check(.Eof)) {
-                const resolved_generic = try self.parseTypeDef(null, true);
-
-                if (resolved_generic.def_type == .Any) {
-                    self.reportError(.any_generic, "`any` not allowed as generic type");
-                }
-
-                try resolved_generics.append(resolved_generic);
-
-                if (!self.check(.Greater)) {
-                    try self.consume(.Comma, "Expected `,` between generic types");
-                }
-            }
-
-            try self.consume(.Greater, "Expected `>` after generic types list");
-            if (!self.check(.RightBrace)) {
-                try self.consume(.Comma, "Expected `,` after generic types list");
-            }
-        }
-        resolved_generics.shrinkAndFree(resolved_generics.items.len);
-        node.resolved_generics = resolved_generics.items;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
             try self.consume(.Identifier, "Expected property name");
@@ -3531,6 +3505,29 @@ pub const Parser = struct {
             slot_type = .Global;
         }
 
+        // resolved generics
+        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+        if (try self.match(.DoubleColon)) {
+            try self.consume(.Less, "Expected `<` at start of generic types list");
+
+            while (!self.check(.Greater) and !self.check(.Eof)) {
+                const resolved_generic = try self.parseTypeDef(null, true);
+
+                if (resolved_generic.def_type == .Any) {
+                    self.reportError(.any_generic, "`any` not allowed as generic type");
+                }
+
+                try resolved_generics.append(resolved_generic);
+
+                if (!self.check(.Greater)) {
+                    try self.consume(.Comma, "Expected `,` between generic types");
+                }
+            }
+
+            try self.consume(.Greater, "Expected `>` after generic types list");
+        }
+        resolved_generics.shrinkAndFree(resolved_generics.items.len);
+
         const value = if (can_assign and try self.match(.Equal))
             try self.expression(false)
         else
@@ -3543,6 +3540,7 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = slot_type,
             .slot_constant = slot_constant,
+            .resolved_generics = resolved_generics,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;

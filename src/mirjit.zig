@@ -4620,17 +4620,17 @@ fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m
         return self.generateForeignContainerInit(object_init_node);
     }
 
-    const object = if (object_init_node.object != null and object_init_node.object.?.type_def.?.def_type == .Object)
-        (try self.generateNode(object_init_node.object.?)).?
+    const object = if (object_init_node.object != null and object_init_node.object.?.node.type_def.?.def_type == .Object)
+        (try self.generateNode(object_init_node.object.?.toNode())).?
     else
         m.MIR_new_uint_op(self.ctx, v.Value.Null.val);
 
     const typedef = m.MIR_new_uint_op(
         self.ctx,
-        if (object_init_node.object != null and object_init_node.object.?.type_def.?.def_type == .Object)
+        if (object_init_node.object != null and object_init_node.object.?.node.type_def.?.def_type == .Object)
             (try object_init_node.node.type_def.?.populateGenerics(
-                object_init_node.object.?.type_def.?.resolved_type.?.Object.id,
-                object_init_node.resolved_generics,
+                object_init_node.object.?.node.type_def.?.resolved_type.?.Object.id,
+                object_init_node.object.?.resolved_generics.items,
                 &self.vm.gc.type_registry,
                 null,
             )).toValue().val
