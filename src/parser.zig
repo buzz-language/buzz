@@ -2559,7 +2559,7 @@ pub const Parser = struct {
         parsed_type: ?*ObjTypeDef,
         terminator: DeclarationTerminator,
         constant: bool,
-        can_assign: bool,
+        should_assign: bool,
     ) !*ParseNode {
         var var_type = if (parsed_type) |ptype|
             try ptype.toInstance(self.gc.allocator, &self.gc.type_registry)
@@ -2576,7 +2576,12 @@ pub const Parser = struct {
         const name = self.parser.previous_token.?;
         const start_location = name;
 
-        const value = if (can_assign and try self.match(.Equal)) try self.expression(false) else null;
+        var value: ?*ParseNode = null;
+
+        if (should_assign) {
+            try self.consume(.Equal, "Expected variable initial value");
+            value = try self.expression(false);
+        }
 
         if (var_type.def_type == .Placeholder and value != null and value.?.type_def != null and value.?.type_def.?.def_type == .Placeholder) {
             try PlaceholderDef.link(var_type, value.?.type_def.?, .Assignment);
