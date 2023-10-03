@@ -16,14 +16,14 @@ test "Anonymous objects" {
     assert(info is obj{ str name, int age },  message: "Type safety works with anonymous object");
 }
 
-fun getPayload(<T>, T data) > obj{ T data } {
+fun getPayload::<T>(T data) > obj{ T data } {
     return .{
         data = data
     };
 }
 
 test "Anonymous object with generics" {
-    obj{ int data } payload = getPayload(<int>, 42);
+    obj{ int data } payload = getPayload::<int>(42);
 
     assert(payload.data == 42, message: "Could use anonymous object with generic");
 }

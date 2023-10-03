@@ -14,7 +14,7 @@ test "list.forEach" {
 test "list.map" {
     [int] data = [1, 2, 3, 4];
 
-    [str] mapped = data.map(<str>, fun (int _, int element) -> "{element}");
+    [str] mapped = data.map::<str>(fun (int _, int element) -> "{element}");
 
     assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
 }
@@ -30,8 +30,7 @@ test "list.filter" {
 test "list.reduce" {
     [int] data = [1, 2, 3, 4];
 
-    int sum = data.reduce(
-        <int>,
+    int sum = data.reduce::<int>(
         fun (int _, int element, int accumulator) -> accumulator + element,
         initial: 0
     );
@@ -74,8 +73,7 @@ test "map.map" {
     };
 
     | fun map(<K, V>, Function(str key, int value) > obj{ K key, V value }) > {K, V}
-    {int, str} inverted = map.map(
-        <int, str>,
+    {int, str} inverted = map.map::<int, str>(
         fun (str key, int value) -> .{ key = value, value = key },
     );
 
@@ -107,8 +105,7 @@ test "map.reduce" {
         "three": 3,
     };
 
-    int sum = map.reduce(
-        <int>,
+    int sum = map.reduce::<int>(
         fun (str _, int value, int accumulator) -> accumulator + value,
         initial: 0
     );

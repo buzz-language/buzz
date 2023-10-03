@@ -3454,7 +3454,10 @@ pub const ObjTypeDef = struct {
         type_registry: *TypeRegistry,
         visited: ?*std.AutoHashMap(*Self, void),
     ) VM.Error!*Self {
-        var visited_nodes = if (visited == null) std.AutoHashMap(*Self, void).init(type_registry.gc.allocator) else null;
+        var visited_nodes = if (visited == null)
+            std.AutoHashMap(*Self, void).init(type_registry.gc.allocator)
+        else
+            null;
         defer {
             if (visited == null) {
                 visited_nodes.?.deinit();
@@ -3574,15 +3577,9 @@ pub const ObjTypeDef = struct {
                     old_object_def.anonymous,
                 );
 
+                resolved.generic_types.deinit();
+                resolved.generic_types = try old_object_def.generic_types.clone();
                 resolved.resolved_generics = generics;
-
-                {
-                    var it = old_object_def.generic_types.iterator();
-                    var i: usize = 0;
-                    while (it.next()) |kv| : (i += 1) {
-                        try resolved.generic_types.put(kv.key_ptr.*, generics[i]);
-                    }
-                }
 
                 {
                     var fields = std.StringArrayHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
@@ -3754,7 +3751,7 @@ pub const ObjTypeDef = struct {
                     .defaults = old_fun_def.defaults,
                     .function_type = old_fun_def.function_type,
                     .lambda = old_fun_def.lambda,
-                    .generic_types = old_fun_def.generic_types,
+                    .generic_types = try old_fun_def.generic_types.clone(),
                     .resolved_generics = generics,
                 };
 
@@ -3839,6 +3836,7 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
+    // FIXME: return slice
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
         var str = std.ArrayList(u8).init(allocator);
 
@@ -3908,8 +3906,8 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
-                        if (kv.value_ptr.*.def_type != .Generic) {
-                            try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
+                            try object_def.resolved_generics.?[i].toStringRaw(writer, qualified);
                         } else {
                             try writer.print("{s}", .{kv.key_ptr.*.string});
                         }
@@ -3973,8 +3971,8 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i += 1) {
-                        if (kv.value_ptr.*.def_type != .Generic) {
-                            try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
+                            try object_def.resolved_generics.?[i].toStringRaw(writer, qualified);
                         } else {
                             try writer.print("{s}", .{kv.key_ptr.*.string});
                         }
@@ -4039,7 +4037,11 @@ pub const ObjTypeDef = struct {
                         var i: usize = 0;
                         var it = function_def.generic_types.iterator();
                         while (it.next()) |kv| : (i = i + 1) {
-                            try writer.print("{s}", .{kv.key_ptr.*.string});
+                            if (function_def.resolved_generics != null and i < function_def.resolved_generics.?.len) {
+                                try function_def.resolved_generics.?[i].toString(writer);
+                            } else {
+                                try writer.print("{s}", .{kv.key_ptr.*.string});
+                            }
 
                             if (i < size - 1) {
                                 try writer.writeAll(", ");
