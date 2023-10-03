@@ -1057,6 +1057,7 @@ pub const ObjFunction = struct {
         lambda: bool = false,
 
         generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
             FunctionDefSelf.next_id += 1;
@@ -1392,6 +1393,7 @@ pub const ObjObject = struct {
         conforms_to: std.AutoHashMap(*ObjTypeDef, void),
 
         generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
             ObjectDef.next_id += 1;
@@ -3446,7 +3448,8 @@ pub const ObjTypeDef = struct {
 
     pub fn populateGenerics(
         self: *Self,
-        origin: usize,
+        where: Token,
+        origin: ?usize,
         generics: []*Self,
         type_registry: *TypeRegistry,
         visited: ?*std.AutoHashMap(*Self, void),
@@ -3479,7 +3482,6 @@ pub const ObjTypeDef = struct {
             .Void,
             .UserData,
             .Type,
-            .Placeholder,
             .Enum, // Enum are defined in global scope without any generic possible
             .EnumInstance,
             .Protocol,
@@ -3487,6 +3489,32 @@ pub const ObjTypeDef = struct {
             .Any,
             .ForeignContainer,
             => self,
+
+            .Placeholder => placeholder: {
+                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
+                    .Placeholder = PlaceholderDef.init(
+                        type_registry.gc.allocator,
+                        where,
+                    ),
+                };
+
+                placeholder_resolved_type.Placeholder.resolved_generics = generics;
+
+                const placeholder = try type_registry.getTypeDef(
+                    .{
+                        .def_type = .Placeholder,
+                        .resolved_type = placeholder_resolved_type,
+                    },
+                );
+
+                try PlaceholderDef.link(
+                    self,
+                    placeholder,
+                    .GenericResolve,
+                );
+
+                break :placeholder placeholder;
+            },
 
             .Generic => generic: {
                 if (self.resolved_type.?.Generic.origin == origin) {
@@ -3499,12 +3527,14 @@ pub const ObjTypeDef = struct {
             .Fiber => fiber: {
                 const new_fiber_def = ObjFiber.FiberDef{
                     .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
                     ),
                     .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
@@ -3523,6 +3553,7 @@ pub const ObjTypeDef = struct {
                 break :fiber try type_registry.getTypeDef(new_fiber);
             },
             .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(
+                where,
                 origin,
                 generics,
                 type_registry,
@@ -3543,6 +3574,8 @@ pub const ObjTypeDef = struct {
                     old_object_def.anonymous,
                 );
 
+                resolved.resolved_generics = generics;
+
                 {
                     var it = old_object_def.generic_types.iterator();
                     var i: usize = 0;
@@ -3558,6 +3591,7 @@ pub const ObjTypeDef = struct {
                         try fields.put(
                             kv.key_ptr.*,
                             try kv.value_ptr.*.populateGenerics(
+                                where,
                                 origin,
                                 generics,
                                 type_registry,
@@ -3587,6 +3621,7 @@ pub const ObjTypeDef = struct {
                     try methods.put(
                         kv.key_ptr.*,
                         try kv.value_ptr.*.populateGenerics(
+                            where,
                             origin,
                             generics,
                             type_registry,
@@ -3597,6 +3632,7 @@ pub const ObjTypeDef = struct {
 
                 var new_list_def = ObjList.ListDef{
                     .item_type = try (try old_list_def.item_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
@@ -3624,6 +3660,7 @@ pub const ObjTypeDef = struct {
                     try methods.put(
                         kv.key_ptr.*,
                         try kv.value_ptr.*.populateGenerics(
+                            where,
                             origin,
                             generics,
                             type_registry,
@@ -3634,12 +3671,14 @@ pub const ObjTypeDef = struct {
 
                 var new_map_def = ObjMap.MapDef{
                     .key_type = try old_map_def.key_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
                     ),
                     .value_type = try old_map_def.value_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
@@ -3666,6 +3705,7 @@ pub const ObjTypeDef = struct {
                     error_types = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
                     for (old_error_types) |error_type| {
                         try error_types.?.append(try error_type.populateGenerics(
+                            where,
                             origin,
                             generics,
                             type_registry,
@@ -3681,6 +3721,7 @@ pub const ObjTypeDef = struct {
                         try parameters.put(
                             kv.key_ptr.*,
                             try (try kv.value_ptr.*.populateGenerics(
+                                where,
                                 origin,
                                 generics,
                                 type_registry,
@@ -3695,12 +3736,14 @@ pub const ObjTypeDef = struct {
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
                     .return_type = try (try old_fun_def.return_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
                     )).toInstance(type_registry.gc.allocator, type_registry),
                     .yield_type = try (try old_fun_def.yield_type.populateGenerics(
+                        where,
                         origin,
                         generics,
                         type_registry,
@@ -3712,6 +3755,7 @@ pub const ObjTypeDef = struct {
                     .function_type = old_fun_def.function_type,
                     .lambda = old_fun_def.lambda,
                     .generic_types = old_fun_def.generic_types,
+                    .resolved_generics = generics,
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Function = new_fun_def };
@@ -3987,12 +4031,11 @@ pub const ObjTypeDef = struct {
                 }
                 try writer.writeAll("fun ");
                 try writer.writeAll(function_def.name.string);
-                try writer.writeAll("(");
 
                 {
                     const size = function_def.generic_types.count();
                     if (size > 0) {
-                        try writer.writeAll("<");
+                        try writer.writeAll("::<");
                         var i: usize = 0;
                         var it = function_def.generic_types.iterator();
                         while (it.next()) |kv| : (i = i + 1) {
@@ -4010,6 +4053,8 @@ pub const ObjTypeDef = struct {
                         }
                     }
                 }
+
+                try writer.writeAll("(");
 
                 {
                     const size = function_def.parameters.count();
@@ -4513,6 +4558,7 @@ pub const PlaceholderDef = struct {
         Parent,
         Optional,
         Unwrap,
+        GenericResolve,
     };
 
     name: ?*ObjString = null,
@@ -4526,7 +4572,7 @@ pub const PlaceholderDef = struct {
     children: std.ArrayList(*ObjTypeDef),
 
     // If the placeholder is a function return, we need to remember eventual generic types defined in that call
-    call_generics: ?[]*ObjTypeDef = null,
+    resolved_generics: ?[]*ObjTypeDef = null,
 
     pub fn init(allocator: Allocator, where: Token) Self {
         return Self{
@@ -4569,12 +4615,12 @@ pub const PlaceholderDef = struct {
 
         if (BuildOptions.debug_placeholders) {
             std.debug.print(
-                "Linking @{} (root: {}) with @{} as {}\n",
+                "Linking @{} (root: {}) with @{} as {s}\n",
                 .{
                     @intFromPtr(parent),
                     parent.resolved_type.?.Placeholder.parent == null,
                     @intFromPtr(child),
-                    relation,
+                    @tagName(relation),
                 },
             );
         }

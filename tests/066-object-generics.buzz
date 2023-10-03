@@ -6,7 +6,7 @@ object Payload::<K, V> {
 }
 
 test "Objects generics" {
-    Payload::<str, int> payload = Payload::<str, int>{
+    var payload = Payload::<str, int>{
         data = {
             "one": 1
         },

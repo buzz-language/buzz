@@ -103,6 +103,7 @@ const TryNode = _node.TryNode;
 const ZdefNode = _node.ZdefNode;
 const TypeExpressionNode = _node.TypeExpressionNode;
 const TypeOfExpressionNode = _node.TypeOfExpressionNode;
+const GenericResolveNode = _node.GenericResolveNode;
 const ParsedArg = _node.ParsedArg;
 const OpCode = _chunk.OpCode;
 const TypeRegistry = _obj.TypeRegistry;
@@ -358,7 +359,7 @@ pub const Parser = struct {
         .{ .prefix = null, .infix = unwrap, .precedence = .Call }, // Question
         .{ .prefix = unary, .infix = forceUnwrap, .precedence = .Call }, // Bang
         .{ .prefix = null, .infix = null, .precedence = .None }, // Colon
-        .{ .prefix = null, .infix = objectInit, .precedence = .None }, // DoubleColon
+        .{ .prefix = null, .infix = genericResolve, .precedence = .Call }, // DoubleColon
         .{ .prefix = null, .infix = null, .precedence = .None }, // Equal
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // EqualEqual
         .{ .prefix = null, .infix = binary, .precedence = .Equality }, // BangEqual
@@ -872,6 +873,23 @@ pub const Parser = struct {
         }
 
         switch (relation) {
+            .GenericResolve => {
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.populateGenerics(
+                        self.parser.previous_token.?,
+                        switch (resolved_type.def_type) {
+                            .Function => resolved_type.resolved_type.?.Function.id,
+                            .Object => resolved_type.resolved_type.?.Object.id,
+                            else => null,
+                        },
+                        child_placeholder.resolved_generics.?,
+                        &self.gc.type_registry,
+                        null,
+                    ),
+                    true,
+                );
+            },
             .Optional => {
                 try self.resolvePlaceholder(
                     child,
@@ -909,15 +927,7 @@ pub const Parser = struct {
 
                 try self.resolvePlaceholder(
                     child,
-                    if (child_placeholder.call_generics) |call_generics|
-                        try resolved_type.resolved_type.?.Function.return_type.populateGenerics(
-                            resolved_type.resolved_type.?.Function.id,
-                            call_generics,
-                            &self.gc.type_registry,
-                            null,
-                        )
-                    else
-                        resolved_type.resolved_type.?.Function.return_type,
+                    resolved_type.resolved_type.?.Function.return_type,
                     false,
                 );
             },
@@ -930,15 +940,7 @@ pub const Parser = struct {
 
                 try self.resolvePlaceholder(
                     child,
-                    if (child_placeholder.call_generics) |call_generics|
-                        try resolved_type.resolved_type.?.Function.yield_type.populateGenerics(
-                            resolved_type.resolved_type.?.Function.id,
-                            call_generics,
-                            &self.gc.type_registry,
-                            null,
-                        )
-                    else
-                        resolved_type.resolved_type.?.Function.yield_type,
+                    resolved_type.resolved_type.?.Function.yield_type,
                     false,
                 );
             },
@@ -2685,6 +2687,7 @@ pub const Parser = struct {
 
                 // Shouldn't we populate only in codegen?
                 var_type = try var_type.?.populateGenerics(
+                    self.parser.previous_token.?,
                     var_type.?.resolved_type.?.Object.id,
                     resolved_generics.items,
                     &self.gc.type_registry,
@@ -3331,9 +3334,59 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    fn genericResolve(self: *Self, _: bool, expr: *ParseNode) anyerror!*ParseNode {
+        const start_location = self.parser.previous_token.?;
+
+        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
+
+        try self.consume(.Less, "Expected `<` at start of generic types list");
+
+        while (!self.check(.Greater) and !self.check(.Eof)) {
+            const resolved_generic = try self.parseTypeDef(null, true);
+
+            if (resolved_generic.def_type == .Any) {
+                self.reportError(.any_generic, "`any` not allowed as generic type");
+            }
+
+            try resolved_generics.append(resolved_generic);
+
+            if (!self.check(.Greater)) {
+                try self.consume(.Comma, "Expected `,` between generic types");
+            }
+        }
+
+        resolved_generics.shrinkAndFree(resolved_generics.items.len);
+
+        try self.consume(.Greater, "Expected `>` after generic types list");
+
+        var node = try self.gc.allocator.create(GenericResolveNode);
+        node.* = .{
+            .expression = expr,
+        };
+        node.node.type_def = if (expr.type_def) |type_def|
+            try type_def.populateGenerics(
+                self.parser.previous_token.?,
+                if (type_def.def_type == .Function)
+                    type_def.resolved_type.?.Function.id
+                else if (type_def.def_type == .Object)
+                    type_def.resolved_type.?.Object.id
+                else
+                    null,
+                resolved_generics.items,
+                &self.gc.type_registry,
+                null,
+            )
+        else
+            null;
+        node.node.location = start_location;
+        node.node.end_location = self.parser.previous_token.?;
+
+        return &node.node;
+    }
+
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
         var node = try self.gc.allocator.create(ObjectInitNode);
-        node.* = ObjectInitNode.init(self.gc.allocator, NamedVariableNode.cast(object).?);
+        node.* = ObjectInitNode.init(self.gc.allocator, object);
         node.node.location = object.location;
 
         while (!self.check(.RightBrace) and !self.check(.Eof)) {
@@ -3505,29 +3558,6 @@ pub const Parser = struct {
             slot_type = .Global;
         }
 
-        // resolved generics
-        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
-        if (try self.match(.DoubleColon)) {
-            try self.consume(.Less, "Expected `<` at start of generic types list");
-
-            while (!self.check(.Greater) and !self.check(.Eof)) {
-                const resolved_generic = try self.parseTypeDef(null, true);
-
-                if (resolved_generic.def_type == .Any) {
-                    self.reportError(.any_generic, "`any` not allowed as generic type");
-                }
-
-                try resolved_generics.append(resolved_generic);
-
-                if (!self.check(.Greater)) {
-                    try self.consume(.Comma, "Expected `,` between generic types");
-                }
-            }
-
-            try self.consume(.Greater, "Expected `>` after generic types list");
-        }
-        resolved_generics.shrinkAndFree(resolved_generics.items.len);
-
         const value = if (can_assign and try self.match(.Equal))
             try self.expression(false)
         else
@@ -3540,7 +3570,6 @@ pub const Parser = struct {
             .slot = slot,
             .slot_type = slot_type,
             .slot_constant = slot_constant,
-            .resolved_generics = resolved_generics,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
@@ -3733,15 +3762,12 @@ pub const Parser = struct {
                     .Fiber = fiber_def,
                 };
 
-                node.node.type_def = try (try self.gc.type_registry.getTypeDef(ObjTypeDef{
-                    .optional = try self.match(.Question),
-                    .def_type = .Fiber,
-                    .resolved_type = resolved_type,
-                })).populateGenerics(
-                    function_type.?.resolved_type.?.Function.id,
-                    call_node.resolved_generics,
-                    &self.gc.type_registry,
-                    null,
+                node.node.type_def = try self.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .optional = try self.match(.Question),
+                        .def_type = .Fiber,
+                        .resolved_type = resolved_type,
+                    },
                 );
             }
         }
@@ -4123,33 +4149,9 @@ pub const Parser = struct {
             callee.type_def.?
         else
             null;
+        _ = function_type;
 
         var trailing_comma = false;
-        var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
-        if (function_type != null and try self.match(.Less)) {
-            while (!self.check(.Greater) and !self.check(.Eof)) {
-                const resolved_generic = try self.parseTypeDef(null, true);
-
-                if (resolved_generic.def_type == .Any) {
-                    self.reportError(.any_generic, "`any` not allowed as generic type");
-                }
-
-                try resolved_generics.append(resolved_generic);
-
-                if (!self.check(.Greater)) {
-                    try self.consume(.Comma, "Expected `,` between generic types");
-                }
-            }
-
-            try self.consume(.Greater, "Expected `>` after generic types list");
-            if (!self.check(.RightParen)) {
-                trailing_comma = true;
-                try self.consume(.Comma, "Expected `,` after generic types list");
-            } else {
-                trailing_comma = false;
-            }
-        }
-        resolved_generics.shrinkAndFree(resolved_generics.items.len);
 
         var node = try self.gc.allocator.create(CallNode);
         node.* = CallNode{
@@ -4157,7 +4159,6 @@ pub const Parser = struct {
             // In the case of a dot call, callee's type will change to the function return type
             // so we keep a reference to it here
             .callable_type = callee.type_def,
-            .resolved_generics = resolved_generics.items,
             .arguments = try self.argumentList(&trailing_comma),
             .catch_default = try self.inlineCatch(),
             .trailing_comma = trailing_comma,
@@ -4179,7 +4180,6 @@ pub const Parser = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(self.gc.allocator, node.node.location),
                 };
-                placeholder_resolved_type.Placeholder.call_generics = resolved_generics.items;
 
                 node.node.type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -4190,14 +4190,6 @@ pub const Parser = struct {
 
                 try PlaceholderDef.link(callee.type_def.?, node.node.type_def.?, .Call);
             }
-        } else if (resolved_generics.items.len > 0) {
-            // Check if return type was composed with a generic type
-            node.node.type_def = try node.node.type_def.?.populateGenerics(
-                function_type.?.resolved_type.?.Function.id,
-                resolved_generics.items,
-                &self.gc.type_registry,
-                null,
-            );
         }
 
         node.node.location = callee.location;
@@ -5047,6 +5039,7 @@ pub const Parser = struct {
             .defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator),
             .function_type = function_type,
             .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator),
+            .resolved_generics = null,
         };
 
         var function_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = function_def };
@@ -5064,10 +5057,10 @@ pub const Parser = struct {
             try self.consume(.String, "Expected a string after `test`.");
             function_node.test_message = self.parser.previous_token.?.literal_string;
         } else {
-            try self.consume(.LeftParen, "Expected `(` after function name.");
-
             // Generics
-            if (try self.match(.Less)) {
+            if (try self.match(.DoubleColon)) {
+                try self.consume(.Less, "Expected `<` at start of generic types list.");
+
                 var i: usize = 0;
                 while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
                     try self.consume(.Identifier, "Expected generic type identifier");
@@ -5109,11 +5102,9 @@ pub const Parser = struct {
                 }
 
                 try self.consume(.Greater, "Expected `>` after generic types list");
-
-                if (!self.check(.RightParen)) {
-                    try self.consume(.Comma, "Expected `,` after generic types list");
-                }
             }
+
+            try self.consume(.LeftParen, "Expected `(` after function name.");
 
             // Arguments
             var arity: usize = 0;
@@ -5726,8 +5717,6 @@ pub const Parser = struct {
             name = try self.gc.copyString(self.parser.previous_token.?.lexeme);
         }
 
-        try self.consume(.LeftParen, "Expected `(` after function name.");
-
         var merged_generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
         defer merged_generic_types.deinit();
         if (parent_generic_types != null) {
@@ -5738,7 +5727,9 @@ pub const Parser = struct {
         }
 
         var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
-        if (try self.match(.Less)) {
+        if (try self.match(.DoubleColon)) {
+            try self.consume(.Less, "Expected `<` at start of generic types list.");
+
             var i: usize = 0;
             while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
                 try self.consume(.Identifier, "Expected generic type identifier");
@@ -5783,10 +5774,9 @@ pub const Parser = struct {
             }
 
             try self.consume(.Greater, "Expected `>` after generic types list");
-            if (!self.check(.RightParen)) {
-                try self.consume(.Comma, "Expected `,` after generic types list");
-            }
         }
+
+        try self.consume(.LeftParen, "Expected `(` after function name.");
 
         var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(self.gc.allocator);
         var defaults = std.AutoArrayHashMap(*ObjString, Value).init(self.gc.allocator);
@@ -5942,6 +5932,7 @@ pub const Parser = struct {
             }
 
             var_type = try var_type.?.populateGenerics(
+                self.parser.previous_token.?,
                 var_type.?.resolved_type.?.Object.id,
                 resolved_generics.items,
                 &self.gc.type_registry,
