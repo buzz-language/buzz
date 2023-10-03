@@ -1,0 +1,4 @@
+| Expected variable initial value
+test "Var decl without a value" {
+    str canidothis;
+}
