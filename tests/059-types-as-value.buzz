@@ -50,7 +50,7 @@ test "necessary weirdness" {
     assert(typeof Data == <type>, message: "fstruct is a type at runtime");
 }
 
-fun generic(<T>, T value) > T {
+fun generic::<T>(T value) > T {
     return value;
 }
 
@@ -60,6 +60,6 @@ fun typeArg(type T, str value) > str {
 }
 
 test "generic type expression ambiguity" {
-    dump(generic(<str>, "hello"));
-    dump(typeArg((<str>), value: "hello"));
+    dump(generic::<str>("hello"));
+    dump(typeArg(<str>, value: "hello"));
 }

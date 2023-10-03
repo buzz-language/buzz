@@ -1,98 +1,98 @@
 import "std";
 
-| fun count::<T>([T] list) > int {
-|     return list.len();
-| }
+fun count::<T>([T] list) > int {
+    return list.len();
+}
 
-| test "Simple generic" {
-|     assert(count::<int>([1, 2, 3]) == 3, message: "could use generics");
-| }
+test "Simple generic" {
+    assert(count::<int>([1, 2, 3]) == 3, message: "could use generics");
+}
 
-| fun extractList::<T>(obj{ [T] list } data) > [T] {
-|     return data.list;
-| }
+fun extractList::<T>(obj{ [T] list } data) > [T] {
+    return data.list;
+}
 
-| test "Generic within anonymous object" {
-|     [int] list = [1, 2, 3];
+test "Generic within anonymous object" {
+    [int] list = [1, 2, 3];
 
-|     assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
-| }
+    assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
+}
 
-| fun countMap::<K, V>({K, V} map) > int {
-|     return map.size();
-| }
+fun countMap::<K, V>({K, V} map) > int {
+    return map.size();
+}
 
-| test "Multiple generic types" {
-|     {str, int} map = {
-|         "one": 1,
-|         "two": 2,
-|         "three": 3,
-|     };
+test "Multiple generic types" {
+    {str, int} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
 
-|     assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
-| }
+    assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
+}
 
-| fun extractMap::<K, V>(obj{ {K, V} map } data) > {K, V} {
-|     return data.map;
-| }
+fun extractMap::<K, V>(obj{ {K, V} map } data) > {K, V} {
+    return data.map;
+}
 
-| test "Generic within anonymous object and map" {
-|     {str, int} map = {
-|         "one": 1,
-|         "two": 2,
-|         "three": 3,
-|     };
+test "Generic within anonymous object and map" {
+    {str, int} map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
 
-|     assert(extractMap::<str, int>(.{ map = map }) == map, message: "could use generic within anonymous object");
-| }
+    assert(extractMap::<str, int>(.{ map = map }) == map, message: "could use generic within anonymous object");
+}
 
-| fun countShuffleGenerics::<A, B>() > Function([A] a, [B] b) > int {
-|     return fun ([A] a, [B] b) > int -> a.len() + b.len();
-| }
+fun countShuffleGenerics::<A, B>() > Function([A] a, [B] b) > int {
+    return fun ([A] a, [B] b) > int -> a.len() + b.len();
+}
 
-| test "Generic in lambda function definition" {
-|     [str] a = ["one", "two", "three"];
-|     [int] b = [1, 2, 3];
+test "Generic in lambda function definition" {
+    [str] a = ["one", "two", "three"];
+    [int] b = [1, 2, 3];
 
-|     assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
-| }
+    assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
+}
 
-| fun genericReturn::<T>(T value) > T {
-|     return value;
-| }
+fun genericReturn::<T>(T value) > T {
+    return value;
+}
 
-| test "generic return" {
-|     assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
-| }
+test "generic return" {
+    assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
+}
 
-| fun fiber::<T>([T] data) > void > T? {
-|     foreach (T element in data) {
-|         _ = yield element;
-|     }
-| }
+fun fiber::<T>([T] data) > void > T? {
+    foreach (T element in data) {
+        _ = yield element;
+    }
+}
 
-| test "Generic with fibers" {
-|     fib<void, int?> f = &fiber::<int>([1, 2, 3]);
+test "Generic with fibers" {
+    fib<void, int?> f = &fiber::<int>([1, 2, 3]);
 
-|     int sum = 0;
-|     while (!f.over()) {
-|         sum = sum + resume f ?? 0;
-|     }
+    int sum = 0;
+    while (!f.over()) {
+        sum = sum + resume f ?? 0;
+    }
 
-|     assert(sum == 6, message: "could user generic in fiber definition");
-| }
+    assert(sum == 6, message: "could user generic in fiber definition");
+}
 
 
-| test "Generics in placeholders" {
-|     assert(
-|         countAgain::<int>([1, 2, 3]) == 3,
-|         message: "Could use generics with placeholders"
-|     );
-| }
+test "Generics in placeholders" {
+    assert(
+        countAgain::<int>([1, 2, 3]) == 3,
+        message: "Could use generics with placeholders"
+    );
+}
 
-| fun countAgain::<T>([T] list) > int {
-|     return list.len();
-| }
+fun countAgain::<T>([T] list) > int {
+    return list.len();
+}
 
 fun doubleGeneric::<A, B>(Function::<C, D>() > int lambda) > int {
     return lambda::<A, B>();

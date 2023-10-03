@@ -23,14 +23,14 @@ test "pointer with Buffer" {
     | TODO: would be better with object destructor so the buffer can be collected
     Buffer buffer = Buffer.init();
 
-    buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
-    buffer.writeZ(<int>, "i32", values: [1, 2, 3]);
+    buffer.writeZ::<int>("i32", values: [1, 2, 3]);
+    buffer.writeZ::<int>("i32", values: [1, 2, 3]);
 
     try {
         | Arguably, the zig type parameter could a constant and be built at compile time
         | But: that would require a new type
         | Since we cache the result of the type parsing this roughly equivalent
-        buffer.writeZ(<int>, "u64", values: [1]);
+        buffer.writeZ::<int>("u64", values: [1]);
         assert(false, message: "Using bad buzz type triggers error");
     } catch (FFITypeMismatchError _) {
         assert(true, message: "Using bad buzz type triggers error");
@@ -45,8 +45,7 @@ test "pointer with Buffer" {
 
     int readTotal = 0;
     foreach (int i in 0..buffer.len(align: i32align)) {
-        readTotal = readTotal + buffer.readZAt(
-            <int>,
+        readTotal = readTotal + buffer.readZAt::<int>(
             at: i,
             zigType: "i32"
         );
@@ -97,11 +96,11 @@ test "write/read struct in buffer" {
 
     Buffer buffer = Buffer.init();
 
-    buffer.writeStruct(<Data>, Data, values: [data]);
+    buffer.writeStruct::<Data>(Data, values: [data]);
 
     assert(buffer.toString().len() == sizeOfStruct(Data), message: "Could write struct to buffer");
 
-    Data read = buffer.readStruct(<Data>, Data);
+    Data read = buffer.readStruct::<Data>(Data);
 
     assert(
         read.msg == data.msg and read.id == data.id,

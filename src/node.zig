@@ -391,16 +391,24 @@ pub const GenericResolveNode = struct {
                 const function_type = node.type_def.?.resolved_type.?.Function;
 
                 if (function_type.generic_types.count() > 0 and (function_type.resolved_generics == null or function_type.resolved_generics.?.len < function_type.generic_types.count())) {
-                    codegen.reporter.reportErrorAt(
+                    codegen.reporter.reportErrorFmt(
                         .generic_type,
                         node.location,
-                        "Missing generic types",
+                        "Missing generic types. Expected {} got {}.",
+                        .{
+                            function_type.generic_types.count(),
+                            if (function_type.resolved_generics == null) 0 else function_type.resolved_generics.?.len,
+                        },
                     );
                 } else if (function_type.resolved_generics != null and function_type.resolved_generics.?.len > function_type.generic_types.count()) {
-                    codegen.reporter.reportErrorAt(
+                    codegen.reporter.reportErrorFmt(
                         .generic_type,
                         node.location,
-                        "Too many generic types",
+                        "Too many generic types. Expected {} got {}.",
+                        .{
+                            function_type.generic_types.count(),
+                            if (function_type.resolved_generics == null) 0 else function_type.resolved_generics.?.len,
+                        },
                     );
                 }
             },
@@ -408,16 +416,24 @@ pub const GenericResolveNode = struct {
                 const object_type = node.type_def.?.resolved_type.?.Object;
 
                 if (object_type.generic_types.count() > 0 and (object_type.resolved_generics == null or object_type.resolved_generics.?.len < object_type.generic_types.count())) {
-                    codegen.reporter.reportErrorAt(
+                    codegen.reporter.reportErrorFmt(
                         .generic_type,
                         node.location,
-                        "Missing generic types",
+                        "Missing generic types. Expected {} got {}.",
+                        .{
+                            object_type.generic_types.count(),
+                            if (object_type.resolved_generics == null) 0 else object_type.resolved_generics.?.len,
+                        },
                     );
                 } else if (object_type.resolved_generics != null and object_type.resolved_generics.?.len > object_type.generic_types.count()) {
-                    codegen.reporter.reportErrorAt(
+                    codegen.reporter.reportErrorFmt(
                         .generic_type,
                         node.location,
-                        "Too many generic types",
+                        "Too many generic types. Expected {} got {}.",
+                        .{
+                            object_type.generic_types.count(),
+                            if (object_type.resolved_generics == null) 0 else object_type.resolved_generics.?.len,
+                        },
                     );
                 }
             },
@@ -4847,7 +4863,7 @@ pub const CallNode = struct {
         //     }
         // }
 
-        try out.writeAll("], \"arguments\": [");
+        try out.writeAll(", \"arguments\": [");
 
         for (self.arguments.keys(), 0..) |key, i| {
             const argument = self.arguments.get(key).?;
