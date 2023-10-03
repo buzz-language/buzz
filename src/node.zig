@@ -455,6 +455,7 @@ pub const NamedVariableNode = struct {
     slot: usize,
     slot_type: SlotType,
     slot_constant: bool,
+    resolved_generics: std.ArrayList(*ObjTypeDef),
 
     fn constant(_: *anyopaque) bool {
         return false;
@@ -7111,9 +7112,8 @@ pub const ObjectInitNode = struct {
         .render = render,
     },
 
-    object: ?*ParseNode, // Should mostly be a NamedVariableNode
+    object: ?*NamedVariableNode, // Should only be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
-    resolved_generics: []*ObjTypeDef,
 
     fn checkOmittedProperty(
         self: *Self,
@@ -7155,16 +7155,16 @@ pub const ObjectInitNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (self.object != null and self.object.?.type_def.?.def_type == .Object) {
-            _ = try self.object.?.toByteCode(self.object.?, codegen, breaks);
+        if (self.object != null and self.object.?.node.type_def.?.def_type == .Object) {
+            _ = try self.object.?.node.toByteCode(self.object.?.toNode(), codegen, breaks);
         } else if (node.type_def.?.def_type == .ObjectInstance) {
             try codegen.emitOpCode(node.location, .OP_NULL);
         }
 
-        node.type_def = if (self.object != null and self.object.?.type_def.?.def_type == .Object)
+        node.type_def = if (self.object != null and self.object.?.node.type_def.?.def_type == .Object)
             (try node.type_def.?.populateGenerics(
-                self.object.?.type_def.?.resolved_type.?.Object.id,
-                self.resolved_generics,
+                self.object.?.node.type_def.?.resolved_type.?.Object.id,
+                self.object.?.resolved_generics.items,
                 &codegen.gc.type_registry,
                 null,
             ))
@@ -7316,7 +7316,7 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}, \"object\": ");
 
         if (self.object) |object| {
-            try object.toJson(object, out);
+            try object.toNode().toJson(object, out);
         } else {
             try out.writeAll("null");
         }
@@ -7332,7 +7332,7 @@ pub const ObjectInitNode = struct {
         const self = Self.cast(node).?;
 
         if (self.object) |object| {
-            try object.render(object, out, depth);
+            try object.toNode().render(object, out, depth);
         } else {
             try out.writeAll(".");
         }
@@ -7356,11 +7356,10 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}");
     }
 
-    pub fn init(allocator: Allocator, object: ?*ParseNode) Self {
+    pub fn init(allocator: Allocator, object: ?*NamedVariableNode) Self {
         return .{
             .object = object,
             .properties = std.StringArrayHashMap(*ParseNode).init(allocator),
-            .resolved_generics = &[_]*ObjTypeDef{},
         };
     }
 
