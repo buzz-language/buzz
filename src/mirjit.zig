@@ -2220,6 +2220,7 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         ),
         .String => try self.generateString(n.StringNode.cast(node).?),
         .Expression => try self.generateNode(n.ExpressionNode.cast(node).?.expression),
+        .GenericResolve => try self.generateNode(n.GenericResolveNode.cast(node).?.expression),
         .Grouping => try self.generateNode(n.GroupingNode.cast(node).?.expression),
         .Function => try self.generateFunction(n.FunctionNode.cast(node).?),
         .FunDeclaration => try self.generateFunDeclaration(n.FunDeclarationNode.cast(node).?),
@@ -2547,12 +2548,7 @@ fn generateCall(self: *Self, call_node: *n.CallNode) Error!?m.MIR_op_t {
         else => call_node.callee.type_def,
     };
 
-    const function_type_def: *o.ObjTypeDef = try callee_type.?.populateGenerics(
-        callee_type.?.resolved_type.?.Function.id,
-        call_node.resolved_generics,
-        &self.vm.gc.type_registry,
-        null,
-    );
+    const function_type_def = callee_type.?;
     const function_type = function_type_def.resolved_type.?.Function.function_type;
 
     const error_types = function_type_def.resolved_type.?.Function.error_types;
@@ -4620,22 +4616,14 @@ fn generateObjectInit(self: *Self, object_init_node: *n.ObjectInitNode) Error!?m
         return self.generateForeignContainerInit(object_init_node);
     }
 
-    const object = if (object_init_node.object != null and object_init_node.object.?.node.type_def.?.def_type == .Object)
-        (try self.generateNode(object_init_node.object.?.toNode())).?
+    const object = if (object_init_node.object != null and object_init_node.object.?.type_def.?.def_type == .Object)
+        (try self.generateNode(object_init_node.object.?)).?
     else
         m.MIR_new_uint_op(self.ctx, v.Value.Null.val);
 
     const typedef = m.MIR_new_uint_op(
         self.ctx,
-        if (object_init_node.object != null and object_init_node.object.?.node.type_def.?.def_type == .Object)
-            (try object_init_node.node.type_def.?.populateGenerics(
-                object_init_node.object.?.node.type_def.?.resolved_type.?.Object.id,
-                object_init_node.object.?.resolved_generics.items,
-                &self.vm.gc.type_registry,
-                null,
-            )).toValue().val
-        else
-            object_init_node.node.type_def.?.toValue().val,
+        object_init_node.node.type_def.?.toValue().val,
     );
 
     const instance = m.MIR_new_reg_op(

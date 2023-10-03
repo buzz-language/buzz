@@ -103,6 +103,7 @@ pub const ParseNodeType = enum(u8) {
     Zdef,
     TypeExpression,
     TypeOfExpression,
+    GenericResolve,
 };
 
 pub const RenderError = Allocator.Error || std.fmt.BufPrintError;
@@ -343,6 +344,145 @@ pub const ExpressionNode = struct {
     }
 };
 
+pub const GenericResolveNode = struct {
+    const Self = @This();
+
+    node: ParseNode = .{
+        .node_type = .GenericResolve,
+        .toJson = stringify,
+        .toByteCode = generate,
+        .toValue = val,
+        .isConstant = constant,
+        .render = render,
+    },
+
+    expression: *ParseNode,
+
+    fn constant(nodePtr: *anyopaque) bool {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        return self.expression.isConstant(self.expression);
+    }
+
+    fn val(nodePtr: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        if (node.isConstant(node)) {
+            const self = Self.cast(node).?;
+
+            return self.expression.toValue(self.expression, gc);
+        }
+
+        return GenError.NotConstant;
+    }
+
+    fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+
+        if (node.synchronize(codegen)) {
+            return null;
+        }
+
+        const self = Self.cast(node).?;
+
+        switch (node.type_def.?.def_type) {
+            .Function => {
+                const function_type = node.type_def.?.resolved_type.?.Function;
+
+                if (function_type.generic_types.count() > 0 and (function_type.resolved_generics == null or function_type.resolved_generics.?.len < function_type.generic_types.count())) {
+                    codegen.reporter.reportErrorAt(
+                        .generic_type,
+                        node.location,
+                        "Missing generic types",
+                    );
+                } else if (function_type.resolved_generics != null and function_type.resolved_generics.?.len > function_type.generic_types.count()) {
+                    codegen.reporter.reportErrorAt(
+                        .generic_type,
+                        node.location,
+                        "Too many generic types",
+                    );
+                }
+            },
+            .Object => {
+                const object_type = node.type_def.?.resolved_type.?.Object;
+
+                if (object_type.generic_types.count() > 0 and (object_type.resolved_generics == null or object_type.resolved_generics.?.len < object_type.generic_types.count())) {
+                    codegen.reporter.reportErrorAt(
+                        .generic_type,
+                        node.location,
+                        "Missing generic types",
+                    );
+                } else if (object_type.resolved_generics != null and object_type.resolved_generics.?.len > object_type.generic_types.count()) {
+                    codegen.reporter.reportErrorAt(
+                        .generic_type,
+                        node.location,
+                        "Too many generic types",
+                    );
+                }
+            },
+            else => {
+                const type_def_str = node.type_def.?.toStringAlloc(codegen.gc.allocator) catch unreachable;
+                defer type_def_str.deinit();
+
+                codegen.reporter.reportErrorFmt(
+                    .generic_type,
+                    node.location,
+                    "Type `{s}` does not support generic types",
+                    .{
+                        type_def_str.items,
+                    },
+                );
+            },
+        }
+
+        _ = try self.expression.toByteCode(self.expression, codegen, breaks);
+
+        try node.patchOptJumps(codegen);
+        try node.endScope(codegen);
+
+        return null;
+    }
+
+    fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        try out.print("{{\"node\": \"GenericResolve\", ", .{});
+
+        try ParseNode.stringify(node, out);
+
+        try out.writeAll(",\"expression\": ");
+
+        try self.expression.toJson(self.expression, out);
+
+        try out.writeAll("}");
+    }
+
+    fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
+
+        // Its a statement, should be on its own line
+        try out.writeByteNTimes(' ', depth * 4);
+        try self.expression.render(self.expression, out, depth);
+        try out.writeAll(";\n");
+    }
+
+    pub fn toNode(self: *Self) *ParseNode {
+        return &self.node;
+    }
+
+    pub fn cast(nodePtr: *anyopaque) ?*Self {
+        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        if (node.node_type != .GenericResolve) {
+            return null;
+        }
+
+        return @fieldParentPtr(Self, "node", node);
+    }
+};
+
 pub const GroupingNode = struct {
     const Self = @This();
 
@@ -455,7 +595,6 @@ pub const NamedVariableNode = struct {
     slot: usize,
     slot_type: SlotType,
     slot_constant: bool,
-    resolved_generics: std.ArrayList(*ObjTypeDef),
 
     fn constant(_: *anyopaque) bool {
         return false;
@@ -4237,8 +4376,6 @@ pub const CallNode = struct {
     catch_default: ?*ParseNode = null,
     trailing_comma: bool,
 
-    resolved_generics: []*ObjTypeDef,
-
     fn constant(_: *anyopaque) bool {
         return false;
     }
@@ -4354,27 +4491,7 @@ pub const CallNode = struct {
             );
         }
 
-        const function_type = try callee_type.?.populateGenerics(
-            callee_type.?.resolved_type.?.Function.id,
-            self.resolved_generics,
-            &codegen.gc.type_registry,
-            null,
-        );
-
-        if (function_type.resolved_type.?.Function.generic_types.count() > self.resolved_generics.len) {
-            codegen.reporter.reportErrorAt(
-                .generic_type,
-                node.location,
-                "Missing generic types",
-            );
-        } else if (function_type.resolved_type.?.Function.generic_types.count() < self.resolved_generics.len) {
-            codegen.reporter.reportErrorAt(
-                .generic_type,
-                node.location,
-                "Too many generic types",
-            );
-        }
-
+        const function_type = callee_type.?;
         const yield_type = function_type.resolved_type.?.Function.yield_type;
 
         // Function being called and current function should have matching yield type unless the current function is an entrypoint
@@ -4718,16 +4835,17 @@ pub const CallNode = struct {
             try self.callee.toJson(self.callee, out);
         }
 
-        try out.writeAll(", \"resolved_generics\": [");
-        for (self.resolved_generics, 0..) |generic, i| {
-            try out.writeAll("\"");
-            try generic.toString(out);
-            try out.writeAll("\"");
+        // FIXME
+        // try out.writeAll(", \"resolved_generics\": [");
+        // for (self.resolved_generics, 0..) |generic, i| {
+        //     try out.writeAll("\"");
+        //     try generic.toString(out);
+        //     try out.writeAll("\"");
 
-            if (i < self.resolved_generics.len - 1) {
-                try out.writeAll(",");
-            }
-        }
+        //     if (i < self.resolved_generics.len - 1) {
+        //         try out.writeAll(",");
+        //     }
+        // }
 
         try out.writeAll("], \"arguments\": [");
 
@@ -7112,7 +7230,7 @@ pub const ObjectInitNode = struct {
         .render = render,
     },
 
-    object: ?*NamedVariableNode, // Should only be a NamedVariableNode
+    object: ?*ParseNode, // Should be a NamedVariableNode or GenericResolve
     properties: std.StringArrayHashMap(*ParseNode),
 
     fn checkOmittedProperty(
@@ -7155,21 +7273,11 @@ pub const ObjectInitNode = struct {
 
         var self = Self.cast(node).?;
 
-        if (self.object != null and self.object.?.node.type_def.?.def_type == .Object) {
-            _ = try self.object.?.node.toByteCode(self.object.?.toNode(), codegen, breaks);
+        if (self.object != null and self.object.?.type_def.?.def_type == .Object) {
+            _ = try self.object.?.toByteCode(self.object.?, codegen, breaks);
         } else if (node.type_def.?.def_type == .ObjectInstance) {
             try codegen.emitOpCode(node.location, .OP_NULL);
         }
-
-        node.type_def = if (self.object != null and self.object.?.node.type_def.?.def_type == .Object)
-            (try node.type_def.?.populateGenerics(
-                self.object.?.node.type_def.?.resolved_type.?.Object.id,
-                self.object.?.resolved_generics.items,
-                &codegen.gc.type_registry,
-                null,
-            ))
-        else
-            node.type_def;
 
         try codegen.emitCodeArg(
             node.location,
@@ -7316,7 +7424,7 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}, \"object\": ");
 
         if (self.object) |object| {
-            try object.toNode().toJson(object, out);
+            try object.toJson(object, out);
         } else {
             try out.writeAll("null");
         }
@@ -7332,7 +7440,7 @@ pub const ObjectInitNode = struct {
         const self = Self.cast(node).?;
 
         if (self.object) |object| {
-            try object.toNode().render(object, out, depth);
+            try object.render(object, out, depth);
         } else {
             try out.writeAll(".");
         }
@@ -7356,7 +7464,7 @@ pub const ObjectInitNode = struct {
         try out.writeAll("}");
     }
 
-    pub fn init(allocator: Allocator, object: ?*NamedVariableNode) Self {
+    pub fn init(allocator: Allocator, object: ?*ParseNode) Self {
         return .{
             .object = object,
             .properties = std.StringArrayHashMap(*ParseNode).init(allocator),
