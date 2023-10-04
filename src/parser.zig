@@ -3339,9 +3339,7 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn genericResolve(self: *Self, _: bool, expr: *ParseNode) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
+    fn parseGenericResolve(self: *Self, original_type: *ObjTypeDef) !*ObjTypeDef {
         var resolved_generics = std.ArrayList(*ObjTypeDef).init(self.gc.allocator);
 
         try self.consume(.Less, "Expected `<` at start of generic types list");
@@ -3364,29 +3362,28 @@ pub const Parser = struct {
 
         try self.consume(.Greater, "Expected `>` after generic types list");
 
-        var node = try self.gc.allocator.create(GenericResolveNode);
-        node.* = .{
-            .expression = expr,
-        };
-        node.node.type_def = if (expr.type_def) |type_def|
-            try type_def.populateGenerics(
-                self.parser.previous_token.?,
-                if (type_def.def_type == .Function)
-                    type_def.resolved_type.?.Function.id
-                else if (type_def.def_type == .Object)
-                    type_def.resolved_type.?.Object.id
-                else
-                    null,
-                resolved_generics.items,
-                &self.gc.type_registry,
+        return try original_type.populateGenerics(
+            self.parser.previous_token.?,
+            if (original_type.def_type == .Function)
+                original_type.resolved_type.?.Function.id
+            else if (original_type.def_type == .Object)
+                original_type.resolved_type.?.Object.id
+            else
                 null,
-            )
+            resolved_generics.items,
+            &self.gc.type_registry,
+            null,
+        );
+    }
+
+    // This does not produce its own node, it's only use to populate its generic type
+    fn genericResolve(self: *Self, _: bool, expr: *ParseNode) anyerror!*ParseNode {
+        expr.type_def = if (expr.type_def) |type_def|
+            try self.parseGenericResolve(type_def)
         else
             null;
-        node.node.location = start_location;
-        node.node.end_location = self.parser.previous_token.?;
 
-        return &node.node;
+        return expr;
     }
 
     fn objectInit(self: *Self, _: bool, object: *ParseNode) anyerror!*ParseNode {
@@ -4267,7 +4264,12 @@ pub const Parser = struct {
             const callee_def_type = callee.type_def.?.def_type;
             switch (callee_def_type) {
                 .String => {
-                    if (try ObjString.memberDef(self, member_name)) |member| {
+                    if (try ObjString.memberDef(self, member_name)) |member_type_def| {
+                        const member = if (try self.match(.DoubleColon))
+                            try self.parseGenericResolve(member_type_def)
+                        else
+                            member_type_def;
+
                         if (try self.match(.LeftParen)) {
                             // `call` will look to the parent node for the function definition
                             node.node.type_def = member;
@@ -4286,7 +4288,12 @@ pub const Parser = struct {
                     }
                 },
                 .Pattern => {
-                    if (try ObjPattern.memberDef(self, member_name)) |member| {
+                    if (try ObjPattern.memberDef(self, member_name)) |member_type_def| {
+                        const member = if (try self.match(.DoubleColon))
+                            try self.parseGenericResolve(member_type_def)
+                        else
+                            member_type_def;
+
                         if (try self.match(.LeftParen)) {
                             // `call` will look to the parent node for the function definition
                             node.node.type_def = member;
@@ -4305,7 +4312,12 @@ pub const Parser = struct {
                     }
                 },
                 .Fiber => {
-                    if (try ObjFiber.memberDef(self, member_name)) |member| {
+                    if (try ObjFiber.memberDef(self, member_name)) |member_type_def| {
+                        const member = if (try self.match(.DoubleColon))
+                            try self.parseGenericResolve(member_type_def)
+                        else
+                            member_type_def;
+
                         if (try self.match(.LeftParen)) {
                             // `call` will look to the parent node for the function definition
                             node.node.type_def = member;
@@ -4357,6 +4369,11 @@ pub const Parser = struct {
                     } else if (property_type == null) {
                         self.reportErrorFmt(.property_does_not_exists, "Static property `{s}` does not exists in {s}", .{ member_name, obj_def.name.string });
                     }
+
+                    property_type = if (property_type != null and try self.match(.DoubleColon))
+                        try self.parseGenericResolve(property_type.?)
+                    else
+                        property_type;
 
                     // Do we assign it ?
                     if (can_assign and try self.match(.Equal)) {
@@ -4440,6 +4457,11 @@ pub const Parser = struct {
                         );
                     }
 
+                    property_type = if (property_type != null and try self.match(.DoubleColon))
+                        try self.parseGenericResolve(property_type.?)
+                    else
+                        property_type;
+
                     // If its a field or placeholder, we can assign to it
                     // TODO: here get info that field is constant or not
                     if (can_assign and try self.match(.Equal)) {
@@ -4478,6 +4500,10 @@ pub const Parser = struct {
                     }
 
                     // Only call is allowed
+                    method_type = if (method_type != null and try self.match(.DoubleColon))
+                        try self.parseGenericResolve(method_type.?)
+                    else
+                        method_type;
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         node.node.type_def = method_type;
@@ -4532,7 +4558,12 @@ pub const Parser = struct {
                     node.node.type_def = callee.type_def.?.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type;
                 },
                 .List => {
-                    if (try ObjList.ListDef.member(callee.type_def.?, self, member_name)) |member| {
+                    if (try ObjList.ListDef.member(callee.type_def.?, self, member_name)) |member_type_def| {
+                        const member = if (try self.match(.DoubleColon))
+                            try self.parseGenericResolve(member_type_def)
+                        else
+                            member_type_def;
+
                         if (try self.match(.LeftParen)) {
                             // `call` will look to the parent node for the function definition
                             node.node.type_def = member;
@@ -4550,7 +4581,12 @@ pub const Parser = struct {
                     }
                 },
                 .Map => {
-                    if (try ObjMap.MapDef.member(callee.type_def.?, self, member_name)) |member| {
+                    if (try ObjMap.MapDef.member(callee.type_def.?, self, member_name)) |member_type_def| {
+                        const member = if (try self.match(.DoubleColon))
+                            try self.parseGenericResolve(member_type_def)
+                        else
+                            member_type_def;
+
                         if (try self.match(.LeftParen)) {
                             // `call` will look to the parent node for the function definition
                             node.node.type_def = member;
@@ -4582,7 +4618,16 @@ pub const Parser = struct {
                         },
                     );
 
-                    try PlaceholderDef.link(callee.type_def.?, placeholder, .FieldAccess);
+                    try PlaceholderDef.link(
+                        callee.type_def.?,
+                        placeholder,
+                        .FieldAccess,
+                    );
+
+                    placeholder = if (try self.match(.DoubleColon))
+                        try self.parseGenericResolve(placeholder)
+                    else
+                        placeholder;
 
                     if (can_assign and try self.match(.Equal)) {
                         node.value = try self.expression(false);
