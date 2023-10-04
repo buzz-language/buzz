@@ -41,6 +41,7 @@
 - Changed pattern delimiters (https://github.com/buzz-language/buzz/issues/165)
 - `list.append` does not return the appended value anymore
 - Generic types syntax changed from `myFunction(<K,V>, ...)` to `myFunction::<K,V>(...)`
+- Nullable object fields and nullable variables have a `null` initial value if none is provided
 
 ## Fixed
 

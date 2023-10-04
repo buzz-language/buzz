@@ -2579,8 +2579,15 @@ pub const Parser = struct {
         var value: ?*ParseNode = null;
 
         if (should_assign) {
-            try self.consume(.Equal, "Expected variable initial value");
-            value = try self.expression(false);
+            if (try self.match(.Equal)) {
+                value = try self.expression(false);
+            } else if (parsed_type == null or !parsed_type.?.optional) {
+                self.reporter.reportErrorAt(
+                    .syntax,
+                    self.parser.previous_token.?,
+                    "Expected variable initial value",
+                );
+            }
         }
 
         if (var_type.def_type == .Placeholder and value != null and value.?.type_def != null and value.?.type_def.?.def_type == .Placeholder) {
