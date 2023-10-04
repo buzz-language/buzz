@@ -4485,7 +4485,13 @@ pub const CallNode = struct {
             else => self.callee.type_def,
         };
 
-        if (callee_type == null or callee_type.?.def_type == .Placeholder) {
+        if (callee_type == null) {
+            codegen.reporter.reportErrorAt(
+                .undefined,
+                self.callee.location,
+                "Callee is not defined",
+            );
+        } else if (callee_type != null and callee_type.?.def_type == .Placeholder) {
             codegen.reporter.reportPlaceholder(callee_type.?.resolved_type.?.Placeholder);
 
             // We know nothing about the function being called, no need to go any further
