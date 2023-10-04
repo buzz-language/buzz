@@ -9,7 +9,7 @@
     - When you need a pointer to something you can use the `Buffer` std lib object. Added:
         - `Buffer.writeZ`, `Buffer.readZ`, `Buffer.writeStruct`, `Buffer.readStruct`
         - `Buffer.ptr`, `Buffer.len`
-- New (fancy) error reporter
+- New (fancy) error reporter (https://github.com/buzz-language/buzz/issues/153)
 - Errors have now an associated code
 - `os.sleep`
 - First class types (https://github.com/buzz-language/buzz/issues/21)
@@ -23,14 +23,15 @@
     - `bz_getUserDataPtr`
     - `Buffer.readUserData`, `Buffer.writeUserData`
 - `std.serialize` takes any buzz value and return a serializable version of it (objects become maps, etc.) provided the data is has no circular reference and does not contain not serializable values (functions, fibers, etc.)
-- UTF8 helpers: `str.utf8Len`, `str.utf8Codepoints`, `str.utf8Valid`
-- New integer literal for single chars: `'A' == 65`
+- UTF8 helpers: `str.utf8Len`, `str.utf8Codepoints`, `str.utf8Valid` (https://github.com/buzz-language/buzz/issues/39)
+- New integer literal for single chars: `'A' == 65` (https://github.com/buzz-language/buzz/issues/172)
 - Compiler will warn you when a local or global is never used or when an expression value is discarded. To silence those warnings you can use the `_ = <expression>` or name the local/global `_`.
-- `std.currentFiber`, `fiber.isMain`
-- `map.sort`, `map.forEach`, `map.map`, `map.filter`, `map.reduce`, `map.diff`, `map.intersect`, `map.clone`
-- `list.clone`
-- Number literals can embed `_`: `1_000_000.300_245`
-- Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"`
+- `std.currentFiber`, `fiber.isMain` (https://github.com/buzz-language/buzz/issues/162)
+- `map.sort`, `map.forEach`, `map.map`, `map.filter`, `map.reduce`, `map.diff`, `map.intersect`, `map.clone` (https://github.com/buzz-language/buzz/issues/110)
+- `list.clone` (https://github.com/buzz-language/buzz/issues/110)
+- Number literals can embed `_`: `1_000_000.300_245` (https://github.com/buzz-language/buzz/issues/163)
+- Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"` (https://github.com/buzz-language/buzz/issues/194)
+- Objects can have generic types  (https://github.com/buzz-language/buzz/issues/82)
 
 ## Changed
 
@@ -39,12 +40,14 @@
 - Identifiers can now have `_` since pattern delimiters have changed
 - Changed pattern delimiters (https://github.com/buzz-language/buzz/issues/165)
 - `list.append` does not return the appended value anymore
+- Generic types syntax changed from `myFunction(<K,V>, ...)` to `myFunction::<K,V>(...)`
 
 ## Fixed
 
 - Some bugs `any`
 - Runtime error stack trace was wrong
 - Local name checking failed in some instances
+- Compiler would not force you to give variables an initial value
 
 # 0.2.0 (07-26-2023)
 
