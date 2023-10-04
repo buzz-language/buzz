@@ -1110,12 +1110,22 @@ export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
 }
 
 export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
-    const bound = if (closure_value.obj().obj_type == .Bound) ObjBoundMethod.cast(closure_value.obj()).? else null;
+    const bound = if (closure_value.obj().obj_type == .Bound)
+        ObjBoundMethod.cast(closure_value.obj()).?
+    else
+        null;
+
     const closure = if (bound) |bd|
         bd.closure
     else
         ObjClosure.cast(closure_value.obj());
-    const native = if (bound == null and closure == null) ObjNative.cast(closure_value.obj()).? else null;
+
+    const native = if (closure == null and bound != null)
+        bound.?.native
+    else if (closure == null and bound == null)
+        ObjNative.cast(closure_value.obj()).?
+    else
+        null;
 
     // If bound method, replace closure on the stack by the receiver
     if (bound != null) {

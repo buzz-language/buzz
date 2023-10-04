@@ -4245,23 +4245,6 @@ pub const ObjTypeDef = struct {
                 if (actual == .ProtocolInstance) {
                     return expected.ProtocolInstance.eql(actual.ProtocolInstance) or expected.ProtocolInstance == actual.ProtocolInstance;
                 } else {
-                    // var it = actual.ObjectInstance.resolved_type.?.Object.conforms_to.iterator();
-                    // while (it.next()) |kv| {
-                    //     std.debug.print(
-                    //         "{s}: {*}\n",
-                    //         .{
-                    //             (kv.key_ptr.*.toStringAlloc(std.heap.c_allocator) catch unreachable).items,
-                    //             kv.key_ptr.*,
-                    //         },
-                    //     );
-                    // }
-                    // std.debug.print(
-                    //     "expected: {s} {*}\n",
-                    //     .{
-                    //         (expected.ProtocolInstance.toStringAlloc(std.heap.c_allocator) catch unreachable).items,
-                    //         expected.ProtocolInstance,
-                    //     },
-                    // );
                     assert(actual == .ObjectInstance);
                     return actual.ObjectInstance.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance) != null;
                 }
