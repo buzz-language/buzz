@@ -29,7 +29,6 @@ const ObjEnum = _obj.ObjEnum;
 const ObjEnumInstance = _obj.ObjEnumInstance;
 const ObjPattern = _obj.ObjPattern;
 const ObjMap = _obj.ObjMap;
-const ObjBoundMethod = _obj.ObjBoundMethod;
 const FunctionType = ObjFunction.FunctionType;
 const copyObj = _obj.copyObj;
 const Value = _value.Value;
