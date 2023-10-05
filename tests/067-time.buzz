@@ -1,0 +1,45 @@
+import "std";
+import "time";
+
+test "Time std lib" {
+    const now = DateTime.now();
+
+    const time = DateTime{
+        gmtOffset = 0,
+        hour = 9,
+        isdst = 1,
+        minute = 38,
+        month = 9,
+        monthDay = 5,
+        second = 55,
+        timeZone = "CEST",
+        weekDay = 4,
+        year = 123,
+        yearDay = 277,
+    };
+
+    const format = "The time is %Y-%m-%d %H:%M:%S";
+    const formatted = time.format(format);
+    assert(
+        formatted == "The time is 2023-10-05 09:38:55",
+        message: "Could format time"
+    );
+
+    assert(time.timestamp() == 1696491535, message: "Could use timestamp");
+
+    assert(now.timestamp() > time.timestamp());
+
+    | FIXME: weird error with localtime that will return null if fed a number and not the result of time
+    | even though time_t is just a long. Is this a macOS issue?
+    | const recreated = DateTime.fromTimestamp(timestamp);
+    | dump(recreated);
+
+    const recreated = DateTime.parse(formatted, format: format);
+
+    assert(
+        recreated.monthDay == time.monthDay
+            and recreated.month == time.month
+            and recreated.year == time.year,
+        message: "Could parse datetime"
+    );
+}

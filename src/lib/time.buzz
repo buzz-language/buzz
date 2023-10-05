@@ -1,0 +1,59 @@
+import "std";
+
+export object DateFormatError{}
+
+|| @private
+extern fun now() > DateTime;
+|| @private
+extern fun timeFormat(DateTime datetime, str format) > str !> DateFormatError;
+|| @private
+extern fun timestamp(DateTime datetime) > float;
+|| @private
+extern fun fromTimestamp(float rawTime) > DateTime;
+|| @private
+extern fun parse(str source, str format) > DateTime !> DateFormatError;
+
+export object DateTime {
+    || seconds after the minute [0-60]
+    int second,
+    || minutes after the hour [0-59]
+    int minute,
+    || hours since midnight [0-23]
+    int hour,
+    || day of the month [1-31]
+    int monthDay,
+    || months since January [0-11]
+    int month,
+    || years since 1900
+    int year,
+    || days since Sunday [0-6]
+    int weekDay,
+    || days since January 1 [0-365]
+    int yearDay,
+    || Daylight Savings Time flag
+    int isdst,
+    || offset from UTC in seconds
+    int gmtOffset,
+    || timezone abbreviation
+    str timeZone,
+
+    static fun now() > DateTime {
+        return now();
+    }
+
+    static fun parse(str source, str format) > DateTime !> DateFormatError {
+        return parse(source, format: format);
+    }
+
+    static fun fromTimestamp(float timestamp) > DateTime {
+        return fromTimestamp(timestamp);
+    }
+
+    fun timestamp() > float {
+        return timestamp(this);
+    }
+
+    fun format(str format) > str !> DateFormatError {
+        return timeFormat(this, format: format);
+    }
+}

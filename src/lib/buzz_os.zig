@@ -9,7 +9,7 @@ export fn sleep(ctx: *api.NativeCtx) c_int {
 }
 
 export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
+    ctx.vm.bz_push(api.Value.fromFloat(@floatFromInt(std.time.timestamp())));
 
     return 1;
 }
