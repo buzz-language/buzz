@@ -425,7 +425,6 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.OutOfMemory => @panic("Out of memory"),
 
         error.EndOfStream => {},
     }
