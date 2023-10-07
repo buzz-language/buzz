@@ -2631,6 +2631,7 @@ pub const Parser = struct {
         return &node.node;
     }
 
+    // FIXME: this is almost the same as parseUserType!
     fn userVarDeclaration(self: *Self, _: bool, constant: bool) !*ParseNode {
         var var_type: ?*ObjTypeDef = null;
 
@@ -2641,9 +2642,21 @@ pub const Parser = struct {
         if (!inferred_declaration) {
             var user_type_name: Token = self.parser.previous_token.?.clone();
 
+            // Is it a generic type defined in enclosing functions or object?
+            if (self.resolveGeneric(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
+                var_type = generic_type;
+            } else if (self.current.?.generics != null) {
+                // Is it generic type defined in a function signature being parsed?
+                if (self.current.?.generics.?.get(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
+                    var_type = generic_type;
+                }
+            }
+
             // Search for a global with that name
-            if (try self.resolveGlobal(null, user_type_name)) |slot| {
-                var_type = self.globals.items[slot].type_def;
+            if (var_type == null) {
+                if (try self.resolveGlobal(null, user_type_name)) |slot| {
+                    var_type = self.globals.items[slot].type_def;
+                }
             }
 
             // If none found, create a placeholder
@@ -6056,7 +6069,7 @@ pub const Parser = struct {
             return try self.parseObjType(generic_types);
         } else if ((try self.match(.Identifier))) {
             var user_type: ?*ObjTypeDef = null;
-            // Is it a generic type defined in enclosing functions?
+            // Is it a generic type defined in enclosing functions or object?
             if (self.resolveGeneric(try self.gc.copyString(self.parser.previous_token.?.lexeme))) |generic_type| {
                 user_type = generic_type;
             } else if (generic_types != null) {
