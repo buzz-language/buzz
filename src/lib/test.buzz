@@ -1,0 +1,279 @@
+import "std";
+import "os";
+import "io";
+
+export enum(int) Color {
+    | attributes
+    reset      = 0,
+    bright     = 1,
+    dim        = 2,
+    underscore = 4,
+    blink      = 5,
+    reverse    = 7,
+    hidden     = 8,
+
+    | foreground
+    black   = 30,
+    red     = 31,
+    green   = 32,
+    yellow  = 33,
+    blue    = 34,
+    magenta = 35,
+    cyan    = 36,
+    white   = 37,
+
+    | background
+    onblack   = 40,
+    onred     = 41,
+    ongreen   = 42,
+    onyellow  = 43,
+    onblue    = 44,
+    onmagenta = 45,
+    oncyan    = 46,
+    onwhite   = 47,
+}
+
+export fun color(str text, Color color, bool reset = true) > str {
+    return "\27[{color.value}m{text}{if (reset) "\27[0m" else ""}";
+}
+
+export fun bright(str text) -> color(text, color: Color.bright);
+export fun dim(str text) -> color(text, color: Color.dim);
+export fun underscore(str text) -> color(text, color: Color.underscore);
+export fun blink(str text) -> color(text, color: Color.blink);
+export fun reverse(str text) -> color(text, color: Color.reverse);
+export fun hidden(str text) -> color(text, color: Color.hidden);
+export fun black(str text) -> color(text, color: Color.black);
+export fun red(str text) -> color(text, color: Color.red);
+export fun green(str text) -> color(text, color: Color.green);
+export fun yellow(str text) -> color(text, color: Color.yellow);
+export fun blue(str text) -> color(text, color: Color.blue);
+export fun magenta(str text) -> color(text, color: Color.magenta);
+export fun cyan(str text) -> color(text, color: Color.cyan);
+export fun white(str text) -> color(text, color: Color.white);
+export fun onblack(str text) -> color(text, color: Color.onblack);
+export fun onred(str text) -> color(text, color: Color.onred);
+export fun ongreen(str text) -> color(text, color: Color.ongreen);
+export fun onyellow(str text) -> color(text, color: Color.onyellow);
+export fun onblue(str text) -> color(text, color: Color.onblue);
+export fun onmagenta(str text) -> color(text, color: Color.onmagenta);
+export fun oncyan(str text) -> color(text, color: Color.oncyan);
+export fun onwhite(str text) -> color(text, color: Color.onwhite);
+
+export object Tester {
+    [bool] tests = [<bool>],
+    [bool] asserts = [<bool>],
+    float elapsed = 0.0,
+    Function(Tester t) > void? beforeAll,
+    Function(Tester t) > void? beforeEach,
+    Function(Tester t) > void? afterAll,
+    Function(Tester t) > void? afterEach,
+
+    static fun init(
+        Function(Tester t) > void? beforeAll,
+        Function(Tester t) > void? beforeEach,
+        Function(Tester t) > void? afterAll,
+        Function(Tester t) > void? afterEach
+    ) > Tester {
+        var t =  Tester{
+            beforeAll = beforeAll,
+            beforeEach = beforeEach,
+            afterAll = afterAll,
+            afterEach = afterEach,
+        };
+
+        if (t.beforeAll -> beforeAll) {
+            beforeAll(t);
+        }
+
+        return t;
+    }
+
+    fun reset() > void {
+        this.tests = [<bool>];
+        this.asserts = [<bool>];
+        this.elapsed = 0;
+    }
+
+    fun failedAsserts() > int {
+        return this.asserts.reduce::<int>(
+            fun (int _, bool success, int accumulator)
+                -> accumulator + if (success) 0 else 1,
+            initial: 0,
+        );
+    }
+
+    fun failedTests() > int {
+        return this.tests.reduce::<int>(
+            fun (int _, bool success, int accumulator)
+                -> accumulator + if (success) 0 else 1,
+            initial: 0,
+        );
+    }
+
+    fun succeededTests() > int {
+        return this.tests.reduce::<int>(
+            fun (int _, bool success, int accumulator)
+                -> accumulator + if (success) 1 else 0,
+            initial: 0,
+        );
+    }
+
+    fun it(str message, Function() > void fn) > void {
+        float startTime = time();
+
+        stdout.write(yellow("▶ Test: {message}\n")) catch void;
+
+        if (this.beforeEach -> beforeEach) {
+            beforeEach(this);
+        }
+
+        int previousFailCount = this.failedAsserts();
+        fn();
+
+        if (this.afterEach -> afterEach) {
+            afterEach(this);
+        }
+
+        this.tests.append(previousFailCount == this.failedAsserts());
+
+        this.elapsed = this.elapsed + (time() - startTime);
+    }
+
+    fun summary() > void {
+        if (this.afterAll -> afterAll) {
+            afterAll(this);
+        }
+
+        const failed = this.failedTests();
+
+        stdout.write("\n") catch void;
+
+        foreach (bool testStatus in this.tests) {
+            if (testStatus) {
+                stdout.write(green("●")) catch void;
+            } else {
+                stdout.write(yellow("●")) catch void;
+            }
+        }
+
+        stdout.write(
+            green("\n{this.succeededTests()}")
+            + dim(" successes, ")
+            + yellow("{failed}")
+            + dim(" failures in ")
+            + "{this.elapsed / 1000.0}"
+            + dim(" seconds\n")
+        ) catch void;
+
+        if (failed > 0) {
+            exit(1);
+        }
+    }
+
+    fun report(str? error, str? message) > void {
+        stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
+    }
+
+    fun assert(bool condition, str? error, str? message) > void {
+        if (!condition) {
+            this.report(error, message: message);
+
+            this.asserts.append(false);
+        } else {
+            this.asserts.append(true);
+        }
+    }
+
+    fun assertEqual::<T>(T actual, T expected, str? message) > void {
+        this.assert(
+            actual == expected,
+            error: "expected `{expected}` got `{actual}`",
+            message: message
+        );
+    }
+
+    fun assertNotEqual::<T>(T actual, T expected, str? message) > void {
+        this.assert(
+            actual != expected,
+            error: "expected `{expected}` got `{actual}`",
+            message: message
+        );
+    }
+
+    fun assertAreEqual::<T>([T] values, str? message) > void {
+        if (values.len() < 2) {
+            return;
+        }
+
+        bool equal = true;
+        T previous = values[0];
+        foreach (T value in values) {
+            if (value != previous) {
+                equal = false;
+                break;
+            }
+
+            previous = value;
+        }
+
+        this.assert(
+            equal,
+            error: "one element is not equal",
+            message: message
+        );
+    }
+
+    fun assertAreNotEqual::<T>([T] values, str? message) > void {
+        if (values.len() < 2) {
+            return;
+        }
+
+        bool equal = true;
+        T previous = values[0];
+        foreach (int i, T value in values) {
+            if (i > 0 and value == previous) {
+                equal = false;
+                break;
+            }
+
+            previous = value;
+        }
+
+        this.assert(
+            equal,
+            error: "one element is equal",
+            message: message
+        );
+    }
+
+    fun assertOfType::<T>(any value, str? message) > void {
+        this.assert(
+            !(value is T),
+            error: "`{value}` type is `{typeof value}`",
+            message: message
+        );
+    }
+
+    fun assertThrows::<T>(Function() > void !> T fn, str? message) > void {
+        try {
+            fn();
+        } catch (any error) {
+            this.assertOfType::<T>(error, message: message);
+            return;
+        }
+
+        this.assert(false, error: "Did not throw", message: message);
+    }
+
+    fun assertDoesNotThrow::<T>(Function() > void fn, str? message) > void {
+        try {
+            fn();
+        } catch (any error) {
+            if (error is T) {
+                this.assert(false, error: "Did throw", message: message);
+                return;
+            }
+        }
+    }
+}

@@ -32,6 +32,7 @@
 - Number literals can embed `_`: `1_000_000.300_245` (https://github.com/buzz-language/buzz/issues/163)
 - Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"` (https://github.com/buzz-language/buzz/issues/194)
 - Objects can have generic types  (https://github.com/buzz-language/buzz/issues/82)
+- Draft of the testing std lib (https://github.com/buzz-language/buzz/issues/129)
 
 ## Changed
 

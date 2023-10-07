@@ -338,6 +338,10 @@ pub const Obj = struct {
     }
 
     pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
+        if (type_def.def_type == .Any) {
+            return true;
+        }
+
         return switch (self.obj_type) {
             .String => type_def.def_type == .String,
             .Pattern => type_def.def_type == .Pattern,
