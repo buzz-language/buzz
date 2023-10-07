@@ -1,0 +1,69 @@
+import "std";
+import "test";
+import "os";
+
+test "Test std lib" {
+    Tester t = Tester.init(
+        beforeAll: fun (Tester t) {
+            t.assert(true);
+        },
+        afterAll: fun (Tester t) {
+            t.assert(true);
+        },
+        beforeEach: fun (Tester t) {
+            t.assert(true);
+        },
+        afterEach: fun (Tester t) {
+            t.assert(true);
+        }
+    );
+
+    t.it(
+        "Should be an integer equal to 12",
+        fn: fun () {
+            var value = 12;
+
+            t.assertOfType::<int>(value);
+
+            t.assertEqual::<int>(value, expected: 12, message: "Yeah!");
+        }
+    );
+
+    t.it(
+        "Should compare list elements",
+        fn: fun () {
+            t.assertAreNotEqual::<int>([1, 2, 3], message: "Testing failure");
+        }
+    );
+
+    t.it(
+        "Should compare list elements",
+        fn: fun () {
+            t.assertAreEqual::<int>([1, 1, 1], message: "List of 1s");
+        }
+    );
+
+    t.it(
+        "Should throw",
+        fn: fun () {
+            t.assertThrows::<str>(
+                fun () !> str {
+                    throw "Failing!";
+                },
+                message: "Should fail with str error",
+            );
+        },
+    );
+
+    t.it(
+        "Should not throw",
+        fn: fun () {
+            t.assertDoesNotThrow::<str>(
+                fun () {},
+                message: "Should fail with str error",
+            );
+        },
+    );
+
+    t.summary();
+}

@@ -80,7 +80,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn isFloat(self: Value) bool {
-        return self.val & TaggedValueMask != TaggedValueMask;
+        return !self.isBool() and !self.isError() and !self.isInteger() and !self.isNull() and !self.isObj() and !self.isVoid();
     }
 
     pub inline fn isNumber(self: Value) bool {
@@ -254,6 +254,10 @@ pub fn valueEql(a: Value, b: Value) bool {
 
 pub fn valueIs(type_def_val: Value, value: Value) bool {
     const type_def: *ObjTypeDef = ObjTypeDef.cast(type_def_val.obj()).?;
+
+    if (type_def.def_type == .Any) {
+        return true;
+    }
 
     if (value.isObj()) {
         return value.obj().is(type_def);
