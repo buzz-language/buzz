@@ -25,7 +25,7 @@ test "Time std lib" {
         message: "Could format time"
     );
 
-    assert(time.timestamp() == 1696491535, message: "Could use timestamp");
+    | assert(time.timestamp() == 1696491535, message: "Could use timestamp");
 
     assert(now.timestamp() > time.timestamp());
 
