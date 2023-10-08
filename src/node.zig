@@ -3023,7 +3023,9 @@ pub const BinaryNode = struct {
                     .String => .OP_ADD_STRING,
                     .List => .OP_ADD_LIST,
                     .Map => .OP_ADD_MAP,
-                    else => .OP_ADD,
+                    .Integer => .OP_ADD_I,
+                    .Float => .OP_ADD_F,
+                    else => unreachable,
                 });
             },
             .Minus => {

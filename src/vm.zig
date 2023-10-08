@@ -599,7 +599,8 @@ pub const VM = struct {
         OP_IS,
         OP_GREATER,
         OP_LESS,
-        OP_ADD,
+        OP_ADD_F,
+        OP_ADD_I,
         OP_ADD_STRING,
         OP_ADD_LIST,
         OP_ADD_MAP,
@@ -2950,21 +2951,31 @@ pub const VM = struct {
         );
     }
 
-    fn OP_ADD(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right: Value = self.pop();
-        const left: Value = self.pop();
+    fn OP_ADD_I(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right = self.pop().integer();
+        const left = self.pop().integer();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
-        const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
-        const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromInteger(left +% right));
 
-        if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat((left_f orelse @as(f64, @floatFromInt(left_i.?)) + (right_f orelse @as(f64, @floatFromInt(right_i.?))))));
-        } else {
-            // both integers
-            self.push(Value.fromInteger(left_i.? +% right_i.?));
-        }
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_ADD_F(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const right = self.pop().float();
+        const left = self.pop().float();
+
+        self.push(Value.fromFloat(left + right));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
