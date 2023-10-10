@@ -1410,6 +1410,13 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
     const stack_top_base = try self.REG("stack_top_base", m.MIR_T_I64);
     const index = try self.REG("index", m.MIR_T_I64);
 
+    // Avoid intertwining the push and its value expression
+    const value_reg = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("value", m.MIR_T_I64),
+    );
+    self.MOV(value_reg, value);
+
     self.MOV(
         m.MIR_new_reg_op(self.ctx, index),
         m.MIR_new_uint_op(self.ctx, 0),
@@ -1457,7 +1464,7 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
 
     self.MOV(
         top,
-        value,
+        value_reg,
     );
 
     // Increment stack top
@@ -1468,6 +1475,7 @@ fn buildPush(self: *Self, value: m.MIR_op_t) !void {
     );
 }
 
+// FIXME: we should not need 3 MOV to get to the value?
 fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
     const ctx_reg = self.state.?.ctx_reg.?;
     const stack_top_ptr_base = try self.REG("stack_top_ptr_base", m.MIR_T_I64);
@@ -1522,22 +1530,21 @@ fn buildPop(self: *Self, dest: ?m.MIR_op_t) !void {
     );
 
     // Store new top in result reg
-    const top = m.MIR_new_mem_op(
-        self.ctx,
-        m.MIR_T_P,
-        0,
-        stack_top_base,
-        index,
-        1,
-    );
-
-    self.MOV(
-        dest orelse m.MIR_new_reg_op(
+    if (dest) |into| {
+        const top = m.MIR_new_mem_op(
             self.ctx,
-            try self.REG("dismiss", m.MIR_T_I64),
-        ),
-        top,
-    );
+            m.MIR_T_P,
+            0,
+            stack_top_base,
+            index,
+            1,
+        );
+
+        self.MOV(
+            into,
+            top,
+        );
+    }
 }
 
 fn buildPeek(self: *Self, distance: u32, dest: m.MIR_op_t) !void {
@@ -1621,20 +1628,37 @@ fn buildGetLocal(self: *Self, slot: usize) !m.MIR_op_t {
         m.MIR_new_uint_op(self.ctx, slot),
     );
 
-    return m.MIR_new_mem_op(
+    // Avoid intertwining the get local and its value expression
+    const value_reg = m.MIR_new_reg_op(
         self.ctx,
-        m.MIR_T_U64,
-        0,
-        base,
-        index,
-        @sizeOf(u64),
+        try self.REG("value", m.MIR_T_I64),
     );
+    self.MOV(
+        value_reg,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_U64,
+            0,
+            base,
+            index,
+            @sizeOf(u64),
+        ),
+    );
+
+    return value_reg;
 }
 
 fn buildSetLocal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
     const ctx_reg = self.state.?.ctx_reg.?;
     const index = try self.REG("index", m.MIR_T_I64);
     const base = try self.REG("base", m.MIR_T_I64);
+
+    // Avoid intertwining the set local and its value expression
+    const value_reg = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("value", m.MIR_T_I64),
+    );
+    self.MOV(value_reg, value);
 
     self.MOV(
         m.MIR_new_reg_op(self.ctx, index),
@@ -1667,7 +1691,7 @@ fn buildSetLocal(self: *Self, slot: usize, value: m.MIR_op_t) !void {
         @sizeOf(u64),
     );
 
-    self.MOV(local, value);
+    self.MOV(local, value_reg);
 }
 
 fn buildGetGlobal(self: *Self, slot: usize) !m.MIR_op_t {
@@ -2251,7 +2275,6 @@ fn generateNode(self: *Self, node: *n.ParseNode) Error!?m.MIR_op_t {
         .Unary => try self.generateUnary(n.UnaryNode.cast(node).?),
         .Pattern => try self.generatePattern(n.PatternNode.cast(node).?),
         .ForEach => try self.generateForEach(n.ForEachNode.cast(node).?),
-        .InlineIf => try self.generateInlineIf(n.InlineIfNode.cast(node).?),
         .TypeExpression => try self.generateTypeExpression(n.TypeExpressionNode.cast(node).?),
         .TypeOfExpression => try self.generateTypeOfExpression(n.TypeOfExpressionNode.cast(node).?),
         .AsyncCall,
@@ -2928,6 +2951,11 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
         try self.REG("condition", m.MIR_T_I64),
     );
 
+    const resolved = if (!if_node.is_statement)
+        try self.REG("resolved", m.MIR_T_I64)
+    else
+        null;
+
     // Is it `if (opt -> unwrapped)`?
     if (if_node.unwrapped_identifier != null) {
         try self.buildExternApiCall(
@@ -2939,6 +2967,7 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
             },
         );
 
+        // TODO: replace with condition ^ (MIR_OR, MIR_XOR?) 1
         const true_label = m.MIR_new_label(self.ctx);
         const out_label = m.MIR_new_label(self.ctx);
 
@@ -3022,10 +3051,22 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
 
         // Push unwrapped value as local of the then block
         if (if_node.unwrapped_identifier != null or if_node.casted_type != null) {
-            try self.buildPush(condition_value.?);
+            try self.buildPush(
+                if (constant_condition) |constant|
+                    m.MIR_new_uint_op(self.ctx, constant.val)
+                else
+                    condition_value.?,
+            );
         }
 
-        _ = try self.generateNode(if_node.body);
+        if (if_node.is_statement) {
+            _ = try self.generateNode(if_node.body);
+        } else {
+            self.MOV(
+                m.MIR_new_reg_op(self.ctx, resolved.?),
+                (try self.generateNode(if_node.body)).?,
+            );
+        }
 
         self.JMP(out_label);
     }
@@ -3034,13 +3075,23 @@ fn generateIf(self: *Self, if_node: *n.IfNode) Error!?m.MIR_op_t {
         if (if_node.else_branch) |else_branch| {
             self.append(else_label);
 
-            _ = try self.generateNode(else_branch);
+            if (if_node.is_statement) {
+                _ = try self.generateNode(else_branch);
+            } else {
+                self.MOV(
+                    m.MIR_new_reg_op(self.ctx, resolved.?),
+                    (try self.generateNode(else_branch)).?,
+                );
+            }
         }
     }
 
     self.append(out_label);
 
-    return null;
+    return if (if_node.is_statement)
+        null
+    else
+        m.MIR_new_reg_op(self.ctx, resolved.?);
 }
 
 fn generateTypeExpression(self: *Self, type_expression_node: *n.TypeExpressionNode) Error!?m.MIR_op_t {
@@ -3067,78 +3118,6 @@ fn generateTypeOfExpression(self: *Self, typeof_expression_node: *n.TypeOfExpres
     );
 
     return result;
-}
-
-fn generateInlineIf(self: *Self, inline_if_node: *n.InlineIfNode) Error!?m.MIR_op_t {
-    const constant_condition = if (inline_if_node.condition.isConstant(inline_if_node.condition))
-        inline_if_node.condition.toValue(inline_if_node.condition, self.vm.gc) catch unreachable
-    else
-        null;
-
-    // Generate condition
-    const condition = (try self.generateNode(inline_if_node.condition)).?;
-
-    const resolved = try self.REG("resolved", m.MIR_T_I64);
-
-    const out_label = m.MIR_new_label(self.ctx);
-    const then_label = m.MIR_new_label(self.ctx);
-    const else_label = m.MIR_new_label(self.ctx);
-
-    if (constant_condition != null) {
-        self.JMP(
-            if (constant_condition.?.boolean())
-                then_label
-            else
-                else_label,
-        );
-    } else {
-        const unwrapped_condition = m.MIR_new_reg_op(
-            self.ctx,
-            try self.REG("ucond", m.MIR_T_I64),
-        );
-
-        try self.unwrap(
-            .Bool,
-            condition,
-            unwrapped_condition,
-        );
-
-        self.BEQ(
-            m.MIR_new_label_op(self.ctx, then_label),
-            unwrapped_condition,
-            m.MIR_new_uint_op(self.ctx, 1),
-        );
-
-        self.JMP(else_label);
-    }
-
-    if (constant_condition == null or constant_condition.?.boolean()) {
-        self.append(
-            then_label,
-        );
-
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, resolved),
-            (try self.generateNode(inline_if_node.body)).?,
-        );
-
-        self.JMP(out_label);
-    }
-
-    if (constant_condition == null or !constant_condition.?.boolean()) {
-        self.append(
-            else_label,
-        );
-
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, resolved),
-            (try self.generateNode(inline_if_node.else_branch)).?,
-        );
-    }
-
-    self.append(out_label);
-
-    return m.MIR_new_reg_op(self.ctx, resolved);
 }
 
 fn generateBinary(self: *Self, binary_node: *n.BinaryNode) Error!?m.MIR_op_t {
@@ -4535,6 +4514,10 @@ fn generateTry(self: *Self, try_node: *n.TryNode) Error!?m.MIR_op_t {
 }
 
 fn generateThrow(self: *Self, throw_node: *n.ThrowNode) Error!?m.MIR_op_t {
+    if (throw_node.unconditional) {
+        self.state.?.return_emitted = true;
+    }
+
     try self.buildExternApiCall(
         .bz_throw,
         null,
@@ -4866,15 +4849,32 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
     // We should only declare locals
     assert(var_declaration_node.slot_type == .Local);
 
-    try self.buildPush(
-        if (var_declaration_node.value) |value|
-            (try self.generateNode(value)).?
-        else
+    // An inline if expression is the only expression that might add a new local while evaluated so we need
+    // to reserve our space on the stack right away otherwise the local count will be off
+    // We have to do this because we use registers in the JIT context, in the VM this ends up being ok even though the local count is off
+    if (var_declaration_node.value != null and var_declaration_node.value.?.node_type == .If) {
+        try self.buildPush(
             m.MIR_new_uint_op(
                 self.ctx,
                 v.Value.Null.val,
             ),
-    );
+        );
+
+        try self.buildSetLocal(
+            var_declaration_node.slot,
+            (try self.generateNode(var_declaration_node.value.?)).?,
+        );
+    } else {
+        try self.buildPush(
+            if (var_declaration_node.value) |value|
+                (try self.generateNode(value)).?
+            else
+                m.MIR_new_uint_op(
+                    self.ctx,
+                    v.Value.Null.val,
+                ),
+        );
+    }
 
     return null;
 }
