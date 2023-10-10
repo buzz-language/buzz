@@ -83,7 +83,6 @@ const ThrowNode = _node.ThrowNode;
 const BreakNode = _node.BreakNode;
 const ContinueNode = _node.ContinueNode;
 const IfNode = _node.IfNode;
-const InlineIfNode = _node.InlineIfNode;
 const ReturnNode = _node.ReturnNode;
 const ForNode = _node.ForNode;
 const ForEachNode = _node.ForEachNode;
@@ -2150,7 +2149,7 @@ pub const Parser = struct {
         return &node.node;
     }
 
-    fn ifStatement(self: *Self, loop_scope: ?LoopScope) anyerror!*ParseNode {
+    fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) anyerror!*ParseNode {
         const start_location = self.parser.previous_token.?;
 
         try self.consume(.LeftParen, "Expected `(` after `if`.");
@@ -2160,7 +2159,9 @@ pub const Parser = struct {
 
         var unwrapped_identifier: ?Token = null;
         var casted_type: ?*ObjTypeDef = null;
-        if (try self.match(.Arrow)) {
+        if (try self.match(.Arrow)) { // if (opt -> unwrapped)
+            // NOTE: when inline if, the slot if "wrong": it'll end up ok for the bytecode because everything happens on the stack
+            //       with the JIT, we fix it by pushing null in slot before evaluating the inline if
             _ = try self.parseVariable(
                 false,
                 try condition.type_def.?.cloneNonOptional(&self.gc.type_registry),
@@ -2170,7 +2171,7 @@ pub const Parser = struct {
             self.markInitialized();
 
             unwrapped_identifier = self.parser.previous_token.?;
-        } else if (try self.match(.As)) {
+        } else if (try self.match(.As)) { // if (expr as casted)
             casted_type = try self.parseTypeDef(null, true);
 
             _ = try self.parseVariable(
@@ -2184,20 +2185,27 @@ pub const Parser = struct {
 
         try self.consume(.RightParen, "Expected `)` after `if` condition.");
 
-        try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
-        var body = try self.block(loop_scope);
+        const body = if (is_statement) stmt: {
+            try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
+            break :stmt try self.block(loop_scope);
+        } else try self.expression(false);
+
         body.ends_scope = try self.endScope();
 
         var else_branch: ?*ParseNode = null;
-        if (try self.match(.Else)) {
+        if (!is_statement or self.check(.Else)) {
+            try self.consume(.Else, "Expected `else` after inline `if` body.");
+
             if (try self.match(.If)) {
-                else_branch = try self.ifStatement(loop_scope);
-            } else {
+                else_branch = try self.@"if"(is_statement, loop_scope);
+            } else if (is_statement) {
                 try self.consume(.LeftBrace, "Expected `{` after `else`.");
 
                 self.beginScope();
                 else_branch = try self.block(loop_scope);
                 else_branch.?.ends_scope = try self.endScope();
+            } else {
+                else_branch = try self.expression(false);
             }
         }
 
@@ -2208,11 +2216,29 @@ pub const Parser = struct {
             .casted_type = casted_type,
             .body = body,
             .else_branch = else_branch,
+            .is_statement = is_statement,
         };
         node.node.location = start_location;
         node.node.end_location = self.parser.previous_token.?;
 
+        if (!is_statement) {
+            if (body.type_def == null or body.type_def.?.def_type == .Void) {
+                node.node.type_def = else_branch.?.type_def;
+            } else {
+                node.node.type_def = body.type_def;
+            }
+
+            const is_optional = node.node.type_def.?.optional or body.type_def.?.optional or else_branch.?.type_def.?.optional or body.type_def.?.def_type == .Void or else_branch.?.type_def.?.def_type == .Void;
+            if (is_optional and !node.node.type_def.?.optional) {
+                node.node.type_def = try node.node.type_def.?.cloneOptional(&self.gc.type_registry);
+            }
+        }
+
         return &node.node;
+    }
+
+    fn ifStatement(self: *Self, loop_scope: ?LoopScope) anyerror!*ParseNode {
+        return try self.@"if"(true, loop_scope);
     }
 
     fn forStatement(self: *Self) !*ParseNode {
@@ -4077,39 +4103,7 @@ pub const Parser = struct {
     }
 
     fn inlineIf(self: *Self, _: bool) anyerror!*ParseNode {
-        const start_location = self.parser.previous_token.?;
-
-        try self.consume(.LeftParen, "Expected `(` after `if`.");
-        const condition = try self.expression(false);
-        try self.consume(.RightParen, "Expected `)` after `if` condition.");
-
-        const body = try self.expression(false);
-
-        try self.consume(.Else, "Expected `else` after inline `if` body.");
-
-        const else_branch = try self.expression(false);
-
-        var node = try self.gc.allocator.create(InlineIfNode);
-        node.* = InlineIfNode{
-            .condition = condition,
-            .body = body,
-            .else_branch = else_branch,
-        };
-        node.node.location = start_location;
-        node.node.end_location = self.parser.previous_token.?;
-
-        if (body.type_def == null or body.type_def.?.def_type == .Void) {
-            node.node.type_def = else_branch.type_def;
-        } else {
-            node.node.type_def = body.type_def;
-        }
-
-        const is_optional = node.node.type_def.?.optional or body.type_def.?.optional or else_branch.type_def.?.optional or body.type_def.?.def_type == .Void or else_branch.type_def.?.def_type == .Void;
-        if (is_optional and !node.node.type_def.?.optional) {
-            node.node.type_def = try node.node.type_def.?.cloneOptional(&self.gc.type_registry);
-        }
-
-        return &node.node;
+        return try self.@"if"(false, null);
     }
 
     // FIXME: doesn't need its own function
