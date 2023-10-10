@@ -32,10 +32,6 @@ export object DateTime {
     int yearDay,
     || Daylight Savings Time flag
     int isdst,
-    || offset from UTC in seconds
-    int gmtOffset,
-    || timezone abbreviation
-    str timeZone,
 
     static fun now() > DateTime {
         return now();

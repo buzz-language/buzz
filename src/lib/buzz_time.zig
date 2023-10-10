@@ -20,10 +20,6 @@ const tm = extern struct {
     yday: c_int,
     /// Daylight Savings Time flag
     isdst: c_int,
-    /// offset from UTC in seconds
-    gmtoff: c_int,
-    /// timezone abbreviation
-    tm_zone: ?[*:0]const u8,
 };
 
 // time.h stuff
@@ -53,28 +49,10 @@ const fields = [_][]const u8{
     "weekDay",
     "yearDay",
     "isdst",
-    "gmtOffset",
 };
 
 fn dateTimeToTM(vm: *api.VM, datetime: api.Value) tm {
-    var len: usize = 0;
-    const zone_str = api.ObjObject.bz_getInstanceField(
-        vm,
-        datetime,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                vm,
-                "timeZone".ptr,
-                "timeZone".len,
-            ) orelse @panic("Out of memory"),
-        ),
-    ).bz_valueToString(&len);
-
     return .{
-        .tm_zone = if (zone_str != null and len > 0)
-            api.VM.allocator.dupeZ(u8, zone_str.?[0..len]) catch @panic("Out of memory")
-        else
-            null,
         .sec = api.ObjObject.bz_getInstanceField(
             vm,
             datetime,
@@ -174,17 +152,6 @@ fn dateTimeToTM(vm: *api.VM, datetime: api.Value) tm {
                 ) orelse @panic("Out of memory"),
             ),
         ).integer(),
-        .gmtoff = api.ObjObject.bz_getInstanceField(
-            vm,
-            datetime,
-            api.ObjString.bz_objStringToValue(
-                api.ObjString.bz_string(
-                    vm,
-                    "gmtOffset".ptr,
-                    "gmtOffset".len,
-                ) orelse @panic("Out of memory"),
-            ),
-        ).integer(),
     };
 }
 
@@ -226,7 +193,6 @@ export fn parse(ctx: *api.NativeCtx) c_int {
         user_time.wday,
         user_time.yday,
         user_time.isdst,
-        user_time.gmtoff,
     };
 
     for (fields, 0..) |field, i| {
@@ -243,28 +209,6 @@ export fn parse(ctx: *api.NativeCtx) c_int {
             api.Value.fromInteger(values[i]),
         );
     }
-
-    // FIXME: seems to be invalid pointer?
-    // const timezone = if (info.tm_zone) |tz| std.mem.span(tz) else "";
-    const timezone = "";
-    api.ObjObject.bz_setInstanceField(
-        ctx.vm,
-        datetime,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                ctx.vm,
-                "timeZone".ptr,
-                "timeZone".len,
-            ) orelse @panic("Out of memory"),
-        ),
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                ctx.vm,
-                timezone.ptr,
-                timezone.len,
-            ) orelse @panic("Out of memory"),
-        ),
-    );
 
     ctx.vm.bz_push(
         datetime,
@@ -345,7 +289,6 @@ export fn now(ctx: *api.NativeCtx) c_int {
         info.wday,
         info.yday,
         info.isdst,
-        info.gmtoff,
     };
 
     for (fields, 0..) |field, i| {
@@ -362,28 +305,6 @@ export fn now(ctx: *api.NativeCtx) c_int {
             api.Value.fromInteger(values[i]),
         );
     }
-
-    // FIXME: seems to be invalid pointer?
-    // const timezone = if (info.tm_zone) |tz| std.mem.span(tz) else "";
-    const timezone = "";
-    api.ObjObject.bz_setInstanceField(
-        vm,
-        datetime,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                vm,
-                "timeZone".ptr,
-                "timeZone".len,
-            ) orelse @panic("Out of memory"),
-        ),
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                vm,
-                timezone.ptr,
-                timezone.len,
-            ) orelse @panic("Out of memory"),
-        ),
-    );
 
     ctx.vm.bz_push(
         datetime,
@@ -416,7 +337,6 @@ export fn fromTimestamp(ctx: *api.NativeCtx) c_int {
         info.wday,
         info.yday,
         info.isdst,
-        info.gmtoff,
     };
 
     for (fields, 0..) |field, i| {
@@ -433,28 +353,6 @@ export fn fromTimestamp(ctx: *api.NativeCtx) c_int {
             api.Value.fromInteger(values[i]),
         );
     }
-
-    // FIXME: seems to be invalid pointer?
-    // const timezone = if (info.tm_zone) |tz| std.mem.span(tz) else "";
-    const timezone = "";
-    api.ObjObject.bz_setInstanceField(
-        vm,
-        datetime,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                vm,
-                "timeZone".ptr,
-                "timeZone".len,
-            ) orelse @panic("Out of memory"),
-        ),
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                vm,
-                timezone.ptr,
-                timezone.len,
-            ) orelse @panic("Out of memory"),
-        ),
-    );
 
     ctx.vm.bz_push(
         datetime,

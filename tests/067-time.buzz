@@ -1,18 +1,18 @@
 import "std";
 import "time";
+import "debug";
+import "io";
 
 test "Time std lib" {
     const now = DateTime.now();
 
     const time = DateTime{
-        gmtOffset = 0,
         hour = 9,
         isdst = 1,
         minute = 38,
         month = 9,
         monthDay = 5,
         second = 55,
-        timeZone = "CEST",
         weekDay = 4,
         year = 123,
         yearDay = 277,
@@ -20,6 +20,7 @@ test "Time std lib" {
 
     const format = "The time is %Y-%m-%d %H:%M:%S";
     const formatted = time.format(format);
+    stderr.write("{formatted}\n");
     assert(
         formatted == "The time is 2023-10-05 09:38:55",
         message: "Could format time"
@@ -27,6 +28,7 @@ test "Time std lib" {
 
     | assert(time.timestamp() == 1696491535, message: "Could use timestamp");
 
+    stderr.write("{now.timestamp()} > {time.timestamp()} ? {now.timestamp() > time.timestamp()}\n");
     assert(now.timestamp() > time.timestamp());
 
     | FIXME: weird error with localtime that will return null if fed a number and not the result of time
@@ -35,6 +37,7 @@ test "Time std lib" {
     | dump(recreated);
 
     const recreated = DateTime.parse(formatted, format: format);
+    dump(recreated);
 
     assert(
         recreated.monthDay == time.monthDay
