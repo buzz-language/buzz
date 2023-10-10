@@ -3873,6 +3873,7 @@ pub const VM = struct {
     }
 
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+        const was_in_native_call = self.currentFrame().?.in_native_call;
         self.currentFrame().?.in_native_call = true;
         self.currentFrame().?.native_call_error_value = catch_value;
 
@@ -3886,7 +3887,7 @@ pub const VM = struct {
         };
         const native_return = native(&ctx);
 
-        self.currentFrame().?.in_native_call = false;
+        self.currentFrame().?.in_native_call = was_in_native_call;
         self.currentFrame().?.native_call_error_value = null;
 
         if (native_return == 1 or native_return == 0) {
@@ -3926,6 +3927,7 @@ pub const VM = struct {
 
     // A JIT compiled function pops its stack on its own
     fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+        const was_in_native_call = self.currentFrame() != null and self.currentFrame().?.in_native_call;
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;
             frame.native_call_error_value = catch_value;
@@ -3941,7 +3943,7 @@ pub const VM = struct {
         const native_return = native(&ctx);
 
         if (self.currentFrame()) |frame| {
-            frame.in_native_call = false;
+            frame.in_native_call = was_in_native_call;
             frame.native_call_error_value = null;
         }
 

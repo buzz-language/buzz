@@ -696,6 +696,7 @@ pub export fn bz_invoke(
         self.push(arguments.?[i].*);
     }
 
+    const was_in_native_call = self.currentFrame().?.in_native_call;
     self.currentFrame().?.in_native_call = true;
 
     // TODO: catch properly
@@ -711,7 +712,7 @@ pub export fn bz_invoke(
         self.run();
     }
 
-    self.currentFrame().?.in_native_call = false;
+    self.currentFrame().?.in_native_call = was_in_native_call;
 }
 
 pub export fn bz_call(
