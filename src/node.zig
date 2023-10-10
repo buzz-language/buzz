@@ -4807,7 +4807,10 @@ pub const CallNode = struct {
                     .Fiber => .OP_FIBER_INVOKE,
                     .List => .OP_LIST_INVOKE,
                     .Map => .OP_MAP_INVOKE,
-                    else => unreachable,
+                    else => unexpected: {
+                        assert(codegen.reporter.had_error);
+                        break :unexpected .OP_INSTANCE_INVOKE;
+                    },
                 },
                 try codegen.identifierConstant(DotNode.cast(self.callee).?.identifier.lexeme),
             );
@@ -6476,7 +6479,7 @@ pub const ForEachNode = struct {
                 .Map => ObjMap.cast(iterable).?.map.count() == 0,
                 .String => ObjString.cast(iterable).?.string.len == 0,
                 .Enum => ObjEnum.cast(iterable).?.cases.items.len == 0,
-                else => unreachable,
+                else => codegen.reporter.had_error,
             }) {
                 try node.patchOptJumps(codegen);
                 return null;
@@ -6499,7 +6502,10 @@ pub const ForEachNode = struct {
                 .Enum => .OP_ENUM_FOREACH,
                 .Map => .OP_MAP_FOREACH,
                 .Fiber => .OP_FIBER_FOREACH,
-                else => unreachable,
+                else => unexpected: {
+                    assert(codegen.reporter.had_error);
+                    break :unexpected .OP_STRING_FOREACH;
+                },
             },
         );
 
@@ -7176,7 +7182,7 @@ pub const DotNode = struct {
                     );
                 }
             },
-            else => unreachable,
+            else => assert(codegen.reporter.had_error),
         }
 
         try node.patchOptJumps(codegen);
