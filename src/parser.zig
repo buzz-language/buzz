@@ -2160,8 +2160,6 @@ pub const Parser = struct {
         var unwrapped_identifier: ?Token = null;
         var casted_type: ?*ObjTypeDef = null;
         if (try self.match(.Arrow)) { // if (opt -> unwrapped)
-            // NOTE: when inline if, the slot if "wrong": it'll end up ok for the bytecode because everything happens on the stack
-            //       with the JIT, we fix it by pushing null in slot before evaluating the inline if
             _ = try self.parseVariable(
                 false,
                 try condition.type_def.?.cloneNonOptional(&self.gc.type_registry),

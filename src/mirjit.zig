@@ -4849,24 +4849,15 @@ fn generateVarDeclaration(self: *Self, var_declaration_node: *n.VarDeclarationNo
     // We should only declare locals
     assert(var_declaration_node.slot_type == .Local);
 
-    // Some expression (inline if with null unwrap) can add a new local while evaluated so we need
-    // to reserve our space on the stack right away otherwise the local count will be off
-    // We have to do this because we use registers in the JIT context, in the VM this ends up being ok even though the local count is off
-    // However this might slow things a bit. Even though we know it's only for the inline if expression, we don't know how deep it is in the value node
-
     try self.buildPush(
-        m.MIR_new_uint_op(
-            self.ctx,
-            v.Value.Null.val,
-        ),
+        if (var_declaration_node.value) |value|
+            (try self.generateNode(value)).?
+        else
+            m.MIR_new_uint_op(
+                self.ctx,
+                v.Value.Null.val,
+            ),
     );
-
-    if (var_declaration_node.value) |value| {
-        try self.buildSetLocal(
-            var_declaration_node.slot,
-            (try self.generateNode(value)).?,
-        );
-    }
 
     return null;
 }

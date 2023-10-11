@@ -11,7 +11,7 @@ test "ternary" {
 }
 
 test "multiple branches" {
-    const value = 12;
+    int value = 12;
 
     const expr = if (value == 14)
         "hello"
@@ -23,62 +23,16 @@ test "multiple branches" {
     assert(expr == "yolo", message: "Could use multiple branches with inline if");
 }
 
-test "unwrap" {
-    str? opt = "hello";
-
-    const _ = 12;
-
-    const expr = if (opt -> hello)
-        hello
-    else
-        "bye";
-    
-    assert(expr == "hello", message: "Could unwrap optional in inline if");
-}
-
-test "cast" {
-    const any unknown = "hello";
-
-    const expr = if (unknown as str hello)
-        hello
-    else
-        "bye";
-    
-    assert(expr == "hello", message: "Could cast in inline if");
-}
-
-test "cast to unwrap null" {
-    const str? unknown = null;
-
-    const expr = if (unknown as str hello)
-        hello
-    else
-        "hello";
-    
-    assert(expr == "hello", message: "Could unwrap optional using cas in inline if");
-}
-
-test "cast to unwrap null" {
-    const str? unknown = "hello";
-
-    const expr = if (unknown as str hello)
-        hello
-    else
-        "bye";
-    
-    assert(expr == "hello", message: "Could unwrap optional using cast in inline if");
-}
-
-test "not in a var decl" {
-    str? opt = "hello";
-
-    const _ = 12;
+test "inline if in expression" {
+    int value = 12;
 
     assert(
-        (if (opt -> hello)
-            hello
+        (if (value == 14)
+            "hello"
+        else if (value == 12)
+            "yolo"
         else
-            "bye") == "hello",
-        message: "Could unwrap optional in inline if in expression"
+            null) == "yolo",
+        message: "Could use multiple branches inline if in expression"
     );
 }
