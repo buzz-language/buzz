@@ -26,7 +26,7 @@ test "multiple branches" {
 test "unwrap" {
     str? opt = "hello";
 
-    const another = 12;
+    const _ = 12;
 
     const expr = if (opt -> hello)
         hello
@@ -72,7 +72,7 @@ test "cast to unwrap null" {
 test "not in a var decl" {
     str? opt = "hello";
 
-    const another = 12;
+    const _ = 12;
 
     assert(
         (if (opt -> hello)

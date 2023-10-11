@@ -92,7 +92,7 @@ fn get_buzz_prefix(b: *Build) []const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.12.0-dev.790+ad6f8e3a5") catch return;
+    const min_zig = std.SemanticVersion.parse("0.12.0-dev.878+7abf9b3a8") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -322,7 +322,7 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         exe.linkLibC();
     }
-    exe.main_pkg_path = .{ .path = "." };
+    exe.main_mod_path = .{ .path = "." };
 
     exe.addOptions("build_options", build_options.step(b));
 
@@ -345,7 +345,7 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         lib.linkLibC();
     }
-    lib.main_pkg_path = .{ .path = "src" };
+    lib.main_mod_path = .{ .path = "src" };
 
     lib.addOptions("build_options", build_options.step(b));
 
@@ -427,7 +427,7 @@ pub fn build(b: *Build) !void {
         if (build_options.needLibC()) {
             std_lib.linkLibC();
         }
-        std_lib.main_pkg_path = .{ .path = "src" };
+        std_lib.main_mod_path = .{ .path = "src" };
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
 
