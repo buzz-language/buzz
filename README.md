@@ -48,7 +48,6 @@ Additionally, install the [VS Code extension](https://marketplace.visualstudio.c
 ### Requirements
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
 - Linux or macOS (not much work is needed to make it work on [Windows](https://github.com/buzz-language/buzz/issues/74))
-- libpcre (not libpcre2)
 - libc
 - [mimalloc](https://github.com/microsoft/mimalloc) (can be turned off by building buzz with `-Dmimalloc=false`)
 - zig master

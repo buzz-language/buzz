@@ -4,3 +4,6 @@
 [submodule "mir"]
 	path = vendors/mir
 	url = https://github.com/vnmakarov/mir
+[submodule "vendors/pcre2"]
+	path = vendors/pcre2
+	url = https://github.com/PCRE2Project/pcre2

@@ -1,4 +1,4 @@
-| Could not compile pattern, error at 5: unknown property name after \P or \p
+| Could not compile pattern, error at 5: this version of PCRE2 does not have support for \P, \p, or \X
 import "std";
 
 test "bad pattern" {

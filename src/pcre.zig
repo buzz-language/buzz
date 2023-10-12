@@ -1,3 +1,222 @@
-pub const pcre = @cImport({
-    @cInclude("pcre.h");
-});
+pub const pcre2_general_context = opaque {};
+
+pub const pcre2_code = opaque {
+    extern fn pcre2_match_data_create_from_pattern_8(
+        code: *const pcre2_code,
+        gcontext: ?*pcre2_general_context,
+    ) ?*pcre2_match_data;
+    pub const createMatchData = pcre2_match_data_create_from_pattern_8;
+
+    extern fn pcre2_match_8(
+        code: *const pcre2_code,
+        subject: [*]const u8,
+        len: usize,
+        startoffset: usize,
+        options: u32,
+        match_data: *pcre2_match_data,
+        mcontext: ?*pcre2_match_context,
+    ) c_int;
+    pub const match = pcre2_match_8;
+
+    extern fn pcre2_code_free_8(code: *pcre2_code) void;
+    pub const free = pcre2_code_free_8;
+};
+
+pub const pcre2_compile_context = opaque {};
+
+pub const pcre2_match_context = opaque {};
+
+pub const pcre2_match_data = opaque {
+    extern fn pcre2_match_data_free_8(match_data: *pcre2_match_data) void;
+    pub const free = pcre2_match_data_free_8;
+
+    extern fn pcre2_get_ovector_pointer_8(match_data: *pcre2_match_data) [*]usize;
+    pub const getOVectorPointer = pcre2_get_ovector_pointer_8;
+
+    extern fn pcre2_get_ovector_count_8(match_data: *pcre2_match_data) u32;
+    pub const getOVectorCount = pcre2_get_ovector_count_8;
+};
+
+extern fn pcre2_compile_8(
+    pattern: [*]const u8,
+    length: usize,
+    options: u32,
+    errorcode: *c_int,
+    erroroffset: *usize,
+    context: ?*pcre2_compile_context,
+) ?*pcre2_code;
+pub const compile = pcre2_compile_8;
+
+extern fn pcre2_get_error_message_8(errorcode: c_int, buffer: [*]u8, bufflen: usize) c_int;
+pub const getErrorMessage = pcre2_get_error_message_8;
+
+pub const CompileError = enum(c_int) {
+    END_BACKSLASH = 101,
+    END_BACKSLASH_C = 102,
+    UNKNOWN_ESCAPE = 103,
+    QUANTIFIER_OUT_OF_ORDER = 104,
+    QUANTIFIER_TOO_BIG = 105,
+    MISSING_SQUARE_BRACKET = 106,
+    ESCAPE_INVALID_IN_CLASS = 107,
+    CLASS_RANGE_ORDER = 108,
+    QUANTIFIER_INVALID = 109,
+    INTERNAL_UNEXPECTED_REPEAT = 110,
+    INVALID_AFTER_PARENS_QUERY = 111,
+    POSIX_CLASS_NOT_IN_CLASS = 112,
+    POSIX_NO_SUPPORT_COLLATING = 113,
+    MISSING_CLOSING_PARENTHESIS = 114,
+    BAD_SUBPATTERN_REFERENCE = 115,
+    NULL_PATTERN = 116,
+    BAD_OPTIONS = 117,
+    MISSING_COMMENT_CLOSING = 118,
+    PARENTHESES_NEST_TOO_DEEP = 119,
+    PATTERN_TOO_LARGE = 120,
+    HEAP_FAILED = 121,
+    UNMATCHED_CLOSING_PARENTHESIS = 122,
+    INTERNAL_CODE_OVERFLOW = 123,
+    MISSING_CONDITION_CLOSING = 124,
+    LOOKBEHIND_NOT_FIXED_LENGTH = 125,
+    ZERO_RELATIVE_REFERENCE = 126,
+    TOO_MANY_CONDITION_BRANCHES = 127,
+    CONDITION_ASSERTION_EXPECTED = 128,
+    BAD_RELATIVE_REFERENCE = 129,
+    UNKNOWN_POSIX_CLASS = 130,
+    INTERNAL_STUDY_ERROR = 131,
+    UNICODE_NOT_SUPPORTED = 132,
+    PARENTHESES_STACK_CHECK = 133,
+    CODE_POINT_TOO_BIG = 134,
+    LOOKBEHIND_TOO_COMPLICATED = 135,
+    LOOKBEHIND_INVALID_BACKSLASH_C = 136,
+    UNSUPPORTED_ESCAPE_SEQUENCE = 137,
+    CALLOUT_NUMBER_TOO_BIG = 138,
+    MISSING_CALLOUT_CLOSING = 139,
+    ESCAPE_INVALID_IN_VERB = 140,
+    UNRECOGNIZED_AFTER_QUERY_P = 141,
+    MISSING_NAME_TERMINATOR = 142,
+    DUPLICATE_SUBPATTERN_NAME = 143,
+    INVALID_SUBPATTERN_NAME = 144,
+    UNICODE_PROPERTIES_UNAVAILABLE = 145,
+    MALFORMED_UNICODE_PROPERTY = 146,
+    UNKNOWN_UNICODE_PROPERTY = 147,
+    SUBPATTERN_NAME_TOO_LONG = 148,
+    TOO_MANY_NAMED_SUBPATTERNS = 149,
+    CLASS_INVALID_RANGE = 150,
+    OCTAL_BYTE_TOO_BIG = 151,
+    INTERNAL_OVERRAN_WORKSPACE = 152,
+    INTERNAL_MISSING_SUBPATTERN = 153,
+    DEFINE_TOO_MANY_BRANCHES = 154,
+    BACKSLASH_O_MISSING_BRACE = 155,
+    INTERNAL_UNKNOWN_NEWLINE = 156,
+    BACKSLASH_G_SYNTAX = 157,
+    PARENS_QUERY_R_MISSING_CLOSING = 158,
+    VERB_ARGUMENT_NOT_ALLOWED = 159,
+    VERB_UNKNOWN = 160,
+    SUBPATTERN_NUMBER_TOO_BIG = 161,
+    SUBPATTERN_NAME_EXPECTED = 162,
+    INTERNAL_PARSED_OVERFLOW = 163,
+    INVALID_OCTAL = 164,
+    SUBPATTERN_NAMES_MISMATCH = 165,
+    MARK_MISSING_ARGUMENT = 166,
+    INVALID_HEXADECIMAL = 167,
+    BACKSLASH_C_SYNTAX = 168,
+    BACKSLASH_K_SYNTAX = 169,
+    INTERNAL_BAD_CODE_LOOKBEHINDS = 170,
+    BACKSLASH_N_IN_CLASS = 171,
+    CALLOUT_STRING_TOO_LONG = 172,
+    UNICODE_DISALLOWED_CODE_POINT = 173,
+    UTF_IS_DISABLED = 174,
+    UCP_IS_DISABLED = 175,
+    VERB_NAME_TOO_LONG = 176,
+    BACKSLASH_U_CODE_POINT_TOO_BIG = 177,
+    MISSING_OCTAL_OR_HEX_DIGITS = 178,
+    VERSION_CONDITION_SYNTAX = 179,
+    INTERNAL_BAD_CODE_AUTO_POSSESS = 180,
+    CALLOUT_NO_STRING_DELIMITER = 181,
+    CALLOUT_BAD_STRING_DELIMITER = 182,
+    BACKSLASH_C_CALLER_DISABLED = 183,
+    QUERY_BARJX_NEST_TOO_DEEP = 184,
+    BACKSLASH_C_LIBRARY_DISABLED = 185,
+    PATTERN_TOO_COMPLICATED = 186,
+    LOOKBEHIND_TOO_LONG = 187,
+    PATTERN_STRING_TOO_LONG = 188,
+    INTERNAL_BAD_CODE = 189,
+    INTERNAL_BAD_CODE_IN_SKIP = 190,
+    NO_SURROGATES_IN_UTF16 = 191,
+    BAD_LITERAL_OPTIONS = 192,
+    SUPPORTED_ONLY_IN_UNICODE = 193,
+    INVALID_HYPHEN_IN_OPTIONS = 194,
+    ALPHA_ASSERTION_UNKNOWN = 195,
+    SCRIPT_RUN_NOT_AVAILABLE = 196,
+    TOO_MANY_CAPTURES = 197,
+    CONDITION_ATOMIC_ASSERTION_EXPECTED = 198,
+    BACKSLASH_K_IN_LOOKAROUND = 199,
+};
+
+pub const MatchingError = enum(c_int) {
+    NOMATCH = -1,
+    PARTIAL = -2,
+    UTF8_ERR1 = -3,
+    UTF8_ERR2 = -4,
+    UTF8_ERR3 = -5,
+    UTF8_ERR4 = -6,
+    UTF8_ERR5 = -7,
+    UTF8_ERR6 = -8,
+    UTF8_ERR7 = -9,
+    UTF8_ERR8 = -10,
+    UTF8_ERR9 = -11,
+    UTF8_ERR10 = -12,
+    UTF8_ERR11 = -13,
+    UTF8_ERR12 = -14,
+    UTF8_ERR13 = -15,
+    UTF8_ERR14 = -16,
+    UTF8_ERR15 = -17,
+    UTF8_ERR16 = -18,
+    UTF8_ERR17 = -19,
+    UTF8_ERR18 = -20,
+    UTF8_ERR19 = -21,
+    UTF8_ERR20 = -22,
+    UTF8_ERR21 = -23,
+    UTF16_ERR1 = -24,
+    UTF16_ERR2 = -25,
+    UTF16_ERR3 = -26,
+    UTF32_ERR1 = -27,
+    UTF32_ERR2 = -28,
+    BADDATA = -29,
+    MIXEDTABLES = -30,
+    BADMAGIC = -31,
+    BADMODE = -32,
+    BADOFFSET = -33,
+    BADOPTION = -34,
+    BADREPLACEMENT = -35,
+    BADUTFOFFSET = -36,
+    CALLOUT = -37,
+    DFA_BADRESTART = -38,
+    DFA_RECURSE = -39,
+    DFA_UCOND = -40,
+    DFA_UFUNC = -41,
+    DFA_UITEM = -42,
+    DFA_WSSIZE = -43,
+    INTERNAL = -44,
+    JIT_BADOPTION = -45,
+    JIT_STACKLIMIT = -46,
+    MATCHLIMIT = -47,
+    NOMEMORY = -48,
+    NOSUBSTRING = -49,
+    NOUNIQUESUBSTRING = -50,
+    NULL = -51,
+    RECURSELOOP = -52,
+    DEPTHLIMIT = -53,
+    UNAVAILABLE = -54,
+    UNSET = -55,
+    BADOFFSETLIMIT = -56,
+    BADREPESCAPE = -57,
+    REPMISSINGBRACE = -58,
+    BADSUBSTITUTION = -59,
+    BADSUBSPATTERN = -60,
+    TOOMANYREPLACE = -61,
+    BADSERIALIZEDDATA = -62,
+    HEAPLIMIT = -63,
+    CONVERT_SYNTAX = -64,
+    INTERNAL_DUPMATCH = -65,
+    DFA_UINVALID_UTF = -66,
+};
