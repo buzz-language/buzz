@@ -7,3 +7,6 @@
 [submodule "vendors/pcre2"]
 	path = vendors/pcre2
 	url = https://github.com/PCRE2Project/pcre2
+[submodule "vendors/mimalloc"]
+	path = vendors/mimalloc
+	url = https://github.com/microsoft/mimalloc.git
