@@ -33,6 +33,7 @@
 - Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"` (https://github.com/buzz-language/buzz/issues/194)
 - Objects can have generic types  (https://github.com/buzz-language/buzz/issues/82)
 - Draft of the testing std lib (https://github.com/buzz-language/buzz/issues/129)
+- Time std lib (https://github.com/buzz-language/buzz/issues/173)
 
 ## Changed
 
@@ -43,6 +44,7 @@
 - `list.append` does not return the appended value anymore
 - Generic types syntax changed from `myFunction(<K,V>, ...)` to `myFunction::<K,V>(...)`
 - Nullable object fields and nullable variables have a `null` initial value if none is provided
+- `os.time` returns seconds instead of milliseconds
 
 ## Fixed
 

@@ -76,12 +76,12 @@ const BuzzBuildOptions = struct {
         return options;
     }
 
-    pub fn needLibC(self: @This()) bool {
-        // TODO: remove libc if possible
-        // mir can be built with musl libc
-        // mimalloc can be built with musl libc
-        // longjmp/setjmp need to be removed
-        return self.target.isLinux() or self.mimalloc;
+    pub fn needLibC(_: @This()) bool {
+        // Required by:
+        // - the time lib which uses time.h
+        // - mimalloc
+        // - some std lib functions on linux ?
+        return true;
     }
 };
 
@@ -368,6 +368,7 @@ pub fn build(b: *Build) !void {
         "src/lib/buzz_http.zig",
         "src/lib/buzz_ffi.zig",
         "src/lib/buzz_serialize.zig",
+        "src/lib/buzz_time.zig",
     };
     // Zig only libs
     const lib_names = [_][]const u8{
@@ -383,6 +384,7 @@ pub fn build(b: *Build) !void {
         "http",
         "ffi",
         "serialize",
+        "time",
     };
     const all_lib_names = [_][]const u8{
         "std",
@@ -399,6 +401,7 @@ pub fn build(b: *Build) !void {
         "ffi",
         "serialize",
         "test",
+        "time",
     };
 
     // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries
