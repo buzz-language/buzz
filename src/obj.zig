@@ -22,7 +22,7 @@ const FunctionNode = _node.FunctionNode;
 const buzz_builtin = @import("builtin.zig");
 const ZigType = @import("zigtypes.zig").Type;
 
-pub const pcre = @import("pcre.zig").pcre;
+pub const pcre = @import("pcre.zig");
 
 const Value = _value.Value;
 const ValueType = _value.ValueType;
@@ -572,13 +572,6 @@ pub const ObjFiber = struct {
     };
 };
 
-pub const pcre_struct = switch (builtin.os.tag) {
-    .linux, .windows => pcre.pcre,
-    .freebsd, .openbsd => pcre.struct_real_pcre,
-    .macos, .tvos, .watchos, .ios => pcre.struct_real_pcre8_or_16,
-    else => unreachable,
-};
-
 // Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
 pub const ObjPattern = struct {
     const Self = @This();
@@ -586,7 +579,7 @@ pub const ObjPattern = struct {
     obj: Obj = .{ .obj_type = .Pattern },
 
     source: []const u8,
-    pattern: *pcre_struct,
+    pattern: *pcre.pcre2_code,
 
     pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 

@@ -4,7 +4,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
-pub const pcre = @import("pcre.zig").pcre;
+pub const pcre = @import("pcre.zig");
 
 const _obj = @import("obj.zig");
 const _node = @import("node.zig");
@@ -3831,32 +3831,45 @@ pub const Parser = struct {
 
         const source_slice = self.parser.previous_token.?.literal_string.?;
         // Replace escaped pattern delimiter with delimiter
-        const source_slice_clean = try std.mem.replaceOwned(u8, self.gc.allocator, source_slice, "\\\"", "\"");
-        const source = try self.gc.allocator.dupeZ(u8, source_slice_clean);
+        const source = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            source_slice,
+            "\\\"",
+            "\"",
+        );
 
-        var err = try self.gc.allocator.allocSentinel(u8, 1000, 0);
-        // FIXME: crashes i don't know why
-        // defer self.gc.allocator.free(err);
-        var err_offset: c_int = undefined;
-        const reg: ?*_obj.pcre_struct = pcre.pcre_compile(
-            @ptrCast(source), // pattern
-            0, // options
-            @ptrCast(&err), // error message buffer
-            &err_offset, // offset at which error occured
-            null, // extra ?
+        var err_code: c_int = undefined;
+        var err_offset: usize = undefined;
+        const reg = pcre.compile(
+            source.ptr,
+            source.len,
+            // TODO: provide options to user
+            0,
+            &err_code,
+            &err_offset,
+            null,
         );
 
         if (reg == null) {
             var location = self.parser.previous_token.?.clone();
             location.column += @intCast(err_offset + 2);
             location.lexeme = location.lexeme[@intCast(2 + err_offset)..@intCast(2 + err_offset + 1)];
+
+            var err_buf: [256]u8 = undefined;
+            const err_len = pcre.getErrorMessage(
+                err_code,
+                &err_buf,
+                err_buf.len,
+            );
+
             self.reporter.reportErrorFmt(
                 .pattern,
                 location,
                 "Could not compile pattern, error at {}: {s}",
                 .{
                     err_offset,
-                    std.mem.span(@as([*:0]u8, @ptrCast(err))),
+                    err_buf[0..@intCast(err_len)],
                 },
             );
             return CompileError.Unrecoverable;
@@ -3865,7 +3878,7 @@ pub const Parser = struct {
         var constant = try self.gc.allocateObject(
             ObjPattern,
             .{
-                .source = source_slice_clean,
+                .source = source,
                 .pattern = reg.?,
             },
         );

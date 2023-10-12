@@ -250,7 +250,6 @@ pub fn build(b: *Build) !void {
     sys_libs.appendSlice(
         &[_][]const u8{
             "mir",
-            "pcre",
         },
     ) catch unreachable;
     if (build_options.mimalloc) {
@@ -260,14 +259,16 @@ pub fn build(b: *Build) !void {
     includes.appendSlice(&[_][]const u8{
         "/usr/local/include",
         "/usr/include",
-        "mir",
+        "./vendors/mir",
     }) catch unreachable;
 
     llibs.appendSlice(&[_][]const u8{
         "/usr/local/lib",
         "/usr/lib",
-        "mir",
+        "./vendors/mir",
     }) catch unreachable;
+
+    const lib_pcre2 = try buildPcre2(b, target, build_mode);
 
     // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
@@ -349,6 +350,7 @@ pub fn build(b: *Build) !void {
 
     lib.addOptions("build_options", build_options.step(b));
 
+    lib.linkLibrary(lib_pcre2);
     // So that JIT compiled function can reference buzz_api
     exe.linkLibrary(lib);
 
@@ -428,6 +430,7 @@ pub fn build(b: *Build) !void {
             std_lib.linkLibC();
         }
         std_lib.main_mod_path = .{ .path = "src" };
+        std_lib.linkLibrary(lib_pcre2);
         std_lib.linkLibrary(lib);
         std_lib.addOptions("build_options", build_options.step(b));
 
@@ -480,4 +483,71 @@ pub fn build(b: *Build) !void {
     run_tests.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
+}
+
+pub fn buildPcre2(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+    const copyFiles = b.addWriteFiles();
+    copyFiles.addCopyFileToSource(
+        .{ .path = "vendors/pcre2/src/config.h.generic" },
+        "vendors/pcre2/src/config.h",
+    );
+    copyFiles.addCopyFileToSource(
+        .{ .path = "vendors/pcre2/src/pcre2.h.generic" },
+        "vendors/pcre2/src/pcre2.h",
+    );
+    copyFiles.addCopyFileToSource(
+        .{ .path = "vendors/pcre2/src/pcre2_chartables.c.dist" },
+        "vendors/pcre2/src/pcre2_chartables.c",
+    );
+
+    const lib = b.addStaticLibrary(.{
+        .name = "pcre2",
+        .target = target,
+        .optimize = optimize,
+    });
+    lib.addIncludePath(.{ .path = "src" });
+    lib.addCSourceFiles(
+        .{
+            .files = &.{
+                "vendors/pcre2/src/pcre2_auto_possess.c",
+                "vendors/pcre2/src/pcre2_compile.c",
+                "vendors/pcre2/src/pcre2_config.c",
+                "vendors/pcre2/src/pcre2_context.c",
+                "vendors/pcre2/src/pcre2_convert.c",
+                "vendors/pcre2/src/pcre2_dfa_match.c",
+                "vendors/pcre2/src/pcre2_error.c",
+                "vendors/pcre2/src/pcre2_extuni.c",
+                "vendors/pcre2/src/pcre2_find_bracket.c",
+                "vendors/pcre2/src/pcre2_maketables.c",
+                "vendors/pcre2/src/pcre2_match.c",
+                "vendors/pcre2/src/pcre2_match_data.c",
+                "vendors/pcre2/src/pcre2_newline.c",
+                "vendors/pcre2/src/pcre2_ord2utf.c",
+                "vendors/pcre2/src/pcre2_pattern_info.c",
+                "vendors/pcre2/src/pcre2_script_run.c",
+                "vendors/pcre2/src/pcre2_serialize.c",
+                "vendors/pcre2/src/pcre2_string_utils.c",
+                "vendors/pcre2/src/pcre2_study.c",
+                "vendors/pcre2/src/pcre2_substitute.c",
+                "vendors/pcre2/src/pcre2_substring.c",
+                "vendors/pcre2/src/pcre2_tables.c",
+                "vendors/pcre2/src/pcre2_ucd.c",
+                "vendors/pcre2/src/pcre2_valid_utf.c",
+                "vendors/pcre2/src/pcre2_xclass.c",
+                "vendors/pcre2/src/pcre2_chartables.c",
+            },
+            .flags = &.{
+                "-std=c99",
+                "-DHAVE_CONFIG_H",
+                "-DPCRE2_CODE_UNIT_WIDTH=8",
+                "-DPCRE2_STATIC",
+            },
+        },
+    );
+    lib.step.dependOn(&copyFiles.step);
+    lib.installHeader("vendors/pcre2/src/pcre2.h.generic", "pcre2.h");
+    lib.linkLibC();
+    b.installArtifact(lib);
+
+    return lib;
 }

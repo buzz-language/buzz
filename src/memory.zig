@@ -12,8 +12,6 @@ const Token = @import("token.zig").Token;
 const buzz_api = @import("buzz_api.zig");
 const Reporter = @import("reporter.zig");
 
-pub const pcre = @import("pcre.zig").pcre;
-
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
 const Obj = _obj.Obj;
@@ -516,7 +514,7 @@ pub const GarbageCollector = struct {
             },
             .Pattern => {
                 var obj_pattern = ObjPattern.cast(obj).?;
-                pcre.pcre_free.?(obj_pattern.pattern);
+                obj_pattern.pattern.free();
 
                 free(self, ObjPattern, obj_pattern);
             },

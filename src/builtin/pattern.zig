@@ -9,7 +9,7 @@ const VM = @import("../vm.zig").VM;
 const _value = @import("../value.zig");
 const Value = _value.Value;
 
-pub const pcre = @import("../pcre.zig").pcre;
+pub const pcre = @import("../pcre.zig");
 
 fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*ObjList {
     if (subject.string.len == 0) {
@@ -17,25 +17,25 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
     }
 
     var results: ?*ObjList = null;
+    var match_data = self.pattern.createMatchData(null) orelse @panic("Out of memory");
+    defer match_data.free();
 
-    var output_vector: [3000]c_int = undefined;
-
-    const rc = pcre.pcre_exec(
-        self.pattern, // the compiled pattern
-        null, // no extra data - we didn't study the pattern
-        @as([*c]const u8, @ptrCast(subject.string)), // the subject string
-        @as(c_int, @intCast(subject.string.len)), // the length of the subject
-        @as(c_int, @intCast(offset.*)), // start offset
-        0, // default options
-        @as([*c]c_int, @ptrCast(&output_vector)), // output vector for substring information
-        output_vector.len, // number of elements in the output vector
+    const rc = self.pattern.match(
+        subject.string.ptr,
+        subject.string.len,
+        offset.*,
+        0,
+        match_data,
+        null,
     );
 
     switch (rc) {
-        pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => return null,
+        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => {},
         // TODO: handle ouptut_vector too small
         0 => @panic("Could not match pattern"),
         else => {
+            const output_vector = match_data.getOVectorPointer();
+
             offset.* = @as(usize, @intCast(output_vector[1]));
 
             results = try vm.gc.allocateObject(
@@ -113,24 +113,25 @@ fn rawReplace(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *Obj
     var result = std.ArrayList(u8).init(vm.gc.allocator);
     defer result.deinit();
 
-    var output_vector: [3000]c_int = undefined;
+    var match_data = self.pattern.createMatchData(null) orelse @panic("Out of memory");
+    defer match_data.free();
 
-    const rc = pcre.pcre_exec(
-        self.pattern, // the compiled pattern
-        null, // no extra data - we didn't study the pattern
-        @as([*c]const u8, @ptrCast(subject.string)), // the subject string
-        @as(c_int, @intCast(subject.string.len)), // the length of the subject
-        @as(c_int, @intCast(offset.*)), // start offset
-        0, // default options
-        @as([*c]c_int, @ptrCast(&output_vector)), // output vector for substring information
-        output_vector.len, // number of elements in the output vector
+    const rc = self.pattern.match(
+        subject.string.ptr,
+        subject.string.len,
+        offset.*,
+        0,
+        match_data,
+        null,
     );
 
     switch (rc) {
-        pcre.PCRE_ERROR_UNSET...pcre.PCRE_ERROR_NOMATCH => return subject,
+        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => return subject,
         // TODO: handle ouptut_vector too small
         0 => @panic("Could not match pattern"),
         else => {
+            const output_vector = match_data.getOVectorPointer();
+
             offset.* = @as(usize, @intCast(output_vector[1]));
 
             try result.appendSlice(subject.string[0..@as(usize, @intCast(output_vector[0]))]);
