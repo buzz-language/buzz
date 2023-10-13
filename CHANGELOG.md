@@ -1,5 +1,6 @@
 # Unreleased
 
+# 0.3.0 (10-14-2023)
 ## Added
 
 - FFI (https://github.com/buzz-language/buzz/issues/109)
@@ -35,6 +36,7 @@
 - Draft of the testing std lib (https://github.com/buzz-language/buzz/issues/129)
 - `File.isTTY`
 - `fs.exists`
+- Functions annotated with a comment of the form `|| @hot` will always be JIT compiled
 
 ## Changed
 
@@ -54,6 +56,12 @@
 - Runtime error stack trace was wrong
 - Local name checking failed in some instances
 - Compiler would not force you to give variables an initial value
+- Compiler would crash after raising some errors
+- Float operation were sometimes wrong
+- Catch clause were sometimes not reached in a JIT compiled function
+- Stacktraces of errors reported from within a fiber were wrong
+- `catch (any error)` was not considered as catching all possible errors by the compiler
+- Full GC sweep were never triggered
 
 # 0.2.0 (07-26-2023)
 
