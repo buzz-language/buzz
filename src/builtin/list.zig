@@ -262,11 +262,7 @@ pub fn next(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const list_index: Value = ctx.vm.peek(0);
 
-    var next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch |err| {
-        // TODO: should we distinguish NativeFn and ExternFn ?
-        std.debug.print("{}\n", .{err});
-        std.os.exit(1);
-    };
+    const next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch @panic("Out of memory");
 
     ctx.vm.push(if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null);
 
