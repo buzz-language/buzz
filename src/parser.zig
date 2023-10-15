@@ -3459,11 +3459,20 @@ pub const Parser = struct {
                 try PlaceholderDef.link(object.type_def.?, property_placeholder.?, .FieldAccess);
             }
 
-            try self.consume(.Equal, "Expected `=` after property name.");
+            // Named variable with the same name as property
+            if (self.check(.Comma) or self.check(.RightBrace)) {
+                try node.properties.put(
+                    property_name,
+                    try self.expression(true),
+                );
+            } else {
+                try self.consume(.Equal, "Expected `=` after property name.");
 
-            const expr = try self.expression(false);
-
-            try node.properties.put(property_name, expr);
+                try node.properties.put(
+                    property_name,
+                    try self.expression(false),
+                );
+            }
 
             if (!self.check(.RightBrace) or self.check(.Comma)) {
                 try self.consume(.Comma, "Expected `,` after field initialization.");
@@ -4117,38 +4126,38 @@ pub const Parser = struct {
         return try self.@"if"(false, null);
     }
 
-    // FIXME: doesn't need its own function
     fn argumentList(self: *Self, trailing_comma: *bool) !std.AutoArrayHashMap(*ObjString, *ParseNode) {
         var arguments = std.AutoArrayHashMap(*ObjString, *ParseNode).init(self.gc.allocator);
 
         var arg_count: u8 = 0;
         while (!(try self.match(.RightParen)) and !(try self.match(.Eof))) {
             var hanging = false;
-            var arg_name: ?Token = null;
-            if (try self.match(.Identifier)) {
-                arg_name = self.parser.previous_token.?;
-            }
+            const arg_name: ?Token = if (try self.match(.Identifier))
+                self.parser.previous_token.?
+            else
+                null;
 
-            if (arg_count != 0 and arg_name == null) {
+            if (arg_name != null) {
+                if (arg_count == 0 or self.check(.Comma) or self.check(.RightParen)) {
+                    // The identifier we just parsed might not be the argument name but the start of an expression or the expression itself
+                    hanging = !(try self.match(.Colon));
+                } else {
+                    try self.consume(.Colon, "Expected `:` after argument name.");
+                }
+            } else if (arg_count != 0 and arg_name == null) {
                 self.reportError(.syntax, "Expected argument name.");
                 break;
             }
 
-            if (arg_name != null) {
-                if (arg_count == 0) {
-                    if (try self.match(.Colon)) {
-                        hanging = false;
-                    } else {
-                        // The identifier we just parsed is not the argument name but the start of an expression
-                        hanging = true;
-                    }
-                } else {
-                    try self.consume(.Colon, "Expected `:` after argument name.");
-                }
-            }
+            const is_named_expr = arg_count != 0 and arg_name != null and hanging and (self.check(.Comma) or self.check(.RightParen));
 
             try arguments.put(
-                try self.gc.copyString(if (!hanging and arg_name != null) arg_name.?.lexeme else "$"),
+                try self.gc.copyString(
+                    if ((!hanging and arg_name != null) or is_named_expr)
+                        arg_name.?.lexeme
+                    else
+                        "$",
+                ),
                 try self.expression(hanging),
             );
 

@@ -1,0 +1,48 @@
+import "std";
+import "debug";
+
+object Person {
+    str name,
+    int age,
+    bool sex,
+}
+
+test "Named expr object properties" {
+    var name = "joe";
+    var age = 24;
+
+    var person = Person{
+        name,
+        age,
+        sex = true,
+    };
+
+    assert(
+        person.name == "joe"
+            and person.age == 24
+            and person.sex,
+        message: "Could use named variable as object property value"
+    );
+}
+
+fun hello(str name, int age, bool sex) > Person {
+    return Person{
+        name,
+        age,
+        sex,
+    };
+}
+
+test "Name expr function argument" {
+    var name = "joe";
+    var age = 24;
+
+    var person = hello(name, age, sex: true);
+    
+    assert(
+        person.name == "joe"
+            and person.age == 24
+            and person.sex,
+        message: "Could use named variable as function arguments"
+    );
+}
