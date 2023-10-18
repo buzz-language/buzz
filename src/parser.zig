@@ -3024,6 +3024,7 @@ pub const Parser = struct {
         var name_token: Token = self.parser.previous_token.?;
 
         const is_main = std.mem.eql(u8, name_token.lexeme, "main") and self.current.?.function_node.node.type_def != null and self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
+        const is_repl_main = is_main and self.flavor == .Repl;
 
         if (is_main) {
             if (function_type == .Extern) {
@@ -3073,7 +3074,12 @@ pub const Parser = struct {
             }
         }
 
-        const slot: usize = try self.declareVariable(function_node.type_def.?, name_token, true, true);
+        const slot: usize = try self.declareVariable(
+            function_node.type_def.?,
+            name_token,
+            true,
+            !is_repl_main,
+        );
 
         self.markInitialized();
 
