@@ -59,9 +59,10 @@ pub const RunFlavor = enum {
     Check,
     Fmt,
     Ast,
+    Repl,
 
     pub inline fn resolveImports(self: RunFlavor) bool {
-        return self == .Run or self == .Test;
+        return self == .Run or self == .Test or self == .Repl;
     }
 };
 

@@ -23,6 +23,154 @@ fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
 }
 
+fn repl(allocator: Allocator) !void {
+    var import_registry = ImportRegistry.init(allocator);
+    var gc = GarbageCollector.init(allocator);
+    gc.type_registry = TypeRegistry{
+        .gc = &gc,
+        .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
+    };
+    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
+    var vm = try VM.init(&gc, &import_registry, .Repl);
+    vm.mir_jit = if (BuildOptions.jit)
+        MIRJIT.init(&vm)
+    else
+        null;
+    defer {
+        if (vm.mir_jit != null) {
+            vm.mir_jit.?.deinit();
+            vm.mir_jit = null;
+        }
+    }
+    var parser = Parser.init(
+        &gc,
+        &imports,
+        false,
+        .Repl,
+    );
+    var codegen = CodeGen.init(
+        &gc,
+        &parser,
+        .Repl,
+        if (vm.mir_jit) |*jit| jit else null,
+    );
+    defer {
+        codegen.deinit();
+        vm.deinit();
+        parser.deinit();
+        // gc.deinit();
+        var it = imports.iterator();
+        while (it.next()) |kv| {
+            kv.value_ptr.*.globals.deinit();
+        }
+        imports.deinit();
+        // TODO: free type_registry and its keys which are on the heap
+    }
+
+    var stdout = std.io.getStdOut().writer();
+    var stderr = std.io.getStdErr().writer();
+    var stdin = std.io.getStdIn().reader();
+    printBanner(stdout, false);
+    while (true) {
+        _ = stdout.write("\n→ ") catch unreachable;
+
+        const read_source = stdin.readUntilDelimiterOrEofAlloc(
+            gc.allocator,
+            '\n',
+            16 * 8 * 64,
+        ) catch unreachable;
+
+        if (read_source) |source| {
+            runSource(
+                source,
+                "REPL",
+                &vm,
+                &codegen,
+                &parser,
+                &gc,
+            ) catch |err| {
+                stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+            };
+        }
+    }
+}
+
+fn runSource(
+    input: []const u8,
+    file_name: []const u8,
+    vm: *VM,
+    codegen: *CodeGen,
+    parser: *Parser,
+    gc: *GarbageCollector,
+) !void {
+    var total_timer = std.time.Timer.start() catch unreachable;
+    var timer = try std.time.Timer.start();
+    var parsing_time: u64 = undefined;
+    var codegen_time: u64 = undefined;
+    var running_time: u64 = undefined;
+
+    var source = std.ArrayList(u8).init(gc.allocator);
+    defer source.deinit();
+
+    if (std.mem.startsWith(u8, input, ">")) {
+        source.writer().print(
+            "{s}",
+            .{input[1..]},
+        ) catch unreachable;
+    } else {
+        source.writer().print(
+            "fun main([str] _) > void {{ {s} }}",
+            .{input},
+        ) catch unreachable;
+    }
+
+    if (try parser.parse(source.items, file_name)) |function_node| {
+        parsing_time = timer.read();
+        timer.reset();
+
+        if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+            codegen_time = timer.read();
+            timer.reset();
+
+            try vm.interpret(
+                function,
+                null,
+            );
+
+            running_time = timer.read();
+        } else {
+            return CompileError.Recoverable;
+        }
+
+        if (BuildOptions.show_perf) {
+            const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
+            const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
+            const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
+            const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
+            const jit_ms: f64 = if (vm.mir_jit) |jit|
+                @as(f64, @floatFromInt(jit.jit_time)) / 1000000
+            else
+                0;
+            std.debug.print(
+                "\u{001b}[2mParsing: {d} ms\nCodegen: {d} ms\nRun: {d} ms\nJIT: {d} ms\nGC: {d} ms\nTotal: {d} ms\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
+                .{
+                    parsing_ms,
+                    codegen_ms,
+                    running_ms,
+                    jit_ms,
+                    gc_ms,
+                    @as(f64, @floatFromInt(total_timer.read())) / 1000000,
+                    gc.full_collection_count,
+                    gc.light_collection_count,
+                    gc.max_allocated,
+                },
+            );
+        }
+    } else {
+        return CompileError.Recoverable;
+    }
+}
+
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
     var total_timer = std.time.Timer.start() catch unreachable;
     var import_registry = ImportRegistry.init(allocator);
@@ -182,6 +330,38 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     }
 }
 
+pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
+    out.print(
+        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli",
+        .{
+            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+            BuildOptions.sha,
+        },
+    ) catch unreachable;
+
+    if (full) {
+        out.print(
+            "\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
+            .{
+                builtin.zig_version,
+                switch (builtin.mode) {
+                    .ReleaseFast => "release-fast",
+                    .ReleaseSafe => "release-safe",
+                    .ReleaseSmall => "release-small",
+                    .Debug => "debug",
+                },
+                if (builtin.mode == .Debug)
+                    "gpa"
+                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
+                if (BuildOptions.jit)
+                    "on"
+                else
+                    "off",
+            },
+        ) catch unreachable;
+    }
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
     var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
@@ -214,32 +394,12 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.version == 1) {
-        std.debug.print(
-            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
-            .{
-                if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
-                BuildOptions.sha,
-                builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
-                if (builtin.mode == .Debug)
-                    "gpa"
-                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit)
-                    "on"
-                else
-                    "off",
-            },
-        );
+        printBanner(std.io.getStdOut().writer(), true);
 
         std.os.exit(0);
     }
 
-    if (res.args.help == 1 or res.positionals.len == 0) {
+    if (res.args.help == 1) {
         std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
         try clap.usage(
@@ -287,28 +447,40 @@ pub fn main() !void {
     }
 
     const flavor: RunFlavor = if (res.args.check == 1)
-        RunFlavor.Check
+        .Check
     else if (res.args.@"test" == 1)
-        RunFlavor.Test
+        .Test
     else if (res.args.fmt == 1)
-        RunFlavor.Fmt
+        .Fmt
     else if (res.args.tree == 1)
-        RunFlavor.Ast
+        .Ast
+    else if (res.positionals.len == 0)
+        .Repl
     else
-        RunFlavor.Run;
+        .Run;
 
-    runFile(
-        allocator,
-        res.positionals[0],
-        positionals.items[1..],
-        flavor,
-    ) catch |err| {
-        if (BuildOptions.debug) {
-            std.debug.print("Failed with error {}\n", .{err});
-        }
-        // TODO: should probably choses appropriate error code
-        std.os.exit(1);
-    };
+    if (flavor == .Repl) {
+        repl(allocator) catch |err| {
+            if (BuildOptions.debug) {
+                std.debug.print("Failed with error {}\n", .{err});
+            }
+
+            std.os.exit(1);
+        };
+    } else {
+        runFile(
+            allocator,
+            res.positionals[0],
+            positionals.items[1..],
+            flavor,
+        ) catch |err| {
+            if (BuildOptions.debug) {
+                std.debug.print("Failed with error {}\n", .{err});
+            }
+
+            std.os.exit(1);
+        };
+    }
 
     std.os.exit(0);
 }
