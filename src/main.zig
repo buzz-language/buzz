@@ -18,6 +18,7 @@ const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const MIRJIT = @import("mirjit.zig");
+const ln = @import("linenoise.zig");
 
 fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
     return allocator.dupeZ(u8, string);
@@ -70,17 +71,26 @@ fn repl(allocator: Allocator) !void {
     var stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
     var stdin = std.io.getStdIn().reader();
+    _ = stdin;
     printBanner(stdout, false);
+
+    _ = ln.linenoiseHistorySetMaxLen(100);
+    _ = ln.linenoiseHistoryLoad("./buzz_history");
     while (true) {
-        _ = stdout.write("\n→ ") catch unreachable;
+        // _ = stdout.write("\n→ ") catch unreachable;
+        // const read_source = stdin.readUntilDelimiterOrEofAlloc(
+        //     gc.allocator,
+        //     '\n',
+        //     16 * 8 * 64,
+        // ) catch unreachable;
 
-        const read_source = stdin.readUntilDelimiterOrEofAlloc(
-            gc.allocator,
-            '\n',
-            16 * 8 * 64,
-        ) catch unreachable;
+        const read_source = ln.linenoise("> ");
+        const source = std.mem.span(read_source);
 
-        if (read_source) |source| {
+        _ = ln.linenoiseHistoryAdd(source);
+        _ = ln.linenoiseHistorySave("./buzz_history");
+
+        if (source.len > 0) {
             runSource(
                 source,
                 "REPL",
@@ -319,7 +329,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
     out.print(
-        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli",
+        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\n",
         .{
             if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
             BuildOptions.sha,
@@ -328,7 +338,7 @@ pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
 
     if (full) {
         out.print(
-            "\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
+            "Built with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
             .{
                 builtin.zig_version,
                 switch (builtin.mode) {
