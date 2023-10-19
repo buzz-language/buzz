@@ -2524,8 +2524,13 @@ pub const Parser = struct {
         }
 
         if (parsed_type == null and value != null and value.?.type_def != null) {
-            self.current.?.locals[slot].type_def = value.?.type_def.?;
             var_type = value.?.type_def.?;
+
+            if (self.current.?.scope_depth == 0) {
+                self.globals.items[slot].type_def = var_type;
+            } else {
+                self.current.?.locals[slot].type_def = var_type;
+            }
         } else if (parsed_type == null) {
             self.reporter.reportErrorAt(
                 .inferred_type,
@@ -4593,9 +4598,9 @@ pub const Parser = struct {
                     self.reporter.reportErrorFmt(
                         .field_access,
                         callee.location,
-                        "{s} is not field accessible",
+                        "`{s}` is not field accessible",
                         .{
-                            @tagName(callee_def_type),
+                            (try callee.type_def.?.toStringAlloc(self.gc.allocator)).items,
                         },
                     );
                 },
