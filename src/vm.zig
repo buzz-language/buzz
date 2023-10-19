@@ -3625,7 +3625,8 @@ pub const VM = struct {
         while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
             const frame = self.currentFrame();
             if (self.current_fiber.frame_count > 0) {
-                if (frame.?.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+                const function_type = frame.?.closure.function.type_def.resolved_type.?.Function.function_type;
+                if (function_type != .ScriptEntryPoint and function_type != .Repl) {
                     try stack.append(frame.?.*);
                 }
 
@@ -4169,7 +4170,7 @@ pub const VM = struct {
     fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
-        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint) {
+        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint or function_type == .Repl) {
             return false;
         }
 

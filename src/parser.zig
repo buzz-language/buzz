@@ -201,7 +201,7 @@ pub const Global = struct {
         return self.referenced
             or self.type_def.def_type == .Void
             or self.type_def.def_type == .Placeholder
-            or (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint))
+            or (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl))
             or self.name.string[0] == '$'
             or (self.name.string[0] == '_' and self.name.string.len == 1)
             or self.exported;
@@ -499,7 +499,7 @@ pub const Parser = struct {
 
         self.scanner = Scanner.init(self.gc.allocator, file_name, source);
 
-        const function_type: FunctionType = if (self.flavor == .Repl)
+        const function_type: FunctionType = if (!self.imported and self.flavor == .Repl)
             .Repl
         else if (self.imported)
             .Script
@@ -524,7 +524,17 @@ pub const Parser = struct {
         try self.advance();
 
         while (!(try self.match(.Eof))) {
-            if (function_type == .Repl) {} else {
+            if (function_type == .Repl) {
+                // When running in REPL, global scope is allowed to run statements since the global scope becomes procedural
+                if (self.declarationOrStatement(null) catch |err| {
+                    if (BuildOptions.debug) {
+                        std.debug.print("Parsing failed with error {}\n", .{err});
+                    }
+                    return null;
+                }) |decl| {
+                    try function_node.body.?.statements.append(decl);
+                }
+            } else {
                 if (self.declaration() catch |err| {
                     if (BuildOptions.debug) {
                         std.debug.print("Parsing failed with error {}\n", .{err});
@@ -1427,30 +1437,28 @@ pub const Parser = struct {
                 try self.exportStatement()
             else if (self.check(.Identifier)) user_decl: {
                 // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
-                if (global_scope) {
+                if (global_scope and self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type != .Repl) {
                     _ = try self.advance(); // consume first identifier
                     break :user_decl try self.userVarDeclaration(false, constant);
                 } else if ( // zig fmt: off
-                    global_scope
                     // As of now this is the only place where we need to check more than one token ahead
                     // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
                         // `Type variable`
-                    or (try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Identifier }, 2)
-                        // `prefix.Type variable`
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Identifier }, 4)
-                        // `prefix.Type? variable`
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 4)
-                        // `Type? variable`
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Question, .Identifier }, 3)
-                        // `Type::<...> variable`
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
-                        // - Type::<...>? variable
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
-                        // - prefix.Type::<...> variable
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
-                        // - prefix.Type::<...>? variable
-                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
-                    )
+                    try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Identifier }, 2)
+                    // `prefix.Type variable`
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Identifier }, 4)
+                    // `prefix.Type? variable`
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 4)
+                    // `Type? variable`
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Question, .Identifier }, 3)
+                    // `Type::<...> variable`
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
+                    // - Type::<...>? variable
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
+                    // - prefix.Type::<...> variable
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
+                    // - prefix.Type::<...>? variable
+                    or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
                 ) {
                     // zig fmt: on
                     _ = try self.advance(); // consume first identifier
@@ -2921,7 +2929,6 @@ pub const Parser = struct {
         var name_token: Token = self.parser.previous_token.?;
 
         const is_main = std.mem.eql(u8, name_token.lexeme, "main") and self.current.?.function_node.node.type_def != null and self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
-        const is_repl_main = is_main and self.flavor == .Repl;
 
         if (is_main) {
             if (function_type == .Extern) {
@@ -2975,7 +2982,7 @@ pub const Parser = struct {
             function_node.type_def.?,
             name_token,
             true,
-            !is_repl_main,
+            true,
         );
 
         self.markInitialized();
@@ -4583,7 +4590,14 @@ pub const Parser = struct {
                     }
                 },
                 else => {
-                    self.reporter.reportErrorAt(.field_access, node.node.location, "Not field accessible");
+                    self.reporter.reportErrorFmt(
+                        .field_access,
+                        callee.location,
+                        "{s} is not field accessible",
+                        .{
+                            @tagName(callee_def_type),
+                        },
+                    );
                 },
             }
         }
@@ -5476,7 +5490,12 @@ pub const Parser = struct {
         return paths;
     }
 
-    fn importScript(self: *Self, file_name: []const u8, prefix: ?[]const u8, imported_symbols: *std.StringHashMap(void)) anyerror!?ScriptImport {
+    fn importScript(
+        self: *Self,
+        file_name: []const u8,
+        prefix: ?[]const u8,
+        imported_symbols: *std.StringHashMap(void),
+    ) anyerror!?ScriptImport {
         var import: ?ScriptImport = self.imports.get(file_name);
 
         if (import == null) {
