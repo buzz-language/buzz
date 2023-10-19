@@ -89,14 +89,16 @@ fn repl(allocator: Allocator) !void {
                 &parser,
                 &gc,
             ) catch |err| {
-                stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+                if (BuildOptions.debug) {
+                    stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+                }
             };
         }
     }
 }
 
 fn runSource(
-    input: []const u8,
+    source: []const u8,
     file_name: []const u8,
     vm: *VM,
     codegen: *CodeGen,
@@ -109,22 +111,7 @@ fn runSource(
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    var source = std.ArrayList(u8).init(gc.allocator);
-    defer source.deinit();
-
-    if (std.mem.startsWith(u8, input, ">")) {
-        source.writer().print(
-            "{s}",
-            .{input[1..]},
-        ) catch unreachable;
-    } else {
-        source.writer().print(
-            "fun main([str] _) > void {{ {s} }}",
-            .{input},
-        ) catch unreachable;
-    }
-
-    if (try parser.parse(source.items, file_name)) |function_node| {
+    if (try parser.parse(source, file_name)) |function_node| {
         parsing_time = timer.read();
         timer.reset();
 

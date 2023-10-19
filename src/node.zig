@@ -3837,7 +3837,7 @@ pub const FunctionNode = struct {
 
         codegen.current = frame.enclosing;
 
-        if (function_type != .ScriptEntryPoint) {
+        if (function_type != .ScriptEntryPoint and function_type != .Repl) {
             // `extern` functions don't have upvalues
             if (function_type == .Extern) {
                 try codegen.emitCodeArg(node.location, .OP_CONSTANT, try codegen.makeConstant(self.native.?.toValue()));
@@ -3927,6 +3927,7 @@ pub const FunctionNode = struct {
         const function_name: []const u8 = switch (function_type) {
             .EntryPoint => "main",
             .ScriptEntryPoint, .Script => name orelse script_name,
+            .Repl => "REPL",
             else => name orelse "???",
         };
 
@@ -4042,6 +4043,7 @@ pub const YieldNode = struct {
         switch (current_function_type) {
             .Script,
             .ScriptEntryPoint,
+            .Repl,
             .EntryPoint,
             .Test,
             .Extern,
