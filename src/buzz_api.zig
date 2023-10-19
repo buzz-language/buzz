@@ -339,7 +339,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 }
 
 /// Dump value
-export fn bz_valueDump(value: Value, vm: *VM) void {
+pub export fn bz_valueDump(value: Value, vm: *VM) void {
     var seen = std.AutoHashMap(*_obj.Obj, void).init(vm.gc.allocator);
     defer seen.deinit();
 

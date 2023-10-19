@@ -343,6 +343,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     main_fiber: *Fiber,
     globals: std.ArrayList(Value),
+    globals_count: usize = 0,
     import_registry: *ImportRegistry,
     mir_jit: ?MIRJIT = null,
     flavor: RunFlavor,
@@ -895,6 +896,7 @@ pub const VM = struct {
         };
         self.globals.expandToCapacity();
         self.globals.items[arg] = self.peek(0);
+        self.globals_count = @max(self.globals_count, arg);
         _ = self.pop();
 
         const next_full_instruction: u32 = self.readInstruction();
