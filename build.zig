@@ -268,6 +268,7 @@ pub fn build(b: *Build) !void {
 
     const lib_pcre2 = try buildPcre2(b, target, build_mode);
     const lib_mimalloc = if (build_options.mimalloc) try buildMimalloc(b, target, build_mode) else null;
+    const lib_linenoise = try buildLinenoise(b, target, build_mode);
 
     // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
@@ -358,6 +359,7 @@ pub fn build(b: *Build) !void {
     }
     // So that JIT compiled function can reference buzz_api
     exe.linkLibrary(lib);
+    exe.linkLibrary(lib_linenoise);
 
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
@@ -563,7 +565,6 @@ pub fn buildPcre2(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.
         },
     );
     lib.step.dependOn(&copyFiles.step);
-    lib.installHeader("vendors/pcre2/src/pcre2.h.generic", "pcre2.h");
     lib.linkLibC();
     b.installArtifact(lib);
 
@@ -639,6 +640,30 @@ pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.built
                 &.{},
         },
     );
+
+    return lib;
+}
+
+pub fn buildLinenoise(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+    const lib = b.addStaticLibrary(.{
+        .name = "linenoise",
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lib.addIncludePath(.{ .path = "vendors/linenoise" });
+    lib.addCSourceFiles(
+        .{
+            .files = &.{
+                "vendors/linenoise/linenoise.c",
+            },
+            .flags = &.{
+                "-Os",
+            },
+        },
+    );
+    lib.linkLibC();
+    b.installArtifact(lib);
 
     return lib;
 }
