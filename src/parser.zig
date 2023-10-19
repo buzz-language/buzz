@@ -499,7 +499,13 @@ pub const Parser = struct {
 
         self.scanner = Scanner.init(self.gc.allocator, file_name, source);
 
-        const function_type: FunctionType = if (self.imported) .Script else .ScriptEntryPoint;
+        const function_type: FunctionType = if (self.flavor == .Repl)
+            .Repl
+        else if (self.imported)
+            .Script
+        else
+            .ScriptEntryPoint;
+
         var function_node = try self.gc.allocator.create(FunctionNode);
         function_node.* = try FunctionNode.init(
             self,
@@ -518,13 +524,15 @@ pub const Parser = struct {
         try self.advance();
 
         while (!(try self.match(.Eof))) {
-            if (self.declarationsOrExport(true) catch |err| {
-                if (BuildOptions.debug) {
-                    std.debug.print("Parsing failed with error {}\n", .{err});
+            if (function_type == .Repl) {} else {
+                if (self.declaration() catch |err| {
+                    if (BuildOptions.debug) {
+                        std.debug.print("Parsing failed with error {}\n", .{err});
+                    }
+                    return null;
+                }) |decl| {
+                    try function_node.body.?.statements.append(decl);
                 }
-                return null;
-            }) |decl| {
-                try function_node.body.?.statements.append(decl);
             }
         }
 
@@ -1272,18 +1280,20 @@ pub const Parser = struct {
         }
     }
 
-    fn declarationsOrExport(self: *Self, with_export: bool) anyerror!?*ParseNode {
-        var docblock: ?Token = null;
-        if (self.current.?.scope_depth == 0 and try self.match(.Docblock)) {
-            docblock = self.parser.previous_token.?;
-        }
+    fn declaration(self: *Self) anyerror!?*ParseNode {
+        const global_scope = self.current.?.scope_depth == 0;
+
+        var docblock: ?Token = if (global_scope and try self.match(.Docblock))
+            self.parser.previous_token.?
+        else
+            null;
 
         if (try self.match(.Extern)) {
             var node = try self.funDeclaration();
             node.docblock = docblock;
 
             return node;
-        } else if (with_export and try self.match(.Export)) {
+        } else if ((self.parser.previous_token == null or self.parser.previous_token.?.token_type != .Export) and try self.match(.Export)) {
             var node = try self.exportStatement();
             node.docblock = docblock;
 
@@ -1291,11 +1301,11 @@ pub const Parser = struct {
         } else {
             const constant: bool = try self.match(.Const);
 
-            const node = if (!constant and try self.match(.Object))
+            var node = if (global_scope and !constant and try self.match(.Object))
                 try self.objectDeclaration()
-            else if (!constant and try self.match(.Protocol))
+            else if (global_scope and !constant and try self.match(.Protocol))
                 try self.protocolDeclaration()
-            else if (!constant and try self.match(.Enum))
+            else if (global_scope and !constant and try self.match(.Enum))
                 try self.enumDeclaration()
             else if (!constant and try self.match(.Fun))
                 try self.funDeclaration()
@@ -1409,187 +1419,74 @@ pub const Parser = struct {
                     constant,
                     true,
                 )
-            else if (try self.match(.Import))
+            else if (global_scope and try self.match(.Import))
                 try self.importStatement()
-            else if (try self.match(.Zdef))
+            else if (global_scope and try self.match(.Zdef))
                 try self.zdefStatement()
+            else if (global_scope and !constant and try self.match(.Export))
+                try self.exportStatement()
+            else if (self.check(.Identifier)) user_decl: {
                 // In the declaractive space, starting with an identifier is always a varDeclaration with a user type
-            else if (try self.match(.Identifier))
-                try self.userVarDeclaration(false, constant)
-            else if (!constant and try self.match(.Export))
+                if (global_scope) {
+                    _ = try self.advance(); // consume first identifier
+                    break :user_decl try self.userVarDeclaration(false, constant);
+                } else if ( // zig fmt: off
+                    global_scope
+                    // As of now this is the only place where we need to check more than one token ahead
+                    // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
+                        // `Type variable`
+                    or (try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Identifier }, 2)
+                        // `prefix.Type variable`
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Identifier }, 4)
+                        // `prefix.Type? variable`
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 4)
+                        // `Type? variable`
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Question, .Identifier }, 3)
+                        // `Type::<...> variable`
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
+                        // - Type::<...>? variable
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
+                        // - prefix.Type::<...> variable
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
+                        // - prefix.Type::<...>? variable
+                        or try self.checkSequenceAhead(&[_]?TokenType{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
+                    )
+                ) {
+                    // zig fmt: on
+                    _ = try self.advance(); // consume first identifier
+                    break :user_decl try self.userVarDeclaration(false, constant);
+                }
+
+                break :user_decl null;
+            } else if (global_scope and !constant and try self.match(.Export))
                 try self.exportStatement()
             else
                 null;
 
-            if (node == null) {
-                self.reportError(.syntax, "Expected declaration or import/export statement");
-            } else if (docblock != null) {
+            if (node == null and constant) {
+                node = try self.varDeclaration(
+                    false,
+                    null,
+                    .Semicolon,
+                    true,
+                    true,
+                );
+            }
+
+            if (node != null and docblock != null) {
                 node.?.docblock = docblock;
+            }
+
+            if (self.reporter.panic_mode) {
+                try self.synchronize();
             }
 
             return node;
         }
-
-        if (self.reporter.panic_mode) {
-            try self.synchronize();
-        }
-
-        return null;
     }
 
     fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?*ParseNode {
-        var hanging: bool = false;
-        const constant: bool = try self.match(.Const);
-        // Things we can match with the first token
-        if (!constant and try self.match(.Fun)) {
-            return try self.funDeclaration();
-        } else if (!constant and try self.match(.Var)) {
-            return try self.varDeclaration(
-                false,
-                null,
-                .Semicolon,
-                false,
-                true,
-            );
-        } else if (try self.match(.Str)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .String }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Pat)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Pattern }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Ud)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .UserData }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Int)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Integer }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Float)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Float }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Bool)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Bool }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Any)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (self.parser.current_token != null and self.parser.current_token.?.token_type == .Identifier and self.parser.current_token.?.lexeme.len == 1 and self.parser.current_token.?.lexeme[0] == '_') {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Type)) {
-            return try self.varDeclaration(
-                false,
-                try self.gc.type_registry.getTypeDef(.{ .optional = try self.match(.Question), .def_type = .Type }),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Fib)) {
-            return try self.varDeclaration(
-                false,
-                try self.parseFiberType(null),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Obj)) {
-            return try self.varDeclaration(
-                false,
-                try self.parseObjType(null),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.LeftBracket)) {
-            return try self.listDeclaration(constant);
-        } else if (try self.match(.LeftBrace)) {
-            return try self.mapDeclaration(constant);
-        } else if (try self.match(.Function)) {
-            return try self.varDeclaration(
-                false,
-                try self.parseFunctionType(null),
-                .Semicolon,
-                constant,
-                true,
-            );
-        } else if (try self.match(.Identifier)) {
-            // As of now this is the only place where we need to check more than one token ahead
-            // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
-            // zig fmt: off
-                // `Type variable`
-            if (self.check(.Identifier)
-                // `prefix.Type variable`
-                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .Identifier}, 3)
-                // `prefix.Type? variable`
-                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .Question, .Identifier}, 3)
-                // `Type? variable`
-                or try self.checkSequenceAhead(&[_]?TokenType{.Question, .Identifier}, 2)
-                // `Type::<...> variable`
-                or try self.checkSequenceAhead(&[_]?TokenType{.DoubleColon, .Less, null, .Greater, .Identifier}, 255 * 2)
-                // - Type::<...>? variable
-                or try self.checkSequenceAhead(&[_]?TokenType{.DoubleColon, .Less, null, .Greater, .Question, .Identifier}, 255 * 2)
-                // - prefix.Type::<...> variable
-                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier}, 255 * 2)
-                // - prefix.Type::<...>? variable
-                or try self.checkSequenceAhead(&[_]?TokenType{.Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier}, 255 * 2)) {
-            // zig fmt: on
-                return try self.userVarDeclaration(false, constant);
-            } else {
-                hanging = true;
-            }
-        }
-
-        // Its a const variable declaration with omitted type
-        if (constant) {
-            return try self.varDeclaration(
-                true,
-                null,
-                .Semicolon,
-                true,
-                true,
-            );
-        }
-
-        return try self.statement(hanging, loop_scope);
+        return try self.declaration() orelse try self.statement(false, loop_scope);
     }
 
     // When a break statement, will return index of jump to patch
@@ -2981,7 +2878,7 @@ pub const Parser = struct {
             }
         } else {
             self.exporting = true;
-            if (try self.declarationsOrExport(false)) |decl| {
+            if (try self.declaration()) |decl| {
                 self.globals.items[self.globals.items.len - 1].referenced = true;
 
                 self.exporting = false;
