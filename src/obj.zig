@@ -961,9 +961,10 @@ pub const ObjFunction = struct {
         Anonymous,
         Extern,
         Abstract, // for protocol method, so we don't parse a body
+        Repl,
 
         pub fn canHaveErrorSet(self: FunctionType) bool {
-            return self != .Script and self != .ScriptEntryPoint and self != .Test;
+            return self != .Script and self != .ScriptEntryPoint and self != .Test and self != .Repl;
         }
 
         pub fn canYield(self: FunctionType) bool {
