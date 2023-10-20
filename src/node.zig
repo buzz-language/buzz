@@ -4627,8 +4627,17 @@ pub const CallNode = struct {
         if (missing_arguments.count() > 0) {
             var missing = std.ArrayList(u8).init(codegen.gc.allocator);
             const missing_writer = missing.writer();
-            for (missing_arguments.keys()) |key| {
-                try missing_writer.print("{s}, ", .{key.string});
+            for (missing_arguments.keys(), 0..) |key, i| {
+                try missing_writer.print(
+                    "{s}{s}",
+                    .{
+                        key.string,
+                        if (i < missing_arguments.keys().len - 1)
+                            ", "
+                        else
+                            "",
+                    },
+                );
             }
             defer missing.deinit();
             codegen.reporter.reportErrorFmt(

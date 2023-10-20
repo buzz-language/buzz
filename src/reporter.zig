@@ -4,6 +4,7 @@ const Token = @import("token.zig").Token;
 const o = @import("obj.zig");
 const ObjTypeDef = o.ObjTypeDef;
 const PlaceholderDef = o.PlaceholderDef;
+const Scanner = @import("scanner.zig").Scanner;
 
 const Self = @This();
 
@@ -178,6 +179,12 @@ pub const Report = struct {
     pub fn report(self: *Report, reporter: *Self, out: anytype) !void {
         assert(self.items.len > 0);
 
+        const colorterm = std.os.getenv("COLORTERM");
+        const true_color = if (colorterm) |ct|
+            std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
+        else
+            false;
+
         // Print main error message
         const main_item = self.items[0];
 
@@ -305,7 +312,7 @@ pub const Report = struct {
                     }
 
                     try out.print(
-                        " {: >5} {s} {s}\n\x1b[0m",
+                        " {: >5} {s} ",
                         .{
                             l + 1,
                             if (line_index == 0 and (reported_files.count() == 1 or index > 0))
@@ -314,9 +321,21 @@ pub const Report = struct {
                                 "╰─"
                             else
                                 "│ ",
-                            src_line,
                         },
                     );
+
+                    if (l == line) {
+                        var scanner = Scanner.init(
+                            reporter.allocator,
+                            "reporter",
+                            src_line,
+                        );
+                        scanner.highlight(out, true_color);
+                    } else {
+                        try out.writeAll(src_line);
+                    }
+
+                    try out.writeAll("\n\x1b[0m");
 
                     if (l == line) {
                         // Print error cursors
