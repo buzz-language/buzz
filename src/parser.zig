@@ -660,7 +660,7 @@ pub const Parser = struct {
             const local = self.current.?.locals[i];
 
             // Check discarded locals
-            if (!local.isReferenced()) {
+            if (self.flavor != .Repl and !local.isReferenced()) {
                 const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
                 defer type_def_str.deinit();
 
@@ -720,7 +720,7 @@ pub const Parser = struct {
             }
 
             // Check discarded locals
-            if (!local.isReferenced()) {
+            if (self.flavor != .Repl and !local.isReferenced()) {
                 const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
                 defer type_def_str.deinit();
 

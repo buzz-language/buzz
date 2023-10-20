@@ -73,6 +73,12 @@ pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
 }
 
 pub fn repl(allocator: std.mem.Allocator) !void {
+    const colorterm = std.os.getenv("COLORTERM");
+    const true_color = if (colorterm) |ct|
+        std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
+    else
+        false;
+
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
     gc.type_registry = TypeRegistry{
@@ -159,6 +165,14 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             };
 
             if (!parser.reporter.had_error and !codegen.reporter.had_error) {
+                // var source_scanner = Scanner.init(
+                //     gc.allocator,
+                //     "REPL",
+                //     source,
+                // );
+                // source_scanner.highlight(stdout, true_color);
+                // stdout.writeAll("\n") catch unreachable;
+
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone();
@@ -186,14 +200,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                         "REPL",
                         value_str.items,
                     );
-                    const colorterm = std.os.getenv("COLORTERM");
-                    scanner.highlight(
-                        stdout,
-                        if (colorterm) |ct|
-                            std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
-                        else
-                            false,
-                    );
+                    scanner.highlight(stdout, true_color);
 
                     stdout.writeAll("\n") catch unreachable;
                 }

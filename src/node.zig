@@ -283,7 +283,7 @@ pub const ExpressionNode = struct {
 
         try codegen.emitOpCode(node.location, .OP_POP);
 
-        if (self.isLoneExpression() and self.expression.type_def.?.def_type != .Placeholder) {
+        if (codegen.flavor != .Repl and self.isLoneExpression() and self.expression.type_def.?.def_type != .Placeholder) {
             const type_def_str = self.expression.type_def.?.toStringAlloc(codegen.gc.allocator) catch unreachable;
             defer type_def_str.deinit();
 
