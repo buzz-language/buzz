@@ -562,22 +562,33 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn highlight(self: *Self, out: anytype) void {
+    pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
         var previous_offset: usize = 0;
         var token = self.scanToken() catch unreachable;
         while (token.token_type != .Eof and token.token_type != .Error) {
             // If there some whitespace or comments between tokens?
             // In gray because either whitespace or comment
             if (token.offset > previous_offset) {
-                out.print(
-                    "{s}{s}{s}{s}",
-                    .{
-                        Color.dim,
-                        Color.black,
-                        self.source[previous_offset..token.offset],
-                        Color.reset,
-                    },
-                ) catch unreachable;
+                if (true_color) {
+                    out.print(
+                        "{s}{s}{s}",
+                        .{
+                            Color.comment,
+                            self.source[previous_offset..token.offset],
+                            Color.reset,
+                        },
+                    ) catch unreachable;
+                } else {
+                    out.print(
+                        "{s}{s}{s}{s}",
+                        .{
+                            Color.dim,
+                            Color.black,
+                            self.source[previous_offset..token.offset],
+                            Color.reset,
+                        },
+                    ) catch unreachable;
+                }
             }
 
             out.print(
@@ -659,7 +670,7 @@ pub const Scanner = struct {
                         .Var,
                         .Question,
                         .AsBang,
-                        => "\x1b[94m",
+                        => if (true_color) Color.keyword else "\x1b[94m",
                         // Punctuation
                         .LeftBracket,
                         .RightBracket,
@@ -676,13 +687,13 @@ pub const Scanner = struct {
                         .Arrow,
                         .Ampersand,
                         .Spread,
-                        => Color.magenta,
+                        => if (true_color) Color.punctuation else Color.magenta,
                         .IntegerValue,
                         .FloatValue,
-                        => Color.yellow,
-                        .String, .Pattern => Color.green,
+                        => if (true_color) Color.number else Color.yellow,
+                        .String, .Pattern => if (true_color) Color.string else Color.green,
                         .Identifier => "",
-                        .Docblock => Color.dim,
+                        .Docblock => if (true_color) Color.comment else Color.dim,
                         .Eof, .Error => unreachable,
                     },
                     token.lexeme,
@@ -730,4 +741,10 @@ pub const Color = struct {
     pub const dim = "\x1b[1m";
     pub const bold = "\x1b[2m";
     pub const reset = "\x1b[0m";
+
+    pub const comment = "\x1b[38;2;99;106;114m";
+    pub const keyword = "\x1b[38;2;249;140;63m";
+    pub const punctuation = "\x1b[38;2;255;215;0m";
+    pub const number = "\x1b[38;2;249;175;79m";
+    pub const string = "\x1b[38;2;127;217;98m";
 };

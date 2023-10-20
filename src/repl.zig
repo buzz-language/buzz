@@ -186,7 +186,14 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                         "REPL",
                         value_str.items,
                     );
-                    scanner.highlight(stdout);
+                    const colorterm = std.os.getenv("COLORTERM");
+                    scanner.highlight(
+                        stdout,
+                        if (colorterm) |ct|
+                            std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
+                        else
+                            false,
+                    );
 
                     stdout.writeAll("\n") catch unreachable;
                 }

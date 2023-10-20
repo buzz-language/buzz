@@ -18,7 +18,9 @@ const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const MIRJIT = @import("mirjit.zig");
-const repl = @import("repl.zig").repl;
+const _repl = @import("repl.zig");
+const repl = _repl.repl;
+const printBanner = _repl.printBanner;
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
     var total_timer = std.time.Timer.start() catch unreachable;
@@ -176,38 +178,6 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         }
     } else {
         return CompileError.Recoverable;
-    }
-}
-
-pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
-    out.print(
-        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\n",
-        .{
-            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
-            BuildOptions.sha,
-        },
-    ) catch unreachable;
-
-    if (full) {
-        out.print(
-            "Built with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
-            .{
-                builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
-                if (builtin.mode == .Debug)
-                    "gpa"
-                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit)
-                    "on"
-                else
-                    "off",
-            },
-        ) catch unreachable;
     }
 }
 
