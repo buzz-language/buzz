@@ -52,9 +52,6 @@ fun rad(float n) > float {
     return n * pi / 180.0;
 }
 
-|| @return random number between 0 and 1
-extern fun random() > float;
-
 || @return sin of n
 extern fun bzsin(float n) > float;
 
@@ -84,7 +81,6 @@ export minInt;
 export maxInt;
 export pi;
 export rad;
-export random;
 export bzsin as sin;
 export bztan as tan;
 export pow;
