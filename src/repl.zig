@@ -9,18 +9,36 @@ const _mem = @import("memory.zig");
 const GarbageCollector = _mem.GarbageCollector;
 const TypeRegistry = _mem.TypeRegistry;
 const _obj = @import("obj.zig");
+const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
+const ObjPattern = _obj.ObjPattern;
+const ObjMap = _obj.ObjMap;
+const ObjUpValue = _obj.ObjUpValue;
+const ObjEnum = _obj.ObjEnum;
+const ObjEnumInstance = _obj.ObjEnumInstance;
+const ObjObject = _obj.ObjObject;
+const ObjObjectInstance = _obj.ObjObjectInstance;
 const ObjTypeDef = _obj.ObjTypeDef;
+const ObjFunction = _obj.ObjFunction;
+const ObjList = _obj.ObjList;
+const ObjUserData = _obj.ObjUserData;
+const ObjClosure = _obj.ObjClosure;
+const ObjNative = _obj.ObjNative;
+const ObjBoundMethod = _obj.ObjBoundMethod;
+const ObjFiber = _obj.ObjFiber;
+const ObjForeignContainer = _obj.ObjForeignContainer;
 const _parser = @import("parser.zig");
 const Parser = _parser.Parser;
 const CompileError = _parser.CompileError;
 const MIRJIT = @import("mirjit.zig");
 const ln = @import("linenoise.zig");
-const Value = @import("value.zig").Value;
-const valueDump = @import("buzz_api.zig").bz_valueDump;
+const _value = @import("value.zig");
+const Value = _value.Value;
+const valueToStringAlloc = _value.valueToStringAlloc;
 const dumpStack = @import("disassembler.zig").dumpStack;
 const CodeGen = @import("codegen.zig").CodeGen;
 const FunctionNode = @import("node.zig").FunctionNode;
+const Scanner = @import("scanner.zig").Scanner;
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
     out.print(
@@ -120,13 +138,6 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
     while (true) {
-        // _ = stdout.write("\n→ ") catch unreachable;
-        // const read_source = stdin.readUntilDelimiterOrEofAlloc(
-        //     gc.allocator,
-        //     '\n',
-        //     16 * 8 * 64,
-        // ) catch unreachable;
-
         const read_source = ln.linenoise("> ");
         const source = std.mem.span(read_source);
 
@@ -160,21 +171,36 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 if (previous_global_top != vm.globals_count) {
                     previous_global_top = vm.globals_count;
 
-                    // TODO: use pretty dumper with highlighting and tabulations
-                    std.debug.print("\u{001b}[2m", .{});
-                    valueDump(vm.globals.items[previous_global_top], &vm);
-                    std.debug.print("\u{001b}[0m\n", .{});
+                    var value_str = std.ArrayList(u8).init(vm.gc.allocator);
+                    defer value_str.deinit();
+                    var state = DumpState.init(&vm);
+
+                    state.valueDump(
+                        vm.globals.items[previous_global_top],
+                        value_str.writer(),
+                        false,
+                    );
+
+                    var scanner = Scanner.init(
+                        gc.allocator,
+                        "REPL",
+                        value_str.items,
+                    );
+                    scanner.highlight(stdout);
+
+                    stdout.writeAll("\n") catch unreachable;
                 }
             } else {
                 // We might have declared new globals, types, etc. and encounter an error
-                parser.globals.deinit();
+                // FIXME: why can't I deinit those?
+                // parser.globals.deinit();
                 parser.globals = previous_parser_globals;
 
-                vm.globals.deinit();
+                // vm.globals.deinit();
                 vm.globals = previous_globals;
                 vm.globals_count = previous_global_top;
 
-                gc.type_registry.registry.deinit();
+                // gc.type_registry.registry.deinit();
                 gc.type_registry.registry = previous_type_registry;
             }
 
@@ -246,3 +272,319 @@ fn runSource(
         return CompileError.Recoverable;
     }
 }
+
+const DumpState = struct {
+    const Self = @This();
+
+    vm: *VM,
+    seen: std.AutoHashMap(*_obj.Obj, void),
+    depth: usize = 0,
+    tab: usize = 0,
+
+    pub fn init(vm: *VM) Self {
+        return Self{
+            .vm = vm,
+            .seen = std.AutoHashMap(*_obj.Obj, void).init(vm.gc.allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.seen.deinit();
+    }
+
+    pub fn valueDump(state: *DumpState, value: Value, out: anytype, same_line: bool) void {
+        if (state.depth > 50) {
+            out.print("...", .{}) catch unreachable;
+            return;
+        }
+
+        state.depth += 1;
+
+        if (!same_line) {
+            for (0..state.tab) |_| {
+                out.writeAll("    ") catch unreachable;
+            }
+        }
+
+        if (value.isNull()) {
+            out.print("null", .{}) catch unreachable;
+        } else if (!value.isObj() or state.seen.get(value.obj()) != null) {
+            const string = valueToStringAlloc(state.vm.gc.allocator, value) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+            defer string.deinit();
+
+            out.print("{s}", .{string.items}) catch unreachable;
+        } else {
+            state.seen.put(value.obj(), {}) catch unreachable;
+
+            switch (value.obj().obj_type) {
+                .Type,
+                .Closure,
+                .Function,
+                .Bound,
+                .Native,
+                .UserData,
+                .Fiber,
+                .EnumInstance,
+                => {
+                    const string = valueToStringAlloc(state.vm.gc.allocator, value) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                    defer string.deinit();
+
+                    out.print("{s}", .{string.items}) catch unreachable;
+                },
+
+                .UpValue => {
+                    const upvalue = ObjUpValue.cast(value.obj()).?;
+
+                    state.valueDump(
+                        if (upvalue.closed != null)
+                            upvalue.closed.?
+                        else
+                            upvalue.location.*,
+                        out,
+                        false,
+                    );
+                },
+
+                .String => {
+                    const string = ObjString.cast(value.obj()).?;
+
+                    out.print("\"{s}\"", .{string.string}) catch unreachable;
+                },
+
+                .Pattern => {
+                    const pattern = ObjPattern.cast(value.obj()).?;
+
+                    out.print("$\"{s}\"", .{pattern.source}) catch unreachable;
+                },
+
+                .List => {
+                    const list = ObjList.cast(value.obj()).?;
+
+                    out.print(
+                        "[{s}",
+                        .{
+                            if (list.items.items.len > 0)
+                                "\n"
+                            else
+                                "",
+                        },
+                    ) catch unreachable;
+                    state.tab += 1;
+                    for (list.items.items) |item| {
+                        state.valueDump(
+                            item,
+                            out,
+                            false,
+                        );
+                        out.print(",\n", .{}) catch unreachable;
+                    }
+                    state.tab -= 1;
+                    out.print("]", .{}) catch unreachable;
+                },
+
+                .Map => {
+                    const map = ObjMap.cast(value.obj()).?;
+
+                    out.print(
+                        "{{{s}",
+                        .{
+                            if (map.map.count() > 0)
+                                "\n"
+                            else
+                                "",
+                        },
+                    ) catch unreachable;
+                    state.tab += 1;
+                    var it = map.map.iterator();
+                    while (it.next()) |kv| {
+                        const key = kv.key_ptr.*;
+
+                        state.valueDump(
+                            key,
+                            out,
+                            false,
+                        );
+                        out.writeAll(": ") catch unreachable;
+                        state.valueDump(
+                            kv.value_ptr.*,
+                            out,
+                            true,
+                        );
+                        out.writeAll(",\n") catch unreachable;
+                    }
+                    state.tab -= 1;
+                    out.print("}}", .{}) catch unreachable;
+                },
+
+                .Enum => {
+                    const enumeration = ObjEnum.cast(value.obj()).?;
+                    const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
+
+                    out.print(
+                        "enum({s}) {s} {{\n",
+                        .{
+                            enum_type_def.name.string,
+                            enumeration.name.string,
+                        },
+                    ) catch unreachable;
+                    state.tab += 1;
+                    for (enum_type_def.cases.items, 0..) |case, i| {
+                        out.print("    {s} -> ", .{case}) catch unreachable;
+                        state.valueDump(
+                            enumeration.cases.items[i],
+                            out,
+                            true,
+                        );
+                        out.writeAll(",\n") catch unreachable;
+                    }
+                    state.tab -= 1;
+                    out.print("}}", .{}) catch unreachable;
+                },
+
+                .Object => {
+                    const object = ObjObject.cast(value.obj()).?;
+                    const object_def = object.type_def.resolved_type.?.Object;
+
+                    out.print("object", .{}) catch unreachable;
+                    if (object_def.conforms_to.count() > 0) {
+                        out.print("(", .{}) catch unreachable;
+                        var it = object_def.conforms_to.iterator();
+                        while (it.next()) |kv| {
+                            out.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string}) catch unreachable;
+                        }
+                        out.print(")", .{}) catch unreachable;
+                    }
+
+                    out.print(" {s} {{\n", .{object_def.name.string}) catch unreachable;
+                    state.tab += 1;
+
+                    var it = object_def.static_fields.iterator();
+                    while (it.next()) |kv| {
+                        const static_field_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                        defer static_field_type_str.deinit();
+
+                        out.print(
+                            "    static {s} {s}",
+                            .{
+                                static_field_type_str.items,
+                                kv.key_ptr.*,
+                            },
+                        ) catch unreachable;
+
+                        var static_it = object.static_fields.iterator();
+                        while (static_it.next()) |static_kv| {
+                            if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
+                                out.print(" = ", .{}) catch unreachable;
+                                state.valueDump(
+                                    static_kv.value_ptr.*,
+                                    out,
+                                    true,
+                                );
+                                break;
+                            }
+                        }
+
+                        out.print(";\n", .{}) catch unreachable;
+                    }
+
+                    it = object_def.fields.iterator();
+                    while (it.next()) |kv| {
+                        const field_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                        defer field_type_str.deinit();
+
+                        out.print(
+                            "    {s} {s}",
+                            .{
+                                field_type_str.items,
+                                kv.key_ptr.*,
+                            },
+                        ) catch unreachable;
+
+                        if (object.fields.get(state.vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
+                            out.print(" = ", .{}) catch unreachable;
+                            state.valueDump(
+                                v,
+                                out,
+                                true,
+                            );
+                        }
+
+                        out.print(",\n", .{}) catch unreachable;
+                    }
+
+                    it = object_def.methods.iterator();
+                    while (it.next()) |kv| {
+                        const method_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                        defer method_type_str.deinit();
+
+                        out.print("    {s}\n", .{method_type_str.items}) catch unreachable;
+                    }
+
+                    state.tab -= 1;
+                    out.print("}}", .{}) catch unreachable;
+                },
+
+                .ObjectInstance => {
+                    const object_instance = ObjObjectInstance.cast(value.obj()).?;
+
+                    out.print(
+                        "{s}{{\n",
+                        .{
+                            if (object_instance.object) |object|
+                                object.type_def.resolved_type.?.Object.name.string
+                            else
+                                ".",
+                        },
+                    ) catch unreachable;
+                    state.tab += 1;
+                    var it = object_instance.fields.iterator();
+                    while (it.next()) |kv| {
+                        out.print(
+                            "    {s} = ",
+                            .{
+                                kv.key_ptr.*.string,
+                            },
+                        ) catch unreachable;
+                        state.valueDump(
+                            kv.value_ptr.*,
+                            out,
+                            true,
+                        );
+                        out.print(",\n", .{}) catch unreachable;
+                    }
+                    state.tab -= 1;
+                    out.print("}}", .{}) catch unreachable;
+                },
+
+                .ForeignContainer => {
+                    const foreign = ObjForeignContainer.cast(value.obj()).?;
+                    const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
+
+                    out.print(
+                        "{s}{{\n",
+                        .{foreign_def.name.string},
+                    ) catch unreachable;
+
+                    var it = foreign_def.fields.iterator();
+                    while (it.next()) |kv| {
+                        out.print("    {s} = ", .{kv.key_ptr.*}) catch unreachable;
+                        state.valueDump(
+                            kv.value_ptr.*.getter(
+                                state.vm,
+                                foreign.data.ptr,
+                            ),
+                            out,
+                            true,
+                        );
+                        out.print(",\n", .{}) catch unreachable;
+                    }
+                    out.print("}}", .{}) catch unreachable;
+                },
+            }
+
+            _ = state.seen.remove(value.obj());
+        }
+
+        state.depth -= 1;
+    }
+};

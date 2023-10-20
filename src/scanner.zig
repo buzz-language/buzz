@@ -561,4 +561,173 @@ pub const Scanner = struct {
             .script_name = self.script_name,
         };
     }
+
+    pub fn highlight(self: *Self, out: anytype) void {
+        var previous_offset: usize = 0;
+        var token = self.scanToken() catch unreachable;
+        while (token.token_type != .Eof and token.token_type != .Error) {
+            // If there some whitespace or comments between tokens?
+            // In gray because either whitespace or comment
+            if (token.offset > previous_offset) {
+                out.print(
+                    "{s}{s}{s}{s}",
+                    .{
+                        Color.dim,
+                        Color.black,
+                        self.source[previous_offset..token.offset],
+                        Color.reset,
+                    },
+                ) catch unreachable;
+            }
+
+            out.print(
+                "{s}{s}{s}",
+                .{
+                    switch (token.token_type) {
+                        // Operators
+                        .Pipe,
+                        .Greater,
+                        .Less,
+                        .Plus,
+                        .Minus,
+                        .Star,
+                        .Slash,
+                        .Percent,
+                        .Equal,
+                        .EqualEqual,
+                        .BangEqual,
+                        .BangGreater,
+                        .GreaterEqual,
+                        .LessEqual,
+                        .QuestionQuestion,
+                        .ShiftLeft,
+                        .ShiftRight,
+                        .Xor,
+                        .Bor,
+                        .Bnot,
+                        .Ud,
+                        .Void,
+                        .True,
+                        .False,
+                        .Null,
+                        .Or,
+                        .And,
+                        .As,
+                        .Return,
+                        .If,
+                        .Else,
+                        .While,
+                        .For,
+                        .ForEach,
+                        .Switch,
+                        .Break,
+                        .Continue,
+                        .Default,
+                        .Const,
+                        .Fun,
+                        .In,
+                        .Str,
+                        .Int,
+                        .Float,
+                        .Bool,
+                        .Pat,
+                        .Do,
+                        .Until,
+                        .Is,
+                        .Object,
+                        .Obj,
+                        .Static,
+                        .Protocol,
+                        .Enum,
+                        .Throw,
+                        .Catch,
+                        .Try,
+                        .Test,
+                        .Function,
+                        .Import,
+                        .Export,
+                        .Extern,
+                        .From,
+                        .Fib,
+                        .Resume,
+                        .Resolve,
+                        .Yield,
+                        .Any,
+                        .Zdef,
+                        .Type,
+                        .TypeOf,
+                        .Var,
+                        .Question,
+                        .AsBang,
+                        => "\x1b[94m",
+                        // Punctuation
+                        .LeftBracket,
+                        .RightBracket,
+                        .LeftParen,
+                        .RightParen,
+                        .LeftBrace,
+                        .RightBrace,
+                        .Dot,
+                        .Comma,
+                        .Semicolon,
+                        .Bang,
+                        .Colon,
+                        .DoubleColon,
+                        .Arrow,
+                        .Ampersand,
+                        .Spread,
+                        => Color.magenta,
+                        .IntegerValue,
+                        .FloatValue,
+                        => Color.yellow,
+                        .String, .Pattern => Color.green,
+                        .Identifier => "",
+                        .Docblock => Color.dim,
+                        .Eof, .Error => unreachable,
+                    },
+                    token.lexeme,
+                    Color.reset,
+                },
+            ) catch unreachable;
+
+            previous_offset = token.offset + token.lexeme.len;
+
+            token = self.scanToken() catch unreachable;
+        }
+
+        // Is there some comments or whitespace after last token?
+        if (previous_offset < self.source.len) {
+            out.print(
+                "{s}{s}{s}{s}",
+                .{
+                    Color.dim,
+                    Color.black,
+                    self.source[previous_offset..],
+                    Color.reset,
+                },
+            ) catch unreachable;
+        }
+    }
+};
+
+pub const Color = struct {
+    pub const black = "\x1b[30m";
+    pub const red = "\x1b[31m";
+    pub const green = "\x1b[32m";
+    pub const yellow = "\x1b[33m";
+    pub const blue = "\x1b[34m";
+    pub const magenta = "\x1b[35m";
+    pub const cyan = "\x1b[36m";
+    pub const white = "\x1b[37m";
+    pub const bright_black = "\x1b[90m";
+    pub const bright_red = "\x1b[91m";
+    pub const bright_green = "\x1b[92m";
+    pub const bright_yellow = "\x1b[93m";
+    pub const bright_blue = "\x1b[94m";
+    pub const bright_magenta = "\x1b[95m";
+    pub const bright_cyan = "\x1b[96m";
+    pub const bright_white = "\x1b[97m";
+    pub const dim = "\x1b[1m";
+    pub const bold = "\x1b[2m";
+    pub const reset = "\x1b[0m";
 };
