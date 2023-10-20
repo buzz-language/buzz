@@ -110,12 +110,6 @@ export fn minInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn random(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushFloat(std.crypto.random.float(f64));
-
-    return 1;
-}
-
 export fn bzsin(ctx: *api.NativeCtx) c_int {
     const n: f64 = ctx.vm.bz_peek(0).float();
 
