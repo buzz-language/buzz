@@ -426,11 +426,13 @@ const DumpState = struct {
                 .Enum => {
                     const enumeration = ObjEnum.cast(value.obj()).?;
                     const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
+                    const enum_value_type_def = enumeration.type_def.resolved_type.?.Enum.enum_type.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                    defer enum_value_type_def.deinit();
 
                     out.print(
                         "enum({s}) {s} {{\n",
                         .{
-                            enum_type_def.name.string,
+                            enum_value_type_def.items,
                             enumeration.name.string,
                         },
                     ) catch unreachable;

@@ -416,8 +416,8 @@ export object Window {
 
         const SDL_Window? window = SDL_CreateWindow(
             cstr(name),
-            x: x,
-            y: y,
+            x,
+            y,
             w: width,
             h: height,
             flags: toFloat(windowFlags),
