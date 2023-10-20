@@ -182,7 +182,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Pattern => {
                 const pattern = ObjPattern.cast(value.obj()).?;
 
-                std.debug.print("_{s}_", .{pattern.source});
+                std.debug.print("$\"{s}\"", .{pattern.source});
             },
 
             .List => {

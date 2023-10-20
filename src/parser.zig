@@ -4866,9 +4866,13 @@ pub const Parser = struct {
                 }
             }
 
+            if (self.parser.previous_token.?.token_type != .RightBracket) {
+                self.reportErrorAtCurrent(.syntax, "Expected `]`");
+            }
+
             item_type = item_type orelse common_type;
         } else {
-            try self.consume(.RightBracket, "Expected `}`");
+            try self.consume(.RightBracket, "Expected `]`");
         }
 
         // Either item type was specified with `<type>` or the list is not empty and we could infer it

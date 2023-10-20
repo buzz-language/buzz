@@ -334,8 +334,12 @@ pub const Report = struct {
                             } else {
                                 try out.print("\x1b[{d}m┬", .{item.kind.color()});
                             }
-                            var i: usize = 0;
-                            while (i < item.location.lexeme.len - 1) : (i += 1) {
+                            if (item.location.lexeme.len > 1) {
+                                var i: usize = 0;
+                                while (i < item.location.lexeme.len - 1) : (i += 1) {
+                                    try out.print("─", .{});
+                                }
+                            } else {
                                 try out.print("─", .{});
                             }
                             try out.print("\x1b[0m", .{});
