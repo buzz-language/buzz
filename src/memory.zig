@@ -859,7 +859,9 @@ pub const GarbageCollector = struct {
         var timer = std.time.Timer.start() catch unreachable;
 
         // Don't collect until a VM is actually running
-        if (self.active_vms.count() == 0) {
+        var vm_it = self.active_vms.iterator();
+        const first_vm = vm_it.next();
+        if (first_vm == null or first_vm.?.key_ptr.*.flavor == .Repl) {
             return;
         }
 
