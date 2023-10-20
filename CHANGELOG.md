@@ -1,5 +1,13 @@
 # Unreleased
 
+## Added
+- REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
+- Function argument names and object property names can be ommitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
+
+## Changed
+
+## Fixed
+
 # 0.3.0 (10-14-2023)
 ## Added
 
