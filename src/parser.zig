@@ -577,20 +577,9 @@ pub const Parser = struct {
         }
 
         // Check there's no more root placeholders
-        if (BuildOptions.debug_placeholders) {
-            for (self.globals.items, 0..) |global, index| {
-                if (global.type_def.def_type == .Placeholder) {
-                    std.debug.print(
-                        "Placeholder remaining in globals at {}: @{} {s}\n",
-                        .{
-                            index,
-                            @intFromPtr(global.type_def),
-                            if (global.type_def.resolved_type.?.Placeholder.name) |name| name.string else "Unknown",
-                        },
-                    );
-
-                    assert(false);
-                }
+        for (self.globals.items) |global| {
+            if (global.type_def.def_type == .Placeholder) {
+                self.reporter.reportPlaceholder(global.type_def.resolved_type.?.Placeholder);
             }
         }
 
