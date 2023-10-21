@@ -3814,6 +3814,12 @@ pub const FunctionNode = struct {
                     try codegen.emitOpCode(node.location, .OP_RETURN);
                     codegen.current.?.return_emitted = true;
                 }
+            } else if (function_type == .Repl and self.body != null and self.body.?.statements.items.len > 0 and self.body.?.statements.getLast().node_type == .Expression) {
+                // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
+                assert(VM.getCode(codegen.current.?.function.?.chunk.code.pop()) == .OP_POP);
+                _ = codegen.current.?.function.?.chunk.lines.pop();
+
+                try codegen.emitReturn(node.location);
             } else if (codegen.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !codegen.current.?.return_emitted) {
                 // TODO: detect if some branches of the function body miss a return statement
                 try codegen.emitReturn(node.location);

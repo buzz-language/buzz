@@ -130,7 +130,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     _ = ln.linenoiseHistoryLoad("./buzz_history");
 
     // Import std and debug as commodity
-    runSource(
+    _ = runSource(
         "import \"std\"; import \"debug\";",
         "REPL",
         &vm,
@@ -151,17 +151,19 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         _ = ln.linenoiseHistorySave("./buzz_history");
 
         if (source.len > 0) {
-            runSource(
+            const expr = runSource(
                 source,
                 "REPL",
                 &vm,
                 &codegen,
                 &parser,
                 &gc,
-            ) catch |err| {
+            ) catch |err| failed: {
                 if (BuildOptions.debug) {
                     stderr.print("Failed with error {}\n", .{err}) catch unreachable;
                 }
+
+                break :failed null;
             };
 
             if (!parser.reporter.had_error and !codegen.reporter.had_error) {
@@ -182,15 +184,17 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 previous_type_registry = try gc.type_registry.registry.clone();
 
                 // Dump top of stack
-                if (previous_global_top != vm.globals_count) {
+                if (previous_global_top != vm.globals_count or expr != null) {
                     previous_global_top = vm.globals_count;
+
+                    const value = expr orelse vm.globals.items[previous_global_top];
 
                     var value_str = std.ArrayList(u8).init(vm.gc.allocator);
                     defer value_str.deinit();
                     var state = DumpState.init(&vm);
 
                     state.valueDump(
-                        vm.globals.items[previous_global_top],
+                        value,
                         value_str.writer(),
                         false,
                     );
@@ -233,7 +237,7 @@ fn runSource(
     codegen: *CodeGen,
     parser: *Parser,
     gc: *GarbageCollector,
-) !void {
+) !?Value {
     var total_timer = std.time.Timer.start() catch unreachable;
     var timer = try std.time.Timer.start();
     var parsing_time: u64 = undefined;
@@ -252,6 +256,13 @@ fn runSource(
                 function,
                 null,
             );
+
+            // Does the user code ends with a lone expression?
+            const fnode = FunctionNode.cast(function_node).?;
+            const last_statement = fnode.body.?.statements.getLastOrNull();
+            if (last_statement != null and last_statement.?.node_type == .Expression) {
+                return vm.pop();
+            }
 
             running_time = timer.read();
         } else {
@@ -285,6 +296,8 @@ fn runSource(
     } else {
         return CompileError.Recoverable;
     }
+
+    return null;
 }
 
 const DumpState = struct {

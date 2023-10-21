@@ -1584,7 +1584,9 @@ pub const VM = struct {
             }
 
             // We're not in a fiber, the program is over
-            _ = self.pop();
+            if (self.flavor != .Repl) {
+                _ = self.pop();
+            }
             return true;
         }
 
