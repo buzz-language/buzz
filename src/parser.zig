@@ -3042,7 +3042,7 @@ pub const Parser = struct {
     }
 
     fn listDeclaration(self: *Self, constant: bool) !*ParseNode {
-        if (self.check(.Less) and self.current.?.scope_depth > 0) {
+        if (self.check(.Less) and (self.current.?.scope_depth > 0 or self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type == .Repl)) {
             // Its a list expression
             return try self.expressionStatement(true);
         }
@@ -3080,7 +3080,7 @@ pub const Parser = struct {
     }
 
     fn mapDeclaration(self: *Self, constant: bool) !*ParseNode {
-        if (self.check(.Less) and self.current.?.scope_depth > 0) {
+        if (self.check(.Less) and (self.current.?.scope_depth > 0 or self.current.?.function_node.node.type_def.?.resolved_type.?.Function.function_type == .Repl)) {
             // Its a map expression
             return try self.expressionStatement(true);
         }
