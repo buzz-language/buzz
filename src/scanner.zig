@@ -318,10 +318,10 @@ pub const Scanner = struct {
 
     fn byte(self: *Self) Token {
         const is_escape_sequence = self.match('\\');
-        const literal_integer = if (is_escape_sequence)
+        const literal_integer = if (!self.isEOF())
             self.advance()
         else
-            self.advance();
+            null;
 
         if (is_escape_sequence and literal_integer != '\\' and literal_integer != '\'') {
             return self.makeToken(
@@ -348,7 +348,7 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            @intCast(literal_integer),
+            @intCast(literal_integer.?),
         );
     }
 
