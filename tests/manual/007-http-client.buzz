@@ -2,21 +2,22 @@ import "std";
 import "http";
 import "debug";
 import "errors";
+import "serialize";
 
-fun main([str] args) > void !> any {
-    Client client = Client.init();
+fun main([str] _) > void !> any {
+    const client = Client.init();
 
-    Request request = Request{
+    const request = Request{
         method = Method.GET,
         headers = {
             "accept": "*/*",
+            "user-agent": "buzz",
         },
-        uri = "https://godsays.xyz/",
+        uri = "https://catfact.ninja/fact",
     };
 
-    dump(request);
+    const response = client.send(request);
+    const fact = jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
 
-    Response response = client.send(request);
-
-    dump(response);
+    dump(fact);
 }

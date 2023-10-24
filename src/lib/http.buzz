@@ -30,7 +30,7 @@ export enum HttpError {
     NameServerFailure,
     NetworkUnreachable,
     Overflow,
-    RedirectRequiresResend
+    RedirectRequiresResend,
     StreamTooLong,
     TemporaryNameServerFailure,
     TlsAlert,
@@ -162,7 +162,7 @@ export object Client {
     }
 
     fun send(Request request) > Response > void !> HttpError, InvalidArgumentError, HttpParseError {
-        this.start(request);
+        _ = this.start(request);
 
         yield void;
 
@@ -170,7 +170,7 @@ export object Client {
     }
 
     fun start(Request request) > Request !> HttpError {
-        ud requestPtr = HttpClientSend(
+        var requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,
             uri: request.uri,
@@ -211,7 +211,7 @@ export object Request {
 
     fun toString() > str {
         try {
-            Buffer result = Buffer.init();
+            var result = Buffer.init();
 
             result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
             foreach (str key, str value in this.headers) {
@@ -236,7 +236,7 @@ export object Response {
 
     fun toString() > str {
         try {
-            Buffer result = Buffer.init();
+            var result = Buffer.init();
 
             result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
             foreach (str key, str value in this.headers) {

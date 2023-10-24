@@ -33,7 +33,9 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
-    const method: http.Method = @enumFromInt(api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).integer());
+    var len: usize = 0;
+    const method_str = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).bz_valueToString(&len);
+    const method: http.Method = @enumFromInt(http.Method.parse(method_str.?[0..len]));
 
     var uri_len: usize = 0;
     const uri = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&uri_len);
