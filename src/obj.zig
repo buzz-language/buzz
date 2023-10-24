@@ -212,7 +212,7 @@ pub const Obj = struct {
 
             .ObjectInstance => {
                 const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
-                const object_def = instance.type_def.resolved_type.?.Object;
+                const object_def = instance.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                 const any = vm.gc.type_registry.getTypeDef(
                     .{ .def_type = .Any },
