@@ -92,7 +92,7 @@ fn get_buzz_prefix(b: *Build) []const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.12.0-dev.888+130227491") catch return;
+    const min_zig = std.SemanticVersion.parse("0.12.0-dev.1253+b798aaf49") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -106,7 +106,7 @@ pub fn build(b: *Build) !void {
         // Version is latest tag or empty string
         .version = std.mem.trim(
             u8,
-            (std.ChildProcess.exec(.{
+            (std.ChildProcess.run(.{
                 .allocator = b.allocator,
                 .argv = &.{
                     "git",
@@ -126,7 +126,7 @@ pub fn build(b: *Build) !void {
         .sha = std.os.getenv("GIT_SHA") orelse
             std.os.getenv("GITHUB_SHA") orelse std.mem.trim(
             u8,
-            (std.ChildProcess.exec(.{
+            (std.ChildProcess.run(.{
                 .allocator = b.allocator,
                 .argv = &.{
                     "git",
@@ -272,7 +272,7 @@ pub fn build(b: *Build) !void {
 
     // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
-        const result: ?std.ChildProcess.ExecResult = std.ChildProcess.exec(
+        const result = std.ChildProcess.run(
             .{
                 .allocator = b.allocator,
                 .argv = &[_][]const u8{ "brew", "--prefix" },
@@ -588,7 +588,7 @@ pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.built
         try macOS_sdk_path.writer().print(
             "{s}/usr/include",
             .{
-                (std.ChildProcess.exec(.{
+                (std.ChildProcess.run(.{
                     .allocator = b.allocator,
                     .argv = &.{
                         "xcrun",

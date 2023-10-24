@@ -360,7 +360,7 @@ test "Testing behavior" {
                 const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{_parser.buzz_prefix()}) catch unreachable;
                 defer allocator.free(arg0);
 
-                const result = try std.ChildProcess.exec(
+                const result = try std.ChildProcess.run(
                     .{
                         .allocator = allocator,
                         .argv = ([_][]const u8{

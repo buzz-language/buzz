@@ -2,32 +2,14 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const http = std.http;
 
-fn getProxy() ?std.http.Client.HttpProxy {
-    const proxy = std.os.getenv("HTTPS_PROXY") orelse std.os.getenv("HTTP_PROXY") orelse std.os.getenv("https_proxy") orelse std.os.getenv("http_proxy");
-
-    if (proxy == null) {
-        return null;
-    }
-
-    const proxy_uri = if (proxy) |p| std.Uri.parse(p) catch null else null;
-
-    return if (proxy_uri) |p|
-        .{
-            .protocol = if (std.mem.eql(u8, p.scheme, "https")) .tls else .plain,
-            .host = proxy_uri.?.host.?,
-            .port = p.port,
-        }
-    else
-        null;
-}
-
 export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     const client = api.VM.allocator.create(http.Client) catch @panic("Out of memory");
 
     client.* = http.Client{
         .allocator = api.VM.allocator,
-        .proxy = getProxy(),
     };
+
+    client.loadDefaultProxies() catch @panic("Out of memory");
 
     if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
@@ -78,7 +60,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
 
     const request = api.VM.allocator.create(http.Client.Request) catch @panic("Out of memory");
 
-    request.* = client.request(
+    request.* = client.open(
         method,
         std.Uri.parse(uri.?[0..uri_len]) catch {
             ctx.vm.pushErrorEnum("http.HttpError", "MalformedUri");
@@ -93,9 +75,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    const options = http.Client.Request.StartOptions{ .raw_uri = false };
-
-    request.start(options) catch |err| {
+    request.send(.{ .raw_uri = false }) catch |err| {
         handleStartError(ctx, err);
 
         return -1;
