@@ -843,7 +843,7 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 );
 
                 // This is a int represented by a buzz float value
-                self.buildValueToFloat(buzz_value, tmp_float);
+                self.buildValueToDouble(buzz_value, tmp_float);
 
                 // Convert it back to an int
                 self.D2I(dest, tmp_float);
@@ -852,7 +852,14 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
             }
         },
         // TODO: float can't be truncated like ints, we need a D2F instruction
-        .Float => self.buildValueToFloat(buzz_value, dest),
+        .Float => {
+            if (zig_type.Float.bits == 64) {
+                self.buildValueToDouble(buzz_value, dest);
+            } else {
+                assert(zig_type.Float.bits == 32);
+                self.buildValueToFloat(buzz_value, dest);
+            }
+        },
         .Bool => self.buildValueToBoolean(buzz_value, dest),
         .Pointer => {
             // Is it a [*:0]const u8
@@ -904,12 +911,19 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 }
 
                 // And to a buzz value
-                self.buildValueFromFloat(tmp_float, dest);
+                self.buildValueFromDouble(tmp_float, dest);
             } else {
                 self.buildValueFromInteger(zig_value, dest);
             }
         },
-        .Float => self.buildValueFromFloat(zig_value, dest),
+        .Float => {
+            if (zig_type.Float.bits == 64) {
+                self.buildValueFromDouble(zig_value, dest);
+            } else {
+                assert(zig_type.Float.bits == 32);
+                self.buildValueFromFloat(zig_value, dest);
+            }
+        },
         .Bool => self.buildValueFromBoolean(zig_value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
         .Union, .Struct => unreachable, // FIXME: should call an api function build a ObjForeignContainer
@@ -2043,6 +2057,38 @@ fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     self.ALLOCA(addr, @sizeOf(u64));
 
     // Put the value in it as double
+    self.FMOV(
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_F,
+            0,
+            addr,
+            0,
+            0,
+        ),
+        value,
+    );
+
+    // Take it out as u64
+    self.MOV(
+        dest,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_U64,
+            0,
+            addr,
+            0,
+            0,
+        ),
+    );
+}
+
+fn buildValueFromDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    // Allocate memory
+    const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
+    self.ALLOCA(addr, @sizeOf(u64));
+
+    // Put the value in it as double
     self.DMOV(
         m.MIR_new_mem_op(
             self.ctx,
@@ -2069,7 +2115,7 @@ fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
-fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn buildValueToDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     // Allocate memory
     const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
     self.ALLOCA(addr, @sizeOf(u64));
@@ -2093,6 +2139,38 @@ fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
         m.MIR_new_mem_op(
             self.ctx,
             m.MIR_T_D,
+            0,
+            addr,
+            0,
+            0,
+        ),
+    );
+}
+
+fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    // Allocate memory
+    const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
+    self.ALLOCA(addr, @sizeOf(u64));
+
+    // Put the value in it as u64
+    self.MOV(
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_U64,
+            0,
+            addr,
+            0,
+            0,
+        ),
+        value,
+    );
+
+    // Take it out as float
+    self.FMOV(
+        dest,
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_F,
             0,
             addr,
             0,
@@ -2133,7 +2211,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
     return switch (def_type) {
         .Bool => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
-        .Float => self.buildValueToFloat(value, dest),
+        .Float => self.buildValueToDouble(value, dest),
         .Void => self.MOV(dest, value),
         .String,
         .Pattern,
@@ -2163,7 +2241,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
     return switch (def_type) {
         .Bool => self.buildValueFromBoolean(value, dest),
         .Integer => self.buildValueFromInteger(value, dest),
-        .Float => self.buildValueFromFloat(value, dest),
+        .Float => self.buildValueFromDouble(value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, v.Value.Void.val)),
         .String,
         .Pattern,
@@ -5237,6 +5315,20 @@ inline fn DMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
         m.MIR_new_insn_arr(
             self.ctx,
             m.MIR_DMOV,
+            2,
+            &[_]m.MIR_op_t{
+                dest,
+                value,
+            },
+        ),
+    );
+}
+
+inline fn FMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            m.MIR_FMOV,
             2,
             &[_]m.MIR_op_t{
                 dest,
