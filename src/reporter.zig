@@ -101,6 +101,7 @@ pub const Error = enum(u8) {
     discarded_value = 88,
     unused_argument = 89,
     inferred_type = 90,
+    empty_import = 91,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

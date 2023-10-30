@@ -2802,8 +2802,23 @@ pub const Parser = struct {
 
         try self.consume(.String, "Expected import path.");
 
-        var path = self.parser.previous_token.?;
-        var file_name: []const u8 = path.lexeme[1..(path.lexeme.len - 1)];
+        const path = self.parser.previous_token.?;
+        if (path.lexeme.len <= 1 or path.literal_string.?.len <= 0) {
+            self.reporter.reportErrorAt(
+                .empty_import,
+                path,
+                "Import path can't be empty",
+            );
+        }
+        const file_name: []const u8 = if (path.lexeme.len <= 1 or path.literal_string.?.len <= 0) invalid: {
+            self.reporter.reportErrorAt(
+                .empty_import,
+                path,
+                "Import path can't be empty",
+            );
+
+            break :invalid "invalid";
+        } else path.lexeme[1..(path.lexeme.len - 1)];
 
         if (imported_symbols.count() == 0 and try self.match(.As)) {
             try self.consume(.Identifier, "Expected identifier after `as`.");
@@ -2812,11 +2827,14 @@ pub const Parser = struct {
 
         try self.consume(.Semicolon, "Expected `;` after import.");
 
-        var import = try self.importScript(
-            file_name,
-            if (prefix) |pr| pr.lexeme else null,
-            &imported_symbols,
-        );
+        var import = if (!self.reporter.had_error)
+            try self.importScript(
+                file_name,
+                if (prefix) |pr| pr.lexeme else null,
+                &imported_symbols,
+            )
+        else
+            null;
 
         if (imported_symbols.count() > 0) {
             var it = imported_symbols.iterator();
