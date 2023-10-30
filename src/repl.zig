@@ -126,8 +126,16 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var stderr = std.io.getStdErr().writer();
     printBanner(stdout, false);
 
+    var buzz_history_path = std.ArrayList(u8).init(allocator);
+    defer buzz_history_path.deinit();
+
+    try buzz_history_path.writer().print(
+        "{s}/.buzz_history\x00",
+        .{std.os.getenv("HOME") orelse "."},
+    );
+
     _ = ln.linenoiseHistorySetMaxLen(100);
-    _ = ln.linenoiseHistoryLoad("./buzz_history");
+    _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
 
     // Import std and debug as commodity
     _ = runSource(
@@ -148,7 +156,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         const source = std.mem.span(read_source);
 
         _ = ln.linenoiseHistoryAdd(source);
-        _ = ln.linenoiseHistorySave("./buzz_history");
+        _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
 
         if (source.len > 0) {
             const expr = runSource(
