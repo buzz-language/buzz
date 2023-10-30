@@ -6018,7 +6018,10 @@ pub const Parser = struct {
         } else if (try self.match(.Fib)) {
             return try self.parseFiberType(generic_types);
         } else if (try self.match(.Obj)) {
-            return try self.parseObjType(generic_types);
+            return if (instance)
+                try (try self.parseObjType(generic_types)).toInstance(self.gc.allocator, &self.gc.type_registry)
+            else
+                try self.parseObjType(generic_types);
         } else if ((try self.match(.Identifier))) {
             var user_type: ?*ObjTypeDef = null;
             // Is it a generic type defined in enclosing functions or object?
