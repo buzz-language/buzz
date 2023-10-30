@@ -465,7 +465,11 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const reader = stream.reader();
 
     var buffer = reader.readAllAlloc(api.VM.allocator, 16 * 8 * 64) catch |err| {
-        handleReadAllError(ctx, err);
+        if (err == error.StreamTooLong) {
+            ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong");
+        } else {
+            handleReadAllError(ctx, err);
+        }
 
         return -1;
     };
