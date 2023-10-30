@@ -41,9 +41,9 @@ extern fun SocketServerStart(str address, int port, bool reuseAddr, bool reusePo
 || @private
 extern fun SocketServerAccept(int fd, bool reuseAddr, bool reusePort) > int !> SocketError, UnexpectedError;
 || @private
-extern fun SocketReadLine(int fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
+extern fun SocketReadLine(int fd, int? maxSize) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 || @private
-extern fun SocketReadAll(int fd) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
+extern fun SocketReadAll(int fd, int? maxSize) > str? !> FileSystemError, UnexpectedError, ReadWriteError;
 
 || Protocols supported over a socket
 export enum SocketProtocol {
@@ -82,14 +82,14 @@ export object Socket {
 
     || Receive from socket until it's closed or a linefeed is received
     || @return The bytes received or null if nothing to read
-    fun receiveLine() > str? !> FileSystemError, UnexpectedError, ReadWriteError {
-        return SocketReadLine(this.fd);
+    fun receiveLine(int? maxSize) > str? !> FileSystemError, UnexpectedError, ReadWriteError {
+        return SocketReadLine(this.fd, maxSize);
     }
 
     || Receive from socket until it's closed
     || @return The bytes received or null if nothing to read
-    fun receiveAll() > str? !> FileSystemError, UnexpectedError, ReadWriteError {
-        return SocketReadAll(this.fd);
+    fun receiveAll(int? maxSize) > str? !> FileSystemError, UnexpectedError, ReadWriteError {
+        return SocketReadAll(this.fd, maxSize);
     }
 
     || Send bytes on the socket

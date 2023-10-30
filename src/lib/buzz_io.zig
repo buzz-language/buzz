@@ -133,14 +133,18 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
     const content: []u8 = file.readToEndAllocOptions(
         api.VM.allocator,
-        std.math.maxInt(u64),
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
         null,
         @alignOf(u8),
         null,
@@ -181,13 +185,21 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = reader.readUntilDelimiterOrEofAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
+    var buffer = reader.readUntilDelimiterOrEofAlloc(
+        api.VM.allocator,
+        '\n',
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
+    ) catch |err| {
         handleFileReadLineError(ctx, err);
 
         return -1;

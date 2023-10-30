@@ -5,9 +5,9 @@ extern fun FileOpen(str filename, int mode) > int !> FileSystemError, Unexpected
 || @private
 extern fun FileClose(int fd) > void;
 || @private
-extern fun FileReadAll(int fd) > str !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadAll(int fd, int? maxSize) > str !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
-extern fun FileReadLine(int fd) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadLine(int fd, int? maxSize) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
 || @private
 extern fun FileRead(int fd, int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
 || @private
@@ -54,14 +54,14 @@ export object File {
 
     || Reads file until `EOF`
     || @return Read data
-    fun readAll() > str !> ReadWriteError, FileSystemError, UnexpectedError {
-        return FileReadAll(this.fd);
+    fun readAll(int? maxSize) > str !> ReadWriteError, FileSystemError, UnexpectedError {
+        return FileReadAll(this.fd, maxSize);
     }
 
     || Reads next line, returns null if nothing to read
     || @return Read data
-    fun readLine() > str? !> ReadWriteError, FileSystemError, UnexpectedError {
-        return FileReadLine(this.fd);
+    fun readLine(int? maxSize) > str? !> ReadWriteError, FileSystemError, UnexpectedError {
+        return FileReadLine(this.fd, maxSize);
     }
 
     || Reads `n` bytes, returns null if nothing to read

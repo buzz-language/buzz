@@ -432,14 +432,26 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
 export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readUntilDelimiterAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
-        handleReadLineError(ctx, err);
+    var buffer = reader.readUntilDelimiterAlloc(
+        api.VM.allocator,
+        '\n',
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
+    ) catch |err| {
+        if (err == error.StreamTooLong) {
+            ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong");
+        } else {
+            handleReadLineError(ctx, err);
+        }
 
         return -1;
     };
@@ -448,7 +460,14 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     if (buffer.len == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @as([*]const u8, @ptrCast(buffer)) else null, buffer.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(
+            ctx.vm,
+            if (buffer.len > 0)
+                @as([*]const u8, @ptrCast(buffer))
+            else
+                null,
+            buffer.len,
+        ) orelse {
             @panic("Out of memory");
         });
     }
@@ -458,13 +477,20 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
 
 export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readAllAlloc(api.VM.allocator, 16 * 8 * 64) catch |err| {
+    var buffer = reader.readAllAlloc(
+        api.VM.allocator,
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
+    ) catch |err| {
         if (err == error.StreamTooLong) {
             ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong");
         } else {
@@ -478,7 +504,14 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     if (buffer.len == 0) {
         ctx.vm.bz_pushNull();
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer.len > 0) @as([*]const u8, @ptrCast(buffer)) else null, buffer.len) orelse {
+        ctx.vm.bz_pushString(api.ObjString.bz_string(
+            ctx.vm,
+            if (buffer.len > 0)
+                @as([*]const u8, @ptrCast(buffer))
+            else
+                null,
+            buffer.len,
+        ) orelse {
             @panic("Out of memory");
         });
     }
