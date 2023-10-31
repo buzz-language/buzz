@@ -5,19 +5,17 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const RunFlavor = _vm.RunFlavor;
 const ImportRegistry = _vm.ImportRegistry;
-const _parser = @import("parser.zig");
-const Parser = _parser.Parser;
-const CompileError = _parser.CompileError;
-const CodeGen = @import("codegen.zig").CodeGen;
+const Parser = @import("Parser.zig");
+const CodeGen = @import("Codegen.zig");
 const _obj = @import("obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const TypeRegistry = @import("memory.zig").TypeRegistry;
-const FunctionNode = @import("node.zig").FunctionNode;
+const Ast = @import("Ast.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
-const MIRJIT = @import("mirjit.zig");
+const JIT = @import("Jit.zig");
 const _repl = @import("repl.zig");
 const repl = _repl.repl;
 const printBanner = _repl.printBanner;
@@ -32,14 +30,14 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor);
-    vm.mir_jit = if (BuildOptions.jit)
-        MIRJIT.init(&vm)
+    vm.jit = if (BuildOptions.jit)
+        JIT.init(&vm)
     else
         null;
     defer {
-        if (vm.mir_jit != null) {
-            vm.mir_jit.?.deinit();
-            vm.mir_jit = null;
+        if (vm.jit != null) {
+            vm.jit.?.deinit();
+            vm.jit = null;
         }
     }
     var parser = Parser.init(
@@ -52,7 +50,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         &gc,
         &parser,
         flavor,
-        if (vm.mir_jit) |*jit| jit else null,
+        if (vm.jit) |*jit| jit else null,
     );
     defer {
         codegen.deinit();
@@ -86,53 +84,32 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    if (try parser.parse(source, file_name)) |function_node| {
+    if (try parser.parse(source, file_name)) |ast| {
         parsing_time = timer.read();
         timer.reset();
 
         if (flavor == .Run or flavor == .Test) {
-            if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+            if (try codegen.generate(ast)) |function| {
                 codegen_time = timer.read();
                 timer.reset();
 
-                switch (flavor) {
-                    .Run, .Test => try vm.interpret(
-                        function,
-                        args,
-                    ),
-                    .Fmt => {
-                        var formatted = std.ArrayList(u8).init(allocator);
-                        defer formatted.deinit();
-
-                        try function_node.render(function_node, &formatted.writer(), 0);
-
-                        std.debug.print("{s}", .{formatted.items});
-                    },
-                    .Ast => {
-                        var json = std.ArrayList(u8).init(allocator);
-                        defer json.deinit();
-
-                        try function_node.toJson(function_node, &json.writer());
-
-                        var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-                        defer allocator.free(without_nl);
-
-                        _ = try std.io.getStdOut().write(without_nl);
-                    },
-                    else => {},
-                }
+                try vm.interpret(
+                    ast,
+                    function,
+                    args,
+                );
 
                 running_time = timer.read();
             } else {
-                return CompileError.Recoverable;
+                return Parser.CompileError.Recoverable;
             }
 
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-                const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
-                const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
-                const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
-                const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-                const jit_ms: f64 = if (vm.mir_jit) |jit|
+                const parsing_ms = @as(f64, @floatFromInt(parsing_time)) / 1000000;
+                const codegen_ms = @as(f64, @floatFromInt(codegen_time)) / 1000000;
+                const running_ms = @as(f64, @floatFromInt(running_time)) / 1000000;
+                const gc_ms = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
+                const jit_ms = if (vm.jit) |jit|
                     @as(f64, @floatFromInt(jit.jit_time)) / 1000000
                 else
                     0;
@@ -152,32 +129,33 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                 );
             }
         } else {
-            switch (flavor) {
-                .Run, .Test => unreachable,
-                .Fmt => {
-                    var formatted = std.ArrayList(u8).init(allocator);
-                    defer formatted.deinit();
-
-                    try function_node.render(function_node, &formatted.writer(), 0);
-
-                    std.debug.print("{s}", .{formatted.items});
-                },
-                .Ast => {
-                    var json = std.ArrayList(u8).init(allocator);
-                    defer json.deinit();
-
-                    try function_node.toJson(function_node, &json.writer());
-
-                    var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-                    defer allocator.free(without_nl);
-
-                    _ = try std.io.getStdOut().write(without_nl);
-                },
-                else => {},
-            }
+            std.debug.print("Formatting and Ast dump is deactivated", .{});
+            // switch (flavor) {
+            //     .Run, .Test => unreachable,
+            //     .Fmt => {
+            //         var formatted = std.ArrayList(u8).init(allocator);
+            //         defer formatted.deinit();
+            //
+            //         try function_node.render(function_node, &formatted.writer(), 0);
+            //
+            //         std.debug.print("{s}", .{formatted.items});
+            //     },
+            //     .Ast => {
+            //         var json = std.ArrayList(u8).init(allocator);
+            //         defer json.deinit();
+            //
+            //         try function_node.toJson(function_node, &json.writer());
+            //
+            //         var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
+            //         defer allocator.free(without_nl);
+            //
+            //         _ = try std.io.getStdOut().write(without_nl);
+            //     },
+            //     else => {},
+            // }
         }
     } else {
-        return CompileError.Recoverable;
+        return Parser.CompileError.Recoverable;
     }
 }
 
@@ -357,7 +335,7 @@ test "Testing behavior" {
                 const reader = test_file.reader();
                 const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
                 defer allocator.free(first_line);
-                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{_parser.buzz_prefix()}) catch unreachable;
+                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{Parser.buzz_prefix()}) catch unreachable;
                 defer allocator.free(arg0);
 
                 const result = try std.ChildProcess.run(

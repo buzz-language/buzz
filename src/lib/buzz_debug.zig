@@ -1,8 +1,7 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 const _obj = @import("../obj.zig");
-const _parser = @import("../parser.zig");
-const Parser = _parser.Parser;
+const Parser = @import("../Parser.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const _memory = @import("../memory.zig");
@@ -18,7 +17,8 @@ export fn dump(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn ast(ctx: *api.NativeCtx) c_int {
+// TODO: reactivate
+fn ast(ctx: *api.NativeCtx) c_int {
     var source_len: usize = 0;
     const source = api.Value.bz_valueToString(ctx.vm.bz_peek(1), &source_len);
 

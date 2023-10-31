@@ -4,8 +4,9 @@ import "errors";
 || Dump any value to stdout
 export extern fun dump(any value) > void;
 
-|| Parse `source` and return the abstract syntax tree in JSON
-|| @param source the buzz source
-|| @param script name (used to fetch eventual extern functions)
-|| @return AST as JSON
-export extern fun ast(str source, str scriptName) > str !> CompileError;
+| Parse `source` and return the abstract syntax tree in JSON
+| @param source the buzz source
+| @param script name (used to fetch eventual extern functions)
+| @return AST as JSON
+| TODO: reactivate
+| export extern fun ast(str source, str scriptName) > str !> CompileError;

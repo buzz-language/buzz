@@ -1,18 +1,10 @@
 const std = @import("std");
-const _parser = @import("parser.zig");
-const _node = @import("node.zig");
-const Parser = _parser.Parser;
-const ParseNode = _node.ParseNode;
-const StringNode = _node.StringNode;
-const StringLiteralNode = _node.StringLiteralNode;
-const ParserState = _parser.ParserState;
+const Parser = @import("Parser.zig");
 const Scanner = @import("scanner.zig").Scanner;
-const _obj = @import("obj.zig");
-const _value = @import("value.zig");
-const Token = @import("token.zig").Token;
-
-const Value = _value.Value;
-const ObjTypeDef = _obj.ObjTypeDef;
+const obj = @import("obj.zig");
+const Value = @import("value.zig").Value;
+const Token = @import("Token.zig");
+const Ast = @import("Ast.zig");
 
 pub const StringParser = struct {
     const Self = @This();
@@ -29,16 +21,22 @@ pub const StringParser = struct {
     offset: usize = 0,
     previous_interp: ?usize = null,
     chunk_count: usize = 0,
-    elements: std.ArrayList(*ParseNode),
+    elements: std.ArrayList(Ast.Node.Index),
     line_offset: usize,
     column_offset: usize,
 
-    pub fn init(parser: *Parser, source: []const u8, script_name: []const u8, line_offset: usize, column_offset: usize) Self {
+    pub fn init(
+        parser: *Parser,
+        source: []const u8,
+        script_name: []const u8,
+        line_offset: usize,
+        column_offset: usize,
+    ) Self {
         return Self{
             .parser = parser,
             .source = source,
             .current_chunk = std.ArrayList(u8).init(parser.gc.allocator),
-            .elements = std.ArrayList(*ParseNode).init(parser.gc.allocator),
+            .elements = std.ArrayList(Ast.Node.Index).init(parser.gc.allocator),
             .line_offset = line_offset,
             .column_offset = column_offset,
             .script_name = script_name,
@@ -63,7 +61,7 @@ pub const StringParser = struct {
         return self.current;
     }
 
-    pub fn parse(self: *Self) !*StringNode {
+    pub fn parse(self: *Self) !Ast.Node.Index {
         while (self.offset < self.source.len) {
             const char: ?u8 = self.advance();
             if (char == null) {
@@ -99,22 +97,43 @@ pub const StringParser = struct {
             self.current_chunk = std.ArrayList(u8).init(self.parser.gc.allocator);
         }
 
-        var node = try self.parser.gc.allocator.create(StringNode);
-        node.* = .{ .elements = self.elements.items };
-        node.node.type_def = try self.parser.gc.type_registry.getTypeDef(.{ .def_type = .String });
+        self.elements.shrinkAndFree(self.elements.items.len);
 
-        return node;
+        return try self.parser.ast.appendNode(
+            .{
+                .tag = .String,
+                .location = self.parser.ast.nodes.items(.location)[self.elements.items[0]],
+                .end_location = self.parser.ast.nodes.items(.location)[self.elements.getLast()],
+                .type_def = try self.parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .String,
+                    },
+                ),
+                .components = .{
+                    .String = self.elements.items,
+                },
+            },
+        );
     }
 
     fn push(self: *Self, chars: []const u8) !void {
-        var node = try self.parser.gc.allocator.create(StringLiteralNode);
-        node.* = .{
-            .constant = try self.parser.gc.copyString(chars),
-        };
-        node.node.type_def = try self.parser.gc.type_registry.getTypeDef(.{ .def_type = .String });
-        node.node.location = self.parser.parser.previous_token.?;
-
-        try self.elements.append(node.toNode());
+        try self.elements.append(
+            try self.parser.ast.appendNode(
+                .{
+                    .tag = .StringLiteral,
+                    .location = self.parser.current_token.? - 1,
+                    .end_location = self.parser.current_token.? - 1,
+                    .type_def = try self.parser.gc.type_registry.getTypeDef(
+                        .{
+                            .def_type = .String,
+                        },
+                    ),
+                    .components = .{
+                        .StringLiteral = try self.parser.gc.copyString(chars),
+                    },
+                },
+            ),
+        );
     }
 
     fn inc(self: *Self) !void {
@@ -122,38 +141,30 @@ pub const StringParser = struct {
     }
 
     fn interpolation(self: *Self) !void {
-        var expr: []const u8 = self.source[self.offset..];
+        const expr = self.source[self.offset..];
 
-        var expr_scanner = Scanner.init(self.parser.gc.allocator, self.parser.script_name, expr);
+        var expr_scanner = Scanner.init(
+            self.parser.gc.allocator,
+            self.parser.script_name,
+            expr,
+        );
         expr_scanner.line_offset = self.line_offset;
         expr_scanner.column_offset = self.column_offset;
 
         // Replace parser scanner with one that only looks at that substring
         var scanner = self.parser.scanner;
         self.parser.scanner = expr_scanner;
-        var parser = self.parser.parser;
-        self.parser.parser = ParserState.init(self.parser.gc.allocator);
 
         try self.parser.advance();
 
         // Parse expression
         try self.elements.append(try self.parser.expression(false));
 
-        const current: Token = self.parser.parser.current_token.?; // }
-        var delta: usize = self.parser.scanner.?.current.offset;
-
-        if (self.parser.parser.ahead.items.len > 0) {
-            const next = self.parser.parser.ahead.items[self.parser.parser.ahead.items.len - 1];
-            delta = delta - next.lexeme.len - next.offset + current.offset;
-        }
-
-        self.offset += delta - 1;
+        self.offset += self.parser.scanner.?.current.offset - 1;
         self.previous_interp = self.offset;
 
         // Put back parser's scanner
         self.parser.scanner = scanner;
-        self.parser.parser.deinit();
-        self.parser.parser = parser;
 
         // Consume closing `}`
         _ = self.advance();

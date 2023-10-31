@@ -8,9 +8,9 @@ const dumpStack = @import("disassembler.zig").dumpStack;
 const BuildOptions = @import("build_options");
 const VM = @import("vm.zig").VM;
 const assert = std.debug.assert;
-const Token = @import("token.zig").Token;
+const Token = @import("Token.zig");
 const buzz_api = @import("buzz_api.zig");
-const Reporter = @import("reporter.zig");
+const Reporter = @import("Reporter.zig");
 
 const Value = _value.Value;
 const valueToStringAlloc = _value.valueToStringAlloc;
@@ -40,7 +40,10 @@ pub const TypeRegistry = struct {
     registry: std.StringHashMap(*ObjTypeDef),
 
     pub fn init(gc: *GarbageCollector) Self {
-        return .{ .gc = gc, .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator) };
+        return .{
+            .gc = gc,
+            .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
+        };
     }
 
     pub fn deinit(self: *Self) void {
@@ -62,7 +65,7 @@ pub const TypeRegistry = struct {
             }
         }
 
-        var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
+        const type_def_ptr = try self.gc.allocateObject(ObjTypeDef, type_def);
 
         if (BuildOptions.debug_placeholders) {
             std.debug.print("`{s}` @{}\n", .{ type_def_str, @intFromPtr(type_def_ptr) });
@@ -87,7 +90,7 @@ pub const TypeRegistry = struct {
     pub fn mark(self: *Self) !void {
         var it = self.registry.iterator();
         while (it.next()) |kv| {
-            try self.gc.markObj(kv.value_ptr.*.toObj());
+            try self.gc.markObj(@constCast(kv.value_ptr.*).toObj());
         }
     }
 };
@@ -634,6 +637,8 @@ pub const GarbageCollector = struct {
                 var obj_fiber = ObjFiber.cast(obj).?;
                 obj_fiber.fiber.deinit();
 
+                self.allocator.destroy(obj_fiber.fiber);
+
                 free(self, ObjFiber, obj_fiber);
             },
             .ForeignContainer => {
@@ -657,7 +662,7 @@ pub const GarbageCollector = struct {
     pub fn markFiber(self: *Self, fiber: *Fiber) !void {
         var current_fiber: ?*Fiber = fiber;
         while (current_fiber) |ufiber| {
-            try self.markObj(ufiber.type_def.toObj());
+            try self.markObj(@constCast(ufiber.type_def.toObj()));
             // Mark main fiber
             if (BuildOptions.gc_debug) {
                 std.debug.print("MARKING STACK OF FIBER @{}\n", .{@intFromPtr(ufiber)});
@@ -721,7 +726,7 @@ pub const GarbageCollector = struct {
         {
             var it = self.objfiber_memberDefs.iterator();
             while (it.next()) |umember| {
-                try self.markObj(umember.value_ptr.*.toObj());
+                try self.markObj(@constCast(umember.value_ptr.*.toObj()));
             }
         }
 
@@ -736,7 +741,7 @@ pub const GarbageCollector = struct {
         {
             var it = self.objpattern_memberDefs.iterator();
             while (it.next()) |kv| {
-                try self.markObj(kv.value_ptr.*.toObj());
+                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
 
@@ -751,7 +756,7 @@ pub const GarbageCollector = struct {
         {
             var it = self.objstring_memberDefs.iterator();
             while (it.next()) |kv| {
-                try self.markObj(kv.value_ptr.*.toObj());
+                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
 
@@ -792,6 +797,14 @@ pub const GarbageCollector = struct {
         }
         if (BuildOptions.gc_debug) {
             std.debug.print("DONE MARKING GLOBALS OF VM @{}\n", .{@intFromPtr(vm)});
+        }
+
+        // Mark ast constant values (some are only referenced by the JIT so might be collected before)
+        // TODO: does this takes too long or are we saved by vertue of MultiArrayList?
+        for (vm.current_ast.nodes.items(.value)) |valueOpt| {
+            if (valueOpt) |value| {
+                try self.markValue(value);
+            }
         }
     }
 

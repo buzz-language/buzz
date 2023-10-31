@@ -5,20 +5,18 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const TryCtx = _vm.TryCtx;
 const _obj = @import("obj.zig");
-const _value = @import("value.zig");
+const Value = @import("value.zig").Value;
 const memory = @import("memory.zig");
-const _parser = @import("parser.zig");
-const _codegen = @import("codegen.zig");
+const Parser = @import("Parser.zig");
+const CodeGen = @import("Codegen.zig");
 const BuildOptions = @import("build_options");
 const jmp = @import("jmp.zig").jmp;
-const FunctionNode = @import("node.zig").FunctionNode;
 const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
-const Token = @import("token.zig").Token;
+const Token = @import("Token.zig");
+const Ast = @import("Ast.zig");
 
-const Value = _value.Value;
-const valueToStringAlloc = _value.valueToStringAlloc;
-const valueEql = _value.valueEql;
+const eql = Value.eql;
 const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjPattern = _obj.ObjPattern;
@@ -40,8 +38,6 @@ const ObjForeignContainer = _obj.ObjForeignContainer;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const TypeRegistry = memory.TypeRegistry;
-const Parser = _parser.Parser;
-const CodeGen = _codegen.CodeGen;
 const GarbageCollector = memory.GarbageCollector;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -144,7 +140,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
     if (value.isNull()) {
         std.debug.print("null", .{});
     } else if (!value.isObj() or seen.get(value.obj()) != null) {
-        const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+        const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
         defer string.deinit();
 
         std.debug.print("{s}", .{string.items});
@@ -161,7 +157,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Fiber,
             .EnumInstance,
             => {
-                const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+                const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                 defer string.deinit();
 
                 std.debug.print("{s}", .{string.items});
@@ -219,7 +215,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
                 for (enum_type_def.cases.items, 0..) |case, i| {
                     std.debug.print("{s} -> ", .{case});
-                    valueDump(enumeration.cases.items[i], vm, seen, depth);
+                    valueDump(enumeration.cases[i], vm, seen, depth);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -426,7 +422,7 @@ export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) 
 }
 
 export fn bz_toString(vm: *VM, value: Value) Value {
-    const str = valueToStringAlloc(vm.gc.allocator, value) catch {
+    const str = value.toStringAlloc(vm.gc.allocator) catch {
         @panic("Could not convert value to string");
     };
     defer str.deinit();
@@ -619,7 +615,13 @@ export fn bz_deinitVM(_: *VM) void {
     // self.deinit();
 }
 
-export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction {
+export fn bz_compile(
+    self: *VM,
+    source: ?[*]const u8,
+    source_len: usize,
+    file_name: ?[*]const u8,
+    file_name_len: usize,
+) ?*ObjFunction {
     if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
         return null;
     }
@@ -645,19 +647,64 @@ export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_na
         strings.deinit();
     }
 
-    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |function_node| {
-        return function_node.toByteCode(function_node, &codegen, null) catch null;
+    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |ast| {
+        return codegen.generate(ast) catch null;
     } else {
         return null;
     }
 }
 
-export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
-    self.interpret(function, null) catch {
+export fn bz_interpret(self: *VM, ast: *anyopaque, function: *ObjFunction) bool {
+    self.interpret(@as(*Ast, @ptrCast(@alignCast(ast))).*, function, null) catch {
         return false;
     };
 
     return true;
+}
+
+export fn bz_run(
+    self: *VM,
+    source: ?[*]const u8,
+    source_len: usize,
+    file_name: ?[*]const u8,
+    file_name_len: usize,
+) bool {
+    if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
+        return false;
+    }
+
+    var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
+    var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
+    var parser = Parser.init(
+        self.gc,
+        &imports,
+        false,
+        self.flavor,
+    );
+    var codegen = CodeGen.init(
+        self.gc,
+        &parser,
+        self.flavor,
+        null,
+    );
+    defer {
+        codegen.deinit();
+        imports.deinit();
+        parser.deinit();
+        strings.deinit();
+    }
+
+    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |ast| {
+        if (codegen.generate(ast) catch null) |function| {
+            self.interpret(ast, function, null) catch {
+                return false;
+            };
+
+            return true;
+        }
+    }
+
+    return false;
 }
 
 fn calleeIsCompiled(value: Value) bool {
@@ -986,14 +1033,14 @@ export fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Val
 export fn bz_getEnumCaseValue(enum_instance_value: Value) Value {
     const instance = ObjEnumInstance.cast(enum_instance_value.obj()).?;
 
-    return instance.enum_ref.cases.items[instance.case];
+    return instance.enum_ref.cases[instance.case];
 }
 
 export fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) Value {
     const enum_ = ObjEnum.cast(enum_value.obj()).?;
 
-    for (enum_.cases.items, 0..) |case, index| {
-        if (valueEql(case, case_value)) {
+    for (enum_.cases, 0..) |case, index| {
+        if (eql(case, case_value)) {
             var enum_case: *ObjEnumInstance = vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = enum_,
                 .case = @intCast(index),
@@ -1019,7 +1066,7 @@ export fn bz_toObjNative(value: Value) *ObjNative {
 }
 
 export fn bz_valueEqual(self: Value, other: Value) Value {
-    return Value.fromBoolean(_value.valueEql(self, other));
+    return Value.fromBoolean(self.eql(other));
 }
 
 export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
@@ -1048,7 +1095,7 @@ export fn bz_mapGet(map: Value, key: Value) Value {
 }
 
 export fn bz_valueIs(self: Value, type_def: Value) Value {
-    return Value.fromBoolean(_value.valueIs(type_def, self));
+    return Value.fromBoolean(type_def.is(self));
 }
 
 export fn bz_setTryCtx(self: *VM) *TryCtx {
@@ -1142,7 +1189,7 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     };
 
     if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
-        ctx.vm.mir_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
+        ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, closure.?) catch @panic("Failed compiling function");
     }
 
     return if (closure) |cls| cls.function.native_raw.? else native.?.native;
@@ -1150,12 +1197,12 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
 
 export fn bz_closure(
     ctx: *NativeCtx,
-    function_node: *FunctionNode,
+    function_node: Ast.Node.Index,
     native: *anyopaque,
     native_raw: *anyopaque,
 ) Value {
     // Set native pointers in objfunction
-    var obj_function = function_node.function.?;
+    var obj_function = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.function.?;
     obj_function.native = native;
     obj_function.native_raw = native_raw;
 
@@ -1171,9 +1218,9 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
-    ctx.vm.mir_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
+    ctx.vm.jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
 
-    var it = function_node.upvalue_binding.iterator();
+    var it = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.upvalue_binding.iterator();
     while (it.next()) |kv| {
         const is_local = kv.value_ptr.*;
         const index = kv.key_ptr.*;

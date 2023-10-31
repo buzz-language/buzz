@@ -1,83 +1,81 @@
 const std = @import("std");
 const mem = std.mem;
 
-pub const Token = struct {
-    const Self = @This();
+const Self = @This();
 
-    // Since we can parse multiple file, we have to keep a reference to the source in which this token occured
-    source: []const u8,
-    script_name: []const u8,
-    token_type: TokenType,
-    lexeme: []const u8,
-    // Literal is either a string or a number
-    literal_string: ?[]const u8 = null,
-    literal_float: ?f64 = null,
-    literal_integer: ?i32 = null,
-    line: usize,
-    column: usize,
-    offset: usize = 0,
+// Since we can parse multiple file, we have to keep a reference to the source in which this token occured
+source: []const u8, // FIXME: probably stupid of me to keep this in every token struct
+script_name: []const u8,
+tag: Type,
+lexeme: []const u8,
+// Literal is either a string or a number
+literal_string: ?[]const u8 = null,
+literal_float: ?f64 = null,
+literal_integer: ?i32 = null,
+line: usize,
+column: usize,
+offset: usize = 0,
 
-    pub fn eql(self: Self, other: Self) bool {
-        // zig fmt: off
-        return self.token_type == other.token_type
-            and self.line == other.line
-            and self.column == other.column
-            and self.offset == other.offset
-            and std.mem.eql(u8, self.source, other.source)
-            and std.mem.eql(u8, self.script_name, other.script_name);
+pub fn eql(self: Self, other: Self) bool {
+    // zig fmt: off
+    return self.tag == other.tag
+        and self.line == other.line
+        and self.column == other.column
+        and self.offset == other.offset
+        and std.mem.eql(u8, self.source, other.source)
+        and std.mem.eql(u8, self.script_name, other.script_name);
         // zig fmt: on
-    }
+}
 
-    pub fn identifier(name: []const u8) Self {
-        return .{
-            .token_type = .Identifier,
-            .lexeme = name,
-            .line = 0,
-            .column = 0,
-            .source = "",
-            .script_name = "",
-            .literal_string = name,
-        };
-    }
+pub fn identifier(name: []const u8) Self {
+    return .{
+        .tag = .Identifier,
+        .lexeme = name,
+        .line = 0,
+        .column = 0,
+        .source = "",
+        .script_name = "",
+        .literal_string = name,
+    };
+}
 
-    pub fn clone(self: Self) Self {
-        return .{
-            .token_type = self.token_type,
-            .lexeme = self.lexeme,
-            .source = self.source,
-            .script_name = self.script_name,
-            .literal_string = self.literal_string,
-            .literal_float = self.literal_float,
-            .literal_integer = self.literal_integer,
-            .line = self.line,
-            .column = self.column,
-        };
-    }
+pub fn clone(self: Self) Self {
+    return .{
+        .tag = self.tag,
+        .lexeme = self.lexeme,
+        .source = self.source,
+        .script_name = self.script_name,
+        .literal_string = self.literal_string,
+        .literal_float = self.literal_float,
+        .literal_integer = self.literal_integer,
+        .line = self.line,
+        .column = self.column,
+    };
+}
 
-    // Return `n` lines around the token line in its source
-    pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usize) !std.ArrayList([]const u8) {
-        var lines = std.ArrayList([]const u8).init(allocator);
-        const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
-        const after_index = if (self.line > 0) self.line + after else self.line;
+// Return `n` lines around the token line in its source
+pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usize) !std.ArrayList([]const u8) {
+    var lines = std.ArrayList([]const u8).init(allocator);
+    const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
+    const after_index = if (self.line > 0) self.line + after else self.line;
 
-        var it = std.mem.split(u8, self.source, "\n");
-        var current: usize = 0;
-        while (it.next()) |line| : (current += 1) {
-            if (current >= before_index and current <= after_index) {
-                try lines.append(line);
-            }
-
-            if (current > after_index) {
-                return lines;
-            }
+    var it = std.mem.split(u8, self.source, "\n");
+    var current: usize = 0;
+    while (it.next()) |line| : (current += 1) {
+        if (current >= before_index and current <= after_index) {
+            try lines.append(line);
         }
 
-        return lines;
+        if (current > after_index) {
+            return lines;
+        }
     }
-};
+
+    return lines;
+}
 
 // WARNING: don't reorder without reordering `rules` in parser.zig
-pub const TokenType = enum {
+pub const Type = enum {
     Pipe, // |
     LeftBracket, // [
     RightBracket, // ]
@@ -159,7 +157,7 @@ pub const TokenType = enum {
     Static, // static
     From, // from
     As, // as
-    AsBang, // as?
+    AsQuestion, // as?
     Extern, // extern
     Eof, // EOF
     Error, // Error
@@ -180,7 +178,7 @@ pub const TokenType = enum {
 };
 
 pub const keywords = std.ComptimeStringMap(
-    TokenType,
+    Type,
     .{
         .{ "ud", .Ud },
         .{ "void", .Void },

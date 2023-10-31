@@ -22,3 +22,24 @@ test "finobacci generator" {
         i = i + 1;
     }
 }
+
+object Hello {
+    fun range() > [int] > int? {
+        var list = [<int>];
+        foreach (int i in 0..10) {
+            _ = yield i;
+
+            list.append(i);
+        }
+
+        return list;
+    }
+}
+
+test "dot async call" {
+    var hello = Hello{};
+
+    foreach (int i in &hello.range()) {
+        print("i {i}");
+    }
+}

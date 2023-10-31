@@ -1,10 +1,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Token = @import("token.zig").Token;
+const Token = @import("Token.zig");
 const o = @import("obj.zig");
 const ObjTypeDef = o.ObjTypeDef;
 const PlaceholderDef = o.PlaceholderDef;
 const Scanner = @import("scanner.zig").Scanner;
+const Ast = @import("Ast.zig");
 
 const Self = @This();
 
@@ -102,6 +103,7 @@ pub const Error = enum(u8) {
     unused_argument = 89,
     inferred_type = 90,
     empty_import = 91,
+    import_already_exists = 92,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -599,17 +601,17 @@ pub fn reportTypeCheck(
 }
 
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast, placeholder: PlaceholderDef) void {
     if (placeholder.parent) |parent| {
         if (parent.def_type == .Placeholder) {
-            self.reportPlaceholder(parent.resolved_type.?.Placeholder);
+            self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
         }
     } else {
         // Should be a root placeholder with a name
         assert(placeholder.name != null);
         self.reportErrorFmt(
             .undefined,
-            placeholder.where,
+            ast.tokens.get(placeholder.where),
             "`{s}` is not defined",
             .{placeholder.name.?.string},
         );
@@ -653,7 +655,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "callSomething",
                     .line = 2,
                     .column = 5,
@@ -665,7 +667,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "true",
                     .line = 2,
                     .column = 19,
@@ -677,7 +679,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "complex",
                     .line = 2,
                     .column = 25,
@@ -689,7 +691,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "print",
                     .line = 9,
                     .column = 13,

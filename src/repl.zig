@@ -27,17 +27,13 @@ const ObjNative = _obj.ObjNative;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjFiber = _obj.ObjFiber;
 const ObjForeignContainer = _obj.ObjForeignContainer;
-const _parser = @import("parser.zig");
-const Parser = _parser.Parser;
-const CompileError = _parser.CompileError;
-const MIRJIT = @import("mirjit.zig");
+const Parser = @import("Parser.zig");
+const CompileError = Parser.CompileError;
+const JIT = @import("Jit.zig");
 const ln = @import("linenoise.zig");
-const _value = @import("value.zig");
-const Value = _value.Value;
-const valueToStringAlloc = _value.valueToStringAlloc;
+const Value = @import("value.zig").Value;
 const dumpStack = @import("disassembler.zig").dumpStack;
-const CodeGen = @import("codegen.zig").CodeGen;
-const FunctionNode = @import("node.zig").FunctionNode;
+const CodeGen = @import("Codegen.zig");
 const Scanner = @import("scanner.zig").Scanner;
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
@@ -87,14 +83,14 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, .Repl);
-    vm.mir_jit = if (BuildOptions.jit)
-        MIRJIT.init(&vm)
+    vm.jit = if (BuildOptions.jit)
+        JIT.init(&vm)
     else
         null;
     defer {
-        if (vm.mir_jit != null) {
-            vm.mir_jit.?.deinit();
-            vm.mir_jit = null;
+        if (vm.jit != null) {
+            vm.jit.?.deinit();
+            vm.jit = null;
         }
     }
     var parser = Parser.init(
@@ -107,7 +103,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         &gc,
         &parser,
         .Repl,
-        if (vm.mir_jit) |*jit| jit else null,
+        if (vm.jit) |*jit| jit else null,
     );
     defer {
         codegen.deinit();
@@ -252,23 +248,25 @@ fn runSource(
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    if (try parser.parse(source, file_name)) |function_node| {
+    if (try parser.parse(source, file_name)) |ast| {
         parsing_time = timer.read();
         timer.reset();
 
-        if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
+        if (try codegen.generate(ast)) |function| {
             codegen_time = timer.read();
             timer.reset();
 
             try vm.interpret(
+                ast,
                 function,
                 null,
             );
 
             // Does the user code ends with a lone expression?
-            const fnode = FunctionNode.cast(function_node).?;
-            const last_statement = fnode.body.?.statements.getLastOrNull();
-            if (last_statement != null and last_statement.?.node_type == .Expression) {
+            const fnode = ast.nodes.items(.components)[ast.root.?].Function;
+            const statements = ast.nodes.items(.components)[fnode.body.?].Block;
+            const last_statement = if (statements.len > 0) statements[statements.len - 1] else null;
+            if (last_statement != null and ast.nodes.items(.tag)[last_statement.?] == .Expression) {
                 return vm.pop();
             }
 
@@ -282,7 +280,7 @@ fn runSource(
             const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
             const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
             const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-            const jit_ms: f64 = if (vm.mir_jit) |jit|
+            const jit_ms: f64 = if (vm.jit) |jit|
                 @as(f64, @floatFromInt(jit.jit_time)) / 1000000
             else
                 0;
@@ -344,7 +342,7 @@ const DumpState = struct {
         if (value.isNull()) {
             out.print("null", .{}) catch unreachable;
         } else if (!value.isObj() or state.seen.get(value.obj()) != null) {
-            const string = valueToStringAlloc(state.vm.gc.allocator, value) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+            const string = value.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
             defer string.deinit();
 
             out.print("{s}", .{string.items}) catch unreachable;
@@ -361,7 +359,7 @@ const DumpState = struct {
                 .Fiber,
                 .EnumInstance,
                 => {
-                    const string = valueToStringAlloc(state.vm.gc.allocator, value) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                    const string = value.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
                     defer string.deinit();
 
                     out.print("{s}", .{string.items}) catch unreachable;
@@ -468,7 +466,7 @@ const DumpState = struct {
                     for (enum_type_def.cases.items, 0..) |case, i| {
                         out.print("    {s} -> ", .{case}) catch unreachable;
                         state.valueDump(
-                            enumeration.cases.items[i],
+                            enumeration.cases[i],
                             out,
                             true,
                         );

@@ -1,14 +1,13 @@
 const std = @import("std");
 const print = std.debug.print;
-const _chunk = @import("chunk.zig");
-const _value = @import("value.zig");
+const Chunk = @import("Chunk.zig");
+const Value = @import("value.zig").Value;
 const _obj = @import("obj.zig");
 const _vm = @import("vm.zig");
 const global_allocator = @import("buzz_api.zig").allocator;
 
 const VM = _vm.VM;
-const Chunk = _chunk.Chunk;
-const OpCode = _chunk.OpCode;
+const OpCode = Chunk.OpCode;
 const ObjFunction = _obj.ObjFunction;
 
 pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
@@ -27,7 +26,7 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
-    var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
+    var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
     defer value_str.deinit();
 
     print("{s}\t{s}({} args, {} catches)", .{
@@ -92,7 +91,7 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
-    var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
+    var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
     defer value_str.deinit();
 
     print(
@@ -152,9 +151,9 @@ pub fn dumpStack(vm: *VM) void {
     print("\u{001b}[2m", .{}); // Dimmed
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
-    var value: [*]_value.Value = @ptrCast(vm.current_fiber.stack[0..]);
+    var value: [*]Value = @ptrCast(vm.current_fiber.stack[0..]);
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top)) {
-        var value_str = _value.valueToStringAlloc(global_allocator, value[0]) catch unreachable;
+        var value_str = value[0].toStringAlloc(global_allocator) catch unreachable;
         defer value_str.deinit();
 
         if (vm.currentFrame().?.slots == value) {
@@ -187,11 +186,12 @@ pub fn dumpStack(vm: *VM) void {
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
     print("\n{:0>3} ", .{offset});
+    const lines = chunk.ast.tokens.items(.line);
 
-    if (offset > 0 and chunk.lines.items[offset].line == chunk.lines.items[offset - 1].line) {
+    if (offset > 0 and lines[chunk.lines.items[offset]] == lines[chunk.lines.items[offset - 1]]) {
         print("|   ", .{});
     } else {
-        print("{:0>3} ", .{chunk.lines.items[offset].line});
+        print("{:0>3} ", .{lines[chunk.lines.items[offset]]});
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
@@ -314,7 +314,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             var constant: u24 = arg;
             var off_offset: usize = offset + 1;
 
-            var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
+            var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
             defer value_str.deinit();
 
             print(
