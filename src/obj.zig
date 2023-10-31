@@ -4,33 +4,24 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const Chunk = @import("chunk.zig").Chunk;
+const Chunk = @import("Chunk.zig");
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const Fiber = _vm.Fiber;
-const Parser = @import("parser.zig").Parser;
+const Parser = @import("Parser.zig");
 const _memory = @import("memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const _value = @import("value.zig");
-const Token = @import("token.zig").Token;
+const Value = @import("value.zig").Value;
+const Token = @import("Token.zig");
 const BuildOptions = @import("build_options");
-const CodeGen = @import("codegen.zig").CodeGen;
+const CodeGen = @import("Codegen.zig");
 const buzz_api = @import("buzz_api.zig");
-const _node = @import("node.zig");
-const FunctionNode = _node.FunctionNode;
 const buzz_builtin = @import("builtin.zig");
 const ZigType = @import("zigtypes.zig").Type;
+const Ast = @import("Ast.zig");
 
 pub const pcre = @import("pcre.zig");
-
-const Value = _value.Value;
-const ValueType = _value.ValueType;
-const floatToInteger = _value.floatToInteger;
-const valueToString = _value.valueToString;
-const valueEql = _value.valueEql;
-const valueIs = _value.valueIs;
-const valueTypeEql = _value.valueTypeEql;
 
 pub const SerializeError = error{
     CircularReference,
@@ -129,7 +120,7 @@ pub const Obj = struct {
             .EnumInstance => {
                 const enum_instance = self.access(ObjEnumInstance, .EnumInstance, vm.gc).?;
 
-                return try enum_instance.enum_ref.cases.items[enum_instance.case].serialize(vm, seen);
+                return try enum_instance.enum_ref.cases[enum_instance.case].serialize(vm, seen);
             },
 
             .List => {
@@ -306,7 +297,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn typeOf(self: *Self, gc: *GarbageCollector) anyerror!*ObjTypeDef {
+    pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft }!*ObjTypeDef {
         return switch (self.obj_type) {
             .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
             .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
@@ -359,8 +350,7 @@ pub const Obj = struct {
 
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                break :upvalue valueIs(
-                    Value.fromObj(type_def.toObj()),
+                break :upvalue Value.fromObj(type_def.toObj()).is(
                     upvalue.closed orelse upvalue.location.*,
                 );
             },
@@ -369,8 +359,7 @@ pub const Obj = struct {
             .Map => ObjMap.cast(self).?.type_def.eql(type_def),
             .Bound => bound: {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
-                break :bound valueIs(
-                    Value.fromObj(type_def.toObj()),
+                break :bound Value.fromObj(type_def.toObj()).is(
                     Value.fromObj(if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj()),
                 );
             },
@@ -387,7 +376,7 @@ pub const Obj = struct {
             .Type => type_def.def_type == .Type,
             .UpValue => uv: {
                 var upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                break :uv valueTypeEql(upvalue.closed orelse upvalue.location.*, type_def);
+                break :uv (upvalue.closed orelse upvalue.location.*).typeEql(type_def);
             },
             .EnumInstance => ei: {
                 var instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
@@ -440,7 +429,7 @@ pub const Obj = struct {
                 const self_upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
                 const other_upvalue: *ObjUpValue = ObjUpValue.cast(other).?;
 
-                return valueEql(self_upvalue.closed orelse self_upvalue.location.*, other_upvalue.closed orelse other_upvalue.location.*);
+                return (self_upvalue.closed orelse self_upvalue.location.*).eql(other_upvalue.closed orelse other_upvalue.location.*);
             },
             .EnumInstance => {
                 const self_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
@@ -566,8 +555,8 @@ pub const ObjFiber = struct {
         yield_type: *ObjTypeDef,
 
         pub fn mark(self: *SelfFiberDef, gc: *GarbageCollector) !void {
-            try gc.markObj(self.return_type.toObj());
-            try gc.markObj(self.yield_type.toObj());
+            try gc.markObj(@constCast(self.return_type.toObj()));
+            try gc.markObj(@constCast(self.yield_type.toObj()));
         }
     };
 };
@@ -989,7 +978,7 @@ pub const ObjFunction = struct {
     upvalue_count: u8 = 0,
 
     // So we can JIT the function at runtime
-    node: *anyopaque,
+    node: Ast.Node.Index,
     // How many time the function was called
     call_count: u128 = 0,
 
@@ -999,11 +988,11 @@ pub const ObjFunction = struct {
     // JIT compiled function callable by buzz VM
     native: ?*anyopaque = null,
 
-    pub fn init(allocator: Allocator, node: *FunctionNode, name: *ObjString) !Self {
+    pub fn init(allocator: Allocator, ast: Ast, node: Ast.Node.Index, name: *ObjString) !Self {
         return Self{
             .name = name,
             .node = node,
-            .chunk = Chunk.init(allocator),
+            .chunk = Chunk.init(allocator, ast),
         };
     }
 
@@ -1013,7 +1002,7 @@ pub const ObjFunction = struct {
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(self.name.toObj());
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
         if (BuildOptions.gc_debug) {
             std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
         }
@@ -1048,6 +1037,7 @@ pub const ObjFunction = struct {
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
         error_types: ?[]const *ObjTypeDef = null,
+        // TODO: rename 'arguments'
         parameters: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
         // Storing here the defaults means they can only be non-Obj values
         defaults: std.AutoArrayHashMap(*ObjString, Value),
@@ -1066,13 +1056,13 @@ pub const ObjFunction = struct {
         pub fn mark(self: *FunctionDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.script_name.toObj());
-            try gc.markObj(self.return_type.toObj());
-            try gc.markObj(self.yield_type.toObj());
+            try gc.markObj(@constCast(self.return_type.toObj()));
+            try gc.markObj(@constCast(self.yield_type.toObj()));
 
             var it = self.parameters.iterator();
             while (it.next()) |parameter| {
                 try gc.markObj(parameter.key_ptr.*.toObj());
-                try gc.markObj(parameter.value_ptr.*.toObj());
+                try gc.markObj(@constCast(parameter.value_ptr.*.toObj()));
             }
 
             var it2 = self.defaults.iterator();
@@ -1083,14 +1073,14 @@ pub const ObjFunction = struct {
 
             if (self.error_types) |error_types| {
                 for (error_types) |error_item| {
-                    try gc.markObj(error_item.toObj());
+                    try gc.markObj(@constCast(error_item.toObj()));
                 }
             }
 
             var it3 = self.generic_types.iterator();
             while (it3.next()) |kv| {
                 try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
     };
@@ -1129,7 +1119,7 @@ pub const ObjObjectInstance = struct {
         if (self.object) |object| {
             try gc.markObj(object.toObj());
         }
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
         var it = self.fields.iterator();
         while (it.next()) |kv| {
             try gc.markObj(kv.key_ptr.*.toObj());
@@ -1231,13 +1221,13 @@ pub const ObjForeignContainer = struct {
             try gc.markObj(def.qualified_name.toObj());
             var it = def.buzz_type.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
     };
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -1296,7 +1286,7 @@ pub const ObjObject = struct {
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
         try gc.markObj(self.name.toObj());
         var it = self.methods.iterator();
         while (it.next()) |kv| {
@@ -1363,7 +1353,7 @@ pub const ObjObject = struct {
 
             var it = self.methods.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
     };
@@ -1458,38 +1448,38 @@ pub const ObjObject = struct {
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
 
             var it3 = self.static_fields.iterator();
             while (it3.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
 
             var it4 = self.methods.iterator();
             while (it4.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
 
             var it7 = self.conforms_to.iterator();
             while (it7.next()) |kv| {
-                try gc.markObj(kv.key_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.key_ptr.*.toObj()));
             }
 
             var it8 = self.generic_types.iterator();
             while (it8.next()) |kv| {
                 try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(kv.value_ptr.*.toObj());
+                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
             }
         }
     };
@@ -1520,7 +1510,7 @@ pub const ObjList = struct {
         for (self.items.items) |value| {
             try gc.markValue(value);
         }
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
         var it = self.methods.iterator();
         while (it.next()) |kv| {
             try gc.markObj(kv.key_ptr.*.toObj());
@@ -1646,10 +1636,10 @@ pub const ObjList = struct {
         }
 
         pub fn mark(self: *SelfListDef, gc: *GarbageCollector) !void {
-            try gc.markObj(self.item_type.toObj());
+            try gc.markObj(@constCast(self.item_type.toObj()));
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(method.value_ptr.*.toObj());
+                try gc.markObj(@constCast(method.value_ptr.*.toObj()));
             }
         }
 
@@ -2460,7 +2450,7 @@ pub const ObjMap = struct {
             try gc.markObj(kv.value_ptr.*.toObj());
         }
 
-        try gc.markObj(self.type_def.toObj());
+        try gc.markObj(@constCast(self.type_def.toObj()));
     }
 
     pub fn rawNext(self: *Self, key: ?Value) ?Value {
@@ -2517,11 +2507,11 @@ pub const ObjMap = struct {
         }
 
         pub fn mark(self: *SelfMapDef, gc: *GarbageCollector) !void {
-            try gc.markObj(self.key_type.toObj());
-            try gc.markObj(self.value_type.toObj());
+            try gc.markObj(@constCast(self.key_type.toObj()));
+            try gc.markObj(@constCast(self.value_type.toObj()));
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(method.value_ptr.*.toObj());
+                try gc.markObj(@constCast(method.value_ptr.*.toObj()));
             }
         }
 
@@ -3197,20 +3187,22 @@ pub const ObjEnum = struct {
     type_def: *ObjTypeDef,
 
     name: *ObjString,
-    cases: std.ArrayList(Value),
+    cases: []Value,
+    allocator: Allocator,
 
     pub fn init(allocator: Allocator, def: *ObjTypeDef) Self {
         return Self{
+            .allocator = allocator,
             .type_def = def,
             .name = def.resolved_type.?.Enum.name,
-            .cases = std.ArrayList(Value).init(allocator),
+            .cases = undefined,
         };
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(self.name.toObj());
-        try gc.markObj(self.type_def.toObj());
-        for (self.cases.items) |case| {
+        try gc.markObj(@constCast(self.type_def.toObj()));
+        for (self.cases) |case| {
             try gc.markValue(case);
         }
     }
@@ -3219,7 +3211,7 @@ pub const ObjEnum = struct {
         if (enum_case) |case| {
             assert(case.enum_ref == self);
 
-            if (case.case == self.cases.items.len - 1) {
+            if (case.case == self.cases.len - 1) {
                 return null;
             }
 
@@ -3236,7 +3228,7 @@ pub const ObjEnum = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.cases.deinit();
+        self.allocator.free(self.cases);
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -3278,7 +3270,7 @@ pub const ObjEnum = struct {
         pub fn mark(self: *EnumDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.qualified_name.toObj());
-            try gc.markObj(self.enum_type.toObj());
+            try gc.markObj(@constCast(self.enum_type.toObj()));
         }
     };
 };
@@ -3308,7 +3300,7 @@ pub const ObjEnumInstance = struct {
     }
 
     pub fn value(self: *Self) Value {
-        return self.enum_ref.cases.items[self.case];
+        return self.enum_ref.cases[self.case];
     }
 };
 
@@ -3349,7 +3341,7 @@ pub const ObjBoundMethod = struct {
 pub const ObjTypeDef = struct {
     const Self = @This();
 
-    pub const Type = enum {
+    pub const Type = enum(u8) {
         Any,
         Bool,
         Float,
@@ -3419,9 +3411,9 @@ pub const ObjTypeDef = struct {
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         if (self.resolved_type) |*resolved| {
             if (resolved.* == .ObjectInstance) {
-                try gc.markObj(resolved.ObjectInstance.toObj());
+                try gc.markObj(@constCast(resolved.ObjectInstance.toObj()));
             } else if (resolved.* == .EnumInstance) {
-                try gc.markObj(resolved.EnumInstance.toObj());
+                try gc.markObj(@constCast(resolved.EnumInstance.toObj()));
             } else if (resolved.* == .Object) {
                 try resolved.Object.mark(gc);
             } else if (resolved.* == .Protocol) {
@@ -3446,12 +3438,12 @@ pub const ObjTypeDef = struct {
 
     pub fn populateGenerics(
         self: *Self,
-        where: Token,
+        where: Ast.TokenIndex,
         origin: ?usize,
         generics: []*Self,
         type_registry: *TypeRegistry,
         visited: ?*std.AutoHashMap(*Self, void),
-    ) VM.Error!*Self {
+    ) !*Self {
         var visited_nodes = if (visited == null)
             std.AutoHashMap(*Self, void).init(type_registry.gc.allocator)
         else
@@ -4106,7 +4098,7 @@ pub const ObjTypeDef = struct {
     }
 
     pub inline fn toObj(self: *Self) *Obj {
-        return &self.obj;
+        return @constCast(&self.obj);
     }
 
     pub inline fn toValue(self: *Self) Value {
@@ -4126,7 +4118,7 @@ pub const ObjTypeDef = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(
                         allocator,
-                        self.resolved_type.?.Placeholder.where.clone(),
+                        self.resolved_type.?.Placeholder.where,
                     ),
                 };
                 placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
@@ -4189,7 +4181,7 @@ pub const ObjTypeDef = struct {
                     var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                         .Placeholder = PlaceholderDef.init(
                             allocator,
-                            self.resolved_type.?.Placeholder.where.clone(),
+                            self.resolved_type.?.Placeholder.where,
                         ),
                     };
                     placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
@@ -4408,7 +4400,7 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
         .UpValue => {
             const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
 
-            try valueToString(writer, upvalue.closed orelse upvalue.location.*);
+            try (upvalue.closed orelse upvalue.location.*).toString(writer);
         },
         .Closure => try writer.print("closure: 0x{x} `{s}`", .{
             @intFromPtr(ObjClosure.cast(obj).?),
@@ -4493,14 +4485,14 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
                 var closure_name: []const u8 = closure.function.name.string;
                 try writer.writeAll("bound method: ");
 
-                try valueToString(writer, bound.receiver);
+                try (bound.receiver).toString(writer);
 
                 try writer.print(" to {s}", .{closure_name});
             } else {
                 assert(bound.native != null);
                 try writer.writeAll("bound method: ");
 
-                try valueToString(writer, bound.receiver);
+                try (bound.receiver).toString(writer);
 
                 try writer.print(" to native 0x{}", .{@intFromPtr(bound.native.?)});
             }
@@ -4545,7 +4537,7 @@ pub const PlaceholderDef = struct {
     };
 
     name: ?*ObjString = null,
-    where: Token, // Where the placeholder was created
+    where: Ast.TokenIndex, // Where the placeholder was created
     // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     // can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
@@ -4557,9 +4549,9 @@ pub const PlaceholderDef = struct {
     // If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
-    pub fn init(allocator: Allocator, where: Token) Self {
+    pub fn init(allocator: Allocator, where: Ast.TokenIndex) Self {
         return Self{
-            .where = where.clone(),
+            .where = where,
             .children = std.ArrayList(*ObjTypeDef).init(allocator),
         };
     }

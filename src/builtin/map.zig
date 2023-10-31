@@ -12,8 +12,8 @@ const _value = @import("../value.zig");
 const buzz_api = @import("../buzz_api.zig");
 const Value = _value.Value;
 const floatToInteger = _value.floatToInteger;
-const valueEql = _value.valueEql;
-const valueToString = _value.valueToString;
+const eql = _value.eql;
+const toString = _value.toString;
 
 pub fn clone(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(0).obj()).?;

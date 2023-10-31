@@ -1,26 +1,22 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const _value = @import("value.zig");
-const _chunk = @import("chunk.zig");
+const Value = @import("value.zig").Value;
+const Chunk = @import("Chunk.zig");
+const OpCode = Chunk.OpCode;
+const Ast = @import("Ast.zig");
 const _disassembler = @import("disassembler.zig");
 const _obj = @import("obj.zig");
-const _node = @import("node.zig");
 const Allocator = std.mem.Allocator;
 const BuildOptions = @import("build_options");
 const _memory = @import("memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const MIRJIT = @import("mirjit.zig");
-const Token = @import("token.zig").Token;
-const Reporter = @import("reporter.zig");
-const FFI = @import("ffi.zig");
+const JIT = @import("Jit.zig");
+const Token = @import("Token.zig");
+const Reporter = @import("Reporter.zig");
+const FFI = @import("FFI.zig");
 
-const Value = _value.Value;
-const valueToString = _value.valueToString;
-const valueToStringAlloc = _value.valueToStringAlloc;
-const valueEql = _value.valueEql;
-const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
@@ -43,10 +39,7 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
 const ObjForeignContainer = _obj.ObjForeignContainer;
-const FunctionNode = _node.FunctionNode;
 const cloneObject = _obj.cloneObject;
-const OpCode = _chunk.OpCode;
-const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
 const jmp = @import("jmp.zig").jmp;
@@ -79,7 +72,7 @@ pub const CallFrame = struct {
     error_value: ?Value = null,
 
     // Line in source code where the call occured
-    call_site: ?Token,
+    call_site: ?Ast.TokenIndex,
 
     // Offset at which error can be handled (means we're in a try block)
     try_ip: ?usize = null,
@@ -341,24 +334,24 @@ pub const VM = struct {
 
     gc: *GarbageCollector,
     current_fiber: *Fiber,
+    current_ast: Ast,
     main_fiber: *Fiber,
     globals: std.ArrayList(Value),
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
-    mir_jit: ?MIRJIT = null,
+    jit: ?JIT = null,
     flavor: RunFlavor,
     reporter: Reporter,
     ffi: FFI,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
-        var main_fiber = try gc.allocator.create(Fiber);
-
         var self: Self = .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
-            .current_fiber = main_fiber,
-            .main_fiber = main_fiber,
+            .current_ast = undefined,
+            .current_fiber = undefined,
+            .main_fiber = undefined,
             .flavor = flavor,
             .reporter = Reporter{ .allocator = gc.allocator },
             .ffi = FFI.init(gc),
@@ -484,7 +477,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) MIRJIT.Error!void {
+    pub fn interpret(self: *Self, ast: Ast, function: *ObjFunction, args: ?[][:0]u8) JIT.Error!void {
         const fiber_def = ObjFiber.FiberDef{
             .return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
@@ -500,6 +493,8 @@ pub const VM = struct {
             .resolved_type = resolved_type,
         });
 
+        self.current_ast = ast;
+        self.current_fiber = try self.gc.allocator.create(Fiber);
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             type_def,
@@ -1033,7 +1028,7 @@ pub const VM = struct {
     }
 
     fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const str = valueToStringAlloc(self.gc.allocator, self.pop()) catch |e| {
+        const str = self.pop().toStringAlloc(self.gc.allocator) catch |e| {
             panic(e);
             unreachable;
         };
@@ -1650,7 +1645,7 @@ pub const VM = struct {
             //     defer gn.deinit();
             // }
 
-            vm.interpret(closure.function, null) catch |e| {
+            vm.interpret(self.current_ast, closure.function, null) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -2194,7 +2189,7 @@ pub const VM = struct {
         var enum_case: *ObjEnumInstance = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
 
         _ = self.pop();
-        self.push(enum_case.enum_ref.cases.items[enum_case.case]);
+        self.push(enum_case.enum_ref.cases[enum_case.case]);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2215,8 +2210,8 @@ pub const VM = struct {
         var enum_: *ObjEnum = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
 
         var found = false;
-        for (enum_.cases.items, 0..) |case, index| {
-            if (valueEql(case, case_value)) {
+        for (enum_.cases, 0..) |case, index| {
+            if (case.eql(case_value)) {
                 var enum_case: *ObjEnumInstance = self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                     .enum_ref = enum_,
                     .case = @intCast(index),
@@ -3269,7 +3264,7 @@ pub const VM = struct {
     }
 
     fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value.fromBoolean(valueEql(self.pop(), self.pop())));
+        self.push(Value.fromBoolean(self.pop().eql(self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3286,7 +3281,7 @@ pub const VM = struct {
     }
 
     fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value.fromBoolean(valueIs(self.pop(), self.pop())));
+        self.push(Value.fromBoolean(self.pop().is(self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3608,7 +3603,7 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Token) MIRJIT.Error!void {
+    pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) JIT.Error!void {
         var stack = if (previous_stack) |pstack|
             pstack.*
         else
@@ -3663,7 +3658,7 @@ pub const VM = struct {
                     }
                 }
 
-                const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
+                const value_str = try processed_payload.toStringAlloc(self.gc.allocator);
                 defer value_str.deinit();
 
                 self.reportRuntimeError(
@@ -3700,7 +3695,7 @@ pub const VM = struct {
         }
     }
 
-    fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Token, stack: []const CallFrame) void {
+    fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Ast.TokenIndex, stack: []const CallFrame) void {
         var notes = std.ArrayList(Reporter.Note).init(self.gc.allocator);
         defer {
             for (notes.items) |note| {
@@ -3730,7 +3725,7 @@ pub const VM = struct {
                         else
                             unext.closure.function.name.string,
                         if (frame.call_site) |call_site|
-                            call_site.script_name
+                            self.current_ast.tokens.items(.script_name)[call_site]
                         else
                             frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
@@ -3746,7 +3741,7 @@ pub const VM = struct {
                         else
                             "  ╰─",
                         if (frame.call_site) |call_site|
-                            call_site.script_name
+                            self.current_ast.tokens.items(.script_name)[call_site]
                         else
                             frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
@@ -3757,8 +3752,8 @@ pub const VM = struct {
                 writer.print(
                     ":{d}:{d}",
                     .{
-                        call_site.line + 1,
-                        call_site.column,
+                        self.current_ast.tokens.items(.line)[call_site] + 1,
+                        self.current_ast.tokens.items(.column)[call_site],
                     },
                 ) catch @panic("Could not report error");
             }
@@ -3776,7 +3771,7 @@ pub const VM = struct {
             .error_type = .runtime,
             .items = &[_]Reporter.ReportItem{
                 .{
-                    .location = error_site orelse stack[0].call_site.?,
+                    .location = self.current_ast.tokens.get(error_site orelse stack[0].call_site.?),
                     .kind = .@"error",
                     .message = message,
                 },
@@ -3787,20 +3782,20 @@ pub const VM = struct {
         err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         closure.function.call_count += 1;
 
         var native = closure.function.native;
-        if (self.mir_jit) |*mir_jit| {
-            mir_jit.call_count += 1;
+        if (self.jit) |*jit| {
+            jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
             if (!in_fiber and self.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
                 var success = true;
-                mir_jit.compileFunction(closure) catch |err| {
-                    if (err == MIRJIT.Error.CantCompile) {
+                jit.compileFunction(self.current_ast, closure) catch |err| {
+                    if (err == JIT.Error.CantCompile) {
                         success = false;
                     } else {
                         return err;
@@ -3817,7 +3812,7 @@ pub const VM = struct {
                     );
                 }
 
-                mir_jit.jit_time += timer.read();
+                jit.jit_time += timer.read();
 
                 if (success) {
                     native = closure.function.native;
@@ -3844,7 +3839,9 @@ pub const VM = struct {
         if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
             std.debug.print(
                 "\x1b[33m▶ Test: {s}\x1b[0m\n",
-                .{@as(*FunctionNode, @ptrCast(@alignCast(closure.function.node))).test_message.?},
+                .{
+                    self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
+                },
             );
         }
 
@@ -3990,7 +3987,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
@@ -4178,18 +4175,20 @@ pub const VM = struct {
             return false;
         }
 
-        if (self.mir_jit != null and (self.mir_jit.?.compiled_closures.get(closure) != null or self.mir_jit.?.blacklisted_closures.get(closure) != null)) {
+        if (self.jit != null and (self.jit.?.compiled_closures.get(closure) != null or self.jit.?.blacklisted_closures.get(closure) != null)) {
             return false;
         }
 
-        const function_node: *FunctionNode = @ptrCast(@alignCast(closure.function.node));
-        const user_hot = function_node.node.docblock != null and std.mem.indexOf(u8, function_node.node.docblock.?.lexeme, "@hot") != null;
+        const user_hot = if (self.current_ast.nodes.items(.components)[closure.function.node].Function.docblock) |docblock|
+            std.mem.indexOf(u8, self.current_ast.tokens.items(.lexeme)[docblock], "@hot") != null
+        else
+            false;
 
         return if (BuildOptions.jit_always_on)
             return true
         else
             user_hot or
                 (closure.function.call_count > 10 and
-                (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.mir_jit.?.call_count))) > BuildOptions.jit_prof_threshold);
+                (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold);
     }
 };

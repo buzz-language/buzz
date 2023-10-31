@@ -48,7 +48,14 @@ pub const VM = opaque {
         file_name: ?[*]const u8,
         file_name_len: usize,
     ) ?*ObjFunction;
-    pub extern fn bz_interpret(self: *VM, function: *ObjFunction) bool;
+    pub extern fn bz_interpret(self: *VM, ast: *anyopaque, function: *ObjFunction) bool;
+    pub extern fn bz_run(
+        self: *VM,
+        source: ?[*]const u8,
+        source_len: usize,
+        file_name: ?[*]const u8,
+        file_name_len: usize,
+    ) bool;
     pub extern fn bz_call(
         self: *VM,
         closure: *ObjClosure,

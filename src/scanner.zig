@@ -1,9 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const tk = @import("token.zig");
-const Token = tk.Token;
-const TokenType = tk.TokenType;
+const Token = @import("Token.zig");
 
 pub const SourceLocation = struct {
     start: usize,
@@ -223,7 +221,7 @@ pub const Scanner = struct {
 
         self.token_index += 1;
         return .{
-            .token_type = .Identifier,
+            .tag = .Identifier,
             .lexeme = string_token.literal_string.?,
             .literal_string = string_token.literal_string.?,
             .literal_float = null,
@@ -242,11 +240,11 @@ pub const Scanner = struct {
         }
 
         const literal = self.source[self.current.start..self.current.offset];
-        const keywordOpt = tk.keywords.get(literal);
+        const keywordOpt = Token.keywords.get(literal);
 
         if (keywordOpt) |keyword| {
             if (keyword == .As and self.match('?')) {
-                return self.makeToken(.AsBang, null, null, null);
+                return self.makeToken(.AsQuestion, null, null, null);
             }
 
             return self.makeToken(keyword, literal, null, null);
@@ -546,10 +544,10 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
+    fn makeToken(self: *Self, tag: Token.Type, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
         self.token_index += 1;
         return Token{
-            .token_type = token_type,
+            .tag = tag,
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,
             .literal_float = literal_float,
@@ -565,7 +563,7 @@ pub const Scanner = struct {
     pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
         var previous_offset: usize = 0;
         var token = self.scanToken() catch unreachable;
-        while (token.token_type != .Eof and token.token_type != .Error) {
+        while (token.tag != .Eof and token.tag != .Error) {
             // If there some whitespace or comments between tokens?
             // In gray because either whitespace or comment
             if (token.offset > previous_offset) {
@@ -594,7 +592,7 @@ pub const Scanner = struct {
             out.print(
                 "{s}{s}{s}",
                 .{
-                    switch (token.token_type) {
+                    switch (token.tag) {
                         // Operators
                         .Pipe,
                         .Greater,
@@ -669,7 +667,7 @@ pub const Scanner = struct {
                         .TypeOf,
                         .Var,
                         .Question,
-                        .AsBang,
+                        .AsQuestion,
                         => if (true_color) Color.keyword else "\x1b[94m",
                         // Punctuation
                         .LeftBracket,

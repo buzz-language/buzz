@@ -6,11 +6,8 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const ObjClosure = _obj.ObjClosure;
 const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
-const _value = @import("../value.zig");
+const Value = @import("../value.zig").Value;
 const buzz_api = @import("../buzz_api.zig");
-const Value = _value.Value;
-const valueEql = _value.valueEql;
-const valueToString = _value.valueToString;
 
 pub fn append(ctx: *NativeCtx) c_int {
     const list_value: Value = ctx.vm.peek(1);
@@ -142,7 +139,7 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
     var index: ?usize = null;
     var i: usize = 0;
     for (self.items.items) |item| {
-        if (valueEql(needle, item)) {
+        if (needle.eql(item)) {
             index = i;
             break;
         }
@@ -177,7 +174,7 @@ pub fn join(ctx: *NativeCtx) c_int {
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
-        valueToString(&writer, item) catch {
+        item.toString(&writer) catch {
             var err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 

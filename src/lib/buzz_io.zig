@@ -358,19 +358,14 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
     defer vm.bz_deinitVM();
 
     // Compile
-    var function = vm.bz_compile(
+
+    // Run
+    if (!vm.bz_run(
         if (source.len > 0) @as([*]const u8, @ptrCast(source)) else null,
         source.len,
         if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,
         filename.len,
-    ) orelse {
-        ctx.vm.pushError("errors.CompileError", null);
-
-        return -1;
-    };
-
-    // Run
-    if (!vm.bz_interpret(function)) {
+    )) {
         ctx.vm.pushError("errors.InterpretError", null);
 
         return -1;
