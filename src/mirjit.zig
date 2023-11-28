@@ -467,33 +467,29 @@ fn buildZdefUnionGetter(
         },
     );
 
-    // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
-    defer self.vm.gc.allocator.free(vm_name);
-    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
-    defer self.vm.gc.allocator.free(data_name);
+    var vars = [_]m.MIR_var_t{
+        .{
+            .type = m.MIR_T_P,
+            .name = "vm",
+            .size = undefined,
+        },
+        .{
+            .type = m.MIR_T_P,
+            .name = "data",
+            .size = undefined,
+        },
+    };
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(getter_name.items.ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         2,
-        &[_]m.MIR_var_t{
-            .{
-                .type = m.MIR_T_P,
-                .name = @ptrCast(vm_name.ptr),
-                .size = undefined,
-            },
-            .{
-                .type = m.MIR_T_P,
-                .name = @ptrCast(data_name.ptr),
-                .size = undefined,
-            },
-        },
+        &vars,
     );
 
     self.state.?.function = function;
-    self.state.?.vm_reg = m.MIR_reg(self.ctx, "vm", function.u.func);
+    self.state.?.vm_reg = m.MIR_reg(self.ctx, vars[0].name, function.u.func);
 
     const result_value = m.MIR_new_reg_op(
         self.ctx,
@@ -503,7 +499,7 @@ fn buildZdefUnionGetter(
         ),
     );
 
-    const data_reg = m.MIR_reg(self.ctx, "data", function.u.func);
+    const data_reg = m.MIR_reg(self.ctx, vars[1].name, function.u.func);
 
     // Getting an union field is essentialy casting it the concrete buzz type
     switch (zig_type.*) {
