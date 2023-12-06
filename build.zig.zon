@@ -1,0 +1,33 @@
+.{
+    .name = "buzz",
+    .version = "0.0.1",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+		"LICENSE",
+		"CHANGELOG.md",
+		"README.md",
+		"deps",
+		"src",
+		"tools",
+		"tests",
+    },
+    .dependencies = .{
+        .clap = .{
+            .url = "https://github.com/Hejsil/zig-clap/archive/c394594d218c3c936547e590b461e69e6e0b20c4.tar.gz",
+            .hash = "122066d86920926a4a674adaaa10f158dc4961c2a47e588e605765455d74ca72c2ad",
+        },
+        .pcre2 = .{
+			.path = "./vendors/pcre2",
+        },
+        .linenosie = .{
+			.path = "./vendors/linenoise",
+        },
+        .mimalloc= .{
+			.path = "./vendors/mimalloc",
+        },
+        .mir = .{
+			.path = "./vendors/mir",
+        },
+    },
+}

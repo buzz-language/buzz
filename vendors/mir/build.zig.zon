@@ -1,0 +1,14 @@
+.{
+    .name = "mir",
+    .version = "1.0.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",  
+    },
+    .dependencies = .{
+        .mir = .{
+            .url = "https://github.com/vnmakarov/mir/archive/b5bc9256d75bbc078e430e1635d11599cf823ad8.tar.gz",
+            .hash = "122095cea0c199fce718649f07f4e2b9e6a1adee6e0e45e51bb0180f6c331d9e96eb",
+        },
+    },
+}

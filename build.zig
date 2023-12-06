@@ -240,59 +240,26 @@ pub fn build(b: *Build) !void {
         },
     };
 
-    var sys_libs = std.ArrayList([]const u8).init(b.allocator);
-    defer sys_libs.deinit();
-    var includes = std.ArrayList([]const u8).init(b.allocator);
-    defer includes.deinit();
-    var llibs = std.ArrayList([]const u8).init(b.allocator);
-    defer llibs.deinit();
+    const clap = b.dependency("clap", .{ .target = target, .optimize = build_mode });
+    const mod_clap = clap.module("clap");
 
-    sys_libs.appendSlice(
-        &[_][]const u8{
-            "mir",
-        },
-    ) catch unreachable;
+    const pcre2 = b.dependency("pcre2", .{ .target = target, .optimize = build_mode });
+    const lib_pcre2 = pcre2.artifact("pcre2");
 
-    includes.appendSlice(&[_][]const u8{
-        "/usr/local/include",
-        "/usr/include",
-        "./vendors/mir",
-        "./vendors/mimalloc/include",
-    }) catch unreachable;
+    const lib_mimalloc: ?*std.Build.CompileStep = if (build_options.mimalloc) blk: {
+        const mimalloc = b.dependency("mimalloc", .{ .target = target, .optimize = build_mode });
+        break :blk mimalloc.artifact("mimalloc");
+    } else null;
 
-    llibs.appendSlice(&[_][]const u8{
-        "/usr/local/lib",
-        "/usr/lib",
-        "./vendors/mir",
-    }) catch unreachable;
+    const linenoise = b.dependency("linenosie", .{ .target = target, .optimize = build_mode });
+    const lib_linenoise = linenoise.artifact("linenoise");
 
-    const lib_pcre2 = try buildPcre2(b, target, build_mode);
-    const lib_mimalloc = if (build_options.mimalloc) try buildMimalloc(b, target, build_mode) else null;
-    const lib_linenoise = try buildLinenoise(b, target, build_mode);
-
-    // If macOS, add homebrew paths
-    if (builtin.os.tag == .macos) {
-        const result = std.ChildProcess.run(
-            .{
-                .allocator = b.allocator,
-                .argv = &[_][]const u8{ "brew", "--prefix" },
-            },
-        ) catch null;
-
-        const prefix = if (result) |r|
-            std.mem.trim(u8, r.stdout, "\n")
-        else
-            std.os.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
-
-        var include = std.ArrayList(u8).init(b.allocator);
-        include.writer().print("{s}{s}include", .{ prefix, std.fs.path.sep_str }) catch unreachable;
-
-        var lib = std.ArrayList(u8).init(b.allocator);
-        lib.writer().print("{s}{s}lib", .{ prefix, std.fs.path.sep_str }) catch unreachable;
-
-        includes.append(include.items) catch unreachable;
-        llibs.append(lib.items) catch unreachable;
-    }
+    const mir = b.dependency("mir", .{
+        .target = target,
+        // Safe builds are not working because mir doesn't play too well with undefined behavior
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    });
+    const lib_mir = mir.artifact("mir");
 
     var exe = b.addExecutable(.{
         .name = "buzz",
@@ -301,6 +268,7 @@ pub fn build(b: *Build) !void {
         .optimize = build_mode,
     });
     b.installArtifact(exe);
+    exe.addModule("clap", mod_clap);
 
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
@@ -309,17 +277,6 @@ pub fn build(b: *Build) !void {
     }
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
-    for (includes.items) |include| {
-        exe.addIncludePath(.{ .path = include });
-    }
-    for (llibs.items) |lib| {
-        exe.addLibraryPath(.{ .path = lib });
-    }
-    for (sys_libs.items) |slib| {
-        // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
-        // it's better to built it with Zig's build system
-        exe.linkSystemLibrary(slib);
-    }
     if (build_options.needLibC()) {
         exe.linkLibC();
     }
@@ -334,64 +291,38 @@ pub fn build(b: *Build) !void {
         .optimize = build_mode,
     });
     b.installArtifact(lib);
-    for (includes.items) |include| {
-        lib.addIncludePath(.{ .path = include });
-    }
-    for (llibs.items) |llib| {
-        lib.addLibraryPath(.{ .path = llib });
-    }
-    for (sys_libs.items) |slib| {
-        lib.linkSystemLibrary(slib);
-    }
-    if (build_options.needLibC()) {
-        lib.linkLibC();
-    }
     lib.main_mod_path = .{ .path = "src" };
 
     lib.addOptions("build_options", build_options.step(b));
 
     lib.linkLibrary(lib_pcre2);
-    if (lib_mimalloc) |mimalloc| {
-        lib.linkLibrary(mimalloc);
+    if (lib_mimalloc) |mimalloc_| {
+        lib.linkLibrary(mimalloc_);
         if (lib.target.getOsTag() == .windows) {
             lib.linkSystemLibrary("bcrypt");
         }
     }
     // So that JIT compiled function can reference buzz_api
     exe.linkLibrary(lib);
+    exe.linkLibrary(lib_mir);
     exe.linkLibrary(lib_linenoise);
 
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
 
-    const lib_paths = [_][]const u8{
-        "src/lib/buzz_std.zig",
-        "src/lib/buzz_io.zig",
-        "src/lib/buzz_gc.zig",
-        "src/lib/buzz_os.zig",
-        "src/lib/buzz_fs.zig",
-        "src/lib/buzz_math.zig",
-        "src/lib/buzz_debug.zig",
-        "src/lib/buzz_buffer.zig",
-        "src/lib/buzz_crypto.zig",
-        "src/lib/buzz_http.zig",
-        "src/lib/buzz_ffi.zig",
-        "src/lib/buzz_serialize.zig",
-    };
-    // Zig only libs
-    const lib_names = [_][]const u8{
-        "std",
-        "io",
-        "gc",
-        "os",
-        "fs",
-        "math",
-        "debug",
-        "buffer",
-        "crypto",
-        "http",
-        "ffi",
-        "serialize",
+    const native_libs = [_]struct { []const u8, []const u8 }{
+        .{ "std", "src/lib/buzz_std.zig" },
+        .{ "io", "src/lib/buzz_io.zig" },
+        .{ "gc", "src/lib/buzz_gc.zig" },
+        .{ "os", "src/lib/buzz_os.zig" },
+        .{ "fs", "src/lib/buzz_fs.zig" },
+        .{ "math", "src/lib/buzz_math.zig" },
+        .{ "debug", "src/lib/buzz_debug.zig" },
+        .{ "buffer", "src/lib/buzz_buffer.zig" },
+        .{ "crypto", "src/lib/buzz_crypto.zig" },
+        .{ "http", "src/lib/buzz_http.zig" },
+        .{ "ffi", "src/lib/buzz_ffi.zig" },
+        .{ "serialize", "src/lib/buzz_serialize.zig" },
     };
     const all_lib_names = [_][]const u8{
         "std",
@@ -407,48 +338,40 @@ pub fn build(b: *Build) !void {
         "errors",
         "ffi",
         "serialize",
+
         "test",
     };
 
     // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries
 
-    var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
-    for (lib_paths, 0..) |lib_path, index| {
-        var std_lib = b.addSharedLibrary(.{
-            .name = lib_names[index],
-            .root_source_file = Build.FileSource.relative(lib_path),
+    var libs = [_]*std.build.LibExeObjStep{undefined} ** native_libs.len;
+    for (&libs, native_libs) |*std_lib, native_lib| {
+        std_lib.* = b.addSharedLibrary(.{
+            .name = native_lib[0],
+            .root_source_file = Build.FileSource.relative(native_lib[1]),
             .target = target,
             .optimize = build_mode,
         });
-        const artifact = b.addInstallArtifact(std_lib, .{});
+        const artifact = b.addInstallArtifact(std_lib.*, .{});
         install_step.dependOn(&artifact.step);
         artifact.dest_dir = .{ .custom = "lib/buzz" };
 
-        for (includes.items) |include| {
-            std_lib.addIncludePath(.{ .path = include });
-        }
-        for (llibs.items) |llib| {
-            std_lib.addLibraryPath(.{ .path = llib });
-        }
-        for (sys_libs.items) |slib| {
-            std_lib.linkSystemLibrary(slib);
-        }
         if (build_options.needLibC()) {
-            std_lib.linkLibC();
+            std_lib.*.linkLibC();
         }
-        std_lib.main_mod_path = .{ .path = "src" };
-        std_lib.linkLibrary(lib_pcre2);
-        if (lib_mimalloc) |mimalloc| {
-            std_lib.linkLibrary(mimalloc);
-            if (std_lib.target.getOsTag() == .windows) {
-                std_lib.linkSystemLibrary("bcrypt");
+        std_lib.*.main_mod_path = .{ .path = "src" };
+        std_lib.*.linkLibrary(lib_pcre2);
+        if (lib_mimalloc) |mimalloc_| {
+            std_lib.*.linkLibrary(mimalloc_);
+            if (std_lib.*.target.getOsTag() == .windows) {
+                std_lib.*.linkSystemLibrary("bcrypt");
             }
         }
-        std_lib.linkLibrary(lib);
-        std_lib.addOptions("build_options", build_options.step(b));
+        std_lib.*.linkLibrary(lib);
+        std_lib.*.addOptions("build_options", build_options.step(b));
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
-        std_lib.addRPath(
+        std_lib.*.addRPath(
             .{
                 .path = b.fmt(
                     "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
@@ -456,11 +379,9 @@ pub fn build(b: *Build) !void {
                 ),
             },
         );
-        std_lib.addRPath(.{ .path = "/usr/local/lib/buzz" });
+        std_lib.*.addRPath(.{ .path = "/usr/local/lib/buzz" });
 
-        b.default_step.dependOn(&std_lib.step);
-
-        libs[index] = std_lib;
+        b.default_step.dependOn(&std_lib.*.step);
     }
 
     for (all_lib_names) |name| {
@@ -476,21 +397,12 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = build_mode,
     });
-    for (includes.items) |include| {
-        tests.addIncludePath(.{ .path = include });
-    }
-    for (llibs.items) |llib| {
-        tests.addLibraryPath(.{ .path = llib });
-    }
-    for (sys_libs.items) |slib| {
-        tests.linkSystemLibrary(slib);
-    }
     if (build_options.needLibC()) {
         tests.linkLibC();
     }
     tests.linkLibrary(lib_pcre2);
-    if (lib_mimalloc) |mimalloc| {
-        tests.linkLibrary(mimalloc);
+    if (lib_mimalloc) |mimalloc_| {
+        tests.linkLibrary(mimalloc_);
         if (tests.target.getOsTag() == .windows) {
             tests.linkSystemLibrary("bcrypt");
         }
@@ -503,167 +415,4 @@ pub fn build(b: *Build) !void {
     run_tests.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
-}
-
-pub fn buildPcre2(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const copyFiles = b.addWriteFiles();
-    copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/config.h.generic" },
-        "vendors/pcre2/src/config.h",
-    );
-    copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/pcre2.h.generic" },
-        "vendors/pcre2/src/pcre2.h",
-    );
-    copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/pcre2_chartables.c.dist" },
-        "vendors/pcre2/src/pcre2_chartables.c",
-    );
-
-    const lib = b.addStaticLibrary(.{
-        .name = "pcre2",
-        .target = target,
-        .optimize = optimize,
-    });
-    lib.addIncludePath(.{ .path = "src" });
-    lib.addCSourceFiles(
-        .{
-            .files = &.{
-                "vendors/pcre2/src/pcre2_auto_possess.c",
-                "vendors/pcre2/src/pcre2_compile.c",
-                "vendors/pcre2/src/pcre2_config.c",
-                "vendors/pcre2/src/pcre2_context.c",
-                "vendors/pcre2/src/pcre2_convert.c",
-                "vendors/pcre2/src/pcre2_dfa_match.c",
-                "vendors/pcre2/src/pcre2_error.c",
-                "vendors/pcre2/src/pcre2_extuni.c",
-                "vendors/pcre2/src/pcre2_find_bracket.c",
-                "vendors/pcre2/src/pcre2_maketables.c",
-                "vendors/pcre2/src/pcre2_match.c",
-                "vendors/pcre2/src/pcre2_match_data.c",
-                "vendors/pcre2/src/pcre2_newline.c",
-                "vendors/pcre2/src/pcre2_ord2utf.c",
-                "vendors/pcre2/src/pcre2_pattern_info.c",
-                "vendors/pcre2/src/pcre2_script_run.c",
-                "vendors/pcre2/src/pcre2_serialize.c",
-                "vendors/pcre2/src/pcre2_string_utils.c",
-                "vendors/pcre2/src/pcre2_study.c",
-                "vendors/pcre2/src/pcre2_substitute.c",
-                "vendors/pcre2/src/pcre2_substring.c",
-                "vendors/pcre2/src/pcre2_tables.c",
-                "vendors/pcre2/src/pcre2_ucd.c",
-                "vendors/pcre2/src/pcre2_valid_utf.c",
-                "vendors/pcre2/src/pcre2_xclass.c",
-                "vendors/pcre2/src/pcre2_chartables.c",
-            },
-            .flags = &.{
-                "-std=c99",
-                "-DHAVE_CONFIG_H",
-                "-DPCRE2_CODE_UNIT_WIDTH=8",
-                "-DPCRE2_STATIC",
-            },
-        },
-    );
-    lib.step.dependOn(&copyFiles.step);
-    lib.linkLibC();
-    b.installArtifact(lib);
-
-    return lib;
-}
-
-pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const lib = b.addStaticLibrary(
-        .{
-            .name = "mimalloc",
-            .target = target,
-            .optimize = optimize,
-        },
-    );
-
-    lib.addIncludePath(.{ .path = "./vendors/mimalloc/include" });
-    lib.linkLibC();
-
-    if (lib.target.getOsTag() == .macos) {
-        var macOS_sdk_path = std.ArrayList(u8).init(b.allocator);
-        try macOS_sdk_path.writer().print(
-            "{s}/usr/include",
-            .{
-                (std.ChildProcess.run(.{
-                    .allocator = b.allocator,
-                    .argv = &.{
-                        "xcrun",
-                        "--show-sdk-path",
-                    },
-                    .cwd = b.pathFromRoot("."),
-                    .expand_arg0 = .expand,
-                }) catch {
-                    std.debug.print("Warning: failed to get MacOSX sdk path", .{});
-                    unreachable;
-                }).stdout,
-            },
-        );
-
-        lib.addSystemIncludePath(.{ .path = macOS_sdk_path.items });
-        // Github macos-12 runner (https://github.com/actions/runner-images/blob/main/images/macos/macos-12-Readme.md).
-        lib.addSystemIncludePath(.{ .path = "/Applications/Xcode_14.0.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX14.0.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk/usr/include" });
-    }
-
-    lib.addCSourceFiles(
-        .{
-            .files = &.{
-                "./vendors/mimalloc/src/alloc-aligned.c",
-                "./vendors/mimalloc/src/alloc.c",
-                "./vendors/mimalloc/src/arena.c",
-                "./vendors/mimalloc/src/bitmap.c",
-                "./vendors/mimalloc/src/heap.c",
-                "./vendors/mimalloc/src/init.c",
-                "./vendors/mimalloc/src/options.c",
-                "./vendors/mimalloc/src/os.c",
-                "./vendors/mimalloc/src/page.c",
-                "./vendors/mimalloc/src/random.c",
-                "./vendors/mimalloc/src/segment-map.c",
-                "./vendors/mimalloc/src/segment.c",
-                "./vendors/mimalloc/src/stats.c",
-                "./vendors/mimalloc/src/prim/prim.c",
-            },
-            .flags = if (lib.optimize != .Debug)
-                &.{
-                    "-DNDEBUG=1",
-                    "-DMI_SECURE=0",
-                    "-DMI_STAT=0",
-                }
-            else
-                &.{},
-        },
-    );
-
-    return lib;
-}
-
-pub fn buildLinenoise(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{
-        .name = "linenoise",
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.addIncludePath(.{ .path = "vendors/linenoise" });
-    lib.addCSourceFiles(
-        .{
-            .files = &.{
-                "vendors/linenoise/linenoise.c",
-            },
-            .flags = &.{
-                "-Os",
-            },
-        },
-    );
-    lib.linkLibC();
-    b.installArtifact(lib);
-
-    return lib;
 }
