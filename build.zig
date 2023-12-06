@@ -390,6 +390,8 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         tests.linkLibC();
     }
+    tests.linkLibrary(lib);
+    tests.linkLibrary(lib_mir);
     tests.linkLibrary(lib_pcre2);
     if (lib_mimalloc) |mimalloc_| {
         tests.linkLibrary(mimalloc_);
