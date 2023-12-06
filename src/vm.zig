@@ -162,7 +162,7 @@ pub const Fiber = struct {
         };
 
         if (stack_slice != null) {
-            std.mem.copy(Value, self.stack, stack_slice.?);
+            @memcpy(self.stack, stack_slice.?);
 
             self.stack_top = @as([*]Value, @ptrCast(self.stack[stack_slice.?.len..]));
         } else {
@@ -230,7 +230,7 @@ pub const Fiber = struct {
                 .OP_FIBER_FOREACH => {
                     _ = vm.pop();
 
-                    var value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
 
                     value_slot.* = top;
                 },
@@ -316,7 +316,7 @@ pub const Fiber = struct {
                     // We don't care about the returned value
                     _ = vm.pop();
 
-                    var value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
 
                     value_slot.* = Value.Null;
                 },
@@ -351,9 +351,9 @@ pub const VM = struct {
     ffi: FFI,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
-        var main_fiber = try gc.allocator.create(Fiber);
+        const main_fiber = try gc.allocator.create(Fiber);
 
-        var self: Self = .{
+        const self: Self = .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
@@ -374,7 +374,7 @@ pub const VM = struct {
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
-        var list_def: ObjList.ListDef = ObjList.ListDef.init(
+        const list_def: ObjList.ListDef = ObjList.ListDef.init(
             self.gc.allocator,
             try self.gc.allocateObject(
                 ObjTypeDef,
@@ -382,11 +382,11 @@ pub const VM = struct {
             ),
         );
 
-        var list_def_union: ObjTypeDef.TypeUnion = .{
+        const list_def_union: ObjTypeDef.TypeUnion = .{
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = try self.gc.allocateObject(
+        const list_def_type: *ObjTypeDef = try self.gc.allocateObject(
             ObjTypeDef,
             ObjTypeDef{
                 .def_type = .List,
@@ -467,7 +467,7 @@ pub const VM = struct {
     }
 
     inline fn swap(self: *Self, from: u8, to: u8) void {
-        var temp: Value = (self.current_fiber.stack_top - to - 1)[0];
+        const temp: Value = (self.current_fiber.stack_top - to - 1)[0];
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
     }
@@ -540,7 +540,7 @@ pub const VM = struct {
 
     inline fn readInstruction(self: *Self) u32 {
         const current_frame: *CallFrame = self.currentFrame().?;
-        var instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
+        const instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
 
         current_frame.ip += 1;
 
@@ -1085,7 +1085,7 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var function: *ObjFunction = self.readConstant(arg).obj().access(ObjFunction, .Function, self.gc).?;
+        const function: *ObjFunction = self.readConstant(arg).obj().access(ObjFunction, .Function, self.gc).?;
         var closure: *ObjClosure = self.gc.allocateObject(
             ObjClosure,
             ObjClosure.init(self.gc.allocator, self, function) catch |e| {
@@ -1101,8 +1101,8 @@ pub const VM = struct {
 
         var i: usize = 0;
         while (i < function.upvalue_count) : (i += 1) {
-            var is_local: bool = self.readByte() == 1;
-            var index: u8 = self.readByte();
+            const is_local: bool = self.readByte() == 1;
+            const index: u8 = self.readByte();
 
             if (is_local) {
                 closure.upvalues.append(self.captureUpvalue(&(current_frame.slots[index])) catch |e| {
@@ -1404,7 +1404,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
@@ -1437,7 +1437,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
@@ -1470,7 +1470,7 @@ pub const VM = struct {
             panic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
@@ -1504,7 +1504,7 @@ pub const VM = struct {
             unreachable;
         }).?;
 
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
@@ -1538,7 +1538,7 @@ pub const VM = struct {
             unreachable;
         }).?;
 
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
             panic(e);
@@ -1561,7 +1561,7 @@ pub const VM = struct {
 
     // result_count > 0 when the return is `export`
     inline fn returnFrame(self: *Self) bool {
-        var result = self.pop();
+        const result = self.pop();
 
         const frame: *CallFrame = self.currentFrame().?;
 
@@ -1656,7 +1656,7 @@ pub const VM = struct {
             };
 
             // Top of stack is how many export we got
-            var exported_count = vm.peek(0).integer();
+            const exported_count = vm.peek(0).integer();
 
             // Copy them to this vm globals
             var import_cache = std.ArrayList(Value).init(self.gc.allocator);
@@ -1835,7 +1835,7 @@ pub const VM = struct {
 
     fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
-        var list_value: Value = self.peek(0);
+        const list_value: Value = self.peek(0);
 
         list.rawAppend(self.gc, list_value) catch |e| {
             panic(e);
@@ -1885,8 +1885,8 @@ pub const VM = struct {
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var map: *ObjMap = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
-        var key: Value = self.peek(1);
-        var value: Value = self.peek(0);
+        const key: Value = self.peek(1);
+        const value: Value = self.peek(0);
 
         map.set(self.gc, key, value) catch |e| {
             panic(e);
@@ -1911,7 +1911,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
+        const list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
@@ -1948,7 +1948,7 @@ pub const VM = struct {
             return;
         }
 
-        var list_item: Value = list.items.items[list_index];
+        const list_item: Value = list.items.items[list_index];
 
         // Pop list and index
         _ = self.pop();
@@ -1973,7 +1973,7 @@ pub const VM = struct {
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var map: *ObjMap = self.peek(1).obj().access(ObjMap, .Map, self.gc).?;
-        var index: Value = self.peek(0);
+        const index: Value = self.peek(0);
 
         // Pop map and key
         _ = self.pop();
@@ -2001,7 +2001,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
+        const str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
@@ -2022,7 +2022,7 @@ pub const VM = struct {
         const str_index: usize = @intCast(index);
 
         if (str_index < str.string.len) {
-            var str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
+            const str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
                 panic(e);
                 unreachable;
             }).toValue();
@@ -2159,7 +2159,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
+        const enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         _ = self.pop();
 
@@ -2191,7 +2191,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_case: *ObjEnumInstance = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
+        const enum_case: *ObjEnumInstance = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
 
         _ = self.pop();
         self.push(enum_case.enum_ref.cases.items[enum_case.case]);
@@ -2211,8 +2211,8 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var case_value = self.pop();
-        var enum_: *ObjEnum = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
+        const case_value = self.pop();
+        const enum_: *ObjEnum = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
 
         var found = false;
         for (enum_.cases.items, 0..) |case, index| {
@@ -2388,7 +2388,7 @@ pub const VM = struct {
 
     fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
-        var property: Value = self.peek(0);
+        const property: Value = self.peek(0);
         var object: *ObjObject = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
@@ -3411,7 +3411,7 @@ pub const VM = struct {
 
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var list: *ObjList = self.peek(0).obj().access(ObjList, .List, self.gc).?;
 
         // Get next index
@@ -3447,14 +3447,14 @@ pub const VM = struct {
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull())
+        const enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull())
             null
         else
             value_slot.obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
         var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         // Get next enum case
-        var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
+        const next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
             panic(e);
             unreachable;
         };
@@ -3475,12 +3475,12 @@ pub const VM = struct {
     }
 
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var map: *ObjMap = self.peek(0).obj().access(ObjMap, .Map, self.gc).?;
-        var current_key: ?Value = if (!key_slot.*.isNull()) key_slot.* else null;
+        const current_key: ?Value = if (!key_slot.*.isNull()) key_slot.* else null;
 
-        var next_key: ?Value = map.rawNext(current_key);
+        const next_key: ?Value = map.rawNext(current_key);
         key_slot.* = if (next_key) |unext_key| unext_key else Value.Null;
 
         if (next_key) |unext_key| {
@@ -3502,7 +3502,7 @@ pub const VM = struct {
     }
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var fiber = self.peek(0).obj().access(ObjFiber, .Fiber, self.gc).?;
 
         if (fiber.fiber.status == .Over) {
@@ -4069,7 +4069,7 @@ pub const VM = struct {
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4081,7 +4081,7 @@ pub const VM = struct {
             },
             .Pattern => {
                 if (try ObjPattern.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4093,7 +4093,7 @@ pub const VM = struct {
             },
             .Fiber => {
                 if (try ObjFiber.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4107,7 +4107,7 @@ pub const VM = struct {
                 const list = obj.access(ObjList, .List, self.gc).?;
 
                 if (try list.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4121,7 +4121,7 @@ pub const VM = struct {
                 const map = obj.access(ObjMap, .Map, self.gc).?;
 
                 if (try map.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value: Value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);

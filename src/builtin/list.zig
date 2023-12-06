@@ -118,7 +118,7 @@ fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
 pub fn sort(ctx: *NativeCtx) c_int {
     var self = ObjList.cast(ctx.vm.peek(1).obj()).?;
     // fun compare(T lhs, T rhs) > bool
-    var sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     std.sort.insertion(
         Value,
@@ -170,15 +170,15 @@ pub fn clone(ctx: *NativeCtx) c_int {
 }
 
 pub fn join(ctx: *NativeCtx) c_int {
-    var self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var separator: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const separator: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
         valueToString(&writer, item) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
+            const err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
             return -1;
@@ -186,7 +186,7 @@ pub fn join(ctx: *NativeCtx) c_int {
 
         if (i + 1 < self.items.items.len) {
             writer.writeAll(separator.string) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+                const err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
                 ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
                 return -1;
@@ -195,7 +195,7 @@ pub fn join(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push((ctx.vm.gc.copyString(result.items) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -210,14 +210,14 @@ pub fn sub(ctx: *NativeCtx) c_int {
     const upto = ctx.vm.peek(0).integerOrNull();
 
     if (start < 0 or start >= self.items.items.len) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
     }
 
     if (upto != null and upto.? < 0) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -227,19 +227,19 @@ pub fn sub(ctx: *NativeCtx) c_int {
         @as(usize, @intCast(start + upto.?))
     else
         self.items.items.len;
-    var substr: []Value = self.items.items[@as(usize, @intCast(start))..limit];
+    const substr: []Value = self.items.items[@as(usize, @intCast(start))..limit];
 
     var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
         .type_def = self.type_def,
         .methods = self.methods.clone() catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+            const err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
             return -1;
         },
         .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
     }) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -248,7 +248,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     ctx.vm.push(list.toValue());
 
     list.items.appendSlice(substr) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;

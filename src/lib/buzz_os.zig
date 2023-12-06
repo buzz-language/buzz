@@ -211,6 +211,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.TimeoutTooBig,
         error.UnknownHostName,
         error.WouldBlock,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BadPathName,
@@ -422,6 +423,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -439,7 +441,7 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readUntilDelimiterAlloc(
+    const buffer = reader.readUntilDelimiterAlloc(
         api.VM.allocator,
         '\n',
         if (max_size.isNull())
@@ -484,7 +486,7 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readAllAlloc(
+    const buffer = reader.readAllAlloc(
         api.VM.allocator,
         if (max_size.isNull())
             std.math.maxInt(usize)
@@ -610,6 +612,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.SocketTypeNotSupported,
             error.SystemFdQuotaExceeded,
             error.TimeoutTooBig,
+            error.SocketNotConnected,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
             error.AccessDenied,
             error.BadPathName,
@@ -709,6 +712,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         .sockfd = server_socket,
         .kernel_backlog = default_options.kernel_backlog,
         .reuse_address = reuse_address,
+        .force_nonblocking = default_options.force_nonblocking,
         .reuse_port = reuse_port,
         .listen_address = undefined,
     };
@@ -726,6 +730,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
             error.ConnectionResetByPeer,
             error.NetworkSubsystemFailed,
             error.OperationNotSupported,
+            error.WouldBlock,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         }

@@ -311,7 +311,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {
-            var constant: u24 = arg;
+            const constant: u24 = arg;
             var off_offset: usize = offset + 1;
 
             var value_str = try _value.valueToStringAlloc(global_allocator, chunk.constants.items[constant]);
@@ -326,12 +326,12 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
                 },
             );
 
-            var function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].obj()).?;
+            const function: *ObjFunction = ObjFunction.cast(chunk.constants.items[constant].obj()).?;
             var i: u8 = 0;
             while (i < function.upvalue_count) : (i += 1) {
-                var is_local: bool = chunk.code.items[off_offset] == 1;
+                const is_local: bool = chunk.code.items[off_offset] == 1;
                 off_offset += 1;
-                var index: u8 = @intCast(chunk.code.items[off_offset]);
+                const index: u8 = @intCast(chunk.code.items[off_offset]);
                 off_offset += 1;
                 print(
                     "\n{:0>3} |                         \t{s} {}\n",

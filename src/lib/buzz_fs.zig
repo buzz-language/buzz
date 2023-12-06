@@ -275,17 +275,17 @@ export fn list(ctx: *api.NativeCtx) c_int {
     const filename_slice = filename.?[0..len];
 
     const dir = if (std.fs.path.isAbsolute(filename_slice))
-        std.fs.openIterableDirAbsolute(filename_slice, .{}) catch |err| {
+        std.fs.openDirAbsolute(filename_slice, .{ .iterate = true }) catch |err| {
             handleOpenDirAbsoluteError(ctx, err);
             return -1;
         }
     else
-        std.fs.cwd().openIterableDir(filename_slice, .{}) catch |err| {
+        std.fs.cwd().openDir(filename_slice, .{ .iterate = true }) catch |err| {
             handleOpenDirError(ctx, err);
             return -1;
         };
 
-    var file_list = api.ObjList.bz_newList(
+    const file_list = api.ObjList.bz_newList(
         ctx.vm,
         api.ObjTypeDef.bz_stringType(ctx.vm),
     );
