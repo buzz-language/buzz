@@ -78,7 +78,7 @@ fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
     var offset: usize = 0;
     while (true) {
         if (try rawMatch(self, vm, subject, &offset)) |matches| {
-            var was_null = results == null;
+            const was_null = results == null;
             results = results orelse try vm.gc.allocateObject(
                 ObjList,
                 ObjList.init(vm.gc.allocator, matches.type_def),

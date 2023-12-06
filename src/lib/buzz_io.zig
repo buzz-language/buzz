@@ -66,7 +66,7 @@ export fn FileOpen(ctx: *api.NativeCtx) c_int {
     const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
 
-    var file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
+    const file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
         switch (mode) {
             0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch |err| {
                 handleFileOpenError(ctx, err);
@@ -124,6 +124,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionTimedOut,
         error.NotOpenForReading,
         error.NetNameDeleted,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -177,6 +178,7 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -192,7 +194,7 @@ export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = reader.readUntilDelimiterOrEofAlloc(
+    const buffer = reader.readUntilDelimiterOrEofAlloc(
         api.VM.allocator,
         '\n',
         if (max_size.isNull())
@@ -237,6 +239,7 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionTimedOut,
         error.NotOpenForReading,
         error.NetNameDeleted,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -358,7 +361,7 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
     defer vm.bz_deinitVM();
 
     // Compile
-    var function = vm.bz_compile(
+    const function = vm.bz_compile(
         if (source.len > 0) @as([*]const u8, @ptrCast(source)) else null,
         source.len,
         if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,

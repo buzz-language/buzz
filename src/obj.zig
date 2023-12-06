@@ -288,7 +288,7 @@ pub const Obj = struct {
 
                 var it = container_def.fields.iterator();
                 while (it.next()) |kv| {
-                    var dupped = try vm.gc.allocator.dupeZ(u8, kv.key_ptr.*);
+                    const dupped = try vm.gc.allocator.dupeZ(u8, kv.key_ptr.*);
                     defer vm.gc.allocator.free(dupped);
 
                     try serialized_instance.set(
@@ -386,7 +386,7 @@ pub const Obj = struct {
             .String => type_def.def_type == .String,
             .Type => type_def.def_type == .Type,
             .UpValue => uv: {
-                var upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+                const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
                 break :uv valueTypeEql(upvalue.closed orelse upvalue.location.*, type_def);
             },
             .EnumInstance => ei: {
@@ -402,7 +402,7 @@ pub const Obj = struct {
             .Function => ObjFunction.cast(self).?.type_def.eql(type_def),
             .Closure => ObjClosure.cast(self).?.function.type_def.eql(type_def),
             .Bound => bound: {
-                var bound = ObjBoundMethod.cast(self).?;
+                const bound = ObjBoundMethod.cast(self).?;
                 break :bound if (bound.closure) |cls| cls.function.type_def.eql(type_def) else unreachable; // TODO
             },
             .List => ObjList.cast(self).?.type_def.eql(type_def),
@@ -1669,7 +1669,7 @@ pub const ObjList = struct {
                 // `value` arg is of item_type
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("append"),
@@ -1681,9 +1681,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("append", native_type);
 
@@ -1694,7 +1694,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var at_type = try parser.gc.type_registry.getTypeDef(
+                const at_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Integer,
                         .optional = false,
@@ -1703,7 +1703,7 @@ pub const ObjList = struct {
 
                 try parameters.put(try parser.gc.copyString("at"), at_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
@@ -1719,9 +1719,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1732,9 +1732,9 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                const parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("len"),
@@ -1750,9 +1750,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1779,7 +1779,7 @@ pub const ObjList = struct {
                     ),
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("next"),
@@ -1797,9 +1797,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1838,7 +1838,7 @@ pub const ObjList = struct {
                 var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
                 try defaults.put(len_str, Value.Null);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sub"),
@@ -1850,9 +1850,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1870,7 +1870,7 @@ pub const ObjList = struct {
 
                 try parameters.put(try parser.gc.copyString("needle"), self.item_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("indexOf"),
@@ -1887,9 +1887,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1907,7 +1907,7 @@ pub const ObjList = struct {
 
                 try parameters.put(try parser.gc.copyString("separator"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("join"),
@@ -1921,9 +1921,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -1949,7 +1949,7 @@ pub const ObjList = struct {
                 // `value` arg is of item_type
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("insert"),
@@ -1961,15 +1961,15 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("insert", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "pop")) {
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("pop"),
@@ -1981,9 +1981,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("pop", native_type);
 
@@ -1997,7 +1997,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
                 try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2009,9 +2009,9 @@ pub const ObjList = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2025,7 +2025,7 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("forEach"),
@@ -2037,9 +2037,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("forEach", native_type);
 
@@ -2083,9 +2083,9 @@ pub const ObjList = struct {
 
                 callback_method_def.return_type = generic_type;
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2099,9 +2099,9 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                var new_list_def = ObjList.ListDef.init(parser.gc.allocator, generic_type);
+                const new_list_def = ObjList.ListDef.init(parser.gc.allocator, generic_type);
 
-                var new_list_type = ObjTypeDef.TypeUnion{ .List = new_list_def };
+                const new_list_type = ObjTypeDef.TypeUnion{ .List = new_list_def };
 
                 var method_def = ObjFunction.FunctionDef{
                     .id = map_origin,
@@ -2123,9 +2123,9 @@ pub const ObjList = struct {
                     generic_type,
                 );
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("map", native_type);
 
@@ -2145,7 +2145,7 @@ pub const ObjList = struct {
                     self.item_type,
                 );
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2157,9 +2157,9 @@ pub const ObjList = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2173,7 +2173,7 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("filter"),
@@ -2185,9 +2185,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("filter", native_type);
 
@@ -2223,7 +2223,7 @@ pub const ObjList = struct {
                     generic_type,
                 );
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2235,9 +2235,9 @@ pub const ObjList = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2258,7 +2258,7 @@ pub const ObjList = struct {
                 var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
                 try generic_types.put(try parser.gc.copyString("T"), generic_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = reduce_origin,
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("reduce"),
@@ -2270,9 +2270,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2291,7 +2291,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(try parser.gc.copyString("left"), self.item_type);
                 try callback_parameters.put(try parser.gc.copyString("right"), self.item_type);
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2303,9 +2303,9 @@ pub const ObjList = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2319,7 +2319,7 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sort"),
@@ -2331,9 +2331,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2347,7 +2347,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("clone"),
@@ -2359,9 +2359,9 @@ pub const ObjList = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2533,7 +2533,7 @@ pub const ObjMap = struct {
             }
 
             if (mem.eql(u8, method, "size")) {
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("size"),
@@ -2547,9 +2547,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2567,7 +2567,7 @@ pub const ObjMap = struct {
 
                 try parameters.put(try parser.gc.copyString("at"), self.key_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("remove"),
@@ -2583,9 +2583,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2596,16 +2596,16 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
-                var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                const list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.key_type,
                 );
 
-                var list_def_union: ObjTypeDef.TypeUnion = .{
+                const list_def_union: ObjTypeDef.TypeUnion = .{
                     .List = list_def,
                 };
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("keys"),
@@ -2621,9 +2621,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2634,16 +2634,16 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
-                var list_def: ObjList.ListDef = ObjList.ListDef.init(
+                const list_def: ObjList.ListDef = ObjList.ListDef.init(
                     parser.gc.allocator,
                     self.value_type,
                 );
 
-                var list_def_union: ObjTypeDef.TypeUnion = .{
+                const list_def_union: ObjTypeDef.TypeUnion = .{
                     .List = list_def,
                 };
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("values"),
@@ -2659,9 +2659,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2680,7 +2680,7 @@ pub const ObjMap = struct {
                 try callback_parameters.put(try parser.gc.copyString("left"), self.key_type);
                 try callback_parameters.put(try parser.gc.copyString("right"), self.key_type);
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2692,9 +2692,9 @@ pub const ObjMap = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2708,7 +2708,7 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("sort"),
@@ -2720,9 +2720,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2743,7 +2743,7 @@ pub const ObjMap = struct {
                     obj_map,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("diff"),
@@ -2755,9 +2755,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2778,7 +2778,7 @@ pub const ObjMap = struct {
                     obj_map,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("intersect"),
@@ -2790,9 +2790,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -2817,7 +2817,7 @@ pub const ObjMap = struct {
                     self.value_type,
                 );
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -2829,9 +2829,9 @@ pub const ObjMap = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2845,7 +2845,7 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("forEach"),
@@ -2857,9 +2857,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("forEach", native_type);
 
@@ -2939,9 +2939,9 @@ pub const ObjMap = struct {
                     &parser.gc.type_registry,
                 );
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -2955,13 +2955,13 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                var new_map_def = ObjMap.MapDef.init(
+                const new_map_def = ObjMap.MapDef.init(
                     parser.gc.allocator,
                     generic_key_type,
                     generic_value_type,
                 );
 
-                var new_map_type = ObjTypeDef.TypeUnion{ .Map = new_map_def };
+                const new_map_type = ObjTypeDef.TypeUnion{ .Map = new_map_def };
 
                 var method_def = ObjFunction.FunctionDef{
                     .id = map_origin,
@@ -2988,9 +2988,9 @@ pub const ObjMap = struct {
                     generic_value_type,
                 );
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -3015,7 +3015,7 @@ pub const ObjMap = struct {
                     self.value_type,
                 );
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -3027,9 +3027,9 @@ pub const ObjMap = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -3043,7 +3043,7 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("filter"),
@@ -3055,9 +3055,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
 
                 try self.methods.put("filter", native_type);
 
@@ -3093,7 +3093,7 @@ pub const ObjMap = struct {
                     generic_type,
                 );
 
-                var callback_method_def = ObjFunction.FunctionDef{
+                const callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
                     .script_name = try parser.gc.copyString("builtin"),
@@ -3105,9 +3105,9 @@ pub const ObjMap = struct {
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                 };
 
-                var callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
 
-                var callback_type = try parser.gc.type_registry.getTypeDef(
+                const callback_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = callback_resolved_type,
@@ -3128,7 +3128,7 @@ pub const ObjMap = struct {
                 var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
                 try generic_types.put(try parser.gc.copyString("T"), generic_type);
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = reduce_origin,
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("reduce"),
@@ -3140,9 +3140,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -3156,7 +3156,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var method_def = ObjFunction.FunctionDef{
+                const method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("clone"),
@@ -3168,9 +3168,9 @@ pub const ObjMap = struct {
                     .function_type = .Extern,
                 };
 
-                var resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                var native_type = try parser.gc.type_registry.getTypeDef(
+                const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
                         .resolved_type = resolved_type,
@@ -3599,7 +3599,7 @@ pub const ObjTypeDef = struct {
 
                 const resolved_type_union = ObjTypeDef.TypeUnion{ .Object = resolved };
 
-                var new_object = ObjTypeDef{
+                const new_object = ObjTypeDef{
                     .def_type = .Object,
                     .optional = self.optional,
                     .resolved_type = resolved_type_union,
@@ -3625,7 +3625,7 @@ pub const ObjTypeDef = struct {
                     );
                 }
 
-                var new_list_def = ObjList.ListDef{
+                const new_list_def = ObjList.ListDef{
                     .item_type = try (try old_list_def.item_type.populateGenerics(
                         where,
                         origin,
@@ -3636,7 +3636,7 @@ pub const ObjTypeDef = struct {
                     .methods = methods,
                 };
 
-                var new_resolved = ObjTypeDef.TypeUnion{ .List = new_list_def };
+                const new_resolved = ObjTypeDef.TypeUnion{ .List = new_list_def };
 
                 const new_list = ObjTypeDef{
                     .def_type = .List,
@@ -3664,7 +3664,7 @@ pub const ObjTypeDef = struct {
                     );
                 }
 
-                var new_map_def = ObjMap.MapDef{
+                const new_map_def = ObjMap.MapDef{
                     .key_type = try old_map_def.key_type.populateGenerics(
                         where,
                         origin,
@@ -3726,7 +3726,7 @@ pub const ObjTypeDef = struct {
                     }
                 }
 
-                var new_fun_def = ObjFunction.FunctionDef{
+                const new_fun_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
@@ -3876,7 +3876,7 @@ pub const ObjTypeDef = struct {
                 if (object_def.anonymous) {
                     try writer.writeAll("obj{ ");
                     var it = object_def.fields.iterator();
-                    var count = object_def.fields.count();
+                    const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try kv.value_ptr.*.toStringRaw(writer, qualified);
@@ -3942,7 +3942,7 @@ pub const ObjTypeDef = struct {
                 if (object_def.anonymous) {
                     try writer.writeAll(".{ ");
                     var it = object_def.fields.iterator();
-                    var count = object_def.fields.count();
+                    const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try kv.value_ptr.*.toStringRaw(writer, qualified);
@@ -4150,10 +4150,10 @@ pub const ObjTypeDef = struct {
             return self;
         }
 
-        var instance_type = try type_registry.getTypeDef(
+        const instance_type = try type_registry.getTypeDef(
             switch (self.def_type) {
                 .Object => object: {
-                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                         .ObjectInstance = try self.cloneNonOptional(type_registry),
                     };
 
@@ -4164,7 +4164,7 @@ pub const ObjTypeDef = struct {
                     };
                 },
                 .Protocol => protocol: {
-                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                         .ProtocolInstance = try self.cloneNonOptional(type_registry),
                     };
 
@@ -4175,7 +4175,7 @@ pub const ObjTypeDef = struct {
                     };
                 },
                 .Enum => enum_instance: {
-                    var resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
+                    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
                         .EnumInstance = try self.cloneNonOptional(type_registry),
                     };
 
@@ -4478,8 +4478,8 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             ObjEnum.cast(obj).?.name.string,
         }),
         .EnumInstance => enum_instance: {
-            var instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
-            var enum_: *ObjEnum = instance.enum_ref;
+            const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
+            const enum_: *ObjEnum = instance.enum_ref;
 
             break :enum_instance try writer.print("{s}.{s}", .{
                 enum_.name.string,
@@ -4490,7 +4490,7 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
 
             if (bound.closure) |closure| {
-                var closure_name: []const u8 = closure.function.name.string;
+                const closure_name: []const u8 = closure.function.name.string;
                 try writer.writeAll("bound method: ");
 
                 try valueToString(writer, bound.receiver);
@@ -4506,12 +4506,12 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             }
         },
         .Native => {
-            var native: *ObjNative = ObjNative.cast(obj).?;
+            const native: *ObjNative = ObjNative.cast(obj).?;
 
             try writer.print("native: 0x{x}", .{@intFromPtr(native)});
         },
         .UserData => {
-            var userdata: *ObjUserData = ObjUserData.cast(obj).?;
+            const userdata: *ObjUserData = ObjUserData.cast(obj).?;
 
             try writer.print("userdata: 0x{x}", .{userdata.userdata});
         },

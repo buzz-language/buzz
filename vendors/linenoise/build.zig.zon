@@ -1,0 +1,14 @@
+.{
+    .name = "linenoise",
+    .version = "1.0.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",  
+    },
+    .dependencies = .{
+        .linenoise = .{
+            .url = "https://github.com/antirez/linenoise/archive/refs/tags/1.0.tar.gz",
+            .hash = "1220d1ab00a43d157eb1413219a798b0ddee104e2e56b1a84dcd37b755565078d927",
+        },
+    },
+}

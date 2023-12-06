@@ -181,7 +181,7 @@ pub const ParseNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = @as(*Self, @ptrCast(node));
 
         try out.writeAll("\"type_def\": \"");
@@ -333,7 +333,7 @@ pub const ExpressionNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Expression) {
             return null;
         }
@@ -488,7 +488,7 @@ pub const GenericResolveNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .GenericResolve) {
             return null;
         }
@@ -530,7 +530,7 @@ pub const GroupingNode = struct {
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
         const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.synchronize(codegen)) {
@@ -577,7 +577,7 @@ pub const GroupingNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Grouping) {
             return null;
         }
@@ -626,7 +626,7 @@ pub const NamedVariableNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         var get_op: OpCode = undefined;
         var set_op: OpCode = undefined;
@@ -677,8 +677,8 @@ pub const NamedVariableNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print(
             "{{\"node\": \"NamedVariable\", \"identifier\": \"{s}\", \"slot\": \"{}\", \"slot_type\": \"{}\",",
@@ -718,7 +718,7 @@ pub const NamedVariableNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .NamedVariable) {
             return null;
         }
@@ -760,7 +760,7 @@ pub const IntegerNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         try codegen.emitConstant(self.node.location, Value.fromInteger(self.integer_constant));
 
@@ -771,8 +771,8 @@ pub const IntegerNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Integer\", \"constant\": ", .{});
 
@@ -795,7 +795,7 @@ pub const IntegerNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Integer) {
             return null;
         }
@@ -911,7 +911,7 @@ pub const RangeNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Range\", \"low\": ", .{});
@@ -939,7 +939,7 @@ pub const RangeNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Range) {
             return null;
         }
@@ -981,7 +981,7 @@ pub const FloatNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         try codegen.emitConstant(self.node.location, Value.fromFloat(self.float_constant));
 
@@ -992,8 +992,8 @@ pub const FloatNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Float\", \"constant\": ", .{});
 
@@ -1016,7 +1016,7 @@ pub const FloatNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Float) {
             return null;
         }
@@ -1044,7 +1044,7 @@ pub const BooleanNode = struct {
     }
 
     fn val(nodePtr: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         return Value.fromBoolean(Self.cast(node).?.constant);
     }
 
@@ -1056,7 +1056,7 @@ pub const BooleanNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         try codegen.emitOpCode(self.node.location, if (self.constant) .OP_TRUE else .OP_FALSE);
 
@@ -1067,8 +1067,8 @@ pub const BooleanNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Boolean\", \"constant\": \"{}\", ", .{self.constant});
 
@@ -1093,7 +1093,7 @@ pub const BooleanNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Boolean) {
             return null;
         }
@@ -1121,7 +1121,7 @@ pub const StringLiteralNode = struct {
     }
 
     fn val(nodePtr: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         return Self.cast(node).?.constant.toValue();
     }
 
@@ -1144,8 +1144,8 @@ pub const StringLiteralNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         var escaped = try escape(global_allocator, self.constant.string);
         defer escaped.deinit();
@@ -1174,7 +1174,7 @@ pub const StringLiteralNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .StringLiteral) {
             return null;
         }
@@ -1202,7 +1202,7 @@ pub const PatternNode = struct {
     }
 
     fn val(nodePtr: *anyopaque, _: *GarbageCollector) anyerror!Value {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         return Self.cast(node).?.constant.toValue();
     }
 
@@ -1225,8 +1225,8 @@ pub const PatternNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         var escaped = try escape(global_allocator, self.constant.source);
         defer escaped.deinit();
@@ -1249,7 +1249,7 @@ pub const PatternNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Pattern) {
             return null;
         }
@@ -1295,7 +1295,7 @@ pub const StringNode = struct {
             defer list.deinit();
 
             var str_value = std.ArrayList(u8).init(gc.allocator);
-            var writer = &str_value.writer();
+            const writer = &str_value.writer();
             for (self.elements) |element| {
                 assert(element.isConstant(element));
 
@@ -1316,7 +1316,7 @@ pub const StringNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.elements.len == 0) {
             // Push the empty string which is always the constant 0
@@ -1351,8 +1351,8 @@ pub const StringNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"String\", \"elements\": [");
 
@@ -1415,7 +1415,7 @@ pub const StringNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .String) {
             return null;
         }
@@ -1461,7 +1461,7 @@ pub const NullNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         try out.writeAll("{\"node\": \"Null\", ");
 
@@ -1479,7 +1479,7 @@ pub const NullNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Null) {
             return null;
         }
@@ -1525,7 +1525,7 @@ pub const VoidNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         try out.writeAll("{\"node\": \"Void\", ");
 
@@ -1543,7 +1543,7 @@ pub const VoidNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Void) {
             return null;
         }
@@ -1608,7 +1608,7 @@ pub const ListNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         const item_type = self.node.type_def.?.resolved_type.?.List.item_type;
         const list_offset: usize = try codegen.emitList(self.node.location);
@@ -1642,8 +1642,8 @@ pub const ListNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"List\", \"items\": [");
 
@@ -1707,7 +1707,7 @@ pub const ListNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .List) {
             return null;
         }
@@ -1784,7 +1784,7 @@ pub const MapNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         const key_type = self.node.type_def.?.resolved_type.?.Map.key_type;
         const value_type = self.node.type_def.?.resolved_type.?.Map.value_type;
@@ -1842,7 +1842,7 @@ pub const MapNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Map\", \"items\": [");
@@ -1919,7 +1919,7 @@ pub const MapNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Map) {
             return null;
         }
@@ -2032,7 +2032,7 @@ pub const UnwrapNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Unwrap) {
             return null;
         }
@@ -2140,7 +2140,7 @@ pub const ForceUnwrapNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .ForceUnwrap) {
             return null;
         }
@@ -2216,7 +2216,7 @@ pub const IsNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Is\", \"left\": ");
@@ -2246,7 +2246,7 @@ pub const IsNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Is) {
             return null;
         }
@@ -2332,7 +2332,7 @@ pub const AsNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"AsOpt\", \"left\": ");
@@ -2362,7 +2362,7 @@ pub const AsNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .As) {
             return null;
         }
@@ -2483,7 +2483,7 @@ pub const UnaryNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unary\", \"left\": ");
@@ -2514,7 +2514,7 @@ pub const UnaryNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Unary) {
             return null;
         }
@@ -3128,7 +3128,7 @@ pub const BinaryNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Binary\", \"left\": ");
@@ -3178,7 +3178,7 @@ pub const BinaryNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Binary) {
             return null;
         }
@@ -3383,7 +3383,7 @@ pub const SubscriptNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Subscript\", \"subscripted\": ");
@@ -3426,7 +3426,7 @@ pub const SubscriptNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Subscript) {
             return null;
         }
@@ -3574,7 +3574,7 @@ pub const TryNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Try\", ", .{});
@@ -3633,7 +3633,7 @@ pub const TryNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Try) {
             return null;
         }
@@ -3709,7 +3709,7 @@ pub const FunctionNode = struct {
 
         var self = Self.cast(node).?;
 
-        var enclosing = codegen.current;
+        const enclosing = codegen.current;
         codegen.current = try codegen.gc.allocator.create(Frame);
         codegen.current.?.* = Frame{
             .enclosing = enclosing,
@@ -3832,7 +3832,7 @@ pub const FunctionNode = struct {
             }
         }
 
-        var frame = codegen.current.?;
+        const frame = codegen.current.?;
         var current_function: *ObjFunction = frame.function.?;
         current_function.upvalue_count = @intCast(self.upvalue_binding.count());
 
@@ -3867,8 +3867,8 @@ pub const FunctionNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print(
             "{{\"node\": \"Function\", \"type\": \"{}\", \"name\": \"{s}\", ",
@@ -4003,7 +4003,7 @@ pub const FunctionNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Function) {
             return null;
         }
@@ -4110,7 +4110,7 @@ pub const YieldNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Yield) {
             return null;
         }
@@ -4199,7 +4199,7 @@ pub const ResolveNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Resolve) {
             return null;
         }
@@ -4288,7 +4288,7 @@ pub const ResumeNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Resume) {
             return null;
         }
@@ -4372,7 +4372,7 @@ pub const AsyncCallNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .AsyncCall) {
             return null;
         }
@@ -4673,7 +4673,7 @@ pub const CallNode = struct {
                         try codegen.emit(node.location, @intCast(arg_count - correct_index - 1));
 
                         // Switch it in the reference
-                        var temp = arguments_order_ref.items[index];
+                        const temp = arguments_order_ref.items[index];
                         arguments_order_ref.items[index] = arguments_order_ref.items[correct_index];
                         arguments_order_ref.items[correct_index] = temp;
 
@@ -4857,7 +4857,7 @@ pub const CallNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Call\"");
@@ -4991,7 +4991,7 @@ pub const CallNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Call) {
             return null;
         }
@@ -5050,7 +5050,7 @@ pub const FunDeclarationNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
@@ -5081,7 +5081,7 @@ pub const FunDeclarationNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .FunDeclaration) {
             return null;
         }
@@ -5160,7 +5160,7 @@ pub const VarDeclarationNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print(
@@ -5227,7 +5227,7 @@ pub const VarDeclarationNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .VarDeclaration) {
             return null;
         }
@@ -5337,8 +5337,8 @@ pub const EnumNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Enum\", \"cases\": [");
 
@@ -5403,7 +5403,7 @@ pub const EnumNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Enum) {
             return null;
         }
@@ -5495,7 +5495,7 @@ pub const ThrowNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Throw\", \"error_value\": ");
@@ -5524,7 +5524,7 @@ pub const ThrowNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Throw) {
             return null;
         }
@@ -5587,7 +5587,7 @@ pub const BreakNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Break) {
             return null;
         }
@@ -5649,7 +5649,7 @@ pub const ContinueNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Continue) {
             return null;
         }
@@ -5821,7 +5821,7 @@ pub const IfNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"If\", \"condition\": ");
@@ -5885,7 +5885,7 @@ pub const IfNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .If) {
             return null;
         }
@@ -5925,7 +5925,7 @@ pub const ReturnNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.unconditional) {
             codegen.current.?.return_emitted = true;
@@ -5965,8 +5965,8 @@ pub const ReturnNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Return\", ");
 
@@ -6001,7 +6001,7 @@ pub const ReturnNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Return) {
             return null;
         }
@@ -6071,7 +6071,7 @@ pub const ForNode = struct {
 
         // Jump over expressions which will be executed at end of loop
         // TODO: since we don't generate as we parse, we can get rid of this jump and just generate the post_loop later
-        var body_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
+        const body_jump: usize = try codegen.emitJump(self.node.location, .OP_JUMP);
 
         const expr_loop: usize = codegen.currentCode();
         for (self.post_loop.items) |expr| {
@@ -6110,7 +6110,7 @@ pub const ForNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
@@ -6199,7 +6199,7 @@ pub const ForNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .For) {
             return null;
         }
@@ -6450,7 +6450,7 @@ pub const ForEachNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForEach\", ");
@@ -6517,7 +6517,7 @@ pub const ForEachNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .ForEach) {
             return null;
         }
@@ -6603,7 +6603,7 @@ pub const WhileNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"While\", \"condition\": ");
@@ -6652,7 +6652,7 @@ pub const WhileNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .While) {
             return null;
         }
@@ -6731,7 +6731,7 @@ pub const DoUntilNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"DoUntil\", \"condition\": ");
@@ -6779,7 +6779,7 @@ pub const DoUntilNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .DoUntil) {
             return null;
         }
@@ -6811,14 +6811,14 @@ pub const BlockNode = struct {
     }
 
     fn generate(nodePtr: *anyopaque, codegenPtr: *anyopaque, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        var codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
+        const codegen: *CodeGen = @ptrCast(@alignCast(codegenPtr));
         var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.synchronize(codegen)) {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         for (self.statements.items) |statement| {
             _ = try statement.toByteCode(statement, codegen, breaks);
@@ -6831,8 +6831,8 @@ pub const BlockNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Block\", \"statements\": [");
 
@@ -6875,7 +6875,7 @@ pub const BlockNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Block) {
             return null;
         }
@@ -6973,7 +6973,7 @@ pub const DotNode = struct {
             );
         }
 
-        var get_code: ?OpCode = switch (callee_type.def_type) {
+        const get_code: ?OpCode = switch (callee_type.def_type) {
             .Object => .OP_GET_OBJECT_PROPERTY,
             .ObjectInstance, .ProtocolInstance => .OP_GET_INSTANCE_PROPERTY,
             .ForeignContainer => .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
@@ -7087,7 +7087,7 @@ pub const DotNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Dot\", \"callee\": ");
@@ -7133,7 +7133,7 @@ pub const DotNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .Dot) {
             return null;
         }
@@ -7326,7 +7326,7 @@ pub const ObjectInitNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectInit\", \"properties\": {");
@@ -7404,7 +7404,7 @@ pub const ObjectInitNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         if (node.node_type != .ObjectInit) {
             return null;
         }
@@ -7623,7 +7623,7 @@ pub const ObjectDeclarationNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectDeclaration\", \"methods\": {");
@@ -7754,7 +7754,7 @@ pub const ObjectDeclarationNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .ObjectDeclaration) {
             return null;
@@ -7806,7 +7806,7 @@ pub const ProtocolDeclarationNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         try out.writeAll("{\"node\": \"ProtocolDeclaration\", ");
 
@@ -7816,7 +7816,7 @@ pub const ProtocolDeclarationNode = struct {
     }
 
     fn render(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer, depth: usize) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         const protocol_def = node.type_def.?.resolved_type.?.Protocol;
 
@@ -7838,7 +7838,7 @@ pub const ProtocolDeclarationNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .ProtocolDeclaration) {
             return null;
@@ -7889,8 +7889,8 @@ pub const ExportNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Export\", ", .{});
 
@@ -7938,7 +7938,7 @@ pub const ExportNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .Export) {
             return null;
@@ -7990,7 +7990,7 @@ pub const TypeExpressionNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"TypeExpression\", \"value\": \"", .{});
@@ -8022,7 +8022,7 @@ pub const TypeExpressionNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .TypeExpression) {
             return null;
@@ -8087,7 +8087,7 @@ pub const TypeOfExpressionNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"TypeOfExpression\", \"expression\": \"", .{});
@@ -8119,7 +8119,7 @@ pub const TypeOfExpressionNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .TypeOfExpression) {
             return null;
@@ -8206,8 +8206,8 @@ pub const ZdefNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Zdef\", \"lib_name\": {s}, ", .{self.lib_name.lexeme});
 
@@ -8250,7 +8250,7 @@ pub const ZdefNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .Zdef) {
             return null;
@@ -8293,7 +8293,7 @@ pub const ImportNode = struct {
             return null;
         }
 
-        var self = Self.cast(node).?;
+        const self = Self.cast(node).?;
 
         if (self.import) |import| {
             try codegen.emitConstant(
@@ -8312,8 +8312,8 @@ pub const ImportNode = struct {
     }
 
     fn stringify(nodePtr: *anyopaque, out: *const std.ArrayList(u8).Writer) RenderError!void {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
-        var self = Self.cast(node).?;
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string.?});
 
@@ -8324,7 +8324,7 @@ pub const ImportNode = struct {
         try out.writeAll(",\"imported_symbols\": [");
         if (self.imported_symbols) |imported_symbols| {
             var key_it = imported_symbols.keyIterator();
-            var total = imported_symbols.count();
+            const total = imported_symbols.count();
             var count: usize = 0;
             while (key_it.next()) |symbol| {
                 try out.print("\"{s}\"", .{symbol});
@@ -8383,7 +8383,7 @@ pub const ImportNode = struct {
     }
 
     pub fn cast(nodePtr: *anyopaque) ?*Self {
-        var node: *ParseNode = @ptrCast(@alignCast(nodePtr));
+        const node: *ParseNode = @ptrCast(@alignCast(nodePtr));
 
         if (node.node_type != .Import) {
             return null;

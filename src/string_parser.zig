@@ -122,16 +122,16 @@ pub const StringParser = struct {
     }
 
     fn interpolation(self: *Self) !void {
-        var expr: []const u8 = self.source[self.offset..];
+        const expr: []const u8 = self.source[self.offset..];
 
         var expr_scanner = Scanner.init(self.parser.gc.allocator, self.parser.script_name, expr);
         expr_scanner.line_offset = self.line_offset;
         expr_scanner.column_offset = self.column_offset;
 
         // Replace parser scanner with one that only looks at that substring
-        var scanner = self.parser.scanner;
+        const scanner = self.parser.scanner;
         self.parser.scanner = expr_scanner;
-        var parser = self.parser.parser;
+        const parser = self.parser.parser;
         self.parser.parser = ParserState.init(self.parser.gc.allocator);
 
         try self.parser.advance();

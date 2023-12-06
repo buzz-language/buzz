@@ -219,7 +219,7 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
     full.writer().print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
 
-    var zdef = try self.parse(
+    const zdef = try self.parse(
         null,
         t.Token.identifier(full.items),
         true,
@@ -360,7 +360,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             const zdef = try self.getZdef(decl.data.lhs);
 
             if (zdef) |uzdef| {
-                var opt_zdef = try self.gc.allocator.create(Zdef);
+                const opt_zdef = try self.gc.allocator.create(Zdef);
                 opt_zdef.* = Zdef{
                     .zig_type = .{
                         .Optional = .{
@@ -701,7 +701,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 
     // Is it a null terminated string?
     // zig fmt: off
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* =  if (ptr_type.const_token != null
         and child_type.zig_type == .Int
         and child_type.zig_type.Int.bits == 8
@@ -847,12 +847,12 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     parameters_zig_types.shrinkAndFree(parameters_zig_types.items.len);
     zig_fn_type.params = parameters_zig_types.items;
 
-    var type_def = o.ObjTypeDef{
+    const type_def = o.ObjTypeDef{
         .def_type = .Function,
         .resolved_type = .{ .Function = function_def },
     };
 
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .zig_type = ZigType{ .Fn = zig_fn_type },
         .type_def = try self.gc.type_registry.getTypeDef(type_def),

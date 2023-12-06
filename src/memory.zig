@@ -62,7 +62,7 @@ pub const TypeRegistry = struct {
             }
         }
 
-        var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
+        const type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
 
         if (BuildOptions.debug_placeholders) {
             std.debug.print("`{s}` @{}\n", .{ type_def_str, @intFromPtr(type_def_ptr) });
@@ -212,7 +212,7 @@ pub const GarbageCollector = struct {
             try self.collectGarbage();
         }
 
-        var allocated = try self.allocator.create(T);
+        const allocated = try self.allocator.create(T);
 
         if (BuildOptions.gc_debug) {
             std.debug.print("Allocated @{} {}\n", .{ @intFromPtr(allocated), T });
@@ -242,10 +242,10 @@ pub const GarbageCollector = struct {
     pub fn allocateObject(self: *Self, comptime T: type, data: T) !*T {
         // var before: usize = self.bytes_allocated;
 
-        var obj: *T = try self.allocate(T);
+        const obj: *T = try self.allocate(T);
         obj.* = data;
 
-        var object: *Obj = switch (T) {
+        const object: *Obj = switch (T) {
             ObjString => ObjString.toObj(obj),
             ObjTypeDef => ObjTypeDef.toObj(obj),
             ObjUpValue => ObjUpValue.toObj(obj),
@@ -305,7 +305,7 @@ pub const GarbageCollector = struct {
     }
 
     fn addObject(self: *Self, obj: *Obj) !void {
-        var new_node = try self.allocator.create(std.TailQueue(*Obj).Node);
+        const new_node = try self.allocator.create(std.TailQueue(*Obj).Node);
         new_node.* = .{
             .data = obj,
         };
@@ -314,7 +314,7 @@ pub const GarbageCollector = struct {
     }
 
     pub fn allocateString(self: *Self, chars: []const u8) !*ObjString {
-        var string: *ObjString = try allocateObject(
+        const string: *ObjString = try allocateObject(
             self,
             ObjString,
             ObjString{ .string = chars },
@@ -330,8 +330,8 @@ pub const GarbageCollector = struct {
             return interned;
         }
 
-        var copy: []u8 = try self.allocateMany(u8, chars.len);
-        std.mem.copy(u8, copy, chars);
+        const copy: []u8 = try self.allocateMany(u8, chars.len);
+        @memcpy(copy, chars);
 
         if (BuildOptions.gc_debug) {
             std.debug.print("Allocated slice {*} `{s}`\n", .{ copy, copy });
@@ -504,7 +504,7 @@ pub const GarbageCollector = struct {
 
         switch (obj.obj_type) {
             .String => {
-                var obj_string = ObjString.cast(obj).?;
+                const obj_string = ObjString.cast(obj).?;
 
                 // Remove it from interned strings
                 _ = self.strings.remove(obj_string.string);
@@ -550,7 +550,7 @@ pub const GarbageCollector = struct {
                 free(self, ObjTypeDef, obj_typedef);
             },
             .UpValue => {
-                var obj_upvalue = ObjUpValue.cast(obj).?;
+                const obj_upvalue = ObjUpValue.cast(obj).?;
                 if (obj_upvalue.closed) |value| {
                     if (value.isObj()) {
                         try freeObj(self, value.obj());
@@ -637,7 +637,7 @@ pub const GarbageCollector = struct {
                 free(self, ObjFiber, obj_fiber);
             },
             .ForeignContainer => {
-                var obj_foreignstruct = ObjForeignContainer.cast(obj).?;
+                const obj_foreignstruct = ObjForeignContainer.cast(obj).?;
 
                 self.freeMany(u8, obj_foreignstruct.data);
 
@@ -808,7 +808,7 @@ pub const GarbageCollector = struct {
     }
 
     fn sweep(self: *Self, mode: Mode) !void {
-        var swept: usize = self.bytes_allocated;
+        const swept: usize = self.bytes_allocated;
 
         var obj_count: usize = 0;
         var obj_node: ?*std.TailQueue(*Obj).Node = self.objects.first;
@@ -829,7 +829,7 @@ pub const GarbageCollector = struct {
 
                 obj_node = node.next;
             } else {
-                var unreached: *Obj = node.data;
+                const unreached: *Obj = node.data;
                 obj_node = node.next;
 
                 self.objects.remove(node);

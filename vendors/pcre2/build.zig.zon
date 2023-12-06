@@ -1,0 +1,14 @@
+.{
+    .name = "pcre2",
+    .version = "1.0.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",  
+    },
+    .dependencies = .{
+        .pcre2 = .{
+            .url = "https://github.com/PCRE2Project/pcre2/archive/52c08847921a324c804cabf2814549f50bce1265.tar.gz",
+            .hash = "122070d222982480fa9a2146780c23263730773ea7d4f711c523ad3ff2496297f474",
+        },
+    },
+}

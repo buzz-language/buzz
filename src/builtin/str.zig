@@ -53,16 +53,16 @@ pub fn utf8Valid(ctx: *NativeCtx) c_int {
 pub fn utf8Codepoints(ctx: *NativeCtx) c_int {
     const str: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
         ctx.vm.gc.type_registry.getTypeDef(.{ .def_type = .String }) catch @panic("Could not create list"),
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
+    const list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -107,7 +107,7 @@ pub fn repeat(ctx: *NativeCtx) c_int {
         return 1;
     }
 
-    var err: ?*ObjString = ctx.vm.gc.copyString("`n` should be an integer") catch null;
+    const err: ?*ObjString = ctx.vm.gc.copyString("`n` should be an integer") catch null;
     ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
     return -1;
@@ -119,7 +119,7 @@ pub fn byte(ctx: *NativeCtx) c_int {
     const index_i = index.integer();
 
     if (index_i < 0 or index_i >= self.string.len) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Out of bound access to str") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("Out of bound access to str") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -185,21 +185,21 @@ pub fn sub(ctx: *NativeCtx) c_int {
     const upto = ctx.vm.peek(0).integerOrNull();
 
     if (start < 0 or start >= self.string.len) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
     }
 
     if (upto != null and upto.? < 0) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
     }
 
     const limit: usize = if (upto != null and @as(usize, @intCast(start + upto.?)) < self.string.len) @intCast(start + upto.?) else self.string.len;
-    var substr: []const u8 = self.string[@as(usize, @intCast(start))..limit];
+    const substr: []const u8 = self.string[@as(usize, @intCast(start))..limit];
 
     ctx.vm.push(
         (ctx.vm.gc.copyString(substr) catch @panic("Could not create string")).toValue(),
@@ -213,19 +213,19 @@ pub fn split(ctx: *NativeCtx) c_int {
     const separator: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     // std.mem.split(u8, self.string, separator.string);
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
         ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
             .def_type = .String,
         }) catch @panic("Could not create string"),
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
     // TODO: reuse already allocated similar typedef
-    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
+    const list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -260,7 +260,7 @@ pub fn split(ctx: *NativeCtx) c_int {
 pub fn encodeBase64(ctx: *NativeCtx) c_int {
     const str = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var encoded = ctx.vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch @panic("Could not create string");
+    const encoded = ctx.vm.gc.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(str.string.len)) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(encoded);
 
     var new_string = ctx.vm.gc.copyString(
@@ -276,16 +276,16 @@ pub fn decodeBase64(ctx: *NativeCtx) c_int {
     const str = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
     };
-    var decoded = ctx.vm.gc.allocator.alloc(u8, size) catch @panic("Could not create string");
+    const decoded = ctx.vm.gc.allocator.alloc(u8, size) catch @panic("Could not create string");
     defer ctx.vm.gc.allocator.free(decoded);
 
     std.base64.standard.Decoder.decode(decoded, str.string) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("Could not decode string") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -388,7 +388,7 @@ pub fn bin(ctx: *NativeCtx) c_int {
 
     for (0..result.len) |i| {
         result[i] = std.fmt.parseInt(u8, str.string[(i * 2)..(i * 2 + 2)], 16) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("String does not contain valid hex values") catch null;
+            const err: ?*ObjString = ctx.vm.gc.copyString("String does not contain valid hex values") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
             return -1;

@@ -19,7 +19,7 @@ test "os.tmpFilename" {
 }
 
 test "os.execute" {
-    assert(os.execute(["/bin/ls", "-l"]) == 0, message: "Could execute a command");
+    assert(os.execute(["/usr/bin/env", "ls", ""-l"]) == 0, message: "Could execute a command");
 }
 
 test "os.sleep" {

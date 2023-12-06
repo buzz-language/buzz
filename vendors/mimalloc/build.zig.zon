@@ -1,0 +1,14 @@
+.{
+    .name = "mimalloc",
+    .version = "2.1.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",  
+    },
+    .dependencies = .{
+        .mimalloc= .{
+            .url = "https://github.com/microsoft/mimalloc/archive/4e50d6714d471b72b2285e25a3df6c92db944593.tar.gz",
+            .hash = "1220021f4285bf934936ad6e21aa79a301fe71a9a7c90f7563c7459db0afbcce7f5c",
+        },
+    },
+}

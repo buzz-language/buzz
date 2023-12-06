@@ -292,19 +292,19 @@ pub fn keys(ctx: *NativeCtx) c_int {
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     for (map_keys) |key| {
         result.append(key) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+            const err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
             return -1;
         };
     }
 
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
         self.type_def.resolved_type.?.Map.key_type,
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
@@ -313,7 +313,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
         .optional = false,
         .resolved_type = list_def_union,
     }) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
         return -1;
@@ -326,7 +326,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
     ) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not get map keys") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
         return -1;
@@ -347,27 +347,27 @@ pub fn values(ctx: *NativeCtx) c_int {
     const map_values: []Value = self.map.values();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     result.appendSlice(map_values) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
         return -1;
     };
 
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
         self.type_def.resolved_type.?.Map.value_type,
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
+    const list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
     }) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
         return -1;
@@ -377,7 +377,7 @@ pub fn values(ctx: *NativeCtx) c_int {
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
     ) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
+        const err: ?*ObjString = ctx.vm.gc.copyString("could not get map values") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
 
         return -1;
