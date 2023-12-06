@@ -356,17 +356,7 @@ pub fn build(b: *Build) !void {
         install_step.dependOn(&artifact.step);
         artifact.dest_dir = .{ .custom = "lib/buzz" };
 
-        if (build_options.needLibC()) {
-            std_lib.*.linkLibC();
-        }
         std_lib.*.main_mod_path = .{ .path = "src" };
-        std_lib.*.linkLibrary(lib_pcre2);
-        if (lib_mimalloc) |mimalloc_| {
-            std_lib.*.linkLibrary(mimalloc_);
-            if (std_lib.*.target.getOsTag() == .windows) {
-                std_lib.*.linkSystemLibrary("bcrypt");
-            }
-        }
         std_lib.*.linkLibrary(lib);
         std_lib.*.addOptions("build_options", build_options.step(b));
 
