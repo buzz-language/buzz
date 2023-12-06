@@ -161,10 +161,10 @@ pub const Fiber = struct {
             .method = method,
         };
 
-        if (stack_slice != null) {
-            @memcpy(self.stack, stack_slice.?);
+        if (stack_slice) |slice| {
+            @memcpy(self.stack[0..slice.len], slice);
 
-            self.stack_top = @as([*]Value, @ptrCast(self.stack[stack_slice.?.len..]));
+            self.stack_top = @as([*]Value, @ptrCast(self.stack[slice.len..]));
         } else {
             self.stack_top = @as([*]Value, @ptrCast(self.stack[0..]));
         }
