@@ -330,11 +330,9 @@ pub const Parser = struct {
 
     const zdef_search_paths = [_][]const u8{
         "./?.!",
-        "/usr/lib/?.!",
-        "/usr/local/lib/?.!",
         "./lib?.!",
-        "/usr/lib/lib?.!",
-        "/usr/local/lib/lib?.!",
+        "?.!",
+        "lib?.!",
     };
 
     const rules = [_]ParseRule{
@@ -5370,6 +5368,50 @@ pub const Parser = struct {
     fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
         var paths = std.ArrayList([]const u8).init(self.gc.allocator);
 
+        for (Parser.user_library_paths orelse &[_][]const u8{}) |path| {
+            var filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try filled.writer().print(
+                "{s}{s}{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            filled.shrinkAndFree(filled.items.len);
+
+            try paths.append(filled.items);
+
+            var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
+
+            try prefixed_filled.writer().print(
+                "{s}{s}lib{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                    file_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
+                },
+            );
+
+            prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
+
+            try paths.append(prefixed_filled.items);
+        }
+
         for (lib_search_paths) |path| {
             const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
             defer self.gc.allocator.free(filled);
@@ -5391,6 +5433,12 @@ pub const Parser = struct {
             try paths.append(prefixed);
         }
 
+        return paths;
+    }
+
+    fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+        var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+
         for (Parser.user_library_paths orelse &[_][]const u8{}) |path| {
             var filled = std.ArrayList(u8).init(self.gc.allocator);
 
@@ -5434,12 +5482,6 @@ pub const Parser = struct {
 
             try paths.append(prefixed_filled.items);
         }
-
-        return paths;
-    }
-
-    fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
-        var paths = std.ArrayList([]const u8).init(self.gc.allocator);
 
         for (zdef_search_paths) |path| {
             const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
@@ -5457,50 +5499,6 @@ pub const Parser = struct {
                 },
             );
             try paths.append(suffixed);
-        }
-
-        for (Parser.user_library_paths orelse &[_][]const u8{}) |path| {
-            var filled = std.ArrayList(u8).init(self.gc.allocator);
-
-            try filled.writer().print(
-                "{s}{s}{s}.{s}",
-                .{
-                    path,
-                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
-                    file_name,
-                    switch (builtin.os.tag) {
-                        .linux, .freebsd, .openbsd => "so",
-                        .windows => "dll",
-                        .macos, .tvos, .watchos, .ios => "dylib",
-                        else => unreachable,
-                    },
-                },
-            );
-
-            filled.shrinkAndFree(filled.items.len);
-
-            try paths.append(filled.items);
-
-            var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
-
-            try prefixed_filled.writer().print(
-                "{s}{s}lib{s}.{s}",
-                .{
-                    path,
-                    if (!std.mem.endsWith(u8, path, "/")) "/" else "",
-                    file_name,
-                    switch (builtin.os.tag) {
-                        .linux, .freebsd, .openbsd => "so",
-                        .windows => "dll",
-                        .macos, .tvos, .watchos, .ios => "dylib",
-                        else => unreachable,
-                    },
-                },
-            );
-
-            prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
-
-            try paths.append(prefixed_filled.items);
         }
 
         return paths;
