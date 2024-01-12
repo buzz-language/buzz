@@ -235,6 +235,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.SharingViolation,
         error.SymLinkLoop,
         error.NetworkNotFound,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.BrokenPipe,
@@ -413,6 +414,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.IsDir,
         error.SystemResources,
         error.WouldBlock,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.BrokenPipe,
@@ -439,7 +441,7 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readUntilDelimiterAlloc(
+    const buffer = reader.readUntilDelimiterAlloc(
         api.VM.allocator,
         '\n',
         if (max_size.isNull())
@@ -484,7 +486,7 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
 
-    var buffer = reader.readAllAlloc(
+    const buffer = reader.readAllAlloc(
         api.VM.allocator,
         if (max_size.isNull())
             std.math.maxInt(usize)
@@ -636,6 +638,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.SystemResources,
             error.WouldBlock,
             error.NetworkNotFound,
+            error.SocketNotConnected,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
             error.OutOfMemory => @panic("Out of memory"),
@@ -711,6 +714,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         .reuse_address = reuse_address,
         .reuse_port = reuse_port,
         .listen_address = undefined,
+        .force_nonblocking = false,
     };
 
     const connection = server.accept() catch |err| {
@@ -727,6 +731,7 @@ export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
             error.NetworkSubsystemFailed,
             error.OperationNotSupported,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+            error.WouldBlock => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         }
 

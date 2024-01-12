@@ -300,7 +300,7 @@ pub fn emitConstant(self: *Self, location: Ast.TokenIndex, value: Value) !void {
 }
 
 pub fn makeConstant(self: *Self, value: Value) !u24 {
-    var constant: u24 = try self.current.?.function.?.chunk.addConstant(null, value);
+    const constant: u24 = try self.current.?.function.?.chunk.addConstant(null, value);
     if (constant > Chunk.max_constants) {
         self.reportError("Too many constants in one chunk.");
         return 0;
@@ -1142,7 +1142,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
                     try self.emit(locations[node], @intCast(arg_count - correct_index - 1));
 
                     // Switch it in the reference
-                    var temp = arguments_order_ref.items[index];
+                    const temp = arguments_order_ref.items[index];
                     arguments_order_ref.items[index] = arguments_order_ref.items[correct_index];
                     arguments_order_ref.items[correct_index] = temp;
 
@@ -2026,7 +2026,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
         return null;
     }
 
-    var enclosing = self.current;
+    const enclosing = self.current;
     self.current = try self.gc.allocator.create(Frame);
     self.current.?.* = .{
         .enclosing = enclosing,

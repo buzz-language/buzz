@@ -181,9 +181,15 @@ pub fn main() !void {
     );
 
     var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-    }) catch |err| {
+    var res = clap.parse(
+        clap.Help,
+        &params,
+        clap.parsers.default,
+        .{
+            .allocator = allocator,
+            .diagnostic = &diag,
+        },
+    ) catch |err| {
         // Report useful error and exit
         diag.report(std.io.getStdErr().writer(), err) catch {};
         return err;
@@ -291,12 +297,12 @@ test "Testing behavior" {
     var count: usize = 0;
     var fail_count: usize = 0;
     {
-        var test_dir = try std.fs.cwd().openIterableDir("tests", .{});
+        var test_dir = try std.fs.cwd().openDir("tests", .{});
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
             if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
-                var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+                const file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
 
                 std.debug.print("{s}\n", .{file.name});
@@ -321,12 +327,12 @@ test "Testing behavior" {
     }
 
     {
-        var test_dir = try std.fs.cwd().openIterableDir("tests/compile_errors", .{});
+        var test_dir = try std.fs.cwd().openDir("tests/compile_errors", .{});
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
             if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
-                var file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
+                const file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
                 defer allocator.free(file_name);
                 _ = try std.fmt.bufPrint(file_name, "tests/compile_errors/{s}", .{file.name});
 

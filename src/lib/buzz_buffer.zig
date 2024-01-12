@@ -1,11 +1,12 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
+const builtin = @import("builtin");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 export fn BufferNew(ctx: *api.NativeCtx) c_int {
     const capacity = ctx.vm.bz_peek(0).integer();
 
-    var buffer = api.VM.allocator.create(Buffer) catch {
+    const buffer = api.VM.allocator.create(Buffer) catch {
         @panic("Out of memory");
     };
     buffer.* = Buffer.init(api.VM.allocator, @intCast(capacity)) catch {
@@ -22,7 +23,7 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
 }
 
 export fn BufferDeinit(ctx: *api.NativeCtx) c_int {
-    var userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
+    const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
 
     var buffer = Buffer.fromUserData(userdata);
 
@@ -120,7 +121,7 @@ const Buffer = struct {
         var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
         var reader = buffer_stream.reader();
 
-        const number = try reader.readIntNative(i32);
+        const number = try reader.readInt(i32, builtin.cpu.arch.endian());
 
         self.cursor += @sizeOf(i32);
 
@@ -135,7 +136,7 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an integer
-        try writer.writeIntNative(i32, integer);
+        try writer.writeInt(i32, integer, native_endian);
     }
 
     pub fn readUserData(self: *Self, vm: *api.VM) !?*api.ObjUserData {
@@ -146,7 +147,7 @@ const Buffer = struct {
         var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
         var reader = buffer_stream.reader();
 
-        const number = try reader.readIntNative(u64);
+        const number = try reader.readInt(u64, builtin.cpu.arch.endian());
 
         self.cursor += @sizeOf(u64);
 
@@ -161,9 +162,10 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an integer
-        try writer.writeIntNative(
+        try writer.writeInt(
             u64,
             userdata.bz_getUserDataPtr(),
+            native_endian,
         );
     }
 
@@ -175,7 +177,7 @@ const Buffer = struct {
         var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
         var reader = buffer_stream.reader();
 
-        const number = try reader.readIntNative(u64);
+        const number = try reader.readInt(u64, builtin.cpu.arch.endian());
 
         self.cursor += @sizeOf(f64);
 
@@ -190,7 +192,11 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an float
-        try writer.writeIntNative(u64, @as(u64, @bitCast(float)));
+        try writer.writeInt(
+            u64,
+            @as(u64, @bitCast(float)),
+            native_endian,
+        );
     }
 
     pub fn empty(self: *Self) void {
@@ -481,7 +487,7 @@ inline fn rawWriteZ(
             return false;
         }
 
-        var len = api.VM.bz_zigValueSize(zig_type.?);
+        const len = api.VM.bz_zigValueSize(zig_type.?);
 
         buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
         buffer.buffer.expandToCapacity();

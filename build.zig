@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Build = std.build;
+const Build = std.Build;
 
 const BuzzDebugOptions = struct {
     debug: bool,
@@ -10,7 +10,7 @@ const BuzzDebugOptions = struct {
     stop_on_report: bool,
     placeholders: bool,
 
-    pub fn step(self: BuzzDebugOptions, options: *std.build.OptionsStep) void {
+    pub fn step(self: BuzzDebugOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "debug", self.debug);
         options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
         options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
@@ -26,7 +26,7 @@ const BuzzJITOptions = struct {
     debug: bool,
     prof_threshold: f128 = 0.05,
 
-    pub fn step(self: BuzzJITOptions, options: *std.build.OptionsStep) void {
+    pub fn step(self: BuzzJITOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
@@ -43,7 +43,7 @@ const BuzzGCOptions = struct {
     next_gc_ratio: usize,
     next_full_gc_ratio: usize,
 
-    pub fn step(self: BuzzGCOptions, options: *std.build.OptionsStep) void {
+    pub fn step(self: BuzzGCOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
         options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
         options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
@@ -61,9 +61,9 @@ const BuzzBuildOptions = struct {
     debug: BuzzDebugOptions,
     gc: BuzzGCOptions,
     jit: BuzzJITOptions,
-    target: std.zig.CrossTarget,
+    target: Build.ResolvedTarget,
 
-    pub fn step(self: @This(), b: *Build) *std.build.OptionsStep {
+    pub fn step(self: @This(), b: *Build) *Build.Module {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
@@ -73,15 +73,11 @@ const BuzzBuildOptions = struct {
         self.gc.step(options);
         self.jit.step(options);
 
-        return options;
+        return options.createModule();
     }
 
-    pub fn needLibC(self: @This()) bool {
-        // TODO: remove libc if possible
-        // mir can be built with musl libc
-        // mimalloc can be built with musl libc
-        // longjmp/setjmp need to be removed
-        return self.target.isLinux() or self.mimalloc;
+    pub fn needLibC(_: @This()) bool {
+        return true;
     }
 };
 
@@ -92,7 +88,7 @@ fn get_buzz_prefix(b: *Build) []const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.12.0-dev.1253+b798aaf49") catch return;
+    const min_zig = std.SemanticVersion.parse("0.12.0-dev.2150+63de8a598") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -240,6 +236,8 @@ pub fn build(b: *Build) !void {
         },
     };
 
+    const build_option_module = build_options.step(b);
+
     var sys_libs = std.ArrayList([]const u8).init(b.allocator);
     defer sys_libs.deinit();
     var includes = std.ArrayList([]const u8).init(b.allocator);
@@ -296,7 +294,7 @@ pub fn build(b: *Build) !void {
 
     var exe = b.addExecutable(.{
         .name = "buzz",
-        .root_source_file = Build.FileSource.relative("src/main.zig"),
+        .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = build_mode,
     });
@@ -323,13 +321,13 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         exe.linkLibC();
     }
-    exe.main_mod_path = .{ .path = "." };
+    // exe.main_mod_path = .{ .path = "." };
 
-    exe.addOptions("build_options", build_options.step(b));
+    exe.root_module.addImport("build_options", build_option_module);
 
     var lib = b.addSharedLibrary(.{
         .name = "buzz",
-        .root_source_file = Build.FileSource.relative("src/buzz_api.zig"),
+        .root_source_file = .{ .path = "src/buzz_api.zig" },
         .target = target,
         .optimize = build_mode,
     });
@@ -346,14 +344,14 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         lib.linkLibC();
     }
-    lib.main_mod_path = .{ .path = "src" };
+    // lib.main_mod_path = .{ .path = "src" };
 
-    lib.addOptions("build_options", build_options.step(b));
+    lib.root_module.addImport("build_options", build_option_module);
 
     lib.linkLibrary(lib_pcre2);
     if (lib_mimalloc) |mimalloc| {
         lib.linkLibrary(mimalloc);
-        if (lib.target.getOsTag() == .windows) {
+        if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
             lib.linkSystemLibrary("bcrypt");
         }
     }
@@ -412,11 +410,11 @@ pub fn build(b: *Build) !void {
 
     // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries
 
-    var libs = [_]*std.build.LibExeObjStep{undefined} ** lib_names.len;
+    var libs = [_]*std.Build.Step.Compile{undefined} ** lib_names.len;
     for (lib_paths, 0..) |lib_path, index| {
         var std_lib = b.addSharedLibrary(.{
             .name = lib_names[index],
-            .root_source_file = Build.FileSource.relative(lib_path),
+            .root_source_file = .{ .path = lib_path },
             .target = target,
             .optimize = build_mode,
         });
@@ -436,16 +434,16 @@ pub fn build(b: *Build) !void {
         if (build_options.needLibC()) {
             std_lib.linkLibC();
         }
-        std_lib.main_mod_path = .{ .path = "src" };
+        // std_lib.main_mod_path = .{ .path = "src" };
         std_lib.linkLibrary(lib_pcre2);
         if (lib_mimalloc) |mimalloc| {
             std_lib.linkLibrary(mimalloc);
-            if (std_lib.target.getOsTag() == .windows) {
+            if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 std_lib.linkSystemLibrary("bcrypt");
             }
         }
         std_lib.linkLibrary(lib);
-        std_lib.addOptions("build_options", build_options.step(b));
+        std_lib.root_module.addImport("build_options", build_option_module);
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
         std_lib.addRPath(
@@ -465,14 +463,14 @@ pub fn build(b: *Build) !void {
 
     for (all_lib_names) |name| {
         const step = b.addInstallLibFile(
-            std.build.FileSource.relative(b.fmt("src/lib/{s}.buzz", .{name})),
+            .{ .path = b.fmt("src/lib/{s}.buzz", .{name}) },
             b.fmt("buzz/{s}.buzz", .{name}),
         );
         install_step.dependOn(&step.step);
     }
 
     const tests = b.addTest(.{
-        .root_source_file = Build.FileSource.relative("src/main.zig"),
+        .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = build_mode,
     });
@@ -491,11 +489,11 @@ pub fn build(b: *Build) !void {
     tests.linkLibrary(lib_pcre2);
     if (lib_mimalloc) |mimalloc| {
         tests.linkLibrary(mimalloc);
-        if (tests.target.getOsTag() == .windows) {
+        if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
             tests.linkSystemLibrary("bcrypt");
         }
     }
-    tests.addOptions("build_options", build_options.step(b));
+    tests.root_module.addImport("build_options", build_option_module);
 
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
@@ -505,7 +503,7 @@ pub fn build(b: *Build) !void {
     test_step.dependOn(&run_tests.step);
 }
 
-pub fn buildPcre2(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
     const copyFiles = b.addWriteFiles();
     copyFiles.addCopyFileToSource(
         .{ .path = "vendors/pcre2/src/config.h.generic" },
@@ -571,7 +569,7 @@ pub fn buildPcre2(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.
     return lib;
 }
 
-pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
     const lib = b.addStaticLibrary(
         .{
             .name = "mimalloc",
@@ -583,7 +581,7 @@ pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.built
     lib.addIncludePath(.{ .path = "./vendors/mimalloc/include" });
     lib.linkLibC();
 
-    if (lib.target.getOsTag() == .macos) {
+    if (lib.root_module.resolved_target.?.result.os.tag == .macos) {
         var macOS_sdk_path = std.ArrayList(u8).init(b.allocator);
         try macOS_sdk_path.writer().print(
             "{s}/usr/include",
@@ -630,7 +628,7 @@ pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.built
                 "./vendors/mimalloc/src/stats.c",
                 "./vendors/mimalloc/src/prim/prim.c",
             },
-            .flags = if (lib.optimize != .Debug)
+            .flags = if (lib.root_module.optimize != .Debug)
                 &.{
                     "-DNDEBUG=1",
                     "-DMI_SECURE=0",
@@ -644,7 +642,7 @@ pub fn buildMimalloc(b: *Build, target: std.zig.CrossTarget, optimize: std.built
     return lib;
 }
 
-pub fn buildLinenoise(b: *Build, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
     const lib = b.addStaticLibrary(.{
         .name = "linenoise",
         .target = target,

@@ -51,7 +51,7 @@ pub const Scanner = struct {
             return self.makeToken(.Eof, null, null, null);
         }
 
-        var char: u8 = self.advance();
+        const char: u8 = self.advance();
         return try switch (char) {
             'b' => self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => self.identifier(),
@@ -131,7 +131,7 @@ pub const Scanner = struct {
 
     fn skipWhitespaces(self: *Self) void {
         while (true) {
-            var char: u8 = self.peek();
+            const char: u8 = self.peek();
 
             switch (char) {
                 ' ', '\r', '\t' => _ = self.advance(),
@@ -179,7 +179,7 @@ pub const Scanner = struct {
 
         while (!self.isEOF()) {
             while (!self.isEOF()) {
-                var char: u8 = self.peek();
+                const char: u8 = self.peek();
 
                 if (char == '\n') {
                     self.current.line += 1;

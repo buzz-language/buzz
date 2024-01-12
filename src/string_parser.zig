@@ -152,7 +152,7 @@ pub const StringParser = struct {
         expr_scanner.column_offset = self.column_offset;
 
         // Replace parser scanner with one that only looks at that substring
-        var scanner = self.parser.scanner;
+        const scanner = self.parser.scanner;
         self.parser.scanner = expr_scanner;
 
         try self.parser.advance();

@@ -492,16 +492,16 @@ export fn bz_collect(self: *VM) bool {
 }
 
 export fn bz_newList(vm: *VM, of_type: Value) Value {
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         vm.gc.allocator,
         ObjTypeDef.cast(of_type.obj()).?,
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
+    const list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -590,7 +590,7 @@ export fn bz_userDataToValue(userdata: *ObjUserData) Value {
 }
 
 export fn bz_newVM(self: *VM) ?*VM {
-    var vm = self.gc.allocator.create(VM) catch {
+    const vm = self.gc.allocator.create(VM) catch {
         return null;
     };
     var gc = self.gc.allocator.create(GarbageCollector) catch {
@@ -708,7 +708,7 @@ export fn bz_run(
 }
 
 fn calleeIsCompiled(value: Value) bool {
-    var obj: *Obj = value.obj();
+    const obj: *Obj = value.obj();
     return switch (obj.obj_type) {
         .Bound => bound: {
             const bound = ObjBoundMethod.cast(obj).?;
@@ -1101,7 +1101,7 @@ export fn bz_valueIs(self: Value, type_def: Value) Value {
 export fn bz_setTryCtx(self: *VM) *TryCtx {
     // It would be better that this was in an ALLOCA, but with it memory keeps slowing leaking
     // Maybe the jmp throws off the stack?
-    var try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
+    const try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
     try_ctx.* = .{
         .previous = self.current_fiber.try_context,
         .env = undefined,
@@ -1601,7 +1601,7 @@ export fn bz_writeZigValueToBuffer(
                 @as(u8, 1)
             else
                 @as(u8, 0));
-            var bytes = std.mem.asBytes(&unwrapped);
+            const bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
         },
@@ -1610,13 +1610,13 @@ export fn bz_writeZigValueToBuffer(
             switch (ztype.Int.bits) {
                 64 => {
                     const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
-                    var bytes = std.mem.asBytes(&unwrapped);
+                    const bytes = std.mem.asBytes(&unwrapped);
 
                     buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
                 },
                 1...32 => {
                     const unwrapped = value.integer();
-                    var bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
+                    const bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
 
                     buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
                 },
@@ -1626,13 +1626,13 @@ export fn bz_writeZigValueToBuffer(
         .Float => switch (ztype.Float.bits) {
             32 => {
                 const unwrapped = @as(f32, @floatCast(value.float()));
-                var bytes = std.mem.asBytes(&unwrapped);
+                const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
             },
             64 => {
                 const unwrapped = value.float();
-                var bytes = std.mem.asBytes(&unwrapped);
+                const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
             },
@@ -1654,7 +1654,7 @@ export fn bz_writeZigValueToBuffer(
         .Opaque,
         => {
             const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
-            var bytes = std.mem.asBytes(&unwrapped);
+            const bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
         },

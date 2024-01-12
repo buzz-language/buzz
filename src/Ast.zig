@@ -977,7 +977,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                 const elements = self.nodes.items(.components)[node].String;
 
                 var string = std.ArrayList(u8).init(gc.allocator);
-                var writer = &string.writer();
+                const writer = &string.writer();
                 for (elements) |element| {
                     try (try self.toValue(element, gc)).toString(writer);
                 }
