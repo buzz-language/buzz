@@ -27,6 +27,7 @@ export enum FileSystemError {
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
     SharingViolation,
+    SocketNotConnected,
     SymLinkLoop,
     SystemFdQuotaExceeded,
     SystemResources,

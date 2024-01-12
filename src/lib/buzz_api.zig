@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
-const jmp = @import("../jmp.zig").jmp;
+const jmp = @import("jmp.zig").jmp;
 
 // FIXME: all those should operate on Value
 // FIXME: some should only be available to the JIT compiler
@@ -36,8 +36,17 @@ pub const ZigType = opaque {
     pub extern fn bz_zigTypeAlignment(self: *ZigType) u16;
 };
 
+var gpa = std.heap.GeneralPurposeAllocator(.{
+    .safety = true,
+}){};
+
 pub const VM = opaque {
-    pub const allocator = @import("../buzz_api.zig").allocator;
+    pub const allocator = if (builtin.mode == .Debug)
+        gpa.allocator()
+    else if (BuildOptions.mimalloc)
+        @import("mimalloc.zig").mim_allocator
+    else
+        std.heap.c_allocator;
 
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;

@@ -776,7 +776,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 }
 
 fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function_node: Ast.Node.Index, this: ?*obj.ObjTypeDef) !void {
-    var enclosing = self.current;
+    const enclosing = self.current;
     // FIXME: is this ever deallocated?
     self.current = try self.gc.allocator.create(Frame);
     self.current.?.* = Frame{
@@ -805,12 +805,12 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         },
         .EntryPoint, .ScriptEntryPoint => {
             // `args` is [str]
-            var list_def = obj.ObjList.ListDef.init(
+            const list_def = obj.ObjList.ListDef.init(
                 self.gc.allocator,
                 try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
             );
 
-            var list_union: obj.ObjTypeDef.TypeUnion = .{ .List = list_def };
+            const list_union: obj.ObjTypeDef.TypeUnion = .{ .List = list_def };
 
             local.type_def = try self.gc.type_registry.getTypeDef(
                 obj.ObjTypeDef{
@@ -926,7 +926,7 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
 }
 
 fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
-    var current = self.current.?;
+    const current = self.current.?;
     var closing = std.ArrayList(Chunk.OpCode).init(self.gc.allocator);
 
     var local_count = current.local_count;
@@ -959,7 +959,7 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
         _ = try self.advance();
     }
 
-    var prefixRule: ?ParseFn = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).prefix;
+    const prefixRule: ?ParseFn = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).prefix;
     if (prefixRule == null) {
         self.reportError(.syntax, "Expected expression.");
 
@@ -974,7 +974,7 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
         // Patch optional jumps
         if (self.opt_jumps) |jumps| {
             std.debug.assert(jumps.items.len > 0);
-            var first_jump: Precedence = jumps.items[0];
+            const first_jump: Precedence = jumps.items[0];
 
             if (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @intFromEnum(first_jump)) {
                 jumps.deinit();
@@ -1309,7 +1309,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     } else if (try self.match(.Throw)) {
         const start_location = self.current_token.? - 1;
         // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
-        var error_value = try self.expression(false);
+        const error_value = try self.expression(false);
 
         try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
 
@@ -1735,7 +1735,7 @@ fn resolvePlaceholderWithRelation(
                     // Search for a case matching the placeholder
                     for (enum_def.cases.items) |case| {
                         if (std.mem.eql(u8, case, child_placeholder.name.?.string)) {
-                            var enum_instance_def: obj.ObjTypeDef.TypeUnion = .{ .EnumInstance = resolved_type };
+                            const enum_instance_def: obj.ObjTypeDef.TypeUnion = .{ .EnumInstance = resolved_type };
 
                             try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{
                                 .def_type = .EnumInstance,
@@ -1784,7 +1784,7 @@ fn resolvePlaceholderWithRelation(
             }
 
             // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
-            var child_type: *obj.ObjTypeDef = try resolved_type.toInstance(self.gc.allocator, &self.gc.type_registry);
+            const child_type: *obj.ObjTypeDef = try resolved_type.toInstance(self.gc.allocator, &self.gc.type_registry);
 
             // Is child type matching the parent?
             try self.resolvePlaceholder(child, child_type, false);
@@ -1888,11 +1888,11 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
 }
 
 fn addUpvalue(self: *Self, frame: *Frame, index: usize, is_local: bool) Error!usize {
-    var upvalue_count: u8 = frame.upvalue_count;
+    const upvalue_count: u8 = frame.upvalue_count;
 
     var i: usize = 0;
     while (i < upvalue_count) : (i += 1) {
-        var upvalue: *UpValue = &frame.upvalues[i];
+        const upvalue: *UpValue = &frame.upvalues[i];
         if (upvalue.index == index and upvalue.is_local == is_local) {
             return i;
         }
@@ -1915,13 +1915,13 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
         return null;
     }
 
-    var local: ?usize = try self.resolveLocal(frame.enclosing.?, name);
+    const local: ?usize = try self.resolveLocal(frame.enclosing.?, name);
     if (local) |resolved| {
         frame.enclosing.?.locals[resolved].is_captured = true;
         return try self.addUpvalue(frame, resolved, true);
     }
 
-    var upvalue: ?usize = try self.resolveUpvalue(frame.enclosing.?, name);
+    const upvalue: ?usize = try self.resolveUpvalue(frame.enclosing.?, name);
     if (upvalue) |resolved| {
         return try self.addUpvalue(frame, resolved, false);
     }
@@ -1938,7 +1938,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
         if (self.current.?.local_count > 0) {
             var i: usize = self.current.?.local_count - 1;
             while (check_name and i >= 0) : (i -= 1) {
-                var local: *Local = &self.current.?.locals[i];
+                const local: *Local = &self.current.?.locals[i];
 
                 if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
                     break;
@@ -2071,7 +2071,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
 }
 
 pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!*obj.ObjTypeDef {
-    var type_scanner = Scanner.init(self.gc.allocator, self.script_name, source);
+    const type_scanner = Scanner.init(self.gc.allocator, self.script_name, source);
     // Replace parser scanner with one that only looks at that substring
     const scanner = self.scanner;
     self.scanner = type_scanner;
@@ -2705,7 +2705,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         .generic_types = generic_types,
         .error_types = if (error_types.items.len > 0) error_types.items else null,
     };
-    var function_resolved_type: obj.ObjTypeDef.TypeUnion = .{ .Function = function_def };
+    const function_resolved_type: obj.ObjTypeDef.TypeUnion = .{ .Function = function_def };
 
     function_typedef.resolved_type = function_resolved_type;
 
@@ -3075,7 +3075,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var items = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    var explicit_item_type: ?Ast.Node.Index = null;
+    const explicit_item_type: ?Ast.Node.Index = null;
     var item_type: ?*obj.ObjTypeDef = null;
 
     // A list expression can specify its type `[<int>, ...]`
@@ -3129,11 +3129,11 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
         item_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
     }
 
-    var list_def = obj.ObjList.ListDef.init(self.gc.allocator, item_type.?);
+    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, item_type.?);
 
-    var resolved_type = obj.ObjTypeDef.TypeUnion{ .List = list_def };
+    const resolved_type = obj.ObjTypeDef.TypeUnion{ .List = list_def };
 
-    var list_type = try self.gc.type_registry.getTypeDef(
+    const list_type = try self.gc.type_registry.getTypeDef(
         .{
             .def_type = .List,
             .resolved_type = resolved_type,
@@ -3682,10 +3682,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
     const start_location = self.ast.nodes.items(.location)[callee];
 
     try self.consume(.Identifier, "Expected property name after `.`");
-    var member_name_token = self.current_token.? - 1;
-    var member_name = self.ast.tokens.items(.lexeme)[member_name_token];
+    const member_name_token = self.current_token.? - 1;
+    const member_name = self.ast.tokens.items(.lexeme)[member_name_token];
 
-    var dot_node = try self.ast.appendNode(
+    const dot_node = try self.ast.appendNode(
         .{
             .tag = .Dot,
             .location = start_location,

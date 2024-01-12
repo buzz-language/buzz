@@ -4102,7 +4102,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4187,7 +4187,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     defer nativefn_qualified_name.deinit();
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4415,7 +4415,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     switch (foreign_def.zig_type) {
         .Struct => {
             for (foreign_def.zig_type.Struct.fields) |field| {
-                var container_field = foreign_def.fields.getEntry(field.name).?;
+                const container_field = foreign_def.fields.getEntry(field.name).?;
 
                 try getters.append(
                     try self.buildZdefContainerGetter(
@@ -4441,7 +4441,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
 
         .Union => {
             for (foreign_def.zig_type.Union.fields) |field| {
-                var container_field = foreign_def.fields.getEntry(field.name).?;
+                const container_field = foreign_def.fields.getEntry(field.name).?;
                 _ = container_field;
 
                 try getters.append(
@@ -4504,7 +4504,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     switch (foreign_def.zig_type) {
         .Struct => {
             for (foreign_def.zig_type.Struct.fields, 0..) |field, idx| {
-                var struct_field = foreign_def.fields.getEntry(field.name).?;
+                const struct_field = foreign_def.fields.getEntry(field.name).?;
                 struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
                     0,
@@ -4520,7 +4520,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
         },
         .Union => {
             for (foreign_def.zig_type.Union.fields, 0..) |field, idx| {
-                var struct_field = foreign_def.fields.getEntry(field.name).?;
+                const struct_field = foreign_def.fields.getEntry(field.name).?;
                 struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
                     0,
@@ -4670,7 +4670,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
 
     try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.zdef.name});
 
-    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch @panic("Out of memory");
+    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
@@ -4738,14 +4738,12 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
     m.MIR_gen_init(self.ctx, 1);
     defer m.MIR_gen_finish(self.ctx);
 
-    var obj_native = try self.vm.gc.allocateObject(
+    return try self.vm.gc.allocateObject(
         o.ObjNative,
         .{
             .native = m.MIR_gen(self.ctx, 0, wrapper_item) orelse unreachable,
         },
     );
-
-    return obj_native;
 }
 
 fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
@@ -4811,11 +4809,11 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     try wrapper_protocol_name.writer().print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    var dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch @panic("Out of memory");
+    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4887,7 +4885,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     const buzz_return_type = function_def.return_type;
 
-    var return_mir_type = if (zig_return_type != .Void)
+    const return_mir_type = if (zig_return_type != .Void)
         zigToMIRRegType(zig_return_type)
     else
         null;
@@ -5020,9 +5018,9 @@ fn buildZdefUnionGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(vm_name);
-    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5124,11 +5122,11 @@ fn buildZdefUnionSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(vm_name);
-    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(data_name);
-    var new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5231,9 +5229,9 @@ fn buildZdefContainerGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(vm_name);
-    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5319,11 +5317,11 @@ fn buildZdefContainerSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    var vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(vm_name);
-    var data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(data_name);
-    var new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
