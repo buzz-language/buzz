@@ -297,7 +297,12 @@ test "Testing behavior" {
     var count: usize = 0;
     var fail_count: usize = 0;
     {
-        var test_dir = try std.fs.cwd().openDir("tests", .{});
+        var test_dir = try std.fs.cwd().openDir(
+            "tests",
+            .{
+                .iterate = true,
+            },
+        );
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
@@ -327,7 +332,12 @@ test "Testing behavior" {
     }
 
     {
-        var test_dir = try std.fs.cwd().openDir("tests/compile_errors", .{});
+        var test_dir = try std.fs.cwd().openDir(
+            "tests/compile_errors",
+            .{
+                .iterate = true,
+            },
+        );
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
