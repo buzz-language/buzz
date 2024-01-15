@@ -25,11 +25,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run Tests
-        run: zig build -Doptimize=ReleaseSafe test
+        run: zig build test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
       - name: Run tests with JIT always on
-        run: zig build -Djit_always_on -Doptimize=ReleaseSafe test
+        run: zig build -Djit_always_on test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
   test-linux:
@@ -48,11 +48,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
       - name: Run tests
-        run: zig build -Doptimize=ReleaseSafe test
+        run: zig build test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
       - name: Run tests with JIT always on
-        run: zig build -Djit_always_on -Doptimize=ReleaseSafe test
+        run: zig build -Djit_always_on test
       - name: Cleanup
         run: rm -rf zig-cache zig-out
   lint:

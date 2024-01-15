@@ -2017,7 +2017,10 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const components = node_components[node].Function;
-    const function_signature = if (components.function_signature) |fs| node_components[fs].FunctionType else null;
+    const function_signature = if (components.function_signature) |fs|
+        node_components[fs].FunctionType
+    else
+        null;
     const node_type_def = type_defs[node].?;
     const function_type = node_type_def.resolved_type.?.Function.function_type;
 
