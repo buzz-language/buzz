@@ -4672,7 +4672,6 @@ fn function(
                 .Function = .{
                     .id = Ast.Function.nextId(),
                     .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(self.gc.allocator),
-                    .body = undefined,
                     .function_signature = function_signature,
                 },
             },
