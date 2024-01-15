@@ -24,12 +24,31 @@ jobs:
           version: master
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
-      - name: Run Tests
+
+      - name: Run tests Debug
         run: zig build test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
-      - name: Run tests with JIT always on
+      - name: Run tests Debug with JIT always on
         run: zig build -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+
+      - name: Run tests ReleaseSafe
+        run: zig build -Doptimize=ReleaseSafe test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseSafe with JIT always on
+        run: zig build -Doptimize=ReleaseSafe -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+
+      - name: Run tests ReleaseFast
+        run: zig build -Doptimize=ReleaseFast test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseFast with JIT always on
+        run: zig build -Doptimize=ReleaseFast -Djit_always_on test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
   test-linux:
@@ -47,14 +66,33 @@ jobs:
           version: master
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
-      - name: Run tests
+
+      - name: Run tests Debug
         run: zig build test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
-      - name: Run tests with JIT always on
+      - name: Run tests Debug with JIT always on
         run: zig build -Djit_always_on test
       - name: Cleanup
-        run: rm -rf zig-cache zig-out
+        run: rm -rf zig-out zig-cache
+
+      - name: Run tests ReleaseSafe
+        run: zig build -Doptimize=ReleaseSafe test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseSafe with JIT always on
+        run: zig build -Doptimize=ReleaseSafe -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+
+      - name: Run tests ReleaseFast
+        run: zig build -Doptimize=ReleaseFast test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseFast with JIT always on
+        run: zig build -Doptimize=ReleaseFast -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
   lint:
     runs-on: macos-latest
     steps:
