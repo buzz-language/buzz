@@ -181,6 +181,8 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
+        error.OutOfMemory => @panic("Out of memory"),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
