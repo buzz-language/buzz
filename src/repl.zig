@@ -38,7 +38,7 @@ const Scanner = @import("scanner.zig").Scanner;
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
     out.print(
-        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\n",
+        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
             if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
             BuildOptions.sha,
