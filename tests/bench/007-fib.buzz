@@ -8,6 +8,6 @@ fun fibonnacci(int n) > int {
     return fibonnacci(n - 2) + fibonnacci(n - 1);
 }
 
-fun main([str] args) > void {
+fun main([str] _) > void {
     print("{fibonnacci(30)}");
 }

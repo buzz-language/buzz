@@ -49,7 +49,7 @@ test "list.sort" {
 }
 
 test "map.forEach" {
-    {str, int} map = {
+    {str: int} map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -65,7 +65,7 @@ test "map.forEach" {
 }
 
 test "map.map" {
-    {str, int} map = {
+    {str: int} map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -73,7 +73,7 @@ test "map.map" {
     };
 
     | fun map(<K, V>, Function(str key, int value) > obj{ K key, V value }) > {K, V}
-    {int, str} inverted = map.map::<int, str>(
+    {int: str} inverted = map.map::<int, str>(
         fun (str key, int value) -> .{ key = value, value = key },
     );
 
@@ -83,14 +83,14 @@ test "map.map" {
 }
 
 test "map.filter" {
-    {str, int} map = {
+    {str: int} map = {
         "five": 5,
         "two": 2,
         "one": 1,
         "three": 3,
     };
 
-    {str, int} filtered = map.filter(
+    {str: int} filtered = map.filter(
         fun (str _, int value) -> value % 2 != 0
     );
 
@@ -98,7 +98,7 @@ test "map.filter" {
 }
 
 test "map.reduce" {
-    {str, int} map = {
+    {str: int} map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -114,7 +114,7 @@ test "map.reduce" {
 }
 
 test "map.sort" {
-    {str, int} map = {
+    {str: int} map = {
         "five": 5,
         "two": 2,
         "one": 1,
