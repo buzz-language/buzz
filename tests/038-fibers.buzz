@@ -68,7 +68,7 @@ test "Closed upvalue in fiber" {
 }
 
 test "Wrapping call inside complex expressions" {
-    {str, Function() > str} map = {
+    {str: Function() > str} map = {
         "hello": fun () > str -> "hello world",
     };
 

@@ -2,7 +2,7 @@ import "std";
 import "debug";
 
 object Payload::<K, V> {
-    {K, V} data,
+    {K: V} data,
 }
 
 test "Objects generics" {

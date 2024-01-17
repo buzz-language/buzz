@@ -47,7 +47,7 @@ object MyObject {
 
 test "dump" {
     [int] list = [1, 2, 3, 4];
-    {str, int} map = {
+    {str: int} map = {
         "one": 1,
         "two": 2,
         "three": 3,

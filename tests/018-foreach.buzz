@@ -19,7 +19,7 @@ test "list.next" {
 }
 
 test "foreach on map" {
-    {str, int} map = {
+    {str: int} map = {
         "one": 1,
         "two": 2,
         "three": 3

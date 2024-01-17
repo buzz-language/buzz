@@ -1016,7 +1016,6 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
     return node;
 }
 
-// Returns a list of break jumps to patch
 fn block(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
@@ -2454,7 +2453,7 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
 
     const key_type = try self.parseTypeDef(generic_types, true);
 
-    try self.consume(.Comma, "Expected `,` after key type.");
+    try self.consume(.Colon, "Expected `:` after key type.");
 
     const value_type = try self.parseTypeDef(generic_types, true);
 
@@ -3370,12 +3369,12 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
     var key_type_node: ?Ast.Node.Index = null;
     var key_type_def: ?*obj.ObjTypeDef = null;
 
-    // A map expression can specify its type `{<str, str>, ...}`
+    // A map expression can specify its type `{<str: str>, ...}`
     if (try self.match(.Less)) {
         key_type_node = try self.parseTypeDef(null, true);
         key_type_def = self.ast.nodes.items(.type_def)[key_type_node.?];
 
-        try self.consume(.Comma, "Expected `,` after key type");
+        try self.consume(.Colon, "Expected `:` after key type");
 
         value_type_node = try self.parseTypeDef(null, true);
         value_type_def = self.ast.nodes.items(.type_def)[value_type_node.?];

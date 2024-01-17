@@ -66,13 +66,13 @@ extern fun HttpClientNew() > ud;
 || @private
 extern fun HttpClientDeinit(ud client) > void;
 || @private
-extern fun HttpClientSend(ud client, Method method, str uri, {str, str} headers) > ud !> HttpError;
+extern fun HttpClientSend(ud client, Method method, str uri, {str: str} headers) > ud !> HttpError;
 || @private
 extern fun HttpRequestWait(ud request) > void !> HttpError;
 || @private
 extern fun HttpRequestRead(ud request) > Response !> HttpError;
 
-const {int, str} reasons = {
+const {int: str} reasons = {
     100: "Continue",
     101: "Switching Protocols",
     102: "Processing",
@@ -191,7 +191,7 @@ export object Request {
     ud? request = null,
     Response? response = null,
     Method method,
-    {str, str} headers = {<str, str>},
+    {str: str} headers = {<str: str>},
     str uri = "/",
     str? body = null,
 
@@ -231,7 +231,7 @@ export object Request {
 
 export object Response {
     int status = 200,
-    {str, str} headers = {<str, str>},
+    {str: str} headers = {<str: str>},
     str? body = null,
 
     fun toString() > str {

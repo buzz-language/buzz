@@ -62,14 +62,14 @@ test "Protocols" {
     assert(bandit.name == "Chili", message: "could call protocol method");
     assert(joe.name == "Nick", message: "could call protocol method");
 
-    {Nameable, bool} map = {
+    {Nameable: bool} map = {
         bandit: true,
         joe: false,
     };
 
     assert(map[joe] == false, message: "could hold protocol as map key");
 
-    {str, Nameable} mapValue = {
+    {str: Nameable} mapValue = {
         "bandit": bandit,
         "joe": joe,
     };

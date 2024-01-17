@@ -18,12 +18,12 @@ test "Generic within anonymous object" {
     assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
 }
 
-fun countMap::<K, V>({K, V} map) > int {
+fun countMap::<K, V>({K: V} map) > int {
     return map.size();
 }
 
 test "Multiple generic types" {
-    {str, int} map = {
+    {str: int} map = {
         "one": 1,
         "two": 2,
         "three": 3,
@@ -32,12 +32,12 @@ test "Multiple generic types" {
     assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
 }
 
-fun extractMap::<K, V>(obj{ {K, V} map } data) > {K, V} {
+fun extractMap::<K, V>(obj{ {K: V} map } data) > {K: V} {
     return data.map;
 }
 
 test "Generic within anonymous object and map" {
-    {str, int} map = {
+    {str: int} map = {
         "one": 1,
         "two": 2,
         "three": 3,
