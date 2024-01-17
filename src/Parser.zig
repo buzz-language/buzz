@@ -205,6 +205,10 @@ const ParseRule = struct {
 };
 
 const search_paths = [_][]const u8{
+    "$/?.!",
+    "$/?/main.!",
+    "$/?/src/?.!",
+    "$/?/src/main.!",
     "./?.!",
     "./?/main.!",
     "./?/src/main.!",
@@ -217,21 +221,17 @@ const search_paths = [_][]const u8{
     "/usr/local/share/buzz/?/main.!",
     "/usr/local/share/buzz/?/src/main.!",
     "/usr/local/share/buzz/?/src/?.!",
-    "$/?.!",
-    "$/?/main.!",
-    "$/?/src/?.!",
-    "$/?/src/main.!",
 };
 
 const lib_search_paths = [_][]const u8{
+    "$/lib?.!",
+    "$/?/src/lib?.!",
     "./lib?.!",
     "./?/src/lib?.!",
     "/usr/share/buzz/lib?.!",
     "/usr/share/buzz/?/src/lib?.!",
     "/usr/share/local/buzz/lib?.!",
     "/usr/share/local/buzz/?/src/lib?.!",
-    "$/lib?.!",
-    "$/?/src/lib?.!",
 };
 
 const zdef_search_paths = [_][]const u8{
