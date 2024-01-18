@@ -258,7 +258,7 @@ pub const Fiber = struct {
         }
     }
 
-    pub fn resolve_(self: *Self, vm: *VM) !void {
+    pub fn resolve(self: *Self, vm: *VM) !void {
         self.resolved = true;
 
         switch (self.status) {
@@ -625,6 +625,7 @@ pub const VM = struct {
         OP_ENUM_FOREACH,
         OP_MAP_FOREACH,
         OP_FIBER_FOREACH,
+        OP_INSTANCE_FOREACH,
 
         OP_CALL,
         OP_INSTANCE_INVOKE,
@@ -1280,7 +1281,7 @@ pub const VM = struct {
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.resolve_(self) catch |e| {
+        obj_fiber.fiber.resolve(self) catch |e| {
             panic(e);
             unreachable;
         };
@@ -3519,6 +3520,35 @@ pub const VM = struct {
                 getArg(next_full_instruction),
             },
         );
+    }
+
+    fn OP_INSTANCE_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        _ = value_slot; // autofix
+        const instance: *ObjObjectInstance = self.peek(0).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const next_method_value = instance.fields.get(self.gc.copyString("next") catch unreachable).?;
+        const next_method = next_method_value.obj().access(ObjClosure, .ObjClosure, self.gc).?;
+
+        // Invoke next
+        self.push(self.peek(0)); // this
+        self.push(key_slot.*); // current key
+
+        self.callValue(
+            next_method_value,
+            1,
+            null,
+            false,
+        ) catch @panic("Could not call `next` method");
+
+        // If not compiled, run it within its own VM loop so we can resume here after
+        if (next_method.function.native == null) {
+            self.run();
+        }
+
+        // Result is next key, or next value??
+        key_slot.* = self.pop();
+        value_slot.* = ...
     }
 
     fn OP_UNWRAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {

@@ -1,0 +1,50 @@
+import "std";
+
+object Iterator {
+    int current = 0,
+    [int] list,
+
+    fun next() > int? {
+        if (this.current < list.len() - 1)
+            this.current = this.current + 1l
+            return this.list[this.current];
+        else
+            null;
+    }
+}
+
+object FiberIterator {
+    [int] list,
+
+    fun iter() > void > int? {
+        foreach (int value in list) {
+            yield value;
+        }
+    }
+}
+
+test "object iterable" {
+    const iterable = Iterable{
+        list = 0..10
+    };
+
+    var sum = 0;
+    foreach (int value in iterable) {
+        sum = sum + value;
+    }
+
+    assert(sum == 45, message: "Could iterate over object");
+}
+
+test "object fiber iterable" {
+    const iterable = Iterable{
+        list = 0..10
+    };
+
+    var sum = 0;
+    foreach (int value in &iterable.iter()) {
+        sum = sum + value;
+    }
+
+    assert(sum == 45, message: "Could iterate over object using a fiber");
+}

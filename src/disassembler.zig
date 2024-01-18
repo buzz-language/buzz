@@ -243,6 +243,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_ENUM_FOREACH,
         .OP_MAP_FOREACH,
         .OP_FIBER_FOREACH,
+        .OP_INSTANCE_FOREACH,
         .OP_RESUME,
         .OP_YIELD,
         .OP_RESOLVE,

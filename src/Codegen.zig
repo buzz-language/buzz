@@ -21,6 +21,10 @@ pub const Error = error{
     CantCompile,
     UnwrappedNull,
     OutOfBound,
+    BuzzNoDll,
+    ImportError,
+    Unrecoverable,
+    Recoverable,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 pub const Frame = struct {
@@ -1832,6 +1836,40 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
                         );
                     }
                 },
+                .ObjectInstance => {
+                    const object_def = iterable_type_def.resolved_type.?.resolved_type.?.Object;
+                    if (object_def.methods.get("next")) |next_type_def| {
+                        const next_def = next_type_def.resolved_type.?.Function;
+
+                        if (!next_def.return_type.optional or next_def.parameters.count() != 1) {
+                            const next_def_str = next_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                            defer next_def_str.deinit();
+                            self.reporter.reportErrorFmt(
+                                .next_signature,
+                                self.ast.tokens.get(locations[components.iterable]),
+                                "Expected `next` method to be `fun next(K key) > V?` got {s}",
+                                .{
+                                    next_def_str.items,
+                                },
+                            );
+                        } else if (!next_def.parameters.get(next_def.parameters.keys[0]).?.eql(key_type_def)) {
+                            self.reporter.reportTypeCheck(
+                                .foreach_key_type,
+                                self.ast.tokens.get(locations[components.iterable]),
+                                next_def.parameters.get(next_def.parameters.keys[0]).?,
+                                self.ast.tokens.get(locations[components.key]),
+                                key_type_def,
+                                "Bad key type",
+                            );
+                        }
+                    } else {
+                        self.reporter.reportErrorAt(
+                            .foreach_iterable,
+                            self.ast.tokens.get(locations[components.iterable]),
+                            "Object instance not iterable, `next` method is not defined",
+                        );
+                    }
+                },
                 .Enum => self.reporter.reportErrorAt(
                     .foreach_key_type,
                     self.ast.tokens.get(locations[components.key]),
@@ -1919,6 +1957,40 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
                     );
                 }
             },
+            .ObjectInstance => {
+                const object_def = iterable_type_def.resolved_type.?.resolved_type.?.Object;
+                if (object_def.methods.get("next")) |next_type_def| {
+                    const next_def = next_type_def.resolved_type.?.Function;
+
+                    if (!next_def.return_type.optional or next_def.parameters.count() != 1) {
+                        const next_def_str = next_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                        defer next_def_str.deinit();
+                        self.reporter.reportErrorFmt(
+                            .next_signature,
+                            self.ast.tokens.get(locations[components.iterable]),
+                            "Expected `next` method to be `fun next(K key) > V?` got {s}",
+                            .{
+                                next_def_str.items,
+                            },
+                        );
+                    } else if (!next_def.return_type.eql(value_type_def)) {
+                        self.reporter.reportTypeCheck(
+                            .foreach_key_type,
+                            self.ast.tokens.get(locations[components.iterable]),
+                            next_def.return_type,
+                            self.ast.tokens.get(locations[components.key]),
+                            value_type_def,
+                            "Bad value type",
+                        );
+                    }
+                } else {
+                    self.reporter.reportErrorAt(
+                        .foreach_iterable,
+                        self.ast.tokens.get(locations[components.iterable]),
+                        "Object instance not iterable, `next` method is not defined",
+                    );
+                }
+            },
             else => self.reporter.reportErrorAt(
                 .foreach_iterable,
                 self.ast.tokens.get(locations[components.iterable]),
@@ -1936,6 +2008,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
             .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
             .String => obj.ObjString.cast(iterable).?.string.len == 0,
             .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
+            .ObjectInstance => false,
             else => self.reporter.had_error,
         }) {
             try self.patchOptJumps(node);
@@ -1958,6 +2031,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
             .Enum => .OP_ENUM_FOREACH,
             .Map => .OP_MAP_FOREACH,
             .Fiber => .OP_FIBER_FOREACH,
+            .ObjectInstance => .OP_INSTANCE_FOREACH,
             else => unexpected: {
                 std.debug.assert(self.reporter.had_error);
                 break :unexpected .OP_STRING_FOREACH;
@@ -2776,44 +2850,40 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*std.Ar
             }
 
             // Enforce "collect" method signature
-            if (std.mem.eql(u8, member_name, "collect")) {
-                const collect_def = member_type_def.resolved_type.?.Function;
+            if (std.mem.eql(u8, member_name, "collect") and !(try self.parser.parseTypeDefFrom("Function collect() > void")).eql(member_type_def)) {
+                const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                defer collect_def_str.deinit();
+                self.reporter.reportErrorFmt(
+                    .collect_signature,
+                    self.ast.tokens.get(locations[member.method_or_default_value.?]),
+                    "Expected `collect` method to be `fun collect() > void` got {s}",
+                    .{
+                        collect_def_str.items,
+                    },
+                );
+            } else if (std.mem.eql(u8, member_name, "toString") and !(try self.parser.parseTypeDefFrom("Function toString() > str")).eql(member_type_def)) { // Enforce "toString" method signature
+                const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                defer tostring_def_str.deinit();
+                self.reporter.reportErrorFmt(
+                    .tostring_signature,
+                    self.ast.tokens.get(locations[member.method_or_default_value.?]),
+                    "Expected `toString` method to be `fun toString() > str` got {s}",
+                    .{
+                        tostring_def_str.items,
+                    },
+                );
+            } else if (std.mem.eql(u8, member_name, "next")) {
+                const next_def = member_type_def.resolved_type.?.Function;
 
-                // zig fmt: off
-                if (collect_def.parameters.count() > 0
-                    or collect_def.return_type.def_type != .Void
-                    or collect_def.yield_type.def_type != .Void
-                    or collect_def.error_types != null) {
-                    // zig fmt: on
-                    const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
-                    defer collect_def_str.deinit();
+                if (!next_def.return_type.optional or next_def.parameters.count() != 1) {
+                    const next_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                    defer next_def_str.deinit();
                     self.reporter.reportErrorFmt(
-                        .collect_signature,
+                        .next_signature,
                         self.ast.tokens.get(locations[member.method_or_default_value.?]),
-                        "Expected `collect` method to be `fun collect() > void` got {s}",
+                        "Expected `next` method to be `fun next(K key) > V?` got {s}",
                         .{
-                            collect_def_str.items,
-                        },
-                    );
-                }
-            } else if (std.mem.eql(u8, member_name, "toString")) { // Enforce "toString" method signature
-                const tostring_def = member_type_def.resolved_type.?.Function;
-
-                // zig fmt: off
-                if (tostring_def.parameters.count() > 0
-                    or tostring_def.return_type.def_type != .String
-                    or tostring_def.yield_type.def_type != .Void
-                    or tostring_def.error_types != null
-                    or tostring_def.generic_types.count() > 0) {
-                    // zig fmt: on
-                    const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
-                    defer tostring_def_str.deinit();
-                    self.reporter.reportErrorFmt(
-                        .tostring_signature,
-                        self.ast.tokens.get(locations[member.method_or_default_value.?]),
-                        "Expected `toString` method to be `fun toString() > str` got {s}",
-                        .{
-                            tostring_def_str.items,
+                            next_def_str.items,
                         },
                     );
                 }

@@ -63,6 +63,7 @@ pub const OpCode = enum(u8) {
     OP_ENUM_FOREACH,
     OP_MAP_FOREACH,
     OP_FIBER_FOREACH,
+    OP_INSTANCE_FOREACH,
 
     OP_CALL,
     OP_INSTANCE_INVOKE,

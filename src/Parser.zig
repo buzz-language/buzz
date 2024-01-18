@@ -5497,21 +5497,8 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     }
 
     // Enforce main signature
-    const fun_def = fun_typedef.resolved_type.?.Function;
     if (is_main) {
-        var signature_valid = true;
-        if (fun_def.parameters.count() != 1 or (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void)) {
-            signature_valid = false;
-        } else {
-            const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
-            if (first_param == null or
-                !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
-            {
-                signature_valid = false;
-            }
-        }
-
-        if (!signature_valid) {
+        if (!(try self.parseTypeDefFrom("Function main([str] args) > void")).eql(fun_typedef) and !(try self.parseTypeDefFrom("Function main([str] args) > int")).eql(fun_typedef)) {
             const main_def_str = fun_typedef.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
             defer main_def_str.deinit();
             self.reporter.reportErrorFmt(
