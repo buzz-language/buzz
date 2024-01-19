@@ -57,7 +57,7 @@ fun btree(int N) > void {
 }
 
 fun main([str] args) > void !> any {
-    int N = if (args.len() > 0) parseInt(args[0]) ?? 0 else 0;
+    int N = if (args.len() > 0) parseInt(args[0]) ?? 3 else 3;
 
     btree(N);
 }

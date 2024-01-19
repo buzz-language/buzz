@@ -42,6 +42,7 @@ const BuzzGCOptions = struct {
     initial_gc: usize,
     next_gc_ratio: usize,
     next_full_gc_ratio: usize,
+    memory_limit: ?usize,
 
     pub fn step(self: BuzzGCOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
@@ -51,6 +52,7 @@ const BuzzGCOptions = struct {
         options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
         options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
         options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
+        options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
     }
 };
 
@@ -211,6 +213,11 @@ pub fn build(b: *Build) !void {
                 "next_full_gc_ratio",
                 "Ratio applied to get the next full GC threshold",
             ) orelse 4,
+            .memory_limit = b.option(
+                usize,
+                "memory_limit",
+                "Memory limit",
+            ) orelse null,
         },
         .jit = .{
             .debug = b.option(

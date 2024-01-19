@@ -193,6 +193,7 @@ pub const Error = error{
     CantCompile,
     UnwrappedNull,
     OutOfBound,
+    ReachedMaximumMemoryUsage,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError || CompileError;
 
 const ParseFn = *const fn (*Self, bool) Error!Ast.Node.Index;
@@ -708,6 +709,10 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
             }
         } else {
             if (self.declaration() catch |err| {
+                if (err == error.ReachedMaximumMemoryUsage) {
+                    return err;
+                }
+
                 if (BuildOptions.debug) {
                     std.debug.print("Parsing failed with error {}\n", .{err});
                 }
