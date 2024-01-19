@@ -47,7 +47,7 @@ pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
 
     if (full) {
         out.print(
-            "Built with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
+            "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
             .{
                 builtin.zig_version,
                 switch (builtin.mode) {
@@ -59,10 +59,20 @@ pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit)
+                if (BuildOptions.memory_limit) |ml|
+                    ml
+                else
+                    0,
+                if (BuildOptions.memory_limit != null)
+                    "bytes"
+                else
+                    "(unlimited)",
+                if (BuildOptions.jit and BuildOptions.cycle_limit == null)
                     "on"
                 else
                     "off",
+                if (BuildOptions.cycle_limit) |cl| cl else 0,
+                if (BuildOptions.cycle_limit != null) "cycles" else "(unlimited)",
             },
         ) catch unreachable;
     }
@@ -83,7 +93,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, .Repl);
-    vm.jit = if (BuildOptions.jit)
+    vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
     else
         null;

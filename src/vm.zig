@@ -322,6 +322,8 @@ pub const Fiber = struct {
 pub const VM = struct {
     const Self = @This();
 
+    var cycles: u128 = 0;
+
     pub const Error = error{
         UnwrappedNull,
         OutOfBound,
@@ -330,6 +332,7 @@ pub const VM = struct {
         FiberOver,
         BadNumber,
         ReachedMaximumMemoryUsage,
+        ReachedMaximumCPUUsage,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
@@ -721,6 +724,21 @@ pub const VM = struct {
 
         if (BuildOptions.gc_debug_access) {
             self.gc.where = current_frame.closure.function.chunk.lines.items[current_frame.ip - 1];
+        }
+
+        if (BuildOptions.cycle_limit) |limit| {
+            cycles += 1;
+
+            if (cycles > limit * 1000) {
+                self.throw(
+                    Error.ReachedMaximumCPUUsage,
+                    (self.gc.copyString("Maximum CPU usage reached") catch @panic("Maximum CPU usage reached")).toValue(),
+                    null,
+                    null,
+                ) catch @panic("Maximum CPU usage reached");
+
+                return;
+            }
         }
 
         // Tail call
@@ -3928,7 +3946,7 @@ pub const VM = struct {
     }
 
     // A JIT compiled function pops its stack on its own
-    fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+    fn callCompiled(self: *Self, closure: *ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         const was_in_native_call = self.currentFrame() != null and self.currentFrame().?.in_native_call;
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;
@@ -3937,8 +3955,8 @@ pub const VM = struct {
 
         var ctx = NativeCtx{
             .vm = self,
-            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .globals = closure.globals.items.ptr,
+            .upvalues = closure.upvalues.items.ptr,
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
