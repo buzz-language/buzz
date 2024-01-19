@@ -329,6 +329,7 @@ pub const VM = struct {
         NotInFiber,
         FiberOver,
         BadNumber,
+        ReachedMaximumMemoryUsage,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 

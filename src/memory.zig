@@ -215,6 +215,10 @@ pub const GarbageCollector = struct {
             try self.collectGarbage();
         }
 
+        if (BuildOptions.memory_limit != null and self.bytes_allocated > BuildOptions.memory_limit.?) {
+            return error.ReachedMaximumMemoryUsage;
+        }
+
         const allocated = try self.allocator.create(T);
 
         if (BuildOptions.gc_debug) {

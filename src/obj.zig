@@ -297,7 +297,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft }!*ObjTypeDef {
+    pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
         return switch (self.obj_type) {
             .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
             .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),

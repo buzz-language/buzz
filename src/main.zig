@@ -264,9 +264,10 @@ pub fn main() !void {
 
     if (flavor == .Repl) {
         repl(allocator) catch |err| {
-            if (BuildOptions.debug) {
-                std.debug.print("Failed with error {}\n", .{err});
-            }
+            std.io.getStdErr().writer().print(
+                "Failed with error {s}\n",
+                .{@errorName(err)},
+            ) catch unreachable;
 
             std.os.exit(1);
         };
@@ -277,9 +278,10 @@ pub fn main() !void {
             positionals.items[1..],
             flavor,
         ) catch |err| {
-            if (BuildOptions.debug) {
-                std.debug.print("Failed with error {}\n", .{err});
-            }
+            std.io.getStdErr().writer().print(
+                "Failed with error {s}\n",
+                .{@errorName(err)},
+            ) catch unreachable;
 
             std.os.exit(1);
         };

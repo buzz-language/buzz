@@ -11,7 +11,12 @@ const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
 
-pub const Error = error{ CantCompile, UnwrappedNull, OutOfBound } || std.mem.Allocator.Error || std.fmt.BufPrintError;
+pub const Error = error{
+    CantCompile,
+    UnwrappedNull,
+    OutOfBound,
+    ReachedMaximumMemoryUsage,
+} || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 const OptJump = struct {
     current_insn: std.ArrayList(m.MIR_insn_t),

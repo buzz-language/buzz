@@ -21,6 +21,7 @@ pub const Error = error{
     CantCompile,
     UnwrappedNull,
     OutOfBound,
+    ReachedMaximumMemoryUsage,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 pub const Frame = struct {
