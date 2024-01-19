@@ -64,12 +64,14 @@ const BuzzBuildOptions = struct {
     gc: BuzzGCOptions,
     jit: BuzzJITOptions,
     target: Build.ResolvedTarget,
+    cycle_limit: ?u128,
 
     pub fn step(self: @This(), b: *Build) *Build.Module {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
         options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
+        options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
 
         self.debug.step(options);
         self.gc.step(options);
@@ -140,6 +142,11 @@ pub fn build(b: *Build) !void {
             }).stdout,
             "\n \t",
         ),
+        .cycle_limit = b.option(
+            usize,
+            "cycle_limit",
+            "Amount of bytecode (x 1000) the script is allowed to run (WARNING: this disables JIT compilation)",
+        ) orelse null,
         .mimalloc = b.option(
             bool,
             "mimalloc",
@@ -216,7 +223,7 @@ pub fn build(b: *Build) !void {
             .memory_limit = b.option(
                 usize,
                 "memory_limit",
-                "Memory limit",
+                "Memory limit in bytes",
             ) orelse null,
         },
         .jit = .{

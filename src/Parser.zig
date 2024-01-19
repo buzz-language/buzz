@@ -7081,7 +7081,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn zdefStatement(self: *Self) Error!Ast.Node.Index {
-    if (!BuildOptions.jit) {
+    if (!BuildOptions.jit and BuildOptions.cycle_limit == null) {
         self.reportError(.zdef, "zdef can't be used, this instance of buzz was built with JIT compiler disabled");
     }
 

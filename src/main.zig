@@ -30,7 +30,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor);
-    vm.jit = if (BuildOptions.jit)
+    vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
     else
         null;
