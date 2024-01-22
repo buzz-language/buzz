@@ -92,6 +92,8 @@ pub const Scanner = struct {
                 self.makeToken(.ShiftLeft, null, null, null)
             else if (self.match('='))
                 self.makeToken(.LessEqual, null, null, null)
+            else if (self.match('{'))
+                self.makeToken(.Blk, null, null, null)
             else
                 self.makeToken(.Less, null, null, null),
             '~' => self.makeToken(.Bnot, null, null, null),
@@ -668,6 +670,7 @@ pub const Scanner = struct {
                         .Var,
                         .Question,
                         .AsQuestion,
+                        .Out,
                         => if (true_color) Color.keyword else "\x1b[94m",
                         // Punctuation
                         .LeftBracket,
@@ -685,6 +688,7 @@ pub const Scanner = struct {
                         .Arrow,
                         .Ampersand,
                         .Spread,
+                        .Blk,
                         => if (true_color) Color.punctuation else Color.magenta,
                         .IntegerValue,
                         .FloatValue,

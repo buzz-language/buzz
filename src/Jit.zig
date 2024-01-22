@@ -343,6 +343,8 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .FunDeclaration => try self.generateFunDeclaration(node),
         .VarDeclaration => try self.generateVarDeclaration(node),
         .Block => try self.generateBlock(node),
+        .BlockExpression => try self.generateBlockExpression(node),
+        .Out => try self.generateNode(components[node].Out),
         .Call => try self.generateCall(node),
         .NamedVariable => try self.generateNamedVariable(node),
         .Return => try self.generateReturn(node),
@@ -4030,6 +4032,20 @@ fn generateBlock(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     return null;
+}
+
+fn generateBlockExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    const statements = self.state.?.ast.nodes.items(.components)[node].BlockExpression;
+
+    var out_statement: ?m.MIR_op_t = null;
+    for (statements) |statement| {
+        out_statement = try self.generateNode(statement);
+    }
+
+    return if (statements.len > 0 and self.state.?.ast.nodes.items(.tag)[statements[statements.len - 1]] == .Out)
+        out_statement.?
+    else
+        null;
 }
 
 fn generateFunDeclaration(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {

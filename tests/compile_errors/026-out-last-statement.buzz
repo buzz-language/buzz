@@ -1,0 +1,8 @@
+| Last block expression statement must be `out`
+test "out must be last statement" {
+    <{
+        out "i should be last";
+
+        "hello world";
+    };
+}

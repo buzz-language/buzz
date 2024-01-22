@@ -62,6 +62,7 @@ const generators = [_]NodeGen{
     generateAsyncCall, // AsyncCall,
     generateBinary, // Binary,
     generateBlock, // Block,
+    generateBlockExpression, // BlockExpression,
     generateBoolean, // Boolean,
     generateBreak, // Break,
     generateCall, // Call,
@@ -95,6 +96,7 @@ const generators = [_]NodeGen{
     generateNull, // Null,
     generateObjectDeclaration, // ObjectDeclaration,
     generateObjectInit, // ObjectInit,
+    generateOut, // Out,
     generatePattern, // Pattern,
     generateProtocolDeclaration, // ProtocolDeclaration,
     generateRange, // Range,
@@ -829,6 +831,26 @@ fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
     for (self.ast.nodes.items(.components)[node].Block) |statement| {
         _ = try self.generateNode(statement, breaks);
     }
+
+    try self.patchOptJumps(node);
+    try self.endScope(node);
+
+    return null;
+}
+
+fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)) Error!?*obj.ObjFunction {
+    for (self.ast.nodes.items(.components)[node].BlockExpression) |statement| {
+        _ = try self.generateNode(statement, breaks);
+    }
+
+    try self.patchOptJumps(node);
+    try self.endScope(node);
+
+    return null;
+}
+
+fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)) Error!?*obj.ObjFunction {
+    _ = try self.generateNode(self.ast.nodes.items(.components)[node].Out, breaks);
 
     try self.patchOptJumps(node);
     try self.endScope(node);

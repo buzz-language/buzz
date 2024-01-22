@@ -121,6 +121,7 @@ pub const Frame = struct {
     constants: std.ArrayList(Value),
 
     in_try: bool = false,
+    in_block_expression: bool = false,
 
     pub fn resolveGeneric(self: Frame, name: *obj.ObjString) ?*obj.ObjTypeDef {
         if (self.generics) |generics| {
@@ -342,6 +343,8 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
     .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
     .{ .prefix = null, .infix = null, .precedence = .None }, // var
+    .{ .prefix = blockExpression, .infix = null, .precedence = .None }, // <{
+    .{ .prefix = null, .infix = null, .precedence = .None }, // out
 };
 
 ast: Ast,
@@ -1310,6 +1313,9 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     } else if (try self.match(.Import)) {
         std.debug.assert(!hanging);
         return try self.importStatement();
+    } else if (try self.match(.Out)) {
+        std.debug.assert(!hanging);
+        return try self.outStatement();
     } else if (try self.match(.Throw)) {
         const start_location = self.current_token.? - 1;
         // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
@@ -1948,7 +1954,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
                     break;
                 }
 
-                if (!std.mem.eql(u8, name_lexeme, "_") and std.mem.eql(u8, name_lexeme, local.name.string)) {
+                if (!std.mem.eql(u8, name_lexeme, "_") and !std.mem.startsWith(u8, name_lexeme, "$") and std.mem.eql(u8, name_lexeme, local.name.string)) {
                     self.reporter.reportWithOrigin(
                         .variable_already_exists,
                         self.ast.tokens.get(name),
@@ -5378,6 +5384,63 @@ fn typeOfExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     );
 }
 
+fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+
+    self.current.?.in_block_expression = true;
+
+    self.beginScope();
+
+    var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+
+    var out: ?Ast.Node.Index = null;
+    while (!self.check(.RightBrace) and !self.check(.Eof)) {
+        if (try self.declarationOrStatement(null)) |stmt| {
+            try statements.append(stmt);
+
+            if (self.ast.nodes.items(.tag)[stmt] == .Out) {
+                if (out != null) {
+                    self.reportError(
+                        .multiple_out,
+                        "Only one `out` statement is allowed in block expression",
+                    );
+                }
+
+                out = stmt;
+            }
+        }
+    }
+
+    if (out != null and statements.getLastOrNull() != out) {
+        self.reportError(
+            .missing_out,
+            "Last block expression statement must be `out`",
+        );
+    }
+
+    try self.consume(.RightBrace, "Expected `}` at end of block expression");
+
+    self.current.?.in_block_expression = false;
+
+    statements.shrinkAndFree(statements.items.len);
+
+    return try self.ast.appendNode(
+        .{
+            .tag = .BlockExpression,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .type_def = if (out) |o|
+                self.ast.nodes.items(.type_def)[o]
+            else
+                try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            .components = .{
+                .BlockExpression = statements.items,
+            },
+            .ends_scope = try self.endScope(),
+        },
+    );
+}
+
 fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[left];
 
@@ -7628,6 +7691,33 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
                     .value = value,
                     .unconditional = self.current.?.scope_depth == 1,
                 },
+            },
+        },
+    );
+}
+
+fn outStatement(self: *Self) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+
+    if (!self.current.?.in_block_expression) {
+        self.reportError(
+            .out_not_allowed,
+            "`out` statement is only allowed inside a block expression",
+        );
+    }
+
+    const expr = try self.expression(false);
+
+    try self.consume(.Semicolon, "Expected `;` after `out` statement.");
+
+    return try self.ast.appendNode(
+        .{
+            .tag = .Out,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .type_def = self.ast.nodes.items(.type_def)[expr],
+            .components = .{
+                .Out = expr,
             },
         },
     );

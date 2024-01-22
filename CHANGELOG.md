@@ -4,10 +4,19 @@
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - Function argument names and object property names can be ommitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
 - Sandboxing build options `memory_limit` and `cycle_limit` (https://github.com/buzz-language/buzz/issues/182)
+- Block expression (https://github.com/buzz-language/buzz/issues/105):
+```buzz
+var value = <{
+    | ... 
+
+    out result;
+}
+```
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
 - `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
+- Overriding variable from upper scope is not allowed anymore
 
 ## Fixed
 
