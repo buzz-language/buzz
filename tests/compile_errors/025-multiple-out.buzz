@@ -1,0 +1,7 @@
+| Only one `out` statement is allowed in block expression
+test "multiple out statements" {
+    <{
+        out "one";
+        out "two";
+    };
+}

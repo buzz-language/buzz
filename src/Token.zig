@@ -175,6 +175,8 @@ pub const Type = enum {
     Zdef, // zdef
     TypeOf, // typeof
     Var, // var
+    Blk, // <{
+    Out, // out
 };
 
 pub const keywords = std.ComptimeStringMap(
@@ -232,5 +234,6 @@ pub const keywords = std.ComptimeStringMap(
         .{ "type", .Type },
         .{ "typeof", .TypeOf },
         .{ "var", .Var },
+        .{ "out", .Out },
     },
 );

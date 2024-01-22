@@ -263,28 +263,14 @@ pub fn main() !void {
         .Run;
 
     if (flavor == .Repl) {
-        repl(allocator) catch |err| {
-            std.io.getStdErr().writer().print(
-                "Failed with error {s}\n",
-                .{@errorName(err)},
-            ) catch unreachable;
-
-            std.os.exit(1);
-        };
+        repl(allocator) catch std.os.exit(1);
     } else {
         runFile(
             allocator,
             res.positionals[0],
             positionals.items[1..],
             flavor,
-        ) catch |err| {
-            std.io.getStdErr().writer().print(
-                "Failed with error {s}\n",
-                .{@errorName(err)},
-            ) catch unreachable;
-
-            std.os.exit(1);
-        };
+        ) catch std.os.exit(1);
     }
 
     std.os.exit(0);
