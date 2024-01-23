@@ -1175,6 +1175,21 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     else
         null;
 
+    // If recursive call, update counter
+    ctx.vm.current_fiber.recursive_count = if (closure != null and closure.?.function == ctx.vm.current_fiber.current_compiled_function)
+        ctx.vm.current_fiber.recursive_count + 1
+    else
+        0;
+
+    if (ctx.vm.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
+        ctx.vm.throw(
+            VM.Error.ReachedMaximumRecursiveCall,
+            (ctx.vm.gc.copyString("Maximum recursive call reached") catch @panic("Maximum recursive call reached")).toValue(),
+            null,
+            null,
+        ) catch @panic("Maximum recursive call reached");
+    }
+
     // If bound method, replace closure on the stack by the receiver
     if (bound != null) {
         (ctx.vm.current_fiber.stack_top - arg_count - 1)[0] = bound.?.receiver;
@@ -1190,6 +1205,10 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
 
     if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
         ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, closure.?) catch @panic("Failed compiling function");
+    }
+
+    if (closure) |cls| {
+        ctx.vm.current_fiber.current_compiled_function = cls.function;
     }
 
     return if (closure) |cls| cls.function.native_raw.? else native.?.native;

@@ -116,6 +116,8 @@ pub const Fiber = struct {
 
     frames: std.ArrayList(CallFrame),
     frame_count: u64 = 0,
+    recursive_count: u32 = 0,
+    current_compiled_function: ?*ObjFunction = null,
 
     stack: []Value,
     stack_top: [*]Value,
@@ -333,6 +335,7 @@ pub const VM = struct {
         BadNumber,
         ReachedMaximumMemoryUsage,
         ReachedMaximumCPUUsage,
+        ReachedMaximumRecursiveCall,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
@@ -3801,6 +3804,23 @@ pub const VM = struct {
 
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         closure.function.call_count += 1;
+
+        // If recursive call, update counter
+        self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
+            self.current_fiber.recursive_count + 1
+        else
+            0;
+
+        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
+            try self.throw(
+                VM.Error.ReachedMaximumRecursiveCall,
+                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
+                null,
+                null,
+            );
+
+            return;
+        }
 
         var native = closure.function.native;
         if (self.jit) |*jit| {
