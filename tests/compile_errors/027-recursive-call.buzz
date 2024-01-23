@@ -1,0 +1,8 @@
+| Maximum recursive call reached
+fun eternal() > void {
+    eternal();
+}
+
+test "recursive call limit" {
+    eternal();
+}

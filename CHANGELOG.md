@@ -35,6 +35,7 @@ var value = <{
     out result;
 }
 ```
+- `recursive_call_limit` build option limit recursive calls (default to 200)
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)

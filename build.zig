@@ -65,6 +65,7 @@ const BuzzBuildOptions = struct {
     jit: BuzzJITOptions,
     target: Build.ResolvedTarget,
     cycle_limit: ?u128,
+    recursive_call_limit: u32,
 
     pub fn step(self: @This(), b: *Build) *Build.Module {
         var options = b.addOptions();
@@ -72,6 +73,7 @@ const BuzzBuildOptions = struct {
         options.addOption(@TypeOf(self.sha), "sha", self.sha);
         options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
         options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
+        options.addOption(@TypeOf(self.recursive_call_limit), "recursive_call_limit", self.recursive_call_limit);
 
         self.debug.step(options);
         self.gc.step(options);
@@ -147,6 +149,11 @@ pub fn build(b: *Build) !void {
             "cycle_limit",
             "Amount of bytecode (x 1000) the script is allowed to run (WARNING: this disables JIT compilation)",
         ) orelse null,
+        .recursive_call_limit = b.option(
+            u32,
+            "recursive_call_limit",
+            "Maximum depth for recursive calls",
+        ) orelse 200,
         .mimalloc = b.option(
             bool,
             "mimalloc",
