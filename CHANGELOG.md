@@ -3,6 +3,29 @@
 ## Added
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - Function argument names and object property names can be ommitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
+```buzz
+object Person {
+    str name,
+    str lastName,
+}
+
+const name = "Joe";
+const lastName = "Doe";
+```
+before:
+```buzz
+const person = Person {
+    name: name,
+    lastName: lastName,
+};
+```
+after:
+```buzz
+const person = Person {
+    name,
+    lastName,
+};
+```
 - Sandboxing build options `memory_limit` and `cycle_limit` (https://github.com/buzz-language/buzz/issues/182)
 - Block expression (https://github.com/buzz-language/buzz/issues/105):
 ```buzz
