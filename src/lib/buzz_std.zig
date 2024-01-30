@@ -218,3 +218,12 @@ export fn currentFiber(ctx: *api.NativeCtx) c_int {
 
     return 1;
 }
+
+export fn panic(ctx: *api.NativeCtx) c_int {
+    var len: usize = 0;
+    const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
+
+    std.debug.print("{s}\n", .{message[0..len]});
+
+    unreachable;
+}

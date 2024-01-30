@@ -49,3 +49,6 @@ export extern fun random(int? min = null, int? max = null) > int;
 
 || @return Current fiber
 export extern fun currentFiber() > fib<any, any?>;
+
+|| Print message and exit program
+export extern fun panic(str message) > void;
