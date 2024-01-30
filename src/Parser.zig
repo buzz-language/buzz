@@ -5208,6 +5208,10 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
 fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
+    if (self.current.?.scope_depth == 0) {
+        self.reportError(.syntax, "`resume` not allowed in global scope");
+    }
+
     const fiber_node = try self.parsePrecedence(.Primary, false);
     const node = try self.ast.appendNode(
         .{
@@ -5262,6 +5266,10 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
 fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
+    if (self.current.?.scope_depth == 0) {
+        self.reportError(.syntax, "`resolve` not allowed in global scope");
+    }
+
     const fiber = try self.parsePrecedence(.Primary, false);
     const node = try self.ast.appendNode(
         .{
@@ -5313,6 +5321,11 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
+
+    if (self.current.?.scope_depth == 0) {
+        self.reportError(.syntax, "`yield` not allowed in global scope");
+    }
+
     const expr = try self.parsePrecedence(.Primary, false);
 
     return try self.ast.appendNode(
