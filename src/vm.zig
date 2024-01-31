@@ -634,6 +634,7 @@ pub const VM = struct {
         OP_FIBER_FOREACH,
 
         OP_CALL,
+        OP_TAIL_CALL,
         OP_INSTANCE_INVOKE,
         OP_STRING_INVOKE,
         OP_PATTERN_INVOKE,
@@ -1369,6 +1370,37 @@ pub const VM = struct {
         );
     }
 
+    fn OP_TAIL_CALL(self: *Self, _: *CallFrame, full_instruction: u32, _: OpCode, _: u24) void {
+        const arg_count: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
+        const catch_count: u16 = @intCast(0x0000ffff & full_instruction);
+
+        // FIXME: no reason to take the catch value off the stack
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        self.tailCall(
+            self.peek(arg_count),
+            arg_count,
+            catch_value,
+            false,
+        ) catch |e| {
+            panic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     fn OP_INSTANCE_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const method: *ObjString = self.readString(arg);
         const arg_instruction: u32 = self.readInstruction();
@@ -1611,6 +1643,98 @@ pub const VM = struct {
         self.push(result);
 
         return false;
+    }
+
+    fn tailCall(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+        var obj: *Obj = callee.obj();
+        switch (obj.obj_type) {
+            .Bound => {
+                const bound = obj.access(ObjBoundMethod, .Bound, self.gc).?;
+                (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
+
+                if (bound.closure) |closure| {
+                    return try self.repurposeFrame(
+                        closure,
+                        arg_count,
+                        catch_value,
+                        in_fiber,
+                    );
+                } else {
+                    assert(bound.native != null);
+                    return try self.callNative(
+                        null,
+                        @ptrCast(@alignCast(bound.native.?.native)),
+                        arg_count,
+                        catch_value,
+                    );
+                }
+            },
+            .Closure => {
+                return try self.repurposeFrame(
+                    obj.access(ObjClosure, .Closure, self.gc).?,
+                    arg_count,
+                    catch_value,
+                    in_fiber,
+                );
+            },
+            .Native => {
+                return try self.callNative(
+                    null,
+                    @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
+                    arg_count,
+                    catch_value,
+                );
+            },
+            else => {
+                unreachable;
+            },
+        }
+    }
+
+    inline fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+        // Check for recursive call limit
+        self.current_fiber.recursive_count = if (closure == self.currentFrame().?.closure)
+            self.current_fiber.recursive_count + 1
+        else
+            0;
+
+        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
+            try self.throw(
+                VM.Error.ReachedMaximumRecursiveCall,
+                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
+                null,
+                null,
+            );
+
+            return;
+        }
+
+        // Is or will be JIT compiled, call and stop there
+        if (!in_fiber and try self.compileAndCall(closure, arg_count, catch_value)) {
+            return;
+        }
+
+        const frame = self.currentFrame().?;
+        const call_site = self.getSite();
+
+        // Close upvalues
+        self.closeUpValues(&frame.slots[0]);
+
+        // Shift new call arguments at start of current frame
+        std.mem.copyForwards(
+            Value,
+            frame.slots[0..(arg_count + 1)],
+            (self.current_fiber.stack_top - arg_count - 1)[0..(arg_count + 1)],
+        );
+
+        // Reposition stack top
+        self.current_fiber.stack_top = frame.slots + arg_count + 1;
+
+        // Repurpose frame
+        frame.closure = closure;
+        frame.ip = 0;
+        frame.call_site = call_site;
+        frame.error_value = catch_value;
     }
 
     fn OP_RETURN(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
@@ -3802,32 +3926,13 @@ pub const VM = struct {
         err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
-        closure.function.call_count += 1;
-
-        // If recursive call, update counter
-        self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
-            self.current_fiber.recursive_count + 1
-        else
-            0;
-
-        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
-            try self.throw(
-                VM.Error.ReachedMaximumRecursiveCall,
-                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
-                null,
-                null,
-            );
-
-            return;
-        }
-
+    fn compileAndCall(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) JIT.Error!bool {
         var native = closure.function.native;
         if (self.jit) |*jit| {
             jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (!in_fiber and self.shouldCompileFunction(closure)) {
+            if (self.shouldCompileFunction(closure)) {
                 var timer = std.time.Timer.start() catch unreachable;
 
                 var success = true;
@@ -3858,7 +3963,7 @@ pub const VM = struct {
         }
 
         // Is there a compiled version of it?
-        if (!in_fiber and native != null) {
+        if (native != null) {
             if (BuildOptions.jit_debug) {
                 std.debug.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
             }
@@ -3870,6 +3975,34 @@ pub const VM = struct {
                 catch_value,
             );
 
+            return true;
+        }
+
+        return false;
+    }
+
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+        closure.function.call_count += 1;
+
+        // If recursive call, update counter
+        self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
+            self.current_fiber.recursive_count + 1
+        else
+            0;
+
+        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
+            try self.throw(
+                VM.Error.ReachedMaximumRecursiveCall,
+                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
+                null,
+                null,
+            );
+
+            return;
+        }
+
+        // Is or will be JIT compiled, call and stop there
+        if (!in_fiber and try self.compileAndCall(closure, arg_count, catch_value)) {
             return;
         }
 
@@ -3882,22 +4015,14 @@ pub const VM = struct {
             );
         }
 
-        // TODO: check for stack overflow
-        var frame = CallFrame{
+        const frame = CallFrame{
             .closure = closure,
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.current_fiber.stack_top - arg_count - 1,
-            .call_site = if (self.currentFrame()) |current_frame|
-                current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
-            else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
-                const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
-
-                break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
-            } else null,
+            .call_site = self.getSite(),
+            .error_value = catch_value,
         };
-
-        frame.error_value = catch_value;
 
         if (self.current_fiber.frames.items.len <= self.current_fiber.frame_count) {
             try self.current_fiber.frames.append(frame);
@@ -3910,6 +4035,16 @@ pub const VM = struct {
         if (BuildOptions.jit_debug) {
             std.debug.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
         }
+    }
+
+    fn getSite(self: *Self) ?Ast.TokenIndex {
+        return if (self.currentFrame()) |current_frame|
+            current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
+        else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
+            const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
+
+            break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
+        } else null;
     }
 
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {

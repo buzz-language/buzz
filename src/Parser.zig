@@ -7673,14 +7673,18 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
         self.reportError(.syntax, "Can't use `return` at top-level.");
     }
 
-    const value =
-        if (!try self.match(.Semicolon))
+    const value = if (!try self.match(.Semicolon))
         try self.expression(false)
     else
         null;
 
-    if (value != null) {
+    if (value) |uvalue| {
         try self.consume(.Semicolon, "Expected `;` after return value.");
+
+        // Tail call (TODO: do it for dot call)
+        if (self.ast.nodes.items(.tag)[uvalue] == .Call) {
+            self.ast.nodes.items(.components)[uvalue].Call.tail_call = true;
+        }
     }
 
     return try self.ast.appendNode(

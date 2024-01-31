@@ -306,6 +306,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         => try invokeInstruction(instruction, chunk, offset),
 
         .OP_CALL,
+        .OP_TAIL_CALL,
         .OP_FIBER,
         .OP_INVOKE_FIBER,
         => triInstruction(instruction, chunk, offset),

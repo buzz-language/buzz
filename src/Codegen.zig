@@ -1334,7 +1334,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
     if (!invoked) {
         try self.emitCodeArgs(
             locations[node],
-            .OP_CALL,
+            if (components.tail_call) .OP_TAIL_CALL else .OP_CALL,
             @intCast(arguments_order_ref.items.len),
             if (components.catch_default != null) 1 else 0,
         );

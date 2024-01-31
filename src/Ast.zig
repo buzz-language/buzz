@@ -227,6 +227,7 @@ pub const Call = struct {
     callee_type_def: *obj.ObjTypeDef,
     arguments: []Argument,
     catch_default: ?Node.Index,
+    tail_call: bool = false,
 
     pub const Argument = struct {
         name: ?TokenIndex,
