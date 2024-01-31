@@ -3132,14 +3132,10 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
         try self.consume(.RightBracket, "Expected `]`");
     }
 
-    // Either item type was specified with `<type>` or the list is not empty and we could infer it
-    if (item_type == null) {
-        self.reportError(.list_item_type, "List item type can't be infered");
-
-        item_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
-    }
-
-    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, item_type.?);
+    const list_def = obj.ObjList.ListDef.init(
+        self.gc.allocator,
+        item_type orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+    );
 
     const resolved_type = obj.ObjTypeDef.TypeUnion{ .List = list_def };
 
@@ -3463,17 +3459,10 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
         try self.consume(.RightBrace, "Expected `}`");
     }
 
-    if (key_type_def == null and value_type_def == null) {
-        self.reportError(.map_key_type, "Unknown map key and value type");
-
-        key_type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
-        value_type_def = key_type_def;
-    }
-
     const map_def = obj.ObjMap.MapDef.init(
         self.gc.allocator,
-        key_type_def.?,
-        value_type_def.?,
+        key_type_def orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+        value_type_def orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
     );
     const resolved_type = obj.ObjTypeDef.TypeUnion{ .Map = map_def };
     const map_type = try self.gc.type_registry.getTypeDef(
