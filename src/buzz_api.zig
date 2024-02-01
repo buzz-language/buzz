@@ -752,6 +752,7 @@ pub export fn bz_invoke(
         len,
         if (catch_value) |v| v.* else null,
         false,
+        false,
     ) catch unreachable;
 
     // If not compiled, run it with the VM loop

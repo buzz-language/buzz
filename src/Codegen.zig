@@ -1316,7 +1316,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
         try self.emitCodeArg(
             locations[node],
             switch (type_defs[node_components[components.callee].Dot.callee].?.def_type) {
-                .ObjectInstance, .ProtocolInstance => .OP_INSTANCE_INVOKE,
+                .ObjectInstance, .ProtocolInstance => if (components.tail_call)
+                    .OP_INSTANCE_TAIL_INVOKE
+                else
+                    .OP_INSTANCE_INVOKE,
                 .String => .OP_STRING_INVOKE,
                 .Pattern => .OP_PATTERN_INVOKE,
                 .Fiber => .OP_FIBER_INVOKE,
@@ -1324,7 +1327,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
                 .Map => .OP_MAP_INVOKE,
                 else => unexpected: {
                     std.debug.assert(self.reporter.had_error);
-                    break :unexpected .OP_INSTANCE_INVOKE;
+                    break :unexpected if (components.tail_call)
+                        .OP_INSTANCE_TAIL_INVOKE
+                    else
+                        .OP_INSTANCE_INVOKE;
                 },
             },
             try self.identifierConstant(lexemes[node_components[components.callee].Dot.identifier]),

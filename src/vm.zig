@@ -193,6 +193,7 @@ pub const Fiber = struct {
                     self.arg_count,
                     if (self.has_catch_value) vm.pop() else null,
                     true,
+                    false,
                 );
             },
             else => unreachable,
@@ -636,6 +637,7 @@ pub const VM = struct {
         OP_CALL,
         OP_TAIL_CALL,
         OP_INSTANCE_INVOKE,
+        OP_INSTANCE_TAIL_INVOKE,
         OP_STRING_INVOKE,
         OP_PATTERN_INVOKE,
         OP_FIBER_INVOKE,
@@ -1420,7 +1422,60 @@ pub const VM = struct {
                 unreachable;
             };
         } else {
-            _ = self.invokeFromObject(instance.object.?, method, arg_count, catch_value, false) catch |e| {
+            _ = self.invokeFromObject(
+                instance.object.?,
+                method,
+                arg_count,
+                catch_value,
+                false,
+                false,
+            ) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            .always_tail,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_INSTANCE_TAIL_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(arg_instruction >> 24);
+        const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const instance: *ObjObjectInstance = self.peek(arg_count).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+
+        assert(instance.object != null);
+
+        if (instance.fields.get(method)) |field| {
+            (self.current_fiber.stack_top - arg_count - 1)[0] = field;
+
+            self.tailCall(field, arg_count, catch_value, false) catch |e| {
+                panic(e);
+                unreachable;
+            };
+        } else {
+            _ = self.invokeFromObject(
+                instance.object.?,
+                method,
+                arg_count,
+                catch_value,
+                false,
+                true,
+            ) catch |e| {
                 panic(e);
                 unreachable;
             };
@@ -1643,52 +1698,6 @@ pub const VM = struct {
         self.push(result);
 
         return false;
-    }
-
-    fn tailCall(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
-        var obj: *Obj = callee.obj();
-        switch (obj.obj_type) {
-            .Bound => {
-                const bound = obj.access(ObjBoundMethod, .Bound, self.gc).?;
-                (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
-
-                if (bound.closure) |closure| {
-                    return try self.repurposeFrame(
-                        closure,
-                        arg_count,
-                        catch_value,
-                        in_fiber,
-                    );
-                } else {
-                    assert(bound.native != null);
-                    return try self.callNative(
-                        null,
-                        @ptrCast(@alignCast(bound.native.?.native)),
-                        arg_count,
-                        catch_value,
-                    );
-                }
-            },
-            .Closure => {
-                return try self.repurposeFrame(
-                    obj.access(ObjClosure, .Closure, self.gc).?,
-                    arg_count,
-                    catch_value,
-                    in_fiber,
-                );
-            },
-            .Native => {
-                return try self.callNative(
-                    null,
-                    @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
-                    arg_count,
-                    catch_value,
-                );
-            },
-            else => {
-                unreachable;
-            },
-        }
     }
 
     inline fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
@@ -4190,9 +4199,66 @@ pub const VM = struct {
         }
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
+    fn tailCall(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
+        var obj: *Obj = callee.obj();
+        switch (obj.obj_type) {
+            .Bound => {
+                const bound = obj.access(ObjBoundMethod, .Bound, self.gc).?;
+                (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
+
+                if (bound.closure) |closure| {
+                    return try self.repurposeFrame(
+                        closure,
+                        arg_count,
+                        catch_value,
+                        in_fiber,
+                    );
+                } else {
+                    assert(bound.native != null);
+                    return try self.callNative(
+                        null,
+                        @ptrCast(@alignCast(bound.native.?.native)),
+                        arg_count,
+                        catch_value,
+                    );
+                }
+            },
+            .Closure => {
+                return try self.repurposeFrame(
+                    obj.access(ObjClosure, .Closure, self.gc).?,
+                    arg_count,
+                    catch_value,
+                    in_fiber,
+                );
+            },
+            .Native => {
+                return try self.callNative(
+                    null,
+                    @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
+                    arg_count,
+                    catch_value,
+                );
+            },
+            else => {
+                unreachable;
+            },
+        }
+    }
+
+    fn invokeFromObject(
+        self: *Self,
+        object: *ObjObject,
+        name: *ObjString,
+        arg_count: u8,
+        catch_value: ?Value,
+        in_fiber: bool,
+        tail_call: bool,
+    ) !Value {
         if (object.methods.get(name)) |method| {
-            try self.call(method, arg_count, catch_value, in_fiber);
+            if (tail_call)
+                try self.tailCall(method.toValue(), arg_count, catch_value, in_fiber)
+            else
+                try self.call(method, arg_count, catch_value, in_fiber);
 
             return method.toValue();
         }
@@ -4201,7 +4267,14 @@ pub const VM = struct {
     }
 
     // FIXME: find way to remove
-    pub fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
+    pub fn invoke(
+        self: *Self,
+        name: *ObjString,
+        arg_count: u8,
+        catch_value: ?Value,
+        in_fiber: bool,
+        tail_call: bool,
+    ) !Value {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.obj();
@@ -4214,12 +4287,22 @@ pub const VM = struct {
                 if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-                    try self.callValue(field, arg_count, catch_value, in_fiber);
+                    if (tail_call)
+                        try self.tailCall(field, arg_count, catch_value, in_fiber)
+                    else
+                        try self.callValue(field, arg_count, catch_value, in_fiber);
 
                     return field;
                 }
 
-                return try self.invokeFromObject(instance.object.?, name, arg_count, catch_value, in_fiber);
+                return try self.invokeFromObject(
+                    instance.object.?,
+                    name,
+                    arg_count,
+                    catch_value,
+                    in_fiber,
+                    tail_call,
+                );
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
