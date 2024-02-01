@@ -6458,7 +6458,7 @@ fn varDeclaration(
     else
         try self.gc.type_registry.getTypeDef(
             .{
-                .def_type = .Void,
+                .def_type = .Any,
             },
         );
 
@@ -6507,6 +6507,22 @@ fn varDeclaration(
             self.ast.tokens.get(start_location),
             "Could not infer variable type.",
         );
+    }
+
+    if (value) |uvalue| {
+        const tags = self.ast.nodes.items(.tag);
+        const components = self.ast.nodes.items(.components);
+        const parsed_type_def = if (parsed_type) |pt| self.ast.nodes.items(.type_def)[pt] else null;
+
+        // [T] variable = [] -> [T] variable = [<T>];
+        if (parsed_type_def != null and parsed_type_def.?.def_type == .List and tags[uvalue] == .List and components[uvalue].List.explicit_item_type == null and components[uvalue].List.items.len == 0) {
+            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
+        }
+
+        // {K: V} variable = {} -> {K: V} variable = [<K: V>];
+        if (parsed_type_def != null and parsed_type_def.?.def_type == .Map and tags[uvalue] == .Map and components[uvalue].Map.explicit_key_type == null and components[uvalue].Map.explicit_value_type == null and components[uvalue].Map.entries.len == 0) {
+            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
+        }
     }
 
     switch (terminator) {
