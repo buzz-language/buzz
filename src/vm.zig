@@ -146,7 +146,7 @@ pub const Fiber = struct {
             .allocator = allocator,
             .type_def = type_def,
             .parent_fiber = parent_fiber,
-            .stack = try allocator.alloc(Value, 100000),
+            .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .open_upvalues = null,
@@ -1692,23 +1692,6 @@ pub const VM = struct {
     }
 
     inline fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
-        // Check for recursive call limit
-        self.current_fiber.recursive_count = if (closure == self.currentFrame().?.closure)
-            self.current_fiber.recursive_count + 1
-        else
-            0;
-
-        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
-            try self.throw(
-                VM.Error.ReachedMaximumRecursiveCall,
-                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
-                null,
-                null,
-            );
-
-            return;
-        }
-
         // Is or will be JIT compiled, call and stop there
         if (!in_fiber and try self.compileAndCall(closure, arg_count, catch_value)) {
             return;
@@ -3984,21 +3967,23 @@ pub const VM = struct {
     fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) JIT.Error!void {
         closure.function.call_count += 1;
 
-        // If recursive call, update counter
-        self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
-            self.current_fiber.recursive_count + 1
-        else
-            0;
+        if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
+            // If recursive call, update counter
+            self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
+                self.current_fiber.recursive_count + 1
+            else
+                0;
 
-        if (self.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
-            try self.throw(
-                VM.Error.ReachedMaximumRecursiveCall,
-                (try self.gc.copyString("Maximum recursive call reached")).toValue(),
-                null,
-                null,
-            );
+            if (self.current_fiber.recursive_count > recursive_call_limit) {
+                try self.throw(
+                    VM.Error.ReachedMaximumRecursiveCall,
+                    (try self.gc.copyString("Maximum recursive call reached")).toValue(),
+                    null,
+                    null,
+                );
 
-            return;
+                return;
+            }
         }
 
         // Is or will be JIT compiled, call and stop there

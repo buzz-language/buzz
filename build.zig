@@ -65,7 +65,8 @@ const BuzzBuildOptions = struct {
     jit: BuzzJITOptions,
     target: Build.ResolvedTarget,
     cycle_limit: ?u128,
-    recursive_call_limit: u32,
+    recursive_call_limit: ?u32,
+    stack_size: usize = 100_000,
 
     pub fn step(self: @This(), b: *Build) *Build.Module {
         var options = b.addOptions();
@@ -74,6 +75,7 @@ const BuzzBuildOptions = struct {
         options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
         options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
         options.addOption(@TypeOf(self.recursive_call_limit), "recursive_call_limit", self.recursive_call_limit);
+        options.addOption(@TypeOf(self.stack_size), "stack_size", self.stack_size);
 
         self.debug.step(options);
         self.gc.step(options);
@@ -153,7 +155,12 @@ pub fn build(b: *Build) !void {
             u32,
             "recursive_call_limit",
             "Maximum depth for recursive calls",
-        ) orelse 200,
+        ),
+        .stack_size = b.option(
+            usize,
+            "stack_size",
+            "Stack maximum size",
+        ) orelse 100_000,
         .mimalloc = b.option(
             bool,
             "mimalloc",
