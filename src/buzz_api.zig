@@ -1175,19 +1175,21 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     else
         null;
 
-    // If recursive call, update counter
-    ctx.vm.current_fiber.recursive_count = if (closure != null and closure.?.function == ctx.vm.current_fiber.current_compiled_function)
-        ctx.vm.current_fiber.recursive_count + 1
-    else
-        0;
+    if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
+        // If recursive call, update counter
+        ctx.vm.current_fiber.recursive_count = if (closure != null and closure.?.function == ctx.vm.current_fiber.current_compiled_function)
+            ctx.vm.current_fiber.recursive_count + 1
+        else
+            0;
 
-    if (ctx.vm.current_fiber.recursive_count > BuildOptions.recursive_call_limit) {
-        ctx.vm.throw(
-            VM.Error.ReachedMaximumRecursiveCall,
-            (ctx.vm.gc.copyString("Maximum recursive call reached") catch @panic("Maximum recursive call reached")).toValue(),
-            null,
-            null,
-        ) catch @panic("Maximum recursive call reached");
+        if (ctx.vm.current_fiber.recursive_count > recursive_call_limit) {
+            ctx.vm.throw(
+                VM.Error.ReachedMaximumRecursiveCall,
+                (ctx.vm.gc.copyString("Maximum recursive call reached") catch @panic("Maximum recursive call reached")).toValue(),
+                null,
+                null,
+            ) catch @panic("Maximum recursive call reached");
+        }
     }
 
     // If bound method, replace closure on the stack by the receiver
