@@ -7684,6 +7684,8 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
         // Tail call (TODO: do it for dot call)
         if (self.ast.nodes.items(.tag)[uvalue] == .Call) {
             self.ast.nodes.items(.components)[uvalue].Call.tail_call = true;
+        } else if (self.ast.nodes.items(.tag)[uvalue] == .Dot and self.ast.nodes.items(.components)[uvalue].Dot.member_kind == .Call) {
+            self.ast.nodes.items(.components)[self.ast.nodes.items(.components)[uvalue].Dot.value_or_call_or_enum.Call].Call.tail_call = true;
         }
     }
 
