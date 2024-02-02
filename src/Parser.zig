@@ -323,7 +323,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // Export
     .{ .prefix = null, .infix = null, .precedence = .None }, // Const
     .{ .prefix = null, .infix = null, .precedence = .None }, // Static
-    .{ .prefix = null, .infix = null, .precedence = .None }, // From
+    .{ .prefix = blockExpression, .infix = null, .precedence = .None }, // From
     .{ .prefix = null, .infix = null, .precedence = .None }, // As
     .{ .prefix = null, .infix = as, .precedence = .IsAs }, // AsQuestion
     .{ .prefix = null, .infix = null, .precedence = .None }, // Extern
@@ -343,7 +343,6 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
     .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
     .{ .prefix = null, .infix = null, .precedence = .None }, // var
-    .{ .prefix = blockExpression, .infix = null, .precedence = .None }, // <{
     .{ .prefix = null, .infix = null, .precedence = .None }, // out
 };
 
@@ -5388,6 +5387,8 @@ fn typeOfExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
+
+    try self.consume(.LeftBrace, "Expected `{` at start of block expression");
 
     self.beginScope();
     self.current.?.in_block_expression = self.current.?.scope_depth;

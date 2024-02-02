@@ -58,3 +58,13 @@ test "list.clone" {
         assert(list[i] == el, message: "Could clone list");
     }
 }
+
+test "empty list type inferring" {
+    var list = [];
+
+    assert(typeof list == <[any]>);
+
+    [str] slist = [];
+
+    assert(typeof slist == <[str]>);
+}

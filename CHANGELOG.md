@@ -29,7 +29,7 @@ const person = Person {
 - Sandboxing build options `memory_limit` and `cycle_limit` (https://github.com/buzz-language/buzz/issues/182)
 - Block expression (https://github.com/buzz-language/buzz/issues/105):
 ```buzz
-var value = <{
+var value = from {
     | ... 
 
     out result;
@@ -41,6 +41,7 @@ var value = <{
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
 - `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
 - Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT should kick in pretty quickly in those use cases.
+- Empty list and map without a specified type resolve to `[any]`/`{any: any}` unless the variable declaration context provides the type (https://github.com/buzz-language/buzz/issues/86)
 
 ## Fixed
 

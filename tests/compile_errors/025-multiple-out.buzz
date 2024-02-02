@@ -1,6 +1,6 @@
 | Only one `out` statement is allowed in block expression
 test "multiple out statements" {
-    <{
+    from {
         out "one";
         out "two";
     };

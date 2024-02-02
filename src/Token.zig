@@ -175,7 +175,6 @@ pub const Type = enum {
     Zdef, // zdef
     TypeOf, // typeof
     Var, // var
-    Blk, // <{
     Out, // out
 };
 
