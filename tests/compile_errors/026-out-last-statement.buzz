@@ -1,6 +1,6 @@
 | Last block expression statement must be `out`
 test "out must be last statement" {
-    <{
+    from {
         out "i should be last";
 
         "hello world";

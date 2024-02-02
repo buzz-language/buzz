@@ -84,3 +84,13 @@ test "map.clone" {
         assert(first[key] == value, message: "Could clone map");
     }
 }
+
+test "empty map type inferring" {
+    var map = {};
+
+    assert(typeof map == <{any: any}>);
+
+    {str: int} smap = {};
+
+    assert(typeof smap == <{str: int}>);
+}
