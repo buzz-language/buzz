@@ -121,7 +121,7 @@ pub const Frame = struct {
     constants: std.ArrayList(Value),
 
     in_try: bool = false,
-    in_block_expression: bool = false,
+    in_block_expression: ?u32 = null,
 
     pub fn resolveGeneric(self: Frame, name: *obj.ObjString) ?*obj.ObjTypeDef {
         if (self.generics) |generics| {
@@ -5389,9 +5389,8 @@ fn typeOfExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    self.current.?.in_block_expression = true;
-
     self.beginScope();
+    self.current.?.in_block_expression = self.current.?.scope_depth;
 
     var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
 
@@ -5403,7 +5402,7 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
             if (self.ast.nodes.items(.tag)[stmt] == .Out) {
                 if (out != null) {
                     self.reportError(
-                        .multiple_out,
+                        .syntax,
                         "Only one `out` statement is allowed in block expression",
                     );
                 }
@@ -5415,14 +5414,14 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
     if (out != null and statements.getLastOrNull() != out) {
         self.reportError(
-            .missing_out,
+            .syntax,
             "Last block expression statement must be `out`",
         );
     }
 
     try self.consume(.RightBrace, "Expected `}` at end of block expression");
 
-    self.current.?.in_block_expression = false;
+    self.current.?.in_block_expression = null;
 
     statements.shrinkAndFree(statements.items.len);
 
@@ -7723,10 +7722,15 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
 fn outStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    if (!self.current.?.in_block_expression) {
+    if (self.current.?.in_block_expression == null) {
         self.reportError(
-            .out_not_allowed,
+            .syntax,
             "`out` statement is only allowed inside a block expression",
+        );
+    } else if (self.current.?.scope_depth != self.current.?.in_block_expression.?) {
+        self.reportError(
+            .syntax,
+            "`out` statement must be the last statement of a block expression",
         );
     }
 
@@ -7842,7 +7846,10 @@ fn breakStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
             .tag = .Break,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .ends_scope = if (loop_scope != null) try self.closeScope(loop_scope.?.loop_body_scope) else null,
+            .ends_scope = if (loop_scope != null)
+                try self.closeScope(loop_scope.?.loop_body_scope)
+            else
+                null,
             .components = .{
                 .Break = {},
             },

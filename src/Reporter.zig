@@ -104,9 +104,6 @@ pub const Error = enum(u8) {
     inferred_type = 90,
     empty_import = 91,
     import_already_exists = 92,
-    multiple_out = 93,
-    missing_out = 94,
-    out_not_allowed = 95,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
