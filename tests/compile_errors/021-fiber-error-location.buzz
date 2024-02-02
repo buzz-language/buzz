@@ -1,7 +1,7 @@
 | :7:13
 import "std";
 
-fun count(int n) > str > int? {
+fun count(int n) > str *> int? {
     for (int i = 0; i < n; i = i + 1) {
     	if (i == 2) {
             throw "an error occured";

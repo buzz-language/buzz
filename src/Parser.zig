@@ -2666,10 +2666,11 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
     else
         null;
 
-    const yield_type = if (try self.match(.Greater))
-        try self.parseTypeDef(null, true)
-    else
-        null;
+    var yield_type: ?Ast.Node.Index = null;
+    if (try self.match(.Star)) {
+        try self.consume(.Greater, "Expected `>` before yield type");
+        yield_type = try self.parseTypeDef(null, true);
+    }
 
     var error_types_list = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
     defer error_types_list.shrinkAndFree(error_types_list.items.len);
@@ -4887,7 +4888,9 @@ fn function(
     }
 
     // Parse yield type
-    const yield_type_node = if (return_type_node != null and function_type.canYield() and (try self.match(.Greater))) yield: {
+    const yield_type_node = if (return_type_node != null and function_type.canYield() and (try self.match(.Star))) yield: {
+        try self.consume(.Greater, "Expected `>` before yield type");
+
         const yield_type_node = try self.parseTypeDef(function_typedef.resolved_type.?.Function.generic_types, true);
         const yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
 

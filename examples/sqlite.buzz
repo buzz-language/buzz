@@ -141,7 +141,7 @@ export object Query {
         return db.prepare(this);
     }
 
-    fun execute(Database db) > [[Boxed]] > [Boxed]? !> SQLiteError {
+    fun execute(Database db) > [[Boxed]] *> [Boxed]? !> SQLiteError {
         return db.prepare(this).execute();
     }
 }
@@ -151,7 +151,7 @@ export object Statement {
     ud db,
     ud stmt,
 
-    fun execute() > [[Boxed]] > [Boxed]? !> SQLiteError {
+    fun execute() > [[Boxed]] *> [Boxed]? !> SQLiteError {
         Logger.instance?.debug("Executing query `{this.query}`", namespace: "SQL");
         ResultCode code = ResultCode.Ok;
 

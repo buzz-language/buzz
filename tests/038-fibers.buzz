@@ -21,7 +21,7 @@ test "fiber" {
 }
 
 | returns str, yields int
-fun count(int n) > str > int? {
+fun count(int n) > str *> int? {
     assert(currentFiber() is fib<str, int?>, message: "Can get current fiber");
     assert(!currentFiber().isMain(), message: "Can know if fiber is main one");
 

@@ -65,7 +65,7 @@ test "generic return" {
     assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
 }
 
-fun fiber::<T>([T] data) > void > T? {
+fun fiber::<T>([T] data) > void *> T? {
     foreach (T element in data) {
         _ = yield element;
     }

@@ -1,6 +1,6 @@
 import "std";
 
-fun fibonnaci(int n) > void > int? {
+fun fibonnaci(int n) > void *> int? {
     int n1 = 0;
     int n2 = 1;
     int? next = null;
@@ -24,7 +24,7 @@ test "finobacci generator" {
 }
 
 object Hello {
-    fun range() > [int] > int? {
+    fun range() > [int] *> int? {
         var list = [<int>];
         foreach (int i in 0..10) {
             _ = yield i;

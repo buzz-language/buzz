@@ -42,6 +42,7 @@ var value = from {
 - `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
 - Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT should kick in pretty quickly in those use cases.
 - Empty list and map without a specified type resolve to `[any]`/`{any: any}` unless the variable declaration context provides the type (https://github.com/buzz-language/buzz/issues/86)
+- Function yield type is now prefixed with `*>`: `fun willYield() > T > Y?` becomes `fun willYield() > T *> Y?` (https://github.com/buzz-language/buzz/issues/257)
 
 ## Fixed
 

@@ -161,7 +161,7 @@ export object Client {
         };
     }
 
-    fun send(Request request) > Response > void !> HttpError, InvalidArgumentError, HttpParseError {
+    fun send(Request request) > Response *> void !> HttpError, InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
         yield void;
