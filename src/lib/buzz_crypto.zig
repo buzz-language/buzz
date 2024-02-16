@@ -1,6 +1,14 @@
 const api = @import("buzz_api.zig");
 const std = @import("std");
 
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
 fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {
     var result = std.ArrayList(u8).init(allocator);
     var writer = result.writer();

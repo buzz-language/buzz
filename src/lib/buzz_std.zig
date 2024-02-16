@@ -1,8 +1,19 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
 
 // fun random(int? min = null, int? max = null) > int
-export fn random(ctx: *api.NativeCtx) c_int {
+pub export fn random(ctx: *api.NativeCtx) c_int {
+    if (is_wasm) {
+        unreachable;
+    }
+
     const min = ctx.vm.bz_peek(1);
     const max = ctx.vm.bz_peek(0);
 
@@ -25,7 +36,7 @@ export fn random(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn print(ctx: *api.NativeCtx) c_int {
+pub export fn print(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const string = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -39,7 +50,7 @@ export fn print(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn toInt(ctx: *api.NativeCtx) c_int {
+pub export fn toInt(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -54,7 +65,7 @@ export fn toInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn toFloat(ctx: *api.NativeCtx) c_int {
+pub export fn toFloat(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -69,7 +80,7 @@ export fn toFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn toUd(ctx: *api.NativeCtx) c_int {
+pub export fn toUd(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
     const ud: u64 = if (value.isInteger())
         @intCast(value.integer())
@@ -88,7 +99,7 @@ export fn toUd(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn parseInt(ctx: *api.NativeCtx) c_int {
+pub export fn parseInt(ctx: *api.NativeCtx) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -113,7 +124,7 @@ export fn parseInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn parseUd(ctx: *api.NativeCtx) c_int {
+pub export fn parseUd(ctx: *api.NativeCtx) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -142,7 +153,7 @@ export fn parseUd(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn parseFloat(ctx: *api.NativeCtx) c_int {
+pub export fn parseFloat(ctx: *api.NativeCtx) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -167,7 +178,7 @@ export fn parseFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn char(ctx: *api.NativeCtx) c_int {
+pub export fn char(ctx: *api.NativeCtx) c_int {
     const byte_value = ctx.vm.bz_peek(0);
 
     var byte = byte_value.integer();
@@ -189,7 +200,7 @@ export fn char(ctx: *api.NativeCtx) c_int {
     @panic("Out of memory");
 }
 
-export fn assert(ctx: *api.NativeCtx) c_int {
+pub export fn assert(ctx: *api.NativeCtx) c_int {
     const condition_value = ctx.vm.bz_peek(1);
     const message_value = ctx.vm.bz_peek(0);
 
@@ -207,19 +218,21 @@ export fn assert(ctx: *api.NativeCtx) c_int {
             std.io.getStdOut().writer().print("Assert failed\n", .{}) catch unreachable;
         }
 
-        std.os.exit(1);
+        if (!is_wasm) {
+            std.os.exit(1);
+        }
     }
 
     return 0;
 }
 
-export fn currentFiber(ctx: *api.NativeCtx) c_int {
+pub export fn currentFiber(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(ctx.vm.bz_currentFiber());
 
     return 1;
 }
 
-export fn panic(ctx: *api.NativeCtx) c_int {
+pub export fn buzzPanic(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
 

@@ -84,12 +84,12 @@ const BuzzBuildOptions = struct {
         return options.createModule();
     }
 
-    pub fn needLibC(_: @This()) bool {
-        return true;
+    pub fn needLibC(self: @This()) bool {
+        return !self.target.result.cpu.arch.isWasm();
     }
 };
 
-fn get_buzz_prefix(b: *Build) []const u8 {
+fn getBuzzPrefix(b: *Build) []const u8 {
     return std.os.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
 }
 
@@ -103,6 +103,7 @@ pub fn build(b: *Build) !void {
 
     const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
+    const is_wasm = target.result.cpu.arch.isWasm();
     const install_step = b.getInstallStep();
 
     var build_options = BuzzBuildOptions{
@@ -161,7 +162,7 @@ pub fn build(b: *Build) !void {
             "stack_size",
             "Stack maximum size",
         ) orelse 100_000,
-        .mimalloc = b.option(
+        .mimalloc = !is_wasm and b.option(
             bool,
             "mimalloc",
             "Use mimalloc allocator",
@@ -182,7 +183,7 @@ pub fn build(b: *Build) !void {
                 "debug_current_instruction",
                 "Dump stack after each bytecode",
             ) orelse false,
-            .perf = b.option(
+            .perf = !is_wasm and b.option(
                 bool,
                 "show_perf",
                 "Show performance information",
@@ -246,12 +247,12 @@ pub fn build(b: *Build) !void {
                 "jit_debug",
                 "Show debug information for the JIT engine",
             ) orelse false,
-            .always_on = b.option(
+            .always_on = !is_wasm and b.option(
                 bool,
                 "jit_always_on",
                 "JIT engine will compile any function encountered",
             ) orelse false,
-            .on = b.option(
+            .on = !is_wasm and b.option(
                 bool,
                 "jit",
                 "Turn on JIT engine",
@@ -273,11 +274,13 @@ pub fn build(b: *Build) !void {
     var llibs = std.ArrayList([]const u8).init(b.allocator);
     defer llibs.deinit();
 
-    sys_libs.appendSlice(
-        &[_][]const u8{
-            "mir",
-        },
-    ) catch unreachable;
+    if (!is_wasm) {
+        sys_libs.appendSlice(
+            &[_][]const u8{
+                "mir",
+            },
+        ) catch unreachable;
+    }
 
     includes.appendSlice(&[_][]const u8{
         "/usr/local/include",
@@ -292,9 +295,18 @@ pub fn build(b: *Build) !void {
         "./vendors/mir",
     }) catch unreachable;
 
-    const lib_pcre2 = try buildPcre2(b, target, build_mode);
-    const lib_mimalloc = if (build_options.mimalloc) try buildMimalloc(b, target, build_mode) else null;
-    const lib_linenoise = try buildLinenoise(b, target, build_mode);
+    const lib_pcre2 = if (!is_wasm)
+        try buildPcre2(b, target, build_mode)
+    else
+        null;
+    const lib_mimalloc = if (build_options.mimalloc)
+        try buildMimalloc(b, target, build_mode)
+    else
+        null;
+    const lib_linenoise = if (!is_wasm)
+        try buildLinenoise(b, target, build_mode)
+    else
+        null;
 
     // If macOS, add homebrew paths
     if (builtin.os.tag == .macos) {
@@ -328,6 +340,17 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(exe);
 
+    if (is_wasm) {
+        exe.global_base = 6560;
+        exe.entry = .disabled;
+        exe.rdynamic = true;
+        exe.import_memory = true;
+        exe.stack_size = std.wasm.page_size;
+
+        exe.initial_memory = std.wasm.page_size * 100;
+        exe.max_memory = std.wasm.page_size * 1000;
+    }
+
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
     if (b.args) |args| {
@@ -349,17 +372,27 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         exe.linkLibC();
     }
-    // exe.main_mod_path = .{ .path = "." };
 
     exe.root_module.addImport("build_options", build_option_module);
 
-    var lib = b.addSharedLibrary(.{
-        .name = "buzz",
-        .root_source_file = .{ .path = "src/buzz_api.zig" },
-        .target = target,
-        .optimize = build_mode,
-    });
+    // Building buzz api library
+    var lib = if (!is_wasm)
+        b.addSharedLibrary(.{
+            .name = "buzz",
+            .root_source_file = .{ .path = "src/buzz_api.zig" },
+            .target = target,
+            .optimize = build_mode,
+        })
+    else
+        b.addStaticLibrary(.{
+            .name = "buzz",
+            .root_source_file = .{ .path = "src/buzz_api.zig" },
+            .target = target,
+            .optimize = build_mode,
+        });
+
     b.installArtifact(lib);
+
     for (includes.items) |include| {
         lib.addIncludePath(.{ .path = include });
     }
@@ -372,11 +405,17 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         lib.linkLibC();
     }
-    // lib.main_mod_path = .{ .path = "src" };
 
-    lib.root_module.addImport("build_options", build_option_module);
+    if (!is_wasm) {
+        lib.root_module.addImport(
+            "build_options",
+            build_option_module,
+        );
+    }
 
-    lib.linkLibrary(lib_pcre2);
+    if (lib_pcre2) |pcre| {
+        lib.linkLibrary(pcre);
+    }
     if (lib_mimalloc) |mimalloc| {
         lib.linkLibrary(mimalloc);
         if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
@@ -385,100 +424,104 @@ pub fn build(b: *Build) !void {
     }
     // So that JIT compiled function can reference buzz_api
     exe.linkLibrary(lib);
-    exe.linkLibrary(lib_linenoise);
+    if (lib_linenoise) |ln| {
+        exe.linkLibrary(ln);
+    }
 
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(&lib.step);
 
-    const lib_paths = [_][]const u8{
-        "src/lib/buzz_std.zig",
-        "src/lib/buzz_io.zig",
-        "src/lib/buzz_gc.zig",
-        "src/lib/buzz_os.zig",
-        "src/lib/buzz_fs.zig",
-        "src/lib/buzz_math.zig",
-        "src/lib/buzz_debug.zig",
-        "src/lib/buzz_buffer.zig",
-        "src/lib/buzz_crypto.zig",
-        "src/lib/buzz_http.zig",
-        "src/lib/buzz_ffi.zig",
-        "src/lib/buzz_serialize.zig",
-    };
-    // Zig only libs
-    const lib_names = [_][]const u8{
-        "std",
-        "io",
-        "gc",
-        "os",
-        "fs",
-        "math",
-        "debug",
-        "buffer",
-        "crypto",
-        "http",
-        "ffi",
-        "serialize",
-    };
-    const all_lib_names = [_][]const u8{
-        "std",
-        "io",
-        "gc",
-        "os",
-        "fs",
-        "math",
-        "debug",
-        "buffer",
-        "crypto",
-        "http",
-        "errors",
-        "ffi",
-        "serialize",
-        "test",
+    // Building std libraries
+    const Lib = struct {
+        path: ?[]const u8,
+        name: []const u8,
+        wasm_compatible: bool = true,
     };
 
-    // TODO: this section is slow. Modifying Buzz parser shouldn't trigger recompile of all buzz dynamic libraries
+    const libraries = [_]Lib{
+        .{ .name = "std", .path = "src/lib/buzz_std.zig" },
+        .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
+        .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
+        .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
+        .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
+        .{ .name = "math", .path = "src/lib/buzz_math.zig" },
+        .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
+        .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
+        .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
+        .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
+        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
+        .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
+        .{ .name = "test", .path = null },
+        .{ .name = "errors", .path = null },
+    };
 
-    var libs = [_]*std.Build.Step.Compile{undefined} ** lib_names.len;
-    for (lib_paths, 0..) |lib_path, index| {
-        var std_lib = b.addSharedLibrary(.{
-            .name = lib_names[index],
-            .root_source_file = .{ .path = lib_path },
-            .target = target,
-            .optimize = build_mode,
-        });
+    var library_steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
+    for (libraries) |library| {
+        // Copy buzz definitions
+        const step = b.addInstallLibFile(
+            .{ .path = b.fmt("src/lib/{s}.buzz", .{library.name}) },
+            b.fmt("buzz/{s}.buzz", .{library.name}),
+        );
+        install_step.dependOn(&step.step);
+
+        if (library.path == null or (!library.wasm_compatible and is_wasm)) {
+            continue;
+        }
+
+        var std_lib = if (!is_wasm)
+            b.addSharedLibrary(.{
+                .name = library.name,
+                .root_source_file = .{ .path = library.path.? },
+                .target = target,
+                .optimize = build_mode,
+            })
+        else
+            b.addStaticLibrary(.{
+                .name = library.name,
+                .root_source_file = .{ .path = library.path.? },
+                .target = target,
+                .optimize = build_mode,
+            });
+
         const artifact = b.addInstallArtifact(std_lib, .{});
         install_step.dependOn(&artifact.step);
         artifact.dest_dir = .{ .custom = "lib/buzz" };
 
-        for (includes.items) |include| {
-            std_lib.addIncludePath(.{ .path = include });
-        }
-        for (llibs.items) |llib| {
-            std_lib.addLibraryPath(.{ .path = llib });
-        }
-        for (sys_libs.items) |slib| {
-            std_lib.linkSystemLibrary(slib);
-        }
-        if (build_options.needLibC()) {
-            std_lib.linkLibC();
-        }
-        // std_lib.main_mod_path = .{ .path = "src" };
-        std_lib.linkLibrary(lib_pcre2);
-        if (lib_mimalloc) |mimalloc| {
-            std_lib.linkLibrary(mimalloc);
-            if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
-                std_lib.linkSystemLibrary("bcrypt");
+        // No need to link anything when building for wasm since everything is static
+        if (!is_wasm) {
+            for (includes.items) |include| {
+                std_lib.addIncludePath(.{ .path = include });
             }
+            for (llibs.items) |llib| {
+                std_lib.addLibraryPath(.{ .path = llib });
+            }
+            for (sys_libs.items) |slib| {
+                std_lib.linkSystemLibrary(slib);
+            }
+            if (build_options.needLibC()) {
+                std_lib.linkLibC();
+            }
+
+            if (lib_pcre2) |pcre| {
+                std_lib.linkLibrary(pcre);
+            }
+
+            if (lib_mimalloc) |mimalloc| {
+                std_lib.linkLibrary(mimalloc);
+                if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
+                    std_lib.linkSystemLibrary("bcrypt");
+                }
+            }
+            std_lib.linkLibrary(lib);
+            std_lib.root_module.addImport("build_options", build_option_module);
         }
-        std_lib.linkLibrary(lib);
-        std_lib.root_module.addImport("build_options", build_option_module);
 
         // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
         std_lib.addRPath(
             .{
                 .path = b.fmt(
                     "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
-                    .{get_buzz_prefix(b)},
+                    .{getBuzzPrefix(b)},
                 ),
             },
         );
@@ -486,15 +529,7 @@ pub fn build(b: *Build) !void {
 
         b.default_step.dependOn(&std_lib.step);
 
-        libs[index] = std_lib;
-    }
-
-    for (all_lib_names) |name| {
-        const step = b.addInstallLibFile(
-            .{ .path = b.fmt("src/lib/{s}.buzz", .{name}) },
-            b.fmt("buzz/{s}.buzz", .{name}),
-        );
-        install_step.dependOn(&step.step);
+        library_steps.append(std_lib) catch unreachable;
     }
 
     const tests = b.addTest(.{
@@ -514,7 +549,9 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         tests.linkLibC();
     }
-    tests.linkLibrary(lib_pcre2);
+    if (lib_pcre2) |pcre| {
+        tests.linkLibrary(pcre);
+    }
     if (lib_mimalloc) |mimalloc| {
         tests.linkLibrary(mimalloc);
         if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
@@ -526,9 +563,13 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = Build.LazyPath{ .path = "." };
-    run_tests.setEnvironmentVariable("BUZZ_PATH", get_buzz_prefix(b));
+    run_tests.setEnvironmentVariable("BUZZ_PATH", getBuzzPrefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
+
+    if (is_wasm) {
+        buildWasmReplDemo(b, exe);
+    }
 }
 
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
@@ -692,4 +733,41 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
     b.installArtifact(lib);
 
     return lib;
+}
+
+pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
+    const npm_install = b.addSystemCommand(
+        &.{ "npm", "i" },
+    );
+
+    const esbuild = b.addSystemCommand(
+        &.{
+            b.pathFromRoot("node_modules/.bin/esbuild"),
+            b.pathFromRoot("src/wasm.ts"),
+            "--bundle",
+            "--format=esm",
+            // This replaces all occurrences of '__WASM_ARTIFACT_FILENAME' in TypeScript source files
+            // with the filename of the compiled WebAssembly artifact.
+            b.fmt(
+                "--define:__WASM_ARTIFACT_FILENAME=\"{s}\"",
+                .{exe.out_filename},
+            ),
+            // Output compiled/bundled files into zig-out/bin
+            b.fmt(
+                "--outdir={s}",
+                .{
+                    b.getInstallPath(.bin, ""),
+                },
+            ),
+        },
+    );
+
+    b.getInstallStep().dependOn(&npm_install.step);
+    b.getInstallStep().dependOn(&esbuild.step);
+
+    const copyRepl = b.addInstallBinFile(
+        .{ .path = "src/repl.html" },
+        "repl.html",
+    );
+    b.getInstallStep().dependOn(&copyRepl.step);
 }

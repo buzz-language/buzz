@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const BuildOptions = @import("build_options");
+const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
 const obj = @import("obj.zig");
 const Token = @import("Token.zig");
 const Chunk = @import("Chunk.zig");
@@ -12,30 +12,56 @@ const Scanner = @import("scanner.zig").Scanner;
 const RunFlavor = @import("vm.zig").RunFlavor;
 const Reporter = @import("Reporter.zig");
 const StringParser = @import("string_parser.zig").StringParser;
-const pcre = @import("pcre.zig");
+const pcre = if (!is_wasm) @import("pcre.zig") else void;
+const buzz_api = @import("lib/buzz_api.zig");
+
+// In the wasm build, libraries are statically linked
+const is_wasm = builtin.cpu.arch.isWasm();
+const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
+const std_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "assert", &std_lib.assert },
+        .{ "buzzPanic", &std_lib.buzzPanic },
+        .{ "char", &std_lib.char },
+        .{ "currentFiber", &std_lib.currentFiber },
+        .{ "parseFloat", &std_lib.parseFloat },
+        .{ "parseInt", &std_lib.parseInt },
+        .{ "parseUd", &std_lib.parseUd },
+        .{ "print", &std_lib.print },
+        .{ "random", &std_lib.random },
+        .{ "toFloat", &std_lib.toFloat },
+        .{ "toInt", &std_lib.toInt },
+        .{ "toUd", &std_lib.toUd },
+    },
+) else void;
+
+// TODO: other libs
 
 const Self = @This();
 
 extern fn dlerror() [*:0]u8;
 
-pub fn default_buzz_prefix() []const u8 {
-    // todo: maybe it's better to have multiple search paths?
-    unreachable;
+pub fn defaultBuzzPrefix() []const u8 {
+    return ".";
 }
 
 var _buzz_path_buffer: [4096]u8 = undefined;
-pub fn buzz_prefix() []const u8 {
+pub fn buzzPrefix() []const u8 {
     if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
-    const path = std.fs.selfExePath(&_buzz_path_buffer) catch return default_buzz_prefix();
-    const path1 = std.fs.path.dirname(path) orelse default_buzz_prefix();
-    const path2 = std.fs.path.dirname(path1) orelse default_buzz_prefix();
+    const path = if (!is_wasm)
+        std.fs.selfExePath(&_buzz_path_buffer) catch return defaultBuzzPrefix()
+    else
+        defaultBuzzPrefix();
+    const path1 = std.fs.path.dirname(path) orelse defaultBuzzPrefix();
+    const path2 = std.fs.path.dirname(path1) orelse defaultBuzzPrefix();
     return path2;
 }
 
 var _buzz_path_buffer2: [4096]u8 = undefined;
 /// the returned string can be used only until next call to this function
-pub fn buzz_lib_path() []const u8 {
-    const path2 = buzz_prefix();
+pub fn buzzLibPath() []const u8 {
+    const path2 = buzzPrefix();
     const sep = std.fs.path.sep_str;
     return std.fmt.bufPrint(&_buzz_path_buffer2, "{s}" ++ sep ++ "lib" ++ sep ++ "buzz", .{path2}) catch unreachable;
 }
@@ -4973,11 +4999,19 @@ fn function(
 
     if (function_type == .Extern) {
         if (self.flavor.resolveImports()) {
+            const native_opt = if (!is_wasm)
+                try self.importLibSymbol(
+                    self.script_name,
+                    function_typedef.resolved_type.?.Function.name.string,
+                )
+            else
+                try self.importStaticLibSymbol(
+                    self.script_name,
+                    function_typedef.resolved_type.?.Function.name.string,
+                );
+
             // Search for a dylib/so/dll with the same name as the current script
-            if (try self.importLibSymbol(
-                self.script_name,
-                function_typedef.resolved_type.?.Function.name.string,
-            )) |native| {
+            if (native_opt) |native| {
                 self.ast.nodes.items(.components)[function_node].Function.native = native;
             } else {
                 return error.BuzzNoDll;
@@ -5013,17 +5047,19 @@ fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
 
     var err_code: c_int = undefined;
     var err_offset: usize = undefined;
-    const reg = pcre.compile(
-        source.ptr,
-        source.len,
-        // TODO: provide options to user
-        0,
-        &err_code,
-        &err_offset,
-        null,
-    );
+    const reg = if (!is_wasm)
+        pcre.compile(
+            source.ptr,
+            source.len,
+            // TODO: provide options to user
+            0,
+            &err_code,
+            &err_offset,
+            null,
+        )
+    else {};
 
-    if (reg == null) {
+    if (!is_wasm and reg == null) {
         var location = self.ast.tokens.get(self.current_token.? - 1).clone();
         location.column += @intCast(err_offset + 2);
         location.lexeme = location.lexeme[@intCast(2 + err_offset)..@intCast(2 + err_offset + 1)];
@@ -5051,7 +5087,7 @@ fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
         obj.ObjPattern,
         .{
             .source = source,
-            .pattern = reg.?,
+            .pattern = if (!is_wasm) reg.? else {},
         },
     );
 
@@ -6673,7 +6709,7 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
         defer self.gc.allocator.free(filled);
         const suffixed = try std.mem.replaceOwned(u8, self.gc.allocator, filled, "!", "buzz");
         defer self.gc.allocator.free(suffixed);
-        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzz_lib_path());
+        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzzLibPath());
 
         try paths.append(prefixed);
     }
@@ -6700,7 +6736,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             },
         );
         defer self.gc.allocator.free(suffixed);
-        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzz_lib_path());
+        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzzLibPath());
 
         try paths.append(prefixed);
     }
@@ -6821,6 +6857,97 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
     return paths;
 }
 
+fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
+    return if (std.mem.eql(u8, file_name, "std"))
+        [_][]const u8{
+            @embedFile("lib/std.buzz"),
+            file_name,
+        }
+    else none: {
+        self.reportErrorFmt(
+            .script_not_found,
+            "buzz script `{s}` not found",
+            .{
+                file_name,
+            },
+        );
+
+        break :none null;
+    };
+}
+
+fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
+    const paths = try self.searchPaths(file_name);
+    defer {
+        for (paths) |path| {
+            self.gc.allocator.free(path);
+        }
+        self.gc.allocator.free(paths);
+    }
+
+    // Find and read file
+    var file: ?std.fs.File = null;
+    var absolute_path: ?[]const u8 = null;
+    for (paths) |path| {
+        if (std.fs.path.isAbsolute(path)) {
+            file = std.fs.openFileAbsolute(path, .{}) catch null;
+            if (file != null) {
+                absolute_path = path;
+                break;
+            }
+        } else {
+            file = std.fs.cwd().openFile(path, .{}) catch null;
+            if (file != null) {
+                absolute_path = std.fs.cwd().realpathAlloc(self.gc.allocator, path) catch {
+                    return Error.ImportError;
+                };
+                break;
+            }
+        }
+    }
+
+    if (file == null) {
+        var search_report = std.ArrayList(u8).init(self.gc.allocator);
+        defer search_report.deinit();
+        var writer = search_report.writer();
+
+        for (paths) |path| {
+            try writer.print("    no file `{s}`\n", .{path});
+        }
+
+        self.reportErrorFmt(
+            .script_not_found,
+            "buzz script `{s}` not found:\n{s}",
+            .{
+                file_name,
+                search_report.items,
+            },
+        );
+
+        return null;
+    }
+
+    defer file.?.close();
+
+    // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
+    const source = try self.gc.allocator.alloc(
+        u8,
+        (file.?.stat() catch {
+            return Error.ImportError;
+        }).size,
+    );
+    // defer self.gc.allocator.free(source);
+
+    _ = file.?.readAll(source) catch {
+        return Error.ImportError;
+    };
+
+    return [_][]const u8{
+        source,
+        absolute_path.?,
+    };
+}
+
 fn importScript(
     self: *Self,
     file_name: []const u8,
@@ -6830,77 +6957,14 @@ fn importScript(
     var import = self.imports.get(file_name);
 
     if (import == null) {
-        const paths = try self.searchPaths(file_name);
-        defer {
-            for (paths) |path| {
-                self.gc.allocator.free(path);
-            }
-            self.gc.allocator.free(paths);
-        }
+        const source_and_path = if (is_wasm)
+            self.readStaticScript(file_name)
+        else
+            try self.readScript(file_name);
 
-        // Find and read file
-        var file: ?std.fs.File = null;
-        var absolute_path: ?[]const u8 = null;
-        var owned = false;
-        for (paths) |path| {
-            if (std.fs.path.isAbsolute(path)) {
-                file = std.fs.openFileAbsolute(path, .{}) catch null;
-                if (file != null) {
-                    absolute_path = path;
-                    break;
-                }
-            } else {
-                file = std.fs.cwd().openFile(path, .{}) catch null;
-                if (file != null) {
-                    absolute_path = std.fs.cwd().realpathAlloc(self.gc.allocator, path) catch {
-                        return Error.ImportError;
-                    };
-                    owned = true;
-                    break;
-                }
-            }
-        }
-
-        if (file == null) {
-            var search_report = std.ArrayList(u8).init(self.gc.allocator);
-            defer search_report.deinit();
-            var writer = search_report.writer();
-
-            for (paths) |path| {
-                try writer.print("    no file `{s}`\n", .{path});
-            }
-
-            self.reportErrorFmt(
-                .script_not_found,
-                "buzz script `{s}` not found:\n{s}",
-                .{
-                    file_name,
-                    search_report.items,
-                },
-            );
-
+        if (source_and_path == null) {
             return null;
         }
-
-        defer file.?.close();
-        defer {
-            if (owned) {
-                self.gc.allocator.free(absolute_path.?);
-            }
-        }
-
-        // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
-        const source = try self.gc.allocator.alloc(
-            u8,
-            (file.?.stat() catch {
-                return Error.ImportError;
-            }).size,
-        );
-        // defer self.gc.allocator.free(source);
-
-        _ = file.?.readAll(source) catch {
-            return Error.ImportError;
-        };
 
         var parser = Self.init(
             self.gc,
@@ -6915,14 +6979,14 @@ fn importScript(
         parser.current_token = self.current_token;
         const previous_root = self.ast.root;
 
-        if (try parser.parse(source, file_name)) |ast| {
+        if (try parser.parse(source_and_path.?[0], file_name)) |ast| {
             self.ast = ast;
             self.ast.nodes.items(.components)[self.ast.root.?].Function.import_root = true;
 
             import = ScriptImport{
                 .function = self.ast.root.?,
                 .globals = std.ArrayList(Global).init(self.gc.allocator),
-                .absolute_path = try self.gc.copyString(absolute_path.?),
+                .absolute_path = try self.gc.copyString(source_and_path.?[1]),
             };
 
             for (parser.globals.items) |*global| {
@@ -6989,6 +7053,35 @@ fn importScript(
     }
 
     return import;
+}
+
+// This is used in the wasm build. There, we only allow the import of std libs by name
+fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
+    const symbol_ptr = if (std.mem.eql(u8, file_name, "std"))
+        std_api.get(symbol)
+    else
+        null;
+
+    if (symbol_ptr == null) {
+        self.reportErrorFmt(
+            .symbol_not_found,
+            "Could not find symbol `{s}` in lib `{s}` (only std libraries can be imported from a WASM build)",
+            .{
+                symbol,
+                file_name,
+            },
+        );
+    }
+
+    return if (symbol_ptr) |ptr|
+        try self.gc.allocateObject(
+            obj.ObjNative,
+            .{
+                .native = @ptrFromInt(@intFromPtr(ptr)),
+            },
+        )
+    else
+        null;
 }
 
 // TODO: when to close the lib?
@@ -7169,6 +7262,10 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
         self.reportError(.zdef, "zdef can't be used, this instance of buzz was built with JIT compiler disabled");
     }
 
+    if (is_wasm) {
+        self.reportError(.zdef, "zdef is not available in WASM build");
+    }
+
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftParen, "Expected `(` after `zdef`.");
@@ -7180,103 +7277,108 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     try self.consume(.RightParen, "Expected `)` to close zdef");
     try self.consume(.Semicolon, "Expected `;`");
 
-    const zdefs = (self.ffi.parse(
-        self,
-        self.ast.tokens.get(source),
-        false,
-    ) catch {
-        return Error.CantCompile;
-    }) orelse &[_]*FFI.Zdef{};
+    const zdefs = if (!is_wasm)
+        (self.ffi.parse(
+            self,
+            self.ast.tokens.get(source),
+            false,
+        ) catch {
+            return Error.CantCompile;
+        }) orelse &[_]*FFI.Zdef{}
+    else
+        &[_]*FFI.Zdef{};
 
     var elements = std.ArrayList(Ast.Zdef.ZdefElement).init(self.gc.allocator);
-    for (zdefs) |zdef| {
-        var fn_ptr: ?*anyopaque = null;
-        var slot: usize = undefined;
+    if (!is_wasm) {
+        for (zdefs) |zdef| {
+            var fn_ptr: ?*anyopaque = null;
+            var slot: usize = undefined;
 
-        std.debug.assert(self.current.?.scope_depth == 0);
-        const zdef_name_token = try self.insertUtilityToken(Token.identifier(zdef.name));
-        slot = try self.declareVariable(
-            zdef.type_def,
-            zdef_name_token,
-            true,
-            true,
-        );
-        // self.current_token.? - 1 = zdef_name_token;
-        self.markInitialized();
+            std.debug.assert(self.current.?.scope_depth == 0);
+            const zdef_name_token = try self.insertUtilityToken(Token.identifier(zdef.name));
+            slot = try self.declareVariable(
+                zdef.type_def,
+                zdef_name_token,
+                true,
+                true,
+            );
+            // self.current_token.? - 1 = zdef_name_token;
+            self.markInitialized();
 
-        const lib_name_str = self.ast.tokens.items(.literal_string)[lib_name].?;
+            const lib_name_str = self.ast.tokens.items(.literal_string)[lib_name].?;
 
-        // If zig_type is struct, we just push the objtypedef itself on the stack
-        // Otherwise we try to build a wrapper around the imported function
-        if (zdef.zig_type == .Fn) {
-            // Load the lib
-            const paths = try self.searchZdefLibPaths(lib_name_str);
-            defer {
+            // If zig_type is struct, we just push the objtypedef itself on the stack
+            // Otherwise we try to build a wrapper around the imported function
+            if (zdef.zig_type == .Fn) {
+                // Load the lib
+                const paths = try self.searchZdefLibPaths(lib_name_str);
+                defer {
+                    for (paths.items) |path| {
+                        self.gc.allocator.free(path);
+                    }
+                    paths.deinit();
+                }
+
+                var lib: ?std.DynLib = null;
                 for (paths.items) |path| {
-                    self.gc.allocator.free(path);
+                    lib = std.DynLib.open(path) catch null;
+                    if (lib != null) {
+                        break;
+                    }
                 }
-                paths.deinit();
-            }
 
-            var lib: ?std.DynLib = null;
-            for (paths.items) |path| {
-                lib = std.DynLib.open(path) catch null;
-                if (lib != null) {
-                    break;
-                }
-            }
+                if (lib) |*dlib| {
+                    // Convert symbol names to zig slices
+                    const symbol = try self.gc.allocator.dupeZ(u8, zdef.name);
+                    defer self.gc.allocator.free(symbol);
 
-            if (lib) |*dlib| {
-                // Convert symbol names to zig slices
-                const symbol = try self.gc.allocator.dupeZ(u8, zdef.name);
-                defer self.gc.allocator.free(symbol);
+                    // Lookup symbol
+                    const opaque_symbol_method = dlib.lookup(*anyopaque, symbol);
 
-                // Lookup symbol
-                const opaque_symbol_method = dlib.lookup(*anyopaque, symbol);
+                    if (opaque_symbol_method == null) {
+                        self.reportErrorFmt(
+                            .symbol_not_found,
+                            "Could not find symbol `{s}` in lib `{s}`",
+                            .{
+                                symbol,
+                                lib_name_str,
+                            },
+                        );
+                    }
 
-                if (opaque_symbol_method == null) {
+                    fn_ptr = opaque_symbol_method;
+                } else {
+                    var search_report = std.ArrayList(u8).init(self.gc.allocator);
+                    defer search_report.deinit();
+                    var writer = search_report.writer();
+
+                    for (paths.items) |path| {
+                        try writer.print("    no file `{s}`\n", .{path});
+                    }
+
                     self.reportErrorFmt(
-                        .symbol_not_found,
-                        "Could not find symbol `{s}` in lib `{s}`",
+                        .library_not_found,
+                        "External library `{s}` not found: {s}{s}\n",
                         .{
-                            symbol,
                             lib_name_str,
+                            if (builtin.link_libc)
+                                std.mem.sliceTo(dlerror(), 0)
+                            else
+                                "",
+                            search_report.items,
                         },
                     );
                 }
-
-                fn_ptr = opaque_symbol_method;
-            } else {
-                var search_report = std.ArrayList(u8).init(self.gc.allocator);
-                defer search_report.deinit();
-                var writer = search_report.writer();
-
-                for (paths.items) |path| {
-                    try writer.print("    no file `{s}`\n", .{path});
-                }
-
-                self.reportErrorFmt(
-                    .library_not_found,
-                    "External library `{s}` not found: {s}{s}\n",
-                    .{
-                        lib_name_str,
-                        if (builtin.link_libc)
-                            std.mem.sliceTo(dlerror(), 0)
-                        else
-                            "",
-                        search_report.items,
-                    },
-                );
             }
-        }
 
-        try elements.append(
-            .{
-                .fn_ptr = fn_ptr,
-                .slot = @intCast(slot),
-                .zdef = zdef,
-            },
-        );
+            try elements.append(
+                .{
+                    .fn_ptr = fn_ptr,
+                    .slot = @intCast(slot),
+                    .zdef = zdef,
+                },
+            );
+        }
     }
 
     elements.shrinkAndFree(elements.items.len);

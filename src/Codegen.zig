@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 
 const Chunk = @import("Chunk.zig");
 const Ast = @import("Ast.zig");
@@ -11,8 +12,8 @@ const Parser = @import("Parser.zig");
 const Token = @import("Token.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Reporter = @import("Reporter.zig");
-const BuildOptions = @import("build_options");
-const JIT = @import("Jit.zig");
+const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
+const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 
 const Self = @This();
@@ -3867,6 +3868,10 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
 }
 
 fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*std.ArrayList(usize)) Error!?*obj.ObjFunction {
+    if (is_wasm) {
+        return null;
+    }
+
     const components = self.ast.nodes.items(.components)[node].Zdef;
     const location = self.ast.nodes.items(.location)[node];
 
@@ -3875,21 +3880,25 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*std.ArrayList(usize)) Er
         switch (element.zdef.type_def.def_type) {
             .Function => {
                 if (element.obj_native == null) {
-                    var timer = std.time.Timer.start() catch unreachable;
+                    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
                     element.obj_native = try self.jit.?.compileZdef(self.ast, element.*);
 
-                    self.jit.?.jit_time += timer.read();
+                    if (!is_wasm) {
+                        self.jit.?.jit_time += timer.read();
+                    }
 
                     try self.emitConstant(location, element.obj_native.?.toValue());
                 }
             },
             .ForeignContainer => {
-                var timer = std.time.Timer.start() catch unreachable;
+                var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
                 try self.jit.?.compileZdefContainer(self.ast, element.*);
 
-                self.jit.?.jit_time += timer.read();
+                if (!is_wasm) {
+                    self.jit.?.jit_time += timer.read();
+                }
 
                 try self.emitConstant(location, element.zdef.type_def.toValue());
             },

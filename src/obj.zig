@@ -14,14 +14,15 @@ const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
 const Value = @import("value.zig").Value;
 const Token = @import("Token.zig");
-const BuildOptions = @import("build_options");
+const is_wasm = builtin.cpu.arch.isWasm();
+const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
 const CodeGen = @import("Codegen.zig");
 const buzz_api = @import("buzz_api.zig");
 const buzz_builtin = @import("builtin.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Ast = @import("Ast.zig");
 
-pub const pcre = @import("pcre.zig");
+pub const pcre = if (!is_wasm) @import("pcre.zig") else void;
 
 pub const SerializeError = error{
     CircularReference,
@@ -561,6 +562,11 @@ pub const ObjFiber = struct {
     };
 };
 
+pub const Pattern = if (!is_wasm)
+    *pcre.pcre2_code
+else
+    void;
+
 // Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
 pub const ObjPattern = struct {
     const Self = @This();
@@ -568,7 +574,7 @@ pub const ObjPattern = struct {
     obj: Obj = .{ .obj_type = .Pattern },
 
     source: []const u8,
-    pattern: *pcre.pcre2_code,
+    pattern: Pattern,
 
     pub fn mark(_: *Self, _: *GarbageCollector) !void {}
 
@@ -586,22 +592,28 @@ pub const ObjPattern = struct {
 
     const members = std.ComptimeStringMap(
         NativeFn,
-        .{
-            .{ "match", buzz_builtin.pattern.match },
-            .{ "matchAll", buzz_builtin.pattern.matchAll },
-            .{ "replace", buzz_builtin.pattern.replace },
-            .{ "replaceAll", buzz_builtin.pattern.replaceAll },
-        },
+        if (!is_wasm)
+            .{
+                .{ "match", buzz_builtin.pattern.match },
+                .{ "matchAll", buzz_builtin.pattern.matchAll },
+                .{ "replace", buzz_builtin.pattern.replace },
+                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+            }
+        else
+            .{}, // TODO: import js function using js regexes instead of pcre
     );
 
     const members_typedef = std.ComptimeStringMap(
         []const u8,
-        .{
-            .{ "match", "extern Function match(str subject) > [str]?" },
-            .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
-            .{ "replace", "extern Function replace(str subject, str with) > str" },
-            .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
-        },
+        if (!is_wasm)
+            .{
+                .{ "match", "extern Function match(str subject) > [str]?" },
+                .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
+                .{ "replace", "extern Function replace(str subject, str with) > str" },
+                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+            }
+        else
+            .{},
     );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {

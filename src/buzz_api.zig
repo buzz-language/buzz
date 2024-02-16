@@ -9,12 +9,18 @@ const Value = @import("value.zig").Value;
 const memory = @import("memory.zig");
 const Parser = @import("Parser.zig");
 const CodeGen = @import("Codegen.zig");
-const BuildOptions = @import("build_options");
-const jmp = @import("jmp.zig").jmp;
+const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
+const is_wasm = builtin.cpu.arch.isWasm();
+const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
 const Token = @import("Token.zig");
 const Ast = @import("Ast.zig");
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
 
 const eql = Value.eql;
 const Obj = _obj.Obj;
@@ -41,14 +47,14 @@ const TypeRegistry = memory.TypeRegistry;
 const GarbageCollector = memory.GarbageCollector;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
-    .safety = true,
+    .safety = builtin.mode == .Debug,
 }){};
 
-pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
     gpa.allocator()
 else if (BuildOptions.mimalloc)
     @import("mimalloc.zig").mim_allocator
-else
+else if (!is_wasm)
     std.heap.c_allocator;
 
 // Stack manipulation
@@ -1100,6 +1106,10 @@ export fn bz_valueIs(self: Value, type_def: Value) Value {
 }
 
 export fn bz_setTryCtx(self: *VM) *TryCtx {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // It would be better that this was in an ALLOCA, but with it memory keeps slowing leaking
     // Maybe the jmp throws off the stack?
     const try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
@@ -1116,6 +1126,10 @@ export fn bz_setTryCtx(self: *VM) *TryCtx {
 }
 
 export fn bz_popTryCtx(self: *VM) void {
+    if (is_wasm) {
+        unreachable;
+    }
+
     if (self.current_fiber.try_context) |try_ctx| {
         self.current_fiber.try_context = try_ctx.previous;
 
@@ -1125,6 +1139,10 @@ export fn bz_popTryCtx(self: *VM) void {
 
 // Like bz_throw but assumes the error payload is already on the stack
 export fn bz_rethrow(vm: *VM) void {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // Are we in a JIT compiled function and within a try-catch?
     if ((vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
         // FIXME: close try scope
@@ -1159,6 +1177,10 @@ export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
 }
 
 export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
+    if (is_wasm) {
+        unreachable;
+    }
+
     const bound = if (closure_value.obj().obj_type == .Bound)
         ObjBoundMethod.cast(closure_value.obj()).?
     else
@@ -1223,6 +1245,10 @@ export fn bz_closure(
     native: *anyopaque,
     native_raw: *anyopaque,
 ) Value {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // Set native pointers in objfunction
     var obj_function = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.function.?;
     obj_function.native = native;
@@ -1406,6 +1432,10 @@ export fn dumpInt(value: u64) void {
 }
 
 export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*const ZigType {
+    if (is_wasm) {
+        return null;
+    }
+
     const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
 
     if (zdef) |uzdef| {
