@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 const std = @import("std");
 const _obj = @import("../obj.zig");
 const ObjString = _obj.ObjString;
@@ -17,7 +19,11 @@ pub fn append(ctx: *NativeCtx) c_int {
     list.rawAppend(ctx.vm.gc, value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
             std.debug.print("Could not append to list", .{});
-            std.os.exit(1);
+            if (!is_wasm) {
+                std.os.exit(1);
+            } else {
+                unreachable;
+            }
         }).toValue();
 
         ctx.vm.push(messageValue);
@@ -42,7 +48,11 @@ pub fn insert(ctx: *NativeCtx) c_int {
     list.rawInsert(ctx.vm.gc, @as(usize, @intCast(index)), value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
             std.debug.print("Could not insert into list", .{});
-            std.os.exit(1);
+            if (!is_wasm) {
+                std.os.exit(1);
+            } else {
+                unreachable;
+            }
         }).toValue();
 
         ctx.vm.push(messageValue);
@@ -87,7 +97,11 @@ pub fn remove(ctx: *NativeCtx) c_int {
     ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
     ctx.vm.gc.markObjDirty(&list.obj) catch {
         std.debug.print("Could not remove from list", .{});
-        std.os.exit(1);
+        if (!is_wasm) {
+            std.os.exit(1);
+        } else {
+            unreachable;
+        }
     };
 
     return 1;

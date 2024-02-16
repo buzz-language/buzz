@@ -3,6 +3,13 @@ const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
+const is_wasm = builtin.cpu.arch.isWasm();
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
 export fn BufferNew(ctx: *api.NativeCtx) c_int {
     const capacity = ctx.vm.bz_peek(0).integer();
 
@@ -42,7 +49,19 @@ const Buffer = struct {
     cursor: usize = 0,
 
     pub fn fromUserData(userdata: u64) *Self {
-        return @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
+        return @ptrCast(
+            @alignCast(
+                @as(
+                    *anyopaque,
+                    @ptrFromInt(
+                        @as(
+                            usize,
+                            @truncate(userdata),
+                        ),
+                    ),
+                ),
+            ),
+        );
     }
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {

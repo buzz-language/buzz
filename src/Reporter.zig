@@ -165,7 +165,6 @@ pub const ReportItem = struct {
 
 pub const ReportOptions = struct {
     surrounding_lines: usize = 2,
-    and_stop: bool = false,
 };
 
 pub const Report = struct {
@@ -406,10 +405,6 @@ pub const Report = struct {
                     note.message,
                 },
             );
-        }
-
-        if (self.options.and_stop) {
-            std.os.exit(1);
         }
     }
 };

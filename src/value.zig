@@ -117,7 +117,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn obj(self: Value) *Obj {
-        return @as(*Obj, @ptrFromInt(self.val & ~PointerMask));
+        return @as(*Obj, @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask))));
     }
 
     pub inline fn booleanOrNull(self: Value) ?bool {

@@ -12,16 +12,66 @@ const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const TypeRegistry = @import("memory.zig").TypeRegistry;
 const Ast = @import("Ast.zig");
-const BuildOptions = @import("build_options");
+const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
-const JIT = @import("Jit.zig");
-const _repl = @import("repl.zig");
-const repl = _repl.repl;
-const printBanner = _repl.printBanner;
+const JIT = if (!is_wasm) @import("Jit.zig") else void;
+const is_wasm = builtin.cpu.arch.isWasm();
+const repl = if (!is_wasm) @import("repl.zig").repl else void;
+const wasm_repl = @import("wasm_repl.zig");
+
+pub export const initRepl_export = wasm_repl.initRepl;
+pub export const runLine_export = wasm_repl.runLine;
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
+fn printBanner(out: std.fs.File.Writer, full: bool) void {
+    out.print(
+        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        .{
+            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+            BuildOptions.sha,
+        },
+    ) catch unreachable;
+
+    if (full) {
+        out.print(
+            "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
+            .{
+                builtin.zig_version,
+                switch (builtin.mode) {
+                    .ReleaseFast => "release-fast",
+                    .ReleaseSafe => "release-safe",
+                    .ReleaseSmall => "release-small",
+                    .Debug => "debug",
+                },
+                if (builtin.mode == .Debug)
+                    "gpa"
+                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
+                if (BuildOptions.memory_limit) |ml|
+                    ml
+                else
+                    0,
+                if (BuildOptions.memory_limit != null)
+                    "bytes"
+                else
+                    "(unlimited)",
+                if (BuildOptions.jit and BuildOptions.cycle_limit == null)
+                    "on"
+                else
+                    "off",
+                if (BuildOptions.cycle_limit) |cl| cl else 0,
+                if (BuildOptions.cycle_limit != null) "cycles" else "(unlimited)",
+            },
+        ) catch unreachable;
+    }
+}
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
-    var total_timer = std.time.Timer.start() catch unreachable;
+    var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
     gc.type_registry = TypeRegistry{
@@ -35,7 +85,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     else
         null;
     defer {
-        if (vm.jit != null) {
+        if (!is_wasm and vm.jit != null) {
             vm.jit.?.deinit();
             vm.jit = null;
         }
@@ -85,13 +135,17 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     var running_time: u64 = undefined;
 
     if (try parser.parse(source, file_name)) |ast| {
-        parsing_time = timer.read();
-        timer.reset();
+        if (!is_wasm) {
+            parsing_time = timer.read();
+            timer.reset();
+        }
 
         if (flavor == .Run or flavor == .Test) {
             if (try codegen.generate(ast)) |function| {
-                codegen_time = timer.read();
-                timer.reset();
+                if (!is_wasm) {
+                    codegen_time = timer.read();
+                    timer.reset();
+                }
 
                 try vm.interpret(
                     ast,
@@ -99,7 +153,9 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                     args,
                 );
 
-                running_time = timer.read();
+                if (!is_wasm) {
+                    running_time = timer.read();
+                }
             } else {
                 return Parser.CompileError.Recoverable;
             }
@@ -121,7 +177,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                         running_ms,
                         jit_ms,
                         gc_ms,
-                        @as(f64, @floatFromInt(total_timer.read())) / 1000000,
+                        @as(f64, @floatFromInt(if (!is_wasm) total_timer.read() else 0)) / 1000000,
                         gc.full_collection_count,
                         gc.light_collection_count,
                         gc.max_allocated,
@@ -160,8 +216,8 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = builtin.mode == .Debug }){};
+    var allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
         gpa.allocator()
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
@@ -199,7 +255,9 @@ pub fn main() !void {
     if (res.args.version == 1) {
         printBanner(std.io.getStdOut().writer(), true);
 
-        std.os.exit(0);
+        if (!is_wasm) {
+            std.os.exit(0);
+        }
     }
 
     if (res.args.help == 1) {
@@ -224,7 +282,9 @@ pub fn main() !void {
             },
         );
 
-        std.os.exit(0);
+        if (!is_wasm) {
+            std.os.exit(0);
+        }
     }
 
     if (res.args.library.len > 0) {
@@ -262,23 +322,41 @@ pub fn main() !void {
     else
         .Run;
 
-    if (flavor == .Repl) {
-        repl(allocator) catch std.os.exit(1);
-    } else {
+    if (!is_wasm and flavor == .Repl) {
+        repl(allocator) catch {
+            if (!is_wasm) {
+                std.os.exit(1);
+            }
+
+            std.debug.print("REPL stopped", .{});
+        };
+    } else if (!is_wasm and positionals.items.len > 0) {
         runFile(
             allocator,
             res.positionals[0],
             positionals.items[1..],
             flavor,
-        ) catch std.os.exit(1);
+        ) catch {
+            if (!is_wasm) {
+                std.os.exit(1);
+            }
+
+            std.debug.print("VM stopped", .{});
+        };
+    } else if (is_wasm) {
+        std.debug.print("NYI wasm repl", .{});
+    } else {
+        std.debug.print("Nothing to run", .{});
     }
 
-    std.os.exit(0);
+    if (!is_wasm) {
+        std.os.exit(0);
+    }
 }
 
 test "Testing behavior" {
     var gpa = std.heap.GeneralPurposeAllocator(.{
-        .safety = true,
+        .safety = builtin.mode == .Debug,
     }){};
     var allocator: Allocator = gpa.allocator();
 
