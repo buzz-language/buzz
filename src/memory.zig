@@ -982,7 +982,9 @@ pub const GarbageCollectorDebugger = struct {
         return .{
             .allocator = allocator,
             .tracker = std.AutoHashMap(*Obj, Ptr).init(allocator),
-            .reporter = Reporter{ .allocator = allocator },
+            .reporter = Reporter{
+                .allocator = allocator,
+            },
         };
     }
 

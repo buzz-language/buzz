@@ -9,7 +9,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-export fn abs(ctx: *api.NativeCtx) c_int {
+pub export fn abs(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(if (n_f < 0) n_f * -1 else n_f);
@@ -17,7 +17,7 @@ export fn abs(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn acos(ctx: *api.NativeCtx) c_int {
+pub export fn acos(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.acos(n_f));
@@ -25,7 +25,7 @@ export fn acos(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn asin(ctx: *api.NativeCtx) c_int {
+pub export fn asin(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.asin(n_f));
@@ -33,7 +33,7 @@ export fn asin(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn atan(ctx: *api.NativeCtx) c_int {
+pub export fn atan(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.atan(n_f));
@@ -41,7 +41,7 @@ export fn atan(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzceil(ctx: *api.NativeCtx) c_int {
+pub export fn bzceil(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushInteger(@intFromFloat(std.math.ceil(n_f)));
@@ -49,7 +49,7 @@ export fn bzceil(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzcos(ctx: *api.NativeCtx) c_int {
+pub export fn bzcos(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.cos(n_f));
@@ -57,7 +57,7 @@ export fn bzcos(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzexp(ctx: *api.NativeCtx) c_int {
+pub export fn bzexp(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.exp(n_f));
@@ -65,7 +65,7 @@ export fn bzexp(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzfloor(ctx: *api.NativeCtx) c_int {
+pub export fn bzfloor(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushInteger(@intFromFloat(std.math.floor(n_f)));
@@ -73,7 +73,7 @@ export fn bzfloor(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzlog(ctx: *api.NativeCtx) c_int {
+pub export fn bzlog(ctx: *api.NativeCtx) c_int {
     const base_i: f64 = ctx.vm.bz_peek(1).float();
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
@@ -82,7 +82,7 @@ export fn bzlog(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn maxFloat(ctx: *api.NativeCtx) c_int {
+pub export fn maxFloat(ctx: *api.NativeCtx) c_int {
     const a_f = ctx.vm.bz_peek(0).float();
     const b_f = ctx.vm.bz_peek(1).float();
 
@@ -91,7 +91,7 @@ export fn maxFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn minFloat(ctx: *api.NativeCtx) c_int {
+pub export fn minFloat(ctx: *api.NativeCtx) c_int {
     const a_f = ctx.vm.bz_peek(0).float();
     const b_f = ctx.vm.bz_peek(1).float();
 
@@ -100,7 +100,7 @@ export fn minFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn maxInt(ctx: *api.NativeCtx) c_int {
+pub export fn maxInt(ctx: *api.NativeCtx) c_int {
     const a_f = ctx.vm.bz_peek(0).integer();
     const b_f = ctx.vm.bz_peek(1).integer();
 
@@ -109,7 +109,7 @@ export fn maxInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn minInt(ctx: *api.NativeCtx) c_int {
+pub export fn minInt(ctx: *api.NativeCtx) c_int {
     const a_f = ctx.vm.bz_peek(0).integer();
     const b_f = ctx.vm.bz_peek(1).integer();
 
@@ -118,7 +118,7 @@ export fn minInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzsin(ctx: *api.NativeCtx) c_int {
+pub export fn bzsin(ctx: *api.NativeCtx) c_int {
     const n: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.sin(n));
@@ -126,7 +126,7 @@ export fn bzsin(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bzsqrt(ctx: *api.NativeCtx) c_int {
+pub export fn bzsqrt(ctx: *api.NativeCtx) c_int {
     const n_f: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.sqrt(n_f));
@@ -134,7 +134,7 @@ export fn bzsqrt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn bztan(ctx: *api.NativeCtx) c_int {
+pub export fn bztan(ctx: *api.NativeCtx) c_int {
     const n: f64 = ctx.vm.bz_peek(0).float();
 
     ctx.vm.bz_pushFloat(std.math.tan(n));
@@ -142,7 +142,7 @@ export fn bztan(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn pow(ctx: *api.NativeCtx) c_int {
+pub export fn pow(ctx: *api.NativeCtx) c_int {
     const n = ctx.vm.bz_peek(1);
     const p = ctx.vm.bz_peek(0);
 
