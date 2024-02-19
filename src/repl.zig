@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
-const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
+const BuildOptions = @import("build_options");
 
 const _vm = @import("vm.zig");
 const VM = _vm.VM;

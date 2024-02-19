@@ -375,120 +375,102 @@ pub fn build(b: *Build) !void {
 
     exe.root_module.addImport("build_options", build_option_module);
 
-    // Building buzz api library
-    var lib = if (!is_wasm)
-        b.addSharedLibrary(.{
-            .name = "buzz",
-            .root_source_file = .{ .path = "src/buzz_api.zig" },
-            .target = target,
-            .optimize = build_mode,
-        })
-    else
-        b.addStaticLibrary(.{
+    if (!is_wasm) {
+        // Building buzz api library
+        var lib = b.addSharedLibrary(.{
             .name = "buzz",
             .root_source_file = .{ .path = "src/buzz_api.zig" },
             .target = target,
             .optimize = build_mode,
         });
 
-    b.installArtifact(lib);
+        b.installArtifact(lib);
 
-    for (includes.items) |include| {
-        lib.addIncludePath(.{ .path = include });
-    }
-    for (llibs.items) |llib| {
-        lib.addLibraryPath(.{ .path = llib });
-    }
-    for (sys_libs.items) |slib| {
-        lib.linkSystemLibrary(slib);
-    }
-    if (build_options.needLibC()) {
-        lib.linkLibC();
-    }
+        for (includes.items) |include| {
+            lib.addIncludePath(.{ .path = include });
+        }
+        for (llibs.items) |llib| {
+            lib.addLibraryPath(.{ .path = llib });
+        }
+        for (sys_libs.items) |slib| {
+            lib.linkSystemLibrary(slib);
+        }
+        if (build_options.needLibC()) {
+            lib.linkLibC();
+        }
 
-    if (!is_wasm) {
         lib.root_module.addImport(
             "build_options",
             build_option_module,
         );
-    }
 
-    if (lib_pcre2) |pcre| {
-        lib.linkLibrary(pcre);
-    }
-    if (lib_mimalloc) |mimalloc| {
-        lib.linkLibrary(mimalloc);
-        if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
-            lib.linkSystemLibrary("bcrypt");
+        if (lib_pcre2) |pcre| {
+            lib.linkLibrary(pcre);
         }
-    }
-    // So that JIT compiled function can reference buzz_api
-    exe.linkLibrary(lib);
-    if (lib_linenoise) |ln| {
-        exe.linkLibrary(ln);
-    }
-
-    b.default_step.dependOn(&exe.step);
-    b.default_step.dependOn(&lib.step);
-
-    // Building std libraries
-    const Lib = struct {
-        path: ?[]const u8,
-        name: []const u8,
-        wasm_compatible: bool = true,
-    };
-
-    const libraries = [_]Lib{
-        .{ .name = "std", .path = "src/lib/buzz_std.zig" },
-        .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
-        .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
-        .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
-        .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
-        .{ .name = "math", .path = "src/lib/buzz_math.zig" },
-        .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
-        .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
-        .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
-        .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
-        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
-        .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
-        .{ .name = "test", .path = null },
-        .{ .name = "errors", .path = null },
-    };
-
-    var library_steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
-    for (libraries) |library| {
-        // Copy buzz definitions
-        const step = b.addInstallLibFile(
-            .{ .path = b.fmt("src/lib/{s}.buzz", .{library.name}) },
-            b.fmt("buzz/{s}.buzz", .{library.name}),
-        );
-        install_step.dependOn(&step.step);
-
-        if (library.path == null or (!library.wasm_compatible and is_wasm)) {
-            continue;
+        if (lib_mimalloc) |mimalloc| {
+            lib.linkLibrary(mimalloc);
+            if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
+                lib.linkSystemLibrary("bcrypt");
+            }
+        }
+        // So that JIT compiled function can reference buzz_api
+        exe.linkLibrary(lib);
+        if (lib_linenoise) |ln| {
+            exe.linkLibrary(ln);
         }
 
-        var std_lib = if (!is_wasm)
-            b.addSharedLibrary(.{
-                .name = library.name,
-                .root_source_file = .{ .path = library.path.? },
-                .target = target,
-                .optimize = build_mode,
-            })
-        else
-            b.addStaticLibrary(.{
+        b.default_step.dependOn(&exe.step);
+        b.default_step.dependOn(&lib.step);
+
+        // Building std libraries
+        const Lib = struct {
+            path: ?[]const u8,
+            name: []const u8,
+            wasm_compatible: bool = true,
+        };
+
+        const libraries = [_]Lib{
+            .{ .name = "std", .path = "src/lib/buzz_std.zig" },
+            .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
+            .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
+            .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
+            .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
+            .{ .name = "math", .path = "src/lib/buzz_math.zig" },
+            .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
+            .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
+            .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
+            .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
+            .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
+            .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
+            .{ .name = "test", .path = null },
+            .{ .name = "errors", .path = null },
+        };
+
+        var library_steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
+        for (libraries) |library| {
+            // Copy buzz definitions
+            const step = b.addInstallLibFile(
+                .{ .path = b.fmt("src/lib/{s}.buzz", .{library.name}) },
+                b.fmt("buzz/{s}.buzz", .{library.name}),
+            );
+            install_step.dependOn(&step.step);
+
+            if (library.path == null or (!library.wasm_compatible and is_wasm)) {
+                continue;
+            }
+
+            var std_lib = b.addSharedLibrary(.{
                 .name = library.name,
                 .root_source_file = .{ .path = library.path.? },
                 .target = target,
                 .optimize = build_mode,
             });
 
-        const artifact = b.addInstallArtifact(std_lib, .{});
-        install_step.dependOn(&artifact.step);
-        artifact.dest_dir = .{ .custom = "lib/buzz" };
+            const artifact = b.addInstallArtifact(std_lib, .{});
+            install_step.dependOn(&artifact.step);
+            artifact.dest_dir = .{ .custom = "lib/buzz" };
 
-        // No need to link anything when building for wasm since everything is static
-        if (!is_wasm) {
+            // No need to link anything when building for wasm since everything is static
             for (includes.items) |include| {
                 std_lib.addIncludePath(.{ .path = include });
             }
@@ -514,22 +496,22 @@ pub fn build(b: *Build) !void {
             }
             std_lib.linkLibrary(lib);
             std_lib.root_module.addImport("build_options", build_option_module);
+
+            // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
+            std_lib.addRPath(
+                .{
+                    .path = b.fmt(
+                        "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
+                        .{getBuzzPrefix(b)},
+                    ),
+                },
+            );
+            std_lib.addRPath(.{ .path = "/usr/local/lib/buzz" });
+
+            b.default_step.dependOn(&std_lib.step);
+
+            library_steps.append(std_lib) catch unreachable;
         }
-
-        // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
-        std_lib.addRPath(
-            .{
-                .path = b.fmt(
-                    "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
-                    .{getBuzzPrefix(b)},
-                ),
-            },
-        );
-        std_lib.addRPath(.{ .path = "/usr/local/lib/buzz" });
-
-        b.default_step.dependOn(&std_lib.step);
-
-        library_steps.append(std_lib) catch unreachable;
     }
 
     const tests = b.addTest(.{

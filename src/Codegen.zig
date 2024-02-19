@@ -12,7 +12,7 @@ const Parser = @import("Parser.zig");
 const Token = @import("Token.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Reporter = @import("Reporter.zig");
-const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
+const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 
