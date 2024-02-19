@@ -140,12 +140,22 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
             const value = expr orelse ctx.vm.globals.items[previous_global_top];
 
-            var dump_state = DumpState.init(ctx.vm);
-            dump_state.valueDump(
+            var value_str = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+            defer value_str.deinit();
+            var state = DumpState.init(ctx.vm);
+
+            state.valueDump(
                 value,
-                stdout,
+                value_str.writer(),
                 false,
             );
+
+            var scanner = Scanner.init(
+                ctx.vm.gc.allocator,
+                "REPL",
+                value_str.items,
+            );
+            scanner.highlight(stdout, false);
 
             stdout.writeAll("\n") catch unreachable;
         }

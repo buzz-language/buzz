@@ -167,7 +167,7 @@ pub const ReportItem = struct {
 
 pub const ReportOptions = struct {
     surrounding_lines: usize = 2,
-    color: bool = !is_wasm,
+    color: bool = true,
 };
 
 pub const Report = struct {

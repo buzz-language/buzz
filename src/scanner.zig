@@ -669,7 +669,7 @@ pub const Scanner = struct {
                         .Question,
                         .AsQuestion,
                         .Out,
-                        => if (true_color) Color.keyword else "\x1b[94m",
+                        => if (true_color) Color.keyword else Color.magenta,
                         // Punctuation
                         .LeftBracket,
                         .RightBracket,
@@ -686,7 +686,7 @@ pub const Scanner = struct {
                         .Arrow,
                         .Ampersand,
                         .Spread,
-                        => if (true_color) Color.punctuation else Color.magenta,
+                        => if (true_color) Color.punctuation else Color.bright_white,
                         .IntegerValue,
                         .FloatValue,
                         => if (true_color) Color.number else Color.yellow,
