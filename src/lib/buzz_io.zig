@@ -1,25 +1,25 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-export fn getStdIn(ctx: *api.NativeCtx) c_int {
+pub export fn getStdIn(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdIn().handle));
 
     return 1;
 }
 
-export fn getStdOut(ctx: *api.NativeCtx) c_int {
+pub export fn getStdOut(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdOut().handle));
 
     return 1;
 }
 
-export fn getStdErr(ctx: *api.NativeCtx) c_int {
+pub export fn getStdErr(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdErr().handle));
 
     return 1;
 }
 
-export fn FileIsTTY(ctx: api.NativeCtx) c_int {
+pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
@@ -60,7 +60,7 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileOpen(ctx: *api.NativeCtx) c_int {
+pub export fn FileOpen(ctx: *api.NativeCtx) c_int {
     const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
@@ -97,7 +97,7 @@ export fn FileOpen(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn FileClose(ctx: *api.NativeCtx) c_int {
+pub export fn FileClose(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
@@ -132,7 +132,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileReadAll(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -187,7 +187,7 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileReadLine(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -248,7 +248,7 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileRead(ctx: *api.NativeCtx) c_int {
+pub export fn FileRead(ctx: *api.NativeCtx) c_int {
     const n = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
@@ -288,7 +288,7 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
 }
 
 // extern fun File_write(int fd, [int] bytes) > void;
-export fn FileWrite(ctx: *api.NativeCtx) c_int {
+pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -327,7 +327,7 @@ export fn FileWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn runFile(ctx: *api.NativeCtx) c_int {
+pub export fn runFile(ctx: *api.NativeCtx) c_int {
     // Read file
     var len: usize = 0;
     const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len);

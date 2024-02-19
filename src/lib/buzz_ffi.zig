@@ -1,7 +1,7 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-export fn alignOf(ctx: *api.NativeCtx) c_int {
+pub export fn alignOf(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const zig_type_str = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
 
@@ -24,7 +24,7 @@ export fn alignOf(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn sizeOf(ctx: *api.NativeCtx) c_int {
+pub export fn sizeOf(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const zig_type_str = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
 
@@ -48,7 +48,7 @@ export fn sizeOf(ctx: *api.NativeCtx) c_int {
 }
 
 // FIXME: raise error if typedef is not .ForeignContainer
-export fn sizeOfStruct(ctx: *api.NativeCtx) c_int {
+pub export fn sizeOfStruct(ctx: *api.NativeCtx) c_int {
     const type_def = ctx.vm.bz_peek(0).bz_valueToObjTypeDef();
 
     ctx.vm.bz_push(api.Value.fromInteger(@intCast(type_def.bz_containerTypeSize())));
@@ -56,7 +56,7 @@ export fn sizeOfStruct(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn alignOfStruct(ctx: *api.NativeCtx) c_int {
+pub export fn alignOfStruct(ctx: *api.NativeCtx) c_int {
     const type_def = ctx.vm.bz_peek(0).bz_valueToObjTypeDef();
 
     ctx.vm.bz_push(api.Value.fromInteger(@intCast(type_def.bz_containerTypeAlign())));

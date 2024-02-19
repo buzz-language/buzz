@@ -20,7 +20,7 @@ fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {
     return result;
 }
 
-export fn hash(ctx: *api.NativeCtx) c_int {
+pub export fn hash(ctx: *api.NativeCtx) c_int {
     const algo_index = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(1)).integer();
     var data_len: usize = 0;
     const data = ctx.vm.bz_peek(0).bz_valueToString(&data_len) orelse @panic("Could not hash data");

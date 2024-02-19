@@ -2,19 +2,19 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 
-export fn sleep(ctx: *api.NativeCtx) c_int {
+pub export fn sleep(ctx: *api.NativeCtx) c_int {
     std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).float())) * 1_000_000);
 
     return 0;
 }
 
-export fn time(ctx: *api.NativeCtx) c_int {
+pub export fn time(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
 
     return 1;
 }
 
-export fn env(ctx: *api.NativeCtx) c_int {
+pub export fn env(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -47,7 +47,7 @@ fn sysTempDir() []const u8 {
     };
 }
 
-export fn tmpDir(ctx: *api.NativeCtx) c_int {
+pub export fn tmpDir(ctx: *api.NativeCtx) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
     ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null, tmp_dir.len) orelse {
@@ -58,7 +58,7 @@ export fn tmpDir(ctx: *api.NativeCtx) c_int {
 }
 
 // TODO: what if file with same random name exists already?
-export fn tmpFilename(ctx: *api.NativeCtx) c_int {
+pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     var prefix_len: usize = 0;
     const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
 
@@ -93,7 +93,7 @@ export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 }
 
 // If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
-export fn buzzExit(ctx: *api.NativeCtx) c_int {
+pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
     std.os.exit(@intCast(exitCode));
@@ -135,7 +135,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn execute(ctx: *api.NativeCtx) c_int {
+pub export fn execute(ctx: *api.NativeCtx) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
@@ -276,7 +276,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn SocketConnect(ctx: *api.NativeCtx) c_int {
+pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -330,7 +330,7 @@ export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn SocketClose(ctx: *api.NativeCtx) c_int {
+pub export fn SocketClose(ctx: *api.NativeCtx) c_int {
     const socket: std.os.socket_t = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
@@ -368,7 +368,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn SocketRead(ctx: *api.NativeCtx) c_int {
+pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
     const n: i32 = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
@@ -434,7 +434,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
+pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -479,7 +479,7 @@ export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
+pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -523,7 +523,7 @@ export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn SocketWrite(ctx: *api.NativeCtx) c_int {
+pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.os.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -564,7 +564,7 @@ export fn SocketWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
+pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -702,7 +702,7 @@ export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
+pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
     const server_socket: std.os.socket_t = @intCast(
         ctx.vm.bz_peek(2).integer(),
     );

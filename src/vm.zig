@@ -368,7 +368,9 @@ pub const VM = struct {
             .current_fiber = undefined,
             .main_fiber = undefined,
             .flavor = flavor,
-            .reporter = Reporter{ .allocator = gc.allocator },
+            .reporter = Reporter{
+                .allocator = gc.allocator,
+            },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
         };
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = if (!is_wasm) @import("build_options") else @import("wasm.zig").BuildOptions;
 const obj = @import("obj.zig");
 const Token = @import("Token.zig");
@@ -16,7 +17,6 @@ const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
 
 // In the wasm build, libraries are statically linked
-const is_wasm = builtin.cpu.arch.isWasm();
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
 const std_api = if (is_wasm) std.ComptimeStringMap(
     buzz_api.NativeFn,
@@ -33,6 +33,97 @@ const std_api = if (is_wasm) std.ComptimeStringMap(
         .{ "toFloat", &std_lib.toFloat },
         .{ "toInt", &std_lib.toInt },
         .{ "toUd", &std_lib.toUd },
+    },
+) else void;
+
+const gc_lib = if (is_wasm) @import("lib/buzz_gc.zig") else void;
+const gc_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "allocated", &gc_lib.allocated },
+        .{ "collect", &gc_lib.collect },
+    },
+) else void;
+
+const math_lib = if (is_wasm) @import("lib/buzz_math.zig") else void;
+const math_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "abs", &math_lib.abs },
+        .{ "acos", &math_lib.acos },
+        .{ "asin", &math_lib.asin },
+        .{ "atan", &math_lib.atan },
+        .{ "bzsqrt", &math_lib.bzsqrt },
+        .{ "bzceil", &math_lib.bzceil },
+        .{ "bzcos", &math_lib.bzcos },
+        .{ "bzexp", &math_lib.bzexp },
+        .{ "bzfloor", &math_lib.bzfloor },
+        .{ "bzlog", &math_lib.bzlog },
+        .{ "minFloat", &math_lib.minFloat },
+        .{ "maxFloat", &math_lib.maxFloat },
+        .{ "minInt", &math_lib.minInt },
+        .{ "maxInt", &math_lib.maxInt },
+        .{ "bzsin", &math_lib.bzsin },
+        .{ "bztan", &math_lib.bztan },
+        .{ "pow", &math_lib.pow },
+    },
+) else void;
+
+const buffer_lib = if (is_wasm) @import("lib/buzz_buffer.zig") else void;
+const buffer_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "BufferNew", &buffer_lib.BufferNew },
+        .{ "BufferDeinit", &buffer_lib.BufferDeinit },
+        .{ "BufferRead", &buffer_lib.BufferRead },
+        .{ "BufferWrite", &buffer_lib.BufferWrite },
+        .{ "BufferReadBoolean", &buffer_lib.BufferReadBoolean },
+        .{ "BufferWriteBoolean", &buffer_lib.BufferWriteBoolean },
+        .{ "BufferWriteInt", &buffer_lib.BufferWriteInt },
+        .{ "BufferReadInt", &buffer_lib.BufferReadInt },
+        .{ "BufferWriteUserData", &buffer_lib.BufferWriteUserData },
+        .{ "BufferReadUserData", &buffer_lib.BufferReadUserData },
+        .{ "BufferWriteFloat", &buffer_lib.BufferWriteFloat },
+        .{ "BufferReadFloat", &buffer_lib.BufferReadFloat },
+        .{ "BufferLen", &buffer_lib.BufferLen },
+        .{ "BufferCursor", &buffer_lib.BufferCursor },
+        .{ "BufferBuffer", &buffer_lib.BufferBuffer },
+        .{ "BufferPtr", &buffer_lib.BufferPtr },
+        .{ "BufferEmpty", &buffer_lib.BufferEmpty },
+        .{ "BufferAt", &buffer_lib.BufferAt },
+        .{ "BufferSetAt", &buffer_lib.BufferSetAt },
+        .{ "BufferWriteZ", &buffer_lib.BufferWriteZ },
+        .{ "BufferWriteZAt", &buffer_lib.BufferWriteZAt },
+        .{ "BufferReadZ", &buffer_lib.BufferReadZ },
+        .{ "BufferReadZAt", &buffer_lib.BufferReadZAt },
+        .{ "BufferWriteStruct", &buffer_lib.BufferWriteStruct },
+        .{ "BufferWriteStructAt", &buffer_lib.BufferWriteStructAt },
+        .{ "BufferReadStruct", &buffer_lib.BufferReadStruct },
+        .{ "BufferReadStructAt", &buffer_lib.BufferReadStructAt },
+    },
+) else void;
+
+const debug_lib = if (is_wasm) @import("lib/buzz_debug.zig") else void;
+const debug_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "dump", &debug_lib.dump },
+    },
+) else void;
+
+const serialize_lib = if (is_wasm) @import("lib/buzz_serialize.zig") else void;
+const serialize_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "serialize", &serialize_lib.serialize },
+    },
+) else void;
+
+const crypto_lib = if (is_wasm) @import("lib/buzz_crypto.zig") else void;
+const crypto_api = if (is_wasm) std.ComptimeStringMap(
+    buzz_api.NativeFn,
+    .{
+        .{ "hash", &crypto_lib.hash },
     },
 ) else void;
 
@@ -6858,9 +6949,50 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
 }
 
 fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
+    // We can't build the file path dynamically
     return if (std.mem.eql(u8, file_name, "std"))
         [_][]const u8{
             @embedFile("lib/std.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "gc"))
+        [_][]const u8{
+            @embedFile("lib/gc.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "math"))
+        [_][]const u8{
+            @embedFile("lib/math.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "debug"))
+        [_][]const u8{
+            @embedFile("lib/debug.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "buffer"))
+        [_][]const u8{
+            @embedFile("lib/buffer.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "serialize"))
+        [_][]const u8{
+            @embedFile("lib/serialize.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "errors"))
+        [_][]const u8{
+            @embedFile("lib/errors.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "test"))
+        [_][]const u8{
+            @embedFile("lib/test.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "crypto"))
+        [_][]const u8{
+            @embedFile("lib/crypto.buzz"),
             file_name,
         }
     else none: {
@@ -7059,6 +7191,18 @@ fn importScript(
 fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
     const symbol_ptr = if (std.mem.eql(u8, file_name, "std"))
         std_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "gc"))
+        gc_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "math"))
+        math_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "debug"))
+        debug_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "buffer"))
+        buffer_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "serialize"))
+        serialize_api.get(symbol)
+    else if (std.mem.eql(u8, file_name, "crypto"))
+        crypto_api.get(symbol)
     else
         null;
 

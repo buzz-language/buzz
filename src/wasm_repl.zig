@@ -69,7 +69,7 @@ pub export fn initRepl() *ReplCtx {
 
     // Import std and debug as commodity
     _ = runSource(
-        "import \"std\";",
+        "import \"std\";import \"debug\";",
         "REPL",
         vm,
         codegen,
@@ -118,9 +118,9 @@ pub export fn runLine(ctx: *ReplCtx) void {
         ctx.codegen,
         ctx.parser,
     ) catch |err| failed: {
-        // if (BuildOptions.debug) {
-        stderr.print("Failed with error {}\n", .{err}) catch unreachable;
-        // }
+        if (BuildOptions.debug) {
+            stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+        }
 
         break :failed null;
     };

@@ -2,7 +2,7 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const http = std.http;
 
-export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     const client = api.VM.allocator.create(http.Client) catch @panic("Out of memory");
 
     client.* = http.Client{
@@ -20,7 +20,7 @@ export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
@@ -29,7 +29,7 @@ export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
@@ -92,7 +92,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
     const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
@@ -108,7 +108,7 @@ export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
     const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));

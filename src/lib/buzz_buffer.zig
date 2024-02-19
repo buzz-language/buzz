@@ -10,7 +10,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-export fn BufferNew(ctx: *api.NativeCtx) c_int {
+pub export fn BufferNew(ctx: *api.NativeCtx) c_int {
     const capacity = ctx.vm.bz_peek(0).integer();
 
     const buffer = api.VM.allocator.create(Buffer) catch {
@@ -29,7 +29,7 @@ export fn BufferNew(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn BufferDeinit(ctx: *api.NativeCtx) c_int {
+pub export fn BufferDeinit(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
 
     var buffer = Buffer.fromUserData(userdata);
@@ -224,7 +224,7 @@ const Buffer = struct {
     }
 };
 
-export fn BufferRead(ctx: *api.NativeCtx) c_int {
+pub export fn BufferRead(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const n = ctx.vm.bz_peek(0).integer();
 
@@ -242,7 +242,7 @@ export fn BufferRead(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferWrite(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWrite(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     var len: usize = 0;
     var bytes = ctx.vm.bz_peek(0).bz_valueToString(&len);
@@ -263,7 +263,7 @@ export fn BufferWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     const index = ctx.vm.bz_peek(1).integer();
     const value = ctx.vm.bz_peek(0).integer();
@@ -279,7 +279,7 @@ export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferReadBoolean(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadBoolean(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readBool()) |value| {
@@ -291,7 +291,7 @@ export fn BufferReadBoolean(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const value = ctx.vm.bz_peek(0).boolean();
 
@@ -307,7 +307,7 @@ export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferReadInt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadInt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readInteger() catch |err| {
@@ -328,7 +328,7 @@ export fn BufferReadInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readUserData(ctx.vm) catch |err| {
@@ -349,7 +349,7 @@ export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     if (buffer.readFloat() catch |err| {
@@ -370,7 +370,7 @@ export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const number = ctx.vm.bz_peek(0);
 
@@ -386,7 +386,7 @@ export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const userdata = ctx.vm.bz_peek(0);
 
@@ -402,7 +402,7 @@ export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const number = ctx.vm.bz_peek(0);
 
@@ -418,7 +418,7 @@ export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
+pub export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     buffer.empty();
@@ -426,7 +426,7 @@ export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn BufferLen(ctx: *api.NativeCtx) c_int {
+pub export fn BufferLen(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const buf_align = ctx.vm.bz_peek(0).integer();
 
@@ -435,7 +435,7 @@ export fn BufferLen(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferCursor(ctx: *api.NativeCtx) c_int {
+pub export fn BufferCursor(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     ctx.vm.bz_pushInteger(@intCast(buffer.cursor));
@@ -443,7 +443,7 @@ export fn BufferCursor(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
+pub export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
 
     if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as(
@@ -458,7 +458,7 @@ export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferPtr(ctx: *api.NativeCtx) c_int {
+pub export fn BufferPtr(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     const at = ctx.vm.bz_peek(1).integer();
     const alignment = ctx.vm.bz_peek(0).integer();
@@ -473,7 +473,7 @@ export fn BufferPtr(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const number = ctx.vm.bz_peek(0).integer();
 
@@ -527,7 +527,7 @@ inline fn rawWriteZ(
     return true;
 }
 
-export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     var len: usize = 0;
     const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
@@ -542,7 +542,7 @@ export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
     )) -1 else 0;
 }
 
-export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
     const index = ctx.vm.bz_peek(2).integer();
     var len: usize = 0;
@@ -601,7 +601,7 @@ inline fn rawWriteStruct(
     return true;
 }
 
-export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     const type_def = ctx.vm.bz_peek(1);
     const values = ctx.vm.bz_peek(0);
@@ -615,7 +615,7 @@ export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
     )) -1 else 0;
 }
 
-export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
     const type_def = ctx.vm.bz_peek(2);
     const index = ctx.vm.bz_peek(1).integer();
@@ -645,7 +645,7 @@ inline fn rawReadStruct(
     return api.ObjForeignContainer.bz_containerFromSlice(vm, type_def, slice.ptr, slice.len);
 }
 
-export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     const type_def = ctx.vm.bz_peek(0);
 
@@ -661,7 +661,7 @@ export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn BufferReadStructAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadStructAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
     const type_def = ctx.vm.bz_peek(0);
@@ -706,7 +706,7 @@ fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
     return 1;
 }
 
-export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
     var len: usize = 0;
     const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
@@ -719,7 +719,7 @@ export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
     );
 }
 
-export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
     const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
     var len: usize = 0;
