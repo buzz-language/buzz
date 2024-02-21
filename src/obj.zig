@@ -600,7 +600,10 @@ pub const ObjPattern = struct {
                 .{ "replaceAll", buzz_builtin.pattern.replaceAll },
             }
         else
-            .{}, // TODO: import js function using js regexes instead of pcre
+            .{
+                .{ "replace", buzz_builtin.pattern.replace },
+                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+            },
     );
 
     const members_typedef = std.ComptimeStringMap(
@@ -613,7 +616,10 @@ pub const ObjPattern = struct {
                 .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
             }
         else
-            .{},
+            .{
+                .{ "replace", "extern Function replace(str subject, str with) > str" },
+                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+            },
     );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {

@@ -417,7 +417,7 @@ test "Testing behavior" {
                 const reader = test_file.reader();
                 const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
                 defer allocator.free(first_line);
-                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{Parser.buzz_prefix()}) catch unreachable;
+                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{Parser.buzzPrefix()}) catch unreachable;
                 defer allocator.free(arg0);
 
                 const result = try std.ChildProcess.run(

@@ -2,6 +2,7 @@
 
 ## Added
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
+- WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
 - Function argument names and object property names can be ommitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
 ```buzz
 object Person {
