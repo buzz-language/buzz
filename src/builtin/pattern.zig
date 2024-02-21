@@ -8,6 +8,49 @@ const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
 const _value = @import("../value.zig");
 const Value = _value.Value;
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
+
+// In a wasm build, the host is providing the pattern matching (JS regexes)
+extern fn patternReplaceLength(
+    string_ptr: [*]const u8,
+    string_len: isize,
+    replacement_ptr: [*]const u8,
+    replacement_len: isize,
+    pattern_ptr: [*]const u8,
+    pattern_len: isize,
+) isize;
+
+extern fn patternReplace(
+    string_ptr: [*]const u8,
+    string_len: isize,
+    replacement_ptr: [*]const u8,
+    replacement_len: isize,
+    pattern_ptr: [*]const u8,
+    pattern_len: isize,
+    output_ptr: [*]const u8,
+    output_len: isize,
+) void;
+
+extern fn patternReplaceAllLength(
+    string_ptr: [*]const u8,
+    string_len: isize,
+    replacement_ptr: [*]const u8,
+    replacement_len: isize,
+    pattern_ptr: [*]const u8,
+    pattern_len: isize,
+) isize;
+
+extern fn patternReplaceAll(
+    string_ptr: [*]const u8,
+    string_len: isize,
+    replacement_ptr: [*]const u8,
+    replacement_len: isize,
+    pattern_ptr: [*]const u8,
+    pattern_len: isize,
+    output_ptr: [*]const u8,
+    output_len: isize,
+) void;
 
 pub const pcre = @import("../pcre.zig");
 
@@ -187,10 +230,48 @@ pub fn replace(ctx: *NativeCtx) c_int {
     const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
     const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var offset: usize = 0;
-    const result = rawReplace(self, ctx.vm, subject, replacement, &offset) catch @panic("Could not replace pattern");
+    if (!is_wasm) {
+        var offset: usize = 0;
+        const result = rawReplace(
+            self,
+            ctx.vm,
+            subject,
+            replacement,
+            &offset,
+        ) catch @panic("Could not replace pattern");
 
-    ctx.vm.push(result.toValue());
+        ctx.vm.push(result.toValue());
+    } else {
+        const buffer = ctx.vm.gc.allocator.alloc(
+            u8,
+            @intCast(
+                patternReplaceLength(
+                    subject.string.ptr,
+                    @intCast(subject.string.len),
+                    replacement.string.ptr,
+                    @intCast(replacement.string.len),
+                    self.source.ptr,
+                    @intCast(self.source.len),
+                ),
+            ),
+        ) catch @panic("Could not replace pattern");
+        defer ctx.vm.gc.allocator.free(buffer);
+
+        patternReplace(
+            subject.string.ptr,
+            @intCast(subject.string.len),
+            replacement.string.ptr,
+            @intCast(replacement.string.len),
+            self.source.ptr,
+            @intCast(self.source.len),
+            buffer.ptr,
+            @intCast(buffer.len),
+        );
+
+        ctx.vm.push(
+            (ctx.vm.gc.copyString(buffer) catch @panic("Could not replace pattern")).toValue(),
+        );
+    }
 
     return 1;
 }
@@ -217,14 +298,46 @@ pub fn replaceAll(ctx: *NativeCtx) c_int {
     const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
     const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    const result = rawReplaceAll(
-        self,
-        ctx.vm,
-        subject,
-        replacement,
-    ) catch @panic("Could not match pattern");
+    if (!is_wasm) {
+        const result = rawReplaceAll(
+            self,
+            ctx.vm,
+            subject,
+            replacement,
+        ) catch @panic("Could not match pattern");
 
-    ctx.vm.push(result.toValue());
+        ctx.vm.push(result.toValue());
+    } else {
+        const buffer = ctx.vm.gc.allocator.alloc(
+            u8,
+            @intCast(
+                patternReplaceAllLength(
+                    subject.string.ptr,
+                    @intCast(subject.string.len),
+                    replacement.string.ptr,
+                    @intCast(replacement.string.len),
+                    self.source.ptr,
+                    @intCast(self.source.len),
+                ),
+            ),
+        ) catch @panic("Could not replace pattern");
+        defer ctx.vm.gc.allocator.free(buffer);
+
+        patternReplaceAll(
+            subject.string.ptr,
+            @intCast(subject.string.len),
+            replacement.string.ptr,
+            @intCast(replacement.string.len),
+            self.source.ptr,
+            @intCast(self.source.len),
+            buffer.ptr,
+            @intCast(buffer.len),
+        );
+
+        ctx.vm.push(
+            (ctx.vm.gc.copyString(buffer) catch @panic("Could not replace pattern")).toValue(),
+        );
+    }
 
     return 1;
 }
