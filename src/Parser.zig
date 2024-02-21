@@ -7010,8 +7010,13 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
 
 fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     const paths = try self.searchPaths(file_name);
+    var selected_absolute_path_index: ?usize = null;
     defer {
-        for (paths) |path| {
+        for (paths, 0..) |path, index| {
+            if (selected_absolute_path_index != null and selected_absolute_path_index.? == index) {
+                continue;
+            }
+
             self.gc.allocator.free(path);
         }
         self.gc.allocator.free(paths);
@@ -7020,10 +7025,11 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     // Find and read file
     var file: ?std.fs.File = null;
     var absolute_path: ?[]const u8 = null;
-    for (paths) |path| {
+    for (paths, 0..) |path, index| {
         if (std.fs.path.isAbsolute(path)) {
             file = std.fs.openFileAbsolute(path, .{}) catch null;
             if (file != null) {
+                selected_absolute_path_index = index;
                 absolute_path = path;
                 break;
             }

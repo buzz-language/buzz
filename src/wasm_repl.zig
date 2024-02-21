@@ -25,7 +25,9 @@ pub const ReplCtx = extern struct {
     codegen: *CodeGen,
 };
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa = std.heap.GeneralPurposeAllocator(.{
+    .safety = builtin.mode == .Debug,
+}){};
 const allocator = gpa.allocator();
 
 pub export fn initRepl() *ReplCtx {
