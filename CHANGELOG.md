@@ -3,7 +3,7 @@
 ## Added
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
-- Function argument names and object property names can be ommitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
+- Function argument names and object property names can be omitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
 ```buzz
 object Person {
     str name,
@@ -41,7 +41,7 @@ var value = from {
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
 - `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
-- Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT should kick in pretty quickly in those use cases.
+- Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT compiler should kick in pretty quickly in those use cases.
 - Empty list and map without a specified type resolve to `[any]`/`{any: any}` unless the variable declaration context provides the type (https://github.com/buzz-language/buzz/issues/86)
 - Function yield type is now prefixed with `*>`: `fun willYield() > T > Y?` becomes `fun willYield() > T *> Y?` (https://github.com/buzz-language/buzz/issues/257)
 
