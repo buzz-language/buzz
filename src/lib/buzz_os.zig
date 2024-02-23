@@ -177,6 +177,7 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
 fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.AntivirusInterference,
         error.AddressFamilyNotSupported,
         error.AddressInUse,
         error.AddressNotAvailable,
@@ -638,6 +639,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
             error.SharingViolation,
             error.SymLinkLoop,
             error.SystemResources,
+            error.AntivirusInterference,
             error.WouldBlock,
             error.NetworkNotFound,
             error.SocketNotConnected,
