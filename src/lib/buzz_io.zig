@@ -32,6 +32,7 @@ pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
 fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
         error.FileBusy,

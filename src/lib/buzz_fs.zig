@@ -93,6 +93,7 @@ pub export fn delete(ctx: *api.NativeCtx) c_int {
 fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DiskQuota,
         error.FileBusy,
@@ -121,9 +122,10 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
 fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.UnrecognizedVolume,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
-        error.FileBusy,
         error.FileSystem,
         error.FileTooBig,
         error.InputOutput,
@@ -142,7 +144,6 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
-        error.WouldBlock,
         error.FileNotFound,
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
@@ -209,6 +210,7 @@ pub export fn move(ctx: *api.NativeCtx) c_int {
 fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
         error.FileBusy,
