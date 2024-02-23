@@ -4025,7 +4025,7 @@ pub const ObjTypeDef = struct {
             .Map => {
                 try writer.writeAll("{");
                 try self.resolved_type.?.Map.key_type.toStringRaw(writer, qualified);
-                try writer.writeAll(", ");
+                try writer.writeAll(": ");
                 try self.resolved_type.?.Map.value_type.toStringRaw(writer, qualified);
                 try writer.writeAll("}");
             },
