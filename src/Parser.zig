@@ -4719,6 +4719,10 @@ fn namedVariable(self: *Self, name: Ast.TokenIndex, can_assign: bool) Error!Ast.
     else
         null;
 
+    if (value != null and slot_constant) {
+        self.reportError(.constant, "Can't assign to constant variable");
+    }
+
     return try self.ast.appendNode(
         .{
             .tag = .NamedVariable,
