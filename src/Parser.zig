@@ -3841,14 +3841,16 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         self.ast.nodes.items(.type_def)[dot_node] = member;
-                        const components = self.ast.nodes.items(.components);
+                        var components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_type_def = member.?;
                         components[dot_node].Dot.member_kind = .Call;
+                        const dot_call = try self.call(
+                            can_assign,
+                            dot_node,
+                        );
+                        components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = try self.call(
-                                can_assign,
-                                dot_node,
-                            ),
+                            .Call = dot_call,
                         };
 
                         // Node type is the return type of the call
@@ -3879,14 +3881,16 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         self.ast.nodes.items(.type_def)[dot_node] = member;
-                        const components = self.ast.nodes.items(.components);
+                        var components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_type_def = member.?;
                         components[dot_node].Dot.member_kind = .Call;
+                        const dot_call = try self.call(
+                            can_assign,
+                            dot_node,
+                        );
+                        components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = try self.call(
-                                can_assign,
-                                dot_node,
-                            ),
+                            .Call = dot_call,
                         };
 
                         // Node type is the return type of the call
@@ -3917,14 +3921,16 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     if (try self.match(.LeftParen)) {
                         // `call` will look to the parent node for the function definition
                         self.ast.nodes.items(.type_def)[dot_node] = member;
-                        const components = self.ast.nodes.items(.components);
+                        var components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_kind = .Call;
                         components[dot_node].Dot.member_type_def = member.?;
+                        const dot_call = try self.call(
+                            can_assign,
+                            dot_node,
+                        );
+                        components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = try self.call(
-                                can_assign,
-                                dot_node,
-                            ),
+                            .Call = dot_call,
                         };
 
                         // Node type is the return type of the call
@@ -4111,8 +4117,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 var components = self.ast.nodes.items(.components);
                 if (can_assign and try self.match(.Equal)) {
                     components[dot_node].Dot.member_kind = .Value;
+                    const expr = try self.expression(false);
+                    components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = try self.expression(false),
+                        .Value = expr,
                     };
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it

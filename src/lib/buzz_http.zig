@@ -9,7 +9,7 @@ pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
         .allocator = api.VM.allocator,
     };
 
-    client.loadDefaultProxies() catch @panic("Out of memory");
+    client.initDefaultProxies(api.VM.allocator) catch @panic("Out of memory");
 
     if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
@@ -44,7 +44,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     }
 
     const header_values = ctx.vm.bz_peek(0);
-    var headers = http.Headers.init(api.VM.allocator);
+    var headers = std.ArrayList(http.Header).init(api.VM.allocator);
     var next_header_key = api.Value.Null;
     var next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key);
     while (next_header_key.val != api.Value.Null.val) : (next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key)) {
@@ -57,10 +57,16 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
             @panic("Out of memory");
         }
 
-        headers.append(key.?[0..key_len], value.?[0..value_len]) catch @panic("Could not send request");
+        headers.append(
+            .{
+                .name = key.?[0..key_len],
+                .value = value.?[0..value_len],
+            },
+        ) catch @panic("Could not send request");
     }
 
     const request = api.VM.allocator.create(http.Client.Request) catch @panic("Out of memory");
+    const server_header_buffer = api.VM.allocator.alloc(u8, 1024) catch @panic("Out of memory"); // FIXME: what do i do we this??
 
     request.* = client.open(
         method,
@@ -69,8 +75,10 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
 
             return -1;
         },
-        headers,
-        .{},
+        .{
+            .extra_headers = headers.items,
+            .server_header_buffer = server_header_buffer,
+        },
     ) catch |err| {
         handleError(ctx, err);
 
@@ -190,7 +198,8 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
         headers,
     );
 
-    for (request.response.headers.list.items) |header| {
+    var header_it = request.response.iterateHeaders();
+    while (header_it.next()) |header| {
         api.ObjMap.bz_mapSet(
             ctx.vm,
             headers,
@@ -220,10 +229,9 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.OutOfMemory => @panic("Out of memory"),
 
-        error.RedirectRequiresResend,
         error.CertificateBundleLoadFailure,
         error.CompressionInitializationFailed,
-        error.CompressionNotSupported,
+        error.CompressionUnsupported,
         error.ConnectionRefused,
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
@@ -232,23 +240,22 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
         error.HttpChunkInvalid,
         error.HttpConnectionHeaderUnsupported,
         error.HttpHeaderContinuationsUnsupported,
-        error.HttpHeadersExceededSizeLimit,
         error.HttpHeadersInvalid,
-        error.HttpRedirectMissingLocation,
+        error.HttpHeadersOversize,
+        error.HttpRedirectLocationInvalid,
+        error.HttpRedirectLocationMissing,
         error.HttpTransferEncodingUnsupported,
         error.InvalidCharacter,
         error.InvalidContentLength,
-        error.InvalidFormat,
-        error.InvalidPort,
         error.NameServerFailure,
         error.NetworkUnreachable,
         error.Overflow,
+        error.RedirectRequiresResend,
         error.TemporaryNameServerFailure,
         error.TlsAlert,
         error.TlsFailure,
         error.TlsInitializationFailed,
         error.TooManyHttpRedirects,
-        error.UnexpectedCharacter,
         error.UnexpectedConnectFailure,
         error.UnexpectedReadFailure,
         error.UnexpectedWriteFailure,
@@ -307,10 +314,10 @@ fn handleResponseError(ctx: *api.NativeCtx, err: anytype) void {
         error.UnexpectedReadFailure,
         error.EndOfStream,
         error.HttpChunkInvalid,
-        error.HttpHeadersExceededSizeLimit,
         error.DecompressionFailure,
         error.InvalidTrailers,
         error.StreamTooLong,
+        error.HttpHeadersOversize,
         => ctx.vm.pushErrorEnum("http.HttpError", @errorName(err)),
     }
 }

@@ -109,6 +109,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileSystem,
         error.InvalidHandle,
         error.InvalidUtf8,
+        error.InvalidWtf8,
         error.IsDir,
         error.NameTooLong,
         error.NoDevice,
@@ -222,7 +223,6 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileSystem,
         error.FileTooBig,
         error.InputOutput,
-        error.InvalidHandle,
         error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
@@ -235,12 +235,12 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.ReadOnlyFileSystem,
         error.SharingViolation,
         error.SymLinkLoop,
+        error.InvalidWtf8,
         error.NetworkNotFound,
         error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.BrokenPipe,
-        error.NetNameDeleted,
         error.NotOpenForReading,
         error.OperationAborted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
@@ -336,7 +336,7 @@ pub export fn SocketClose(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_peek(0).integer(),
     );
 
-    std.os.closeSocket(socket);
+    std.os.shutdown(socket, .both) catch @panic("Could not stop socket");
 
     return 0;
 }
@@ -353,7 +353,6 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.OperationAborted,
         error.NotOpenForReading,
         error.ConnectionTimedOut,
-        error.NetNameDeleted,
         // error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
@@ -421,7 +420,6 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.BrokenPipe,
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
-        error.NetNameDeleted,
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
@@ -579,92 +577,21 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
     const reuse_port: bool = ctx.vm.bz_peek(0).boolean();
 
-    var server = std.net.StreamServer.init(.{
-        .reuse_address = reuse_address,
-        .reuse_port = reuse_port,
-    });
-
-    const list = std.net.getAddressList(api.VM.allocator, address, @as(u16, @intCast(port.?))) catch |err| {
-        switch (err) {
-            error.ServiceUnavailable,
-            error.UnknownHostName,
-            error.NameServerFailure,
-            error.TemporaryNameServerFailure,
-            error.HostLacksNetworkAddresses,
-            error.AddressFamilyNotSupported,
-            error.AddressInUse,
-            error.AddressNotAvailable,
-            error.AlreadyBound,
-            error.AlreadyConnected,
-            error.ConnectionResetByPeer,
-            error.ConnectionTimedOut,
-            error.FileDescriptorNotASocket,
-            error.Incomplete,
-            error.InterfaceNotFound,
-            error.InvalidCharacter,
-            error.InvalidEnd,
-            error.InvalidIPAddressFormat,
-            error.InvalidIpv4Mapping,
-            error.InvalidProtocolOption,
-            error.NetworkSubsystemFailed,
-            error.NonCanonical,
-            error.PermissionDenied,
-            error.ProtocolFamilyNotAvailable,
-            error.ProtocolNotSupported,
-            error.SocketNotBound,
-            error.SocketTypeNotSupported,
-            error.SystemFdQuotaExceeded,
-            error.TimeoutTooBig,
-            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-            error.AccessDenied,
-            error.BadPathName,
-            error.DeviceBusy,
-            error.FileBusy,
-            error.FileLocksNotSupported,
-            error.FileNotFound,
-            error.FileSystem,
-            error.FileTooBig,
-            error.InputOutput,
-            error.InvalidHandle,
-            error.InvalidUtf8,
-            error.IsDir,
-            error.NameTooLong,
-            error.NoDevice,
-            error.NoSpaceLeft,
-            error.NotDir,
-            error.PathAlreadyExists,
-            error.PipeBusy,
-            error.ProcessFdQuotaExceeded,
-            error.ReadOnlyFileSystem,
-            error.SharingViolation,
-            error.SymLinkLoop,
-            error.SystemResources,
-            error.AntivirusInterference,
-            error.WouldBlock,
-            error.NetworkNotFound,
-            error.SocketNotConnected,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-            error.OutOfMemory => @panic("Out of memory"),
-            error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
-            error.BrokenPipe,
-            error.NetNameDeleted,
-            error.NotOpenForReading,
-            error.OperationAborted,
-            => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-        }
+    const resolved_address = std.net.Address.parseIp(
+        address,
+        @intCast(port.?),
+    ) catch {
+        ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
     };
-    defer list.deinit();
 
-    if (list.addrs.len == 0) {
-        ctx.vm.pushErrorEnum("errors.SocketError", "AddressNotResolved");
-
-        return -1;
-    }
-
-    server.listen(list.addrs[0]) catch |err| {
+    const server = resolved_address.listen(
+        .{
+            .reuse_address = reuse_address,
+            .reuse_port = reuse_port,
+        },
+    ) catch |err| {
         switch (err) {
             error.NoDevice,
             error.SymLinkLoop,
@@ -699,26 +626,19 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(server.sockfd.?));
+    ctx.vm.bz_pushInteger(@intCast(server.stream.handle));
 
     return 1;
 }
 
 pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
-    const server_socket: std.os.socket_t = @intCast(
-        ctx.vm.bz_peek(2).integer(),
-    );
-    const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
-    const reuse_port: bool = ctx.vm.bz_peek(0).boolean();
-
-    const default_options = std.net.StreamServer.Options{};
-    var server = std.net.StreamServer{
-        .sockfd = server_socket,
-        .kernel_backlog = default_options.kernel_backlog,
-        .reuse_address = reuse_address,
-        .reuse_port = reuse_port,
-        .listen_address = undefined,
-        .force_nonblocking = false,
+    var server = std.net.Server{
+        .listen_address = undefined, // FIXME: we lose this
+        .stream = std.net.Stream{
+            .handle = @intCast(
+                ctx.vm.bz_peek(0).integer(),
+            ),
+        },
     };
 
     const connection = server.accept() catch |err| {

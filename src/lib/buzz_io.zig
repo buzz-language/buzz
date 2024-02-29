@@ -38,7 +38,7 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileBusy,
         error.FileLocksNotSupported,
         error.FileTooBig,
-        error.InvalidHandle,
+        error.InvalidWtf8,
         error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
@@ -125,7 +125,6 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
-        error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -176,7 +175,6 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.BrokenPipe,
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
-        error.NetNameDeleted,
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
@@ -242,7 +240,6 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
-        error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),

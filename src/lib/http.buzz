@@ -7,7 +7,7 @@ import "errors";
 export enum HttpError {
     CertificateBundleLoadFailure,
     CompressionInitializationFailed,
-    CompressionNotSupported,
+    CompressionUnsupported,
     ConnectionRefused,
     ConnectionResetByPeer,
     ConnectionTimedOut,
@@ -17,9 +17,10 @@ export enum HttpError {
     HttpChunkInvalid,
     HttpConnectionHeaderUnsupported,
     HttpHeaderContinuationsUnsupported,
-    HttpHeadersExceededSizeLimit,
     HttpHeadersInvalid,
-    HttpRedirectMissingLocation,
+    HttpHeadersOversize
+    HttpRedirectLocationInvalid,
+    HttpRedirectLocationMissing,
     HttpTransferEncodingUnsupported,
     InvalidCharacter,
     InvalidContentLength,

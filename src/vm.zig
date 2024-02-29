@@ -770,7 +770,7 @@ pub const VM = struct {
         );
     }
 
-    inline fn panic(e: anytype) void {
+    fn vmPanic(e: anytype) void {
         std.debug.print("{}\n", .{e});
         if (!is_wasm) {
             std.os.exit(1);
@@ -881,7 +881,7 @@ pub const VM = struct {
 
     fn OP_CLONE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         self.clone() catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -918,7 +918,7 @@ pub const VM = struct {
 
     fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         self.globals.ensureTotalCapacity(arg + 1) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         self.globals.expandToCapacity();
@@ -1061,13 +1061,13 @@ pub const VM = struct {
 
     fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const str = self.pop().toStringAlloc(self.gc.allocator) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         self.push(
             Value.fromObj(
                 (self.gc.copyString(str.items) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toObj(),
             ),
@@ -1116,11 +1116,11 @@ pub const VM = struct {
         var closure: *ObjClosure = self.gc.allocateObject(
             ObjClosure,
             ObjClosure.init(self.gc.allocator, self, function) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             },
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1133,15 +1133,15 @@ pub const VM = struct {
 
             if (is_local) {
                 closure.upvalues.append(self.captureUpvalue(&(current_frame.slots[index])) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             } else {
                 closure.upvalues.append(current_frame.closure.upvalues.items[index]) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
@@ -1188,7 +1188,7 @@ pub const VM = struct {
         const stack_slice = stack_ptr[0..stack_len];
 
         var fiber = self.gc.allocator.create(Fiber) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         fiber.* = Fiber.init(
@@ -1201,7 +1201,7 @@ pub const VM = struct {
             catch_count > 0,
             null,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1214,7 +1214,7 @@ pub const VM = struct {
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
         }) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1245,7 +1245,7 @@ pub const VM = struct {
         const stack_slice = stack_ptr[0..stack_len];
 
         var fiber = self.gc.allocator.create(Fiber) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         fiber.* = Fiber.init(
@@ -1258,7 +1258,7 @@ pub const VM = struct {
             catch_count > 0,
             method,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1271,7 +1271,7 @@ pub const VM = struct {
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
         }) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1294,7 +1294,7 @@ pub const VM = struct {
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.@"resume"(self) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1315,7 +1315,7 @@ pub const VM = struct {
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.resolve_(self) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1363,7 +1363,7 @@ pub const VM = struct {
             catch_value,
             false,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1394,7 +1394,7 @@ pub const VM = struct {
             catch_value,
             false,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1427,7 +1427,7 @@ pub const VM = struct {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
             self.callValue(field, arg_count, catch_value, false) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -1439,7 +1439,7 @@ pub const VM = struct {
                 false,
                 false,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -1473,7 +1473,7 @@ pub const VM = struct {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
             self.tailCall(field, arg_count, catch_value, false) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -1485,7 +1485,7 @@ pub const VM = struct {
                 false,
                 true,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -1512,14 +1512,14 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjString.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1545,14 +1545,14 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjPattern.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1578,13 +1578,13 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjFiber.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1611,14 +1611,14 @@ pub const VM = struct {
 
         const list = self.peek(arg_count).obj().access(ObjList, .List, self.gc).?;
         const member = (list.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
 
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1645,14 +1645,14 @@ pub const VM = struct {
 
         const map = self.peek(arg_count).obj().access(ObjMap, .Map, self.gc).?;
         const member = (map.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
 
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1686,7 +1686,7 @@ pub const VM = struct {
             // We're in a fiber
             if (self.current_fiber.parent_fiber != null) {
                 self.current_fiber.finish(self, result) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
 
@@ -1770,18 +1770,18 @@ pub const VM = struct {
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
                 self.globals.append(global) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
         } else {
             var vm = self.gc.allocator.create(VM) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
             // FIXME: give reference to JIT?
             vm.* = VM.init(self.gc, self.import_registry, self.flavor) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
             // TODO: how to free this since we copy things to new vm, also fails anyway
@@ -1791,7 +1791,7 @@ pub const VM = struct {
             // }
 
             vm.interpret(self.current_ast, closure.function, null) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
 
@@ -1805,18 +1805,18 @@ pub const VM = struct {
                 while (i > 0) : (i -= 1) {
                     const global = vm.peek(@intCast(i));
                     self.globals.append(global) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     };
                     import_cache.append(global) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     };
                 }
             }
 
             self.import_registry.put(fullpath, import_cache) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -1883,7 +1883,7 @@ pub const VM = struct {
             null,
             null,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1906,7 +1906,7 @@ pub const VM = struct {
             ObjList,
             ObjList.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1941,7 +1941,7 @@ pub const VM = struct {
                 ) catch @panic("Could not instanciate list"),
             ),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1978,7 +1978,7 @@ pub const VM = struct {
         const list_value = self.peek(0);
 
         list.rawAppend(self.gc, list_value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2003,7 +2003,7 @@ pub const VM = struct {
             self.gc.allocator,
             self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?,
         )) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2029,7 +2029,7 @@ pub const VM = struct {
         const value = self.peek(0);
 
         map.set(self.gc, key, value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2058,13 +2058,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2075,13 +2075,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
 
@@ -2148,13 +2148,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound string access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2163,7 +2163,7 @@ pub const VM = struct {
 
         if (str_index < str.string.len) {
             const str_item = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue();
 
@@ -2177,13 +2177,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound str access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2211,13 +2211,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2226,7 +2226,7 @@ pub const VM = struct {
 
         if (list_index < list.items.items.len) {
             list.set(self.gc, list_index, value) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
 
@@ -2241,13 +2241,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2272,7 +2272,7 @@ pub const VM = struct {
         const value = self.peek(0);
 
         map.set(self.gc, index, value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2310,7 +2310,7 @@ pub const VM = struct {
                 .case = @intCast(arg),
             },
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2361,7 +2361,7 @@ pub const VM = struct {
                     .enum_ref = enum_,
                     .case = @intCast(index),
                 }) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
 
@@ -2399,7 +2399,7 @@ pub const VM = struct {
                 self.readConstant(@as(u24, @intCast(self.readInstruction()))).obj().access(ObjTypeDef, .Type, self.gc).?,
             ),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2471,11 +2471,11 @@ pub const VM = struct {
                     self.gc,
                     kv.key_ptr.*,
                     self.cloneValue(kv.value_ptr.*) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     },
                 ) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
@@ -2506,7 +2506,7 @@ pub const VM = struct {
             name,
             method.obj().access(ObjClosure, .Closure, self.gc).?,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2533,13 +2533,13 @@ pub const VM = struct {
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
             object.setField(self.gc, name, property) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
             assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
             object.setStaticField(self.gc, name, property) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2619,7 +2619,7 @@ pub const VM = struct {
         } else if (obj_instance.object) |object| {
             if (object.methods.get(name)) |method| {
                 self.bindMethod(method, null) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             } else {
@@ -2646,11 +2646,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (list.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2675,11 +2675,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (map.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2704,11 +2704,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjString.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2733,11 +2733,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjPattern.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2762,11 +2762,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjFiber.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2791,7 +2791,7 @@ pub const VM = struct {
 
         // Set new value
         object.setStaticField(self.gc, name, self.peek(0)) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2998,7 +2998,7 @@ pub const VM = struct {
         const left: *ObjString = self.pop().obj().access(ObjString, .String, self.gc).?;
 
         self.push(Value.fromObj((left.concat(self, right) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).toObj()));
 
@@ -3022,11 +3022,11 @@ pub const VM = struct {
 
         var new_list = std.ArrayList(Value).init(self.gc.allocator);
         new_list.appendSlice(left.items.items) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         new_list.appendSlice(right.items.items) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -3036,7 +3036,7 @@ pub const VM = struct {
                 .methods = left.methods,
                 .items = new_list,
             }) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue(),
         );
@@ -3060,13 +3060,13 @@ pub const VM = struct {
         const left: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
 
         var new_map = left.map.clone() catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         var it = right.map.iterator();
         while (it.next()) |entry| {
             new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -3077,7 +3077,7 @@ pub const VM = struct {
                 .methods = left.methods,
                 .map = new_map,
             }) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue(),
         );
@@ -3520,7 +3520,7 @@ pub const VM = struct {
         const str: *ObjString = self.peek(0).obj().access(ObjString, .String, self.gc).?;
 
         key_slot.* = if (str.next(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |new_index|
             Value.fromInteger(new_index)
@@ -3530,7 +3530,7 @@ pub const VM = struct {
         // Set new value
         if (key_slot.*.isInteger()) {
             value_slot.* = (self.gc.copyString(&([_]u8{str.string[@as(usize, @intCast(key_slot.integer()))]})) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue();
         }
@@ -3559,7 +3559,7 @@ pub const VM = struct {
             self,
             if (key_slot.*.isNull()) null else key_slot.integer(),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |new_index|
             Value.fromInteger(new_index)
@@ -3595,7 +3595,7 @@ pub const VM = struct {
 
         // Get next enum case
         const next_case = enum_.rawNext(self, enum_case) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         value_slot.* = (if (next_case) |new_case| Value.fromObj(new_case.toObj()) else Value.Null);
@@ -3649,7 +3649,7 @@ pub const VM = struct {
             value_slot.* = Value.Null;
         } else {
             fiber.fiber.@"resume"(self) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -3674,13 +3674,13 @@ pub const VM = struct {
             self.throw(
                 Error.UnwrappedNull,
                 (self.gc.copyString("Force unwrapped optional is null") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }

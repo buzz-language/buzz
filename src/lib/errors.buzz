@@ -12,6 +12,7 @@ export enum FileSystemError {
     InputOutput,
     InvalidHandle,
     InvalidUtf8,
+    InvalidWtf8,
     IsDir,
     LinkQuotaExceeded,
     NameTooLong,
@@ -32,8 +33,8 @@ export enum FileSystemError {
     SymLinkLoop,
     SystemFdQuotaExceeded,
     SystemResources,
-    WouldBlock,
     UnrecognizedVolume,
+    WouldBlock,
 }
 
 export enum ExecError {

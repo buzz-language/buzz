@@ -3,6 +3,7 @@ const api = @import("buzz_api.zig");
 
 fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
         error.DiskQuota,
@@ -92,6 +93,7 @@ pub export fn delete(ctx: *api.NativeCtx) c_int {
 
 fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.AntivirusInterference,
         error.BadPathName,
@@ -121,6 +123,7 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.UnrecognizedVolume,
         error.AntivirusInterference,
@@ -129,8 +132,6 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileSystem,
         error.FileTooBig,
         error.InputOutput,
-        error.InvalidHandle,
-        error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
         error.NoDevice,
@@ -209,6 +210,7 @@ pub export fn move(ctx: *api.NativeCtx) c_int {
 
 fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.AntivirusInterference,
         error.BadPathName,
@@ -217,7 +219,6 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileLocksNotSupported,
         error.FileNotFound,
         error.FileTooBig,
-        error.InvalidHandle,
         error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
@@ -241,10 +242,10 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
         error.DeviceBusy,
-        error.InvalidHandle,
         error.InvalidUtf8,
         error.NameTooLong,
         error.NoDevice,
@@ -265,6 +266,7 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
         error.SystemResources,
+        error.InvalidUtf8,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
