@@ -1,0 +1,10 @@
+| Code after return statement will never be reached
+import "std";
+
+test "Early return" {
+    print("I sure hope i'm not interrupted...");
+
+    return;
+
+    print("Guess I was");
+}

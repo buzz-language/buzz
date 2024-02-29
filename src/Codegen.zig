@@ -829,8 +829,27 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usi
 }
 
 fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)) Error!?*obj.ObjFunction {
+    const tags = self.ast.nodes.items(.tag);
+
+    var seen_return = false;
     for (self.ast.nodes.items(.components)[node].Block) |statement| {
+        if (seen_return) {
+            self.reporter.warnFmt(
+                .code_after_return,
+                self.ast.tokens.get(
+                    self.ast.nodes.items(.location)[statement],
+                ),
+                "Code after return statement will never be reached",
+                .{},
+            );
+
+            // No need to generate following statements
+            break;
+        }
+
         _ = try self.generateNode(statement, breaks);
+
+        seen_return = !seen_return and tags[statement] == .Return;
     }
 
     try self.patchOptJumps(node);

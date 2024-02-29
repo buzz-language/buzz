@@ -3420,7 +3420,7 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
 }
 
 fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = self.ast.nodes.items(.location)[callee];
     const callee_type_def = self.ast.nodes.items(.type_def)[callee];
 
     const arguments = try self.argumentList();
