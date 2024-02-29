@@ -18,7 +18,7 @@ export enum HttpError {
     HttpConnectionHeaderUnsupported,
     HttpHeaderContinuationsUnsupported,
     HttpHeadersInvalid,
-    HttpHeadersOversize
+    HttpHeadersOversize,
     HttpRedirectLocationInvalid,
     HttpRedirectLocationMissing,
     HttpTransferEncodingUnsupported,
@@ -72,6 +72,8 @@ extern fun HttpClientSend(ud client, Method method, str uri, {str: str} headers)
 extern fun HttpRequestWait(ud request) > void !> HttpError;
 || @private
 extern fun HttpRequestRead(ud request) > Response !> HttpError;
+|| @private
+extern fun HttpRequestDeinit(ud request) > void;
 
 const {int: str} reasons = {
     100: "Continue",
@@ -155,6 +157,7 @@ object Connection {
 export object Client {
     || @private
     ud client,
+    bool collected = false,
 
     static fun init() > Client {
         return Client{
@@ -184,7 +187,9 @@ export object Client {
     }
 
     fun collect() > void {
-        HttpClientDeinit(this.client);
+        if (!this.collected) {
+            HttpClientDeinit(this.client);
+        }
     }
 }
 
@@ -195,6 +200,7 @@ export object Request {
     {str: str} headers = {<str: str>},
     str uri = "/",
     str? body = null,
+    bool collected = false,
 
     fun wait() > Response !> HttpError, InvalidArgumentError, HttpParseError {
         if (this.response != null) {
@@ -227,6 +233,16 @@ export object Request {
         } catch {}
 
         return "";
+    }
+
+    fun collect() > void {
+        if (this.collected) {
+            return;
+        }
+
+        if (this.request -> request) {
+            HttpRequestDeinit(request);
+        }
     }
 }
 

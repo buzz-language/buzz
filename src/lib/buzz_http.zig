@@ -25,6 +25,7 @@ pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     client.deinit();
+    api.VM.allocator.destroy(client);
 
     return 0;
 }
@@ -66,7 +67,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     }
 
     const request = api.VM.allocator.create(http.Client.Request) catch @panic("Out of memory");
-    const server_header_buffer = api.VM.allocator.alloc(u8, 1024) catch @panic("Out of memory"); // FIXME: what do i do we this??
+    const server_header_buffer = api.VM.allocator.alloc(u8, 16 * 1024) catch @panic("Out of memory");
 
     request.* = client.open(
         method,
@@ -103,7 +104,14 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
 pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
 
     request.wait() catch |err| {
         handleWaitError(ctx, err);
@@ -116,10 +124,36 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
+pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
+    const userdata_value = ctx.vm.bz_peek(0);
+    const userdata = userdata_value.bz_valueToUserData();
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
+
+    api.VM.allocator.free(request.response.parser.header_bytes_buffer);
+    request.deinit();
+    api.VM.allocator.destroy(request);
+
+    return 0;
+}
+
 pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
 
     var body_raw = std.ArrayList(u8).init(api.VM.allocator);
     defer body_raw.deinit();
