@@ -1,10 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const _value = @import("value.zig");
-const _vm = @import("vm.zig");
-const VM = _vm.VM;
-const Value = _value.Value;
-const Token = @import("token.zig").Token;
+const Ast = @import("Ast.zig");
+const Value = @import("value.zig").Value;
+const VM = @import("vm.zig").VM;
+const Token = @import("Token.zig");
 
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
@@ -66,7 +65,9 @@ pub const OpCode = enum(u8) {
     OP_FIBER_FOREACH,
 
     OP_CALL,
+    OP_TAIL_CALL,
     OP_INSTANCE_INVOKE,
+    OP_INSTANCE_TAIL_INVOKE,
     OP_STRING_INVOKE,
     OP_PATTERN_INVOKE,
     OP_FIBER_INVOKE,
@@ -125,42 +126,42 @@ pub const OpCode = enum(u8) {
 };
 
 /// A chunk of code to execute
-pub const Chunk = struct {
-    const Self = @This();
+const Self = @This();
 
-    pub const max_constants: u24 = 16777215;
+pub const max_constants: u24 = 16777215;
 
-    /// List of opcodes to execute
-    code: std.ArrayList(u32),
-    /// List of lines
-    lines: std.ArrayList(Token),
-    /// List of constants defined in this chunk
-    constants: std.ArrayList(Value),
+ast: Ast,
+/// List of opcodes to execute
+code: std.ArrayList(u32),
+/// List of lines
+lines: std.ArrayList(Ast.TokenIndex),
+/// List of constants defined in this chunk
+constants: std.ArrayList(Value),
 
-    pub fn init(allocator: Allocator) Self {
-        return Self{
-            .code = std.ArrayList(u32).init(allocator),
-            .constants = std.ArrayList(Value).init(allocator),
-            .lines = std.ArrayList(Token).init(allocator),
-        };
-    }
+pub fn init(allocator: Allocator, ast: Ast) Self {
+    return Self{
+        .ast = ast,
+        .code = std.ArrayList(u32).init(allocator),
+        .constants = std.ArrayList(Value).init(allocator),
+        .lines = std.ArrayList(Ast.TokenIndex).init(allocator),
+    };
+}
 
-    pub fn deinit(self: *Self) void {
-        self.code.deinit();
-        self.constants.deinit();
-        self.lines.deinit();
-    }
+pub fn deinit(self: *Self) void {
+    self.code.deinit();
+    self.constants.deinit();
+    self.lines.deinit();
+}
 
-    pub fn write(self: *Self, code: u32, where: Token) !void {
-        try self.code.append(code);
-        try self.lines.append(where);
-    }
+pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
+    try self.code.append(code);
+    try self.lines.append(where);
+}
 
-    pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
-        if (vm) |uvm| uvm.push(value);
-        try self.constants.append(value);
-        if (vm) |uvm| _ = uvm.pop();
+pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
+    if (vm) |uvm| uvm.push(value);
+    try self.constants.append(value);
+    if (vm) |uvm| _ = uvm.pop();
 
-        return @as(u24, @intCast(self.constants.items.len - 1));
-    }
-};
+    return @as(u24, @intCast(self.constants.items.len - 1));
+}

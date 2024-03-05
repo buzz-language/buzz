@@ -87,7 +87,7 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, int nchars) > void !> OutOf
     Buffer buffer = Buffer.init(bufferSize);
     int bufferIndex = 0;
     while (nchars > 0) {
-        int chunkSize = toInt(min(a: toFloat(lineLength), b: toFloat(nchars)));
+        int chunkSize = toInt(minFloat(a: toFloat(lineLength), b: toFloat(nchars)));
 
         if (bufferIndex == bufferSize) {
             print(buffer.toString().sub(0, len: bufferIndex));

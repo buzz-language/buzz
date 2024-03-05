@@ -37,7 +37,7 @@ test "list of any" {
 }
 
 test "map of any" {
-    {str, any} map = {
+    {str: any} map = {
         "hello": true,
         "world": "one",
     };
@@ -46,7 +46,7 @@ test "map of any" {
         print("{key}: {element}");
     }
 
-    {any, str} map2 = {
+    {any: str} map2 = {
         "hello": "true",
         true: "one",
     };
@@ -55,7 +55,7 @@ test "map of any" {
         print("{key}: {element}");
     }
 
-    {any, any} map3 = {
+    {any: any} map3 = {
         "hello": 1,
         true: "one",
     };

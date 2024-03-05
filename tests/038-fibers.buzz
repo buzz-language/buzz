@@ -21,7 +21,7 @@ test "fiber" {
 }
 
 | returns str, yields int
-fun count(int n) > str > int? {
+fun count(int n) > str *> int? {
     assert(currentFiber() is fib<str, int?>, message: "Can get current fiber");
     assert(!currentFiber().isMain(), message: "Can know if fiber is main one");
 
@@ -68,7 +68,7 @@ test "Closed upvalue in fiber" {
 }
 
 test "Wrapping call inside complex expressions" {
-    {str, Function() > str} map = {
+    {str: Function() > str} map = {
         "hello": fun () > str -> "hello world",
     };
 

@@ -40,7 +40,7 @@ test "Enums" {
 
     NaturalEnum? fromValue = NaturalEnum(0);
     assert(fromValue != null, message: "Could get enum instance from value");
-    assert(fromValue!.value == 0, message: "Could get correct enum instance from value");
+    assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
 }
 
 test "Enum case as default value" {

@@ -1,6 +1,55 @@
 # Unreleased
 
 ## Added
+- REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
+- WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
+- Function argument names and object property names can be omitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
+```buzz
+object Person {
+    str name,
+    str lastName,
+}
+
+const name = "Joe";
+const lastName = "Doe";
+```
+before:
+```buzz
+const person = Person {
+    name: name,
+    lastName: lastName,
+};
+```
+after:
+```buzz
+const person = Person {
+    name,
+    lastName,
+};
+```
+- Sandboxing build options `memory_limit` and `cycle_limit` (https://github.com/buzz-language/buzz/issues/182)
+- Block expression (https://github.com/buzz-language/buzz/issues/105):
+```buzz
+var value = from {
+    | ... 
+
+    out result;
+}
+```
+- `recursive_call_limit` build option limit recursive calls (default to 200)
+- Compiler will warn about code after a `return` statement
+
+## Changed
+- Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
+- `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
+- Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT compiler should kick in pretty quickly in those use cases.
+- Empty list and map without a specified type resolve to `[any]`/`{any: any}` unless the variable declaration context provides the type (https://github.com/buzz-language/buzz/issues/86)
+- Function yield type is now prefixed with `*>`: `fun willYield() > T > Y?` becomes `fun willYield() > T *> Y?` (https://github.com/buzz-language/buzz/issues/257)
+
+## Fixed
+
+# 0.3.0 (10-14-2023)
+## Added
 
 - FFI (https://github.com/buzz-language/buzz/issues/109)
     - Uses MIR to generate wrappers around imported functions and to generate getters and setters to struct fields
@@ -33,6 +82,9 @@
 - Type can be inferred when declaring a variable/constant with the `var` or `const` keyword: `var something = "hello"` (https://github.com/buzz-language/buzz/issues/194)
 - Objects can have generic types  (https://github.com/buzz-language/buzz/issues/82)
 - Draft of the testing std lib (https://github.com/buzz-language/buzz/issues/129)
+- `File.isTTY`
+- `fs.exists`
+- Functions annotated with a comment of the form `|| @hot` will always be JIT compiled
 
 ## Changed
 
@@ -52,6 +104,12 @@
 - Runtime error stack trace was wrong
 - Local name checking failed in some instances
 - Compiler would not force you to give variables an initial value
+- Compiler would crash after raising some errors
+- Float operation were sometimes wrong
+- Catch clause were sometimes not reached in a JIT compiled function
+- Stacktraces of errors reported from within a fiber were wrong
+- `catch (any error)` was not considered as catching all possible errors by the compiler
+- Full GC sweep were never triggered
 
 # 0.2.0 (07-26-2023)
 

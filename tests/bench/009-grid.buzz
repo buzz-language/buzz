@@ -1,10 +1,10 @@
 import "std";
 
 fun main([str] args) > void {
-    const int width = (if (args.len() > 0) parseInt(args[0]) else null) ?? 80;
-    const int height = (if (args.len() > 1) parseInt(args[1]) else null) ?? 60;
+    const int width = (if (args.len() > 0) parseInt(args[0]) else 80) ?? 80;
+    const int height = (if (args.len() > 1) parseInt(args[1]) else 60) ?? 60;
 
-    [bool] cells = [<bool>];
+    var cells = [<bool>];
 
     for (int i = 0; i < width * height; i = i + 1) {
         cells.append(random(max: 5) == 1);

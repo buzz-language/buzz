@@ -1,6 +1,6 @@
 import "std";
 
-test "break properly jumps and closes scope" {
+test "continue properly jumps and closes scope" {
     [int] list = [1, 2, 3, 4, 5];
     foreach (int value in list) {
         str _ = "hello there!";

@@ -10,8 +10,8 @@ import "buffer";
 
 object LspState {
     | TODO: Maybe bad to keep this in memory
-    {str, str} sources,
-    {str, Boxed} ast,
+    {str: str} sources,
+    {str: Boxed} ast,
 }
 
 enum(int) SymbolKind {
@@ -213,8 +213,8 @@ fun findNodeUnder([Boxed] trail, Boxed root, str uri, int line, int column) > vo
     }
     
     if (node == "ObjectDeclaration") {
-        const {str, Boxed} methods = root.q(["methods"]).mapValue();
-        const {str, Boxed} members = root.q(["members"]).mapValue();
+        const {str: Boxed} methods = root.q(["methods"]).mapValue();
+        const {str: Boxed} members = root.q(["members"]).mapValue();
 
         foreach (str name, Boxed method in methods) {
             if (withinNode(method, uri: uri, line: line, column: column)) {
@@ -401,7 +401,7 @@ fun findNodeUnder([Boxed] trail, Boxed root, str uri, int line, int column) > vo
     }
     
     if (node == "Map") {
-        const {str, Boxed} map = root.q(["items"]).mapValue();
+        const {str: Boxed} map = root.q(["items"]).mapValue();
 
         foreach (str key, Boxed value in map) {
             if (withinNode(value, uri: uri, line: line, column: column)) {
@@ -985,7 +985,7 @@ fun getSymbolsAt(Boxed node, [Boxed] declarations) > void !> CircularReference, 
     }
 }
 
-fun getSymbols(LspState state, {str, Boxed} request) > Boxed !> CircularReference, NotSerializable {
+fun getSymbols(LspState state, {str: Boxed} request) > Boxed !> CircularReference, NotSerializable {
     const Boxed ast = getAst(state, filename: request["params"]?.q(["textDocument", "uri"]).stringValue() ?? "") catch Boxed{};
 
     [Boxed] declarations = [<Boxed>];
@@ -1018,10 +1018,10 @@ fun locationToRange(Boxed location) > Boxed !> CircularReference, NotSerializabl
     );
 }
 
-fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError, CircularReference, NotSerializable {
-    const {str, Boxed} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str, Boxed>};
+fun gotoDefinition(LspState state, {str: Boxed} request) > Boxed !> LSPError, CircularReference, NotSerializable {
+    const {str: Boxed} textDocument = request["params"]?.q(["textDocument"]).mapValue() ?? {<str: Boxed>};
     str uri = textDocument["uri"]?.stringValue() ?? "";
-    const {str, Boxed} position = request["params"]?.q(["position"]).mapValue() ?? {<str, Boxed>};
+    const {str: Boxed} position = request["params"]?.q(["position"]).mapValue() ?? {<str: Boxed>};
     const int line = position["line"]?.integerValue() ?? 0;
     const int column = position["character"]?.integerValue() ?? 0;
 
@@ -1054,17 +1054,17 @@ fun gotoDefinition(LspState state, {str, Boxed} request) > Boxed !> LSPError, Ci
     return Boxed{};
 }
 
-fun stop(LspState state, {str, Boxed} request) > Boxed {
+fun stop(LspState state, {str: Boxed} request) > Boxed {
     os.exit(0);
 
     return Boxed{};
 }
 
 | Possible commands: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#languageFeatures
-const {str, Function(LspState state, {str, Boxed} request) > Boxed} handlers = {
+const {str: Function(LspState state, {str: Boxed} request) > Boxed} handlers = {
     "exit": stop,
     "shutdown": stop,
-    "initialize": fun (LspState state, {str, Boxed} request)
+    "initialize": fun (LspState state, {str: Boxed} request)
         -> Boxed.init(
             {
                 <str, any>,
@@ -1089,8 +1089,8 @@ const {str, Function(LspState state, {str, Boxed} request) > Boxed} handlers = {
 
 fun main([str] args) > void !> any {
     LspState state = LspState{
-        sources = {<str, str>},
-        ast = {<str, Boxed>},
+        sources = {<str: str>},
+        ast = {<str: Boxed>},
     };
 
     while (true) {
@@ -1108,7 +1108,7 @@ fun main([str] args) > void !> any {
             throw "Could not read request";
         }
 
-        {str, Boxed} request = (jsonDecode(requestRaw!) catch Boxed{}).mapValue();
+        {str: Boxed} request = (jsonDecode(requestRaw!) catch Boxed{}).mapValue();
         const str? method = request["method"]?.string();
 
         stderr.write("Method is: `{method ?? "none"}`\n") catch void;
@@ -1128,11 +1128,11 @@ fun main([str] args) > void !> any {
 
 test "documentSymbol" {
     LspState state = LspState{
-        sources = {<str, str>},
-        ast = {<str, Boxed>},
+        sources = {<str: str>},
+        ast = {<str: Boxed>},
     };
 
-    {str, Boxed} request = jsonDecode(
+    {str: Boxed} request = jsonDecode(
         `\{"jsonrpc":"2.0","id":163,"method":"textDocument/definition","params":\{"textDocument":\{"uri":"file:///Users/giann/git/buzz/src/lib/serialize.buzz"},"position":\{"line":300,"character":22}}}`
     ).mapValue();
 

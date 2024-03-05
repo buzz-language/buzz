@@ -2,14 +2,14 @@ import "std";
 
 object Hey {
     [int] ages,
-    {int, str} names,
+    {int: str} names,
 }
 
 test "List and Map as Object properties" {
     Hey hey = Hey{
         ages = [<int>, 1, 2, 3],
         names = {
-            <int, str>,
+            <int: str>,
             1: "hello"
         },
     };

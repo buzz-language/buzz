@@ -1,5 +1,6 @@
 export enum FileSystemError {
     AccessDenied,
+    AntivirusInterference,
     BadPathName,
     DeviceBusy,
     DiskQuota,
@@ -11,6 +12,7 @@ export enum FileSystemError {
     InputOutput,
     InvalidHandle,
     InvalidUtf8,
+    InvalidWtf8,
     IsDir,
     LinkQuotaExceeded,
     NameTooLong,
@@ -27,9 +29,11 @@ export enum FileSystemError {
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
     SharingViolation,
+    SocketNotConnected,
     SymLinkLoop,
     SystemFdQuotaExceeded,
     SystemResources,
+    UnrecognizedVolume,
     WouldBlock,
 }
 

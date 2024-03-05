@@ -1,25 +1,25 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-export fn getStdIn(ctx: *api.NativeCtx) c_int {
+pub export fn getStdIn(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdIn().handle));
 
     return 1;
 }
 
-export fn getStdOut(ctx: *api.NativeCtx) c_int {
+pub export fn getStdOut(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdOut().handle));
 
     return 1;
 }
 
-export fn getStdErr(ctx: *api.NativeCtx) c_int {
+pub export fn getStdErr(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_pushInteger(@intCast(std.io.getStdErr().handle));
 
     return 1;
 }
 
-export fn FileIsTTY(ctx: api.NativeCtx) c_int {
+pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
@@ -32,12 +32,13 @@ export fn FileIsTTY(ctx: api.NativeCtx) c_int {
 fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
         error.FileBusy,
         error.FileLocksNotSupported,
         error.FileTooBig,
-        error.InvalidHandle,
+        error.InvalidWtf8,
         error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
@@ -60,13 +61,13 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileOpen(ctx: *api.NativeCtx) c_int {
+pub export fn FileOpen(ctx: *api.NativeCtx) c_int {
     const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
 
-    var file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
+    const file: std.fs.File = if (std.fs.path.isAbsolute(filename_slice))
         switch (mode) {
             0 => std.fs.openFileAbsolute(filename_slice, .{ .mode = .read_only }) catch |err| {
                 handleFileOpenError(ctx, err);
@@ -97,7 +98,7 @@ export fn FileOpen(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn FileClose(ctx: *api.NativeCtx) c_int {
+pub export fn FileClose(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
@@ -116,6 +117,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.IsDir,
         error.SystemResources,
         error.WouldBlock,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.OperationAborted,
@@ -123,7 +125,6 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
-        error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -131,16 +132,20 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn FileReadAll(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 
     const content: []u8 = file.readToEndAllocOptions(
         api.VM.allocator,
-        std.math.maxInt(u64),
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
         null,
         @alignOf(u8),
         null,
@@ -164,30 +169,40 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.IsDir,
         error.SystemResources,
         error.WouldBlock,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.BrokenPipe,
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
-        error.NetNameDeleted,
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
+        error.OutOfMemory => @panic("Out of memory"),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
-export fn FileReadLine(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
-        ctx.vm.bz_peek(0).integer(),
+        ctx.vm.bz_peek(1).integer(),
     );
+    const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = reader.readUntilDelimiterOrEofAlloc(api.VM.allocator, '\n', 16 * 8 * 64) catch |err| {
+    const buffer = reader.readUntilDelimiterOrEofAlloc(
+        api.VM.allocator,
+        '\n',
+        if (max_size.isNull())
+            std.math.maxInt(usize)
+        else
+            @intCast(max_size.integer()),
+    ) catch |err| {
         handleFileReadLineError(ctx, err);
 
         return -1;
@@ -217,6 +232,7 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.IsDir,
         error.SystemResources,
         error.WouldBlock,
+        error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.OperationAborted,
@@ -224,14 +240,13 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
-        error.NetNameDeleted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
-export fn FileRead(ctx: *api.NativeCtx) c_int {
+pub export fn FileRead(ctx: *api.NativeCtx) c_int {
     const n = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
@@ -271,7 +286,7 @@ export fn FileRead(ctx: *api.NativeCtx) c_int {
 }
 
 // extern fun File_write(int fd, [int] bytes) > void;
-export fn FileWrite(ctx: *api.NativeCtx) c_int {
+pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
     const handle: std.fs.File.Handle = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
@@ -310,7 +325,7 @@ export fn FileWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-export fn runFile(ctx: *api.NativeCtx) c_int {
+pub export fn runFile(ctx: *api.NativeCtx) c_int {
     // Read file
     var len: usize = 0;
     const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len);
@@ -346,19 +361,14 @@ export fn runFile(ctx: *api.NativeCtx) c_int {
     defer vm.bz_deinitVM();
 
     // Compile
-    var function = vm.bz_compile(
+
+    // Run
+    if (!vm.bz_run(
         if (source.len > 0) @as([*]const u8, @ptrCast(source)) else null,
         source.len,
         if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,
         filename.len,
-    ) orelse {
-        ctx.vm.pushError("errors.CompileError", null);
-
-        return -1;
-    };
-
-    // Run
-    if (!vm.bz_interpret(function)) {
+    )) {
         ctx.vm.pushError("errors.InterpretError", null);
 
         return -1;

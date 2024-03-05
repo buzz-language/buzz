@@ -62,6 +62,7 @@ zdef("tests/utils/libforeign", `
     const Data = extern struct {
         id: i32,
         msg: [*:0]const u8,
+        value: f32,
     };
 
     fn get_data_msg(data: *Data) [*:0]const u8;
@@ -72,6 +73,7 @@ test "struct" {
     Data data = Data{
         msg = cstr("bye world"),
         id = 123,
+        value = 42.0,
     };
 
     assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
@@ -92,6 +94,7 @@ test "write/read struct in buffer" {
     Data data = Data{
         msg = cstr("bye world"),
         id = 123,
+        value = 42.0,
     };
 
     Buffer buffer = Buffer.init();
@@ -130,6 +133,7 @@ test "union" {
         data = Data{
             id = 123,
             msg = cstr("hello world"),
+            value = 42.0,
         }
     };
 

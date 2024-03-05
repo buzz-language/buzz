@@ -11,9 +11,9 @@ object World {
     [bool] cells,
 
     static fun init(int width, int height) > World {
-        World world = World{
-            width = width,
-            height = height,
+        var world = World{
+            width ,
+            height,
             cells = [<bool>],
         };
 
@@ -38,7 +38,7 @@ object World {
     }
 
     fun step() > void {
-        [bool] cells = [<bool>];
+        var cells = [<bool>];
         for (int y = 0; y < this.height; y = y + 1) {
             for (int x = 0; x < this.width; x = x + 1) {
                 const int coordinate = y * this.width + x;
@@ -66,8 +66,8 @@ object World {
     }
 
     fun draw(Renderer renderer) > void !> SDLError {
-        const int cellWidth = 800 / this.width;
-        const int cellHeight = 600 / this.height;
+        const cellWidth = 800 / this.width;
+        const cellHeight = 600 / this.height;
 
         for (int y = 0; y < this.height; y = y + 1) {
             for (int x = 0; x < this.width; x = x + 1) {
@@ -109,7 +109,7 @@ object World {
 }
 
 fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDLError {
-    float dt = sdl.ticks();
+    var dt = sdl.ticks();
     while (true) {
         if (sdl.pollEvent() -> event) {
             if (event.@"type" == EventType.Quit.value) {
@@ -135,21 +135,21 @@ fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDL
 }
 
 fun main([str] args) > void !> SDLError {
-    SDL sdl = SDL.init([Subsystem.Video]);
+    var sdl = SDL.init([Subsystem.Video]);
 
-    Window window = Window.init(
+    var window = Window.init(
         "buzz example: Game of Life",
         width: 800,
         height: 600,
         flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
     );
 
-    Renderer renderer = window.createRenderer(
+    var renderer = window.createRenderer(
         index: -1,
         flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
     );
 
-    Texture texture = renderer.createTexture(
+    var texture = renderer.createTexture(
         format: PixelFormat.RGBA8888,
         access: TextureAccess.Target,
         width: 800,
@@ -159,16 +159,16 @@ fun main([str] args) > void !> SDLError {
     int? width = if (args.len() > 0) parseInt(args[0]) else null;
     int? height = if (args.len() > 1) parseInt(args[1]) else null;
 
-    World world = World.init(
+    var world = World.init(
         width: width ?? 10,
         height: height ?? 10,
     );
 
     loop(
-        world: world,
-        sdl: sdl,
-        texture: texture,
-        renderer: renderer,
+        world,
+        sdl,
+        texture,
+        renderer,
     );
 
     sdl.quit();

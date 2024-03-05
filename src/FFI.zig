@@ -1,13 +1,14 @@
 const std = @import("std");
 const Ast = std.zig.Ast;
 
+const BuzzAst = @import("Ast.zig");
 const o = @import("obj.zig");
-const t = @import("token.zig");
+const Token = @import("Token.zig");
 const m = @import("memory.zig");
 const v = @import("value.zig");
-const p = @import("parser.zig");
+const Parser = @import("Parser.zig");
 const ZigType = @import("zigtypes.zig").Type;
-const Reporter = @import("reporter.zig");
+const Reporter = @import("Reporter.zig");
 
 const Self = @This();
 
@@ -182,9 +183,10 @@ pub const Zdef = struct {
 
 pub const State = struct {
     script: []const u8,
-    source: t.Token,
+    source: Token,
     ast: Ast,
-    parser: ?*p.Parser,
+    buzz_ast: ?BuzzAst = null,
+    parser: ?*Parser,
     parsing_type_expr: bool = false,
     structs: std.StringHashMap(*Zdef),
 };
@@ -219,9 +221,9 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
     full.writer().print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
 
-    var zdef = try self.parse(
+    const zdef = try self.parse(
         null,
-        t.Token.identifier(full.items),
+        Token.identifier(full.items),
         true,
     );
 
@@ -235,7 +237,7 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
     return if (zdef) |z| z[0] else null;
 }
 
-pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr: bool) !?[]*Zdef {
+pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bool) !?[]*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
     const duped = self.gc.allocator.dupeZ(u8, source.literal_string.?) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
@@ -248,6 +250,7 @@ pub fn parse(self: *Self, parser: ?*p.Parser, source: t.Token, parsing_type_expr
         .parsing_type_expr = parsing_type_expr,
         .source = source,
         .parser = parser,
+        .buzz_ast = if (parser) |p| p.ast else null,
         .ast = Ast.parse(
             self.gc.allocator,
             duped,
@@ -360,7 +363,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             const zdef = try self.getZdef(decl.data.lhs);
 
             if (zdef) |uzdef| {
-                var opt_zdef = try self.gc.allocator.create(Zdef);
+                const opt_zdef = try self.gc.allocator.create(Zdef);
                 opt_zdef.* = Zdef{
                     .zig_type = .{
                         .Optional = .{
@@ -649,7 +652,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
         null;
 
     if ((type_def == null or zig_type == null) and self.state.?.parser != null) {
-        const global_idx = try self.state.?.parser.?.resolveGlobal(null, t.Token.identifier(id));
+        const global_idx = try self.state.?.parser.?.resolveGlobal(null, id);
         const global = if (global_idx) |idx|
             self.state.?.parser.?.globals.items[idx]
         else
@@ -701,7 +704,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 
     // Is it a null terminated string?
     // zig fmt: off
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* =  if (ptr_type.const_token != null
         and child_type.zig_type == .Int
         and child_type.zig_type.Int.bits == 8
@@ -847,12 +850,12 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     parameters_zig_types.shrinkAndFree(parameters_zig_types.items.len);
     zig_fn_type.params = parameters_zig_types.items;
 
-    var type_def = o.ObjTypeDef{
+    const type_def = o.ObjTypeDef{
         .def_type = .Function,
         .resolved_type = .{ .Function = function_def },
     };
 
-    var zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .zig_type = ZigType{ .Fn = zig_fn_type },
         .type_def = try self.gc.type_registry.getTypeDef(type_def),

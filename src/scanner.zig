@@ -1,9 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const tk = @import("token.zig");
-const Token = tk.Token;
-const TokenType = tk.TokenType;
+const Token = @import("Token.zig");
 
 pub const SourceLocation = struct {
     start: usize,
@@ -53,7 +51,7 @@ pub const Scanner = struct {
             return self.makeToken(.Eof, null, null, null);
         }
 
-        var char: u8 = self.advance();
+        const char: u8 = self.advance();
         return try switch (char) {
             'b' => self.identifier(),
             'a', 'c'...'z', 'A'...'Z' => self.identifier(),
@@ -133,7 +131,7 @@ pub const Scanner = struct {
 
     fn skipWhitespaces(self: *Self) void {
         while (true) {
-            var char: u8 = self.peek();
+            const char: u8 = self.peek();
 
             switch (char) {
                 ' ', '\r', '\t' => _ = self.advance(),
@@ -181,7 +179,7 @@ pub const Scanner = struct {
 
         while (!self.isEOF()) {
             while (!self.isEOF()) {
-                var char: u8 = self.peek();
+                const char: u8 = self.peek();
 
                 if (char == '\n') {
                     self.current.line += 1;
@@ -223,7 +221,7 @@ pub const Scanner = struct {
 
         self.token_index += 1;
         return .{
-            .token_type = .Identifier,
+            .tag = .Identifier,
             .lexeme = string_token.literal_string.?,
             .literal_string = string_token.literal_string.?,
             .literal_float = null,
@@ -242,11 +240,11 @@ pub const Scanner = struct {
         }
 
         const literal = self.source[self.current.start..self.current.offset];
-        const keywordOpt = tk.keywords.get(literal);
+        const keywordOpt = Token.keywords.get(literal);
 
         if (keywordOpt) |keyword| {
             if (keyword == .As and self.match('?')) {
-                return self.makeToken(.AsBang, null, null, null);
+                return self.makeToken(.AsQuestion, null, null, null);
             }
 
             return self.makeToken(keyword, literal, null, null);
@@ -318,10 +316,10 @@ pub const Scanner = struct {
 
     fn byte(self: *Self) Token {
         const is_escape_sequence = self.match('\\');
-        const literal_integer = if (is_escape_sequence)
+        const literal_integer = if (!self.isEOF())
             self.advance()
         else
-            self.advance();
+            null;
 
         if (is_escape_sequence and literal_integer != '\\' and literal_integer != '\'') {
             return self.makeToken(
@@ -348,7 +346,7 @@ pub const Scanner = struct {
             .IntegerValue,
             null,
             null,
-            @intCast(literal_integer),
+            @intCast(literal_integer.?),
         );
     }
 
@@ -546,10 +544,10 @@ pub const Scanner = struct {
         return true;
     }
 
-    fn makeToken(self: *Self, token_type: TokenType, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
+    fn makeToken(self: *Self, tag: Token.Type, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
         self.token_index += 1;
         return Token{
-            .token_type = token_type,
+            .tag = tag,
             .lexeme = self.source[self.current.start..self.current.offset],
             .literal_string = literal_string,
             .literal_float = literal_float,
@@ -561,4 +559,191 @@ pub const Scanner = struct {
             .script_name = self.script_name,
         };
     }
+
+    pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
+        var previous_offset: usize = 0;
+        var token = self.scanToken() catch unreachable;
+        while (token.tag != .Eof and token.tag != .Error) {
+            // If there some whitespace or comments between tokens?
+            // In gray because either whitespace or comment
+            if (token.offset > previous_offset) {
+                if (true_color) {
+                    out.print(
+                        "{s}{s}{s}",
+                        .{
+                            Color.comment,
+                            self.source[previous_offset..token.offset],
+                            Color.reset,
+                        },
+                    ) catch unreachable;
+                } else {
+                    out.print(
+                        "{s}{s}{s}{s}",
+                        .{
+                            Color.dim,
+                            Color.black,
+                            self.source[previous_offset..token.offset],
+                            Color.reset,
+                        },
+                    ) catch unreachable;
+                }
+            }
+
+            out.print(
+                "{s}{s}{s}",
+                .{
+                    switch (token.tag) {
+                        // Operators
+                        .Pipe,
+                        .Greater,
+                        .Less,
+                        .Plus,
+                        .Minus,
+                        .Star,
+                        .Slash,
+                        .Percent,
+                        .Equal,
+                        .EqualEqual,
+                        .BangEqual,
+                        .BangGreater,
+                        .GreaterEqual,
+                        .LessEqual,
+                        .QuestionQuestion,
+                        .ShiftLeft,
+                        .ShiftRight,
+                        .Xor,
+                        .Bor,
+                        .Bnot,
+                        .Ud,
+                        .Void,
+                        .True,
+                        .False,
+                        .Null,
+                        .Or,
+                        .And,
+                        .As,
+                        .Return,
+                        .If,
+                        .Else,
+                        .While,
+                        .For,
+                        .ForEach,
+                        .Switch,
+                        .Break,
+                        .Continue,
+                        .Default,
+                        .Const,
+                        .Fun,
+                        .In,
+                        .Str,
+                        .Int,
+                        .Float,
+                        .Bool,
+                        .Pat,
+                        .Do,
+                        .Until,
+                        .Is,
+                        .Object,
+                        .Obj,
+                        .Static,
+                        .Protocol,
+                        .Enum,
+                        .Throw,
+                        .Catch,
+                        .Try,
+                        .Test,
+                        .Function,
+                        .Import,
+                        .Export,
+                        .Extern,
+                        .From,
+                        .Fib,
+                        .Resume,
+                        .Resolve,
+                        .Yield,
+                        .Any,
+                        .Zdef,
+                        .Type,
+                        .TypeOf,
+                        .Var,
+                        .Question,
+                        .AsQuestion,
+                        .Out,
+                        => if (true_color) Color.keyword else Color.magenta,
+                        // Punctuation
+                        .LeftBracket,
+                        .RightBracket,
+                        .LeftParen,
+                        .RightParen,
+                        .LeftBrace,
+                        .RightBrace,
+                        .Dot,
+                        .Comma,
+                        .Semicolon,
+                        .Bang,
+                        .Colon,
+                        .DoubleColon,
+                        .Arrow,
+                        .Ampersand,
+                        .Spread,
+                        => if (true_color) Color.punctuation else Color.bright_white,
+                        .IntegerValue,
+                        .FloatValue,
+                        => if (true_color) Color.number else Color.yellow,
+                        .String, .Pattern => if (true_color) Color.string else Color.green,
+                        .Identifier => "",
+                        .Docblock => if (true_color) Color.comment else Color.dim,
+                        .Eof, .Error => unreachable,
+                    },
+                    token.lexeme,
+                    Color.reset,
+                },
+            ) catch unreachable;
+
+            previous_offset = token.offset + token.lexeme.len;
+
+            token = self.scanToken() catch unreachable;
+        }
+
+        // Is there some comments or whitespace after last token?
+        if (previous_offset < self.source.len) {
+            out.print(
+                "{s}{s}{s}{s}",
+                .{
+                    Color.dim,
+                    Color.black,
+                    self.source[previous_offset..],
+                    Color.reset,
+                },
+            ) catch unreachable;
+        }
+    }
+};
+
+pub const Color = struct {
+    pub const black = "\x1b[30m";
+    pub const red = "\x1b[31m";
+    pub const green = "\x1b[32m";
+    pub const yellow = "\x1b[33m";
+    pub const blue = "\x1b[34m";
+    pub const magenta = "\x1b[35m";
+    pub const cyan = "\x1b[36m";
+    pub const white = "\x1b[37m";
+    pub const bright_black = "\x1b[90m";
+    pub const bright_red = "\x1b[91m";
+    pub const bright_green = "\x1b[92m";
+    pub const bright_yellow = "\x1b[93m";
+    pub const bright_blue = "\x1b[94m";
+    pub const bright_magenta = "\x1b[95m";
+    pub const bright_cyan = "\x1b[96m";
+    pub const bright_white = "\x1b[97m";
+    pub const dim = "\x1b[1m";
+    pub const bold = "\x1b[2m";
+    pub const reset = "\x1b[0m";
+
+    pub const comment = "\x1b[38;2;99;106;114m";
+    pub const keyword = "\x1b[38;2;249;140;63m";
+    pub const punctuation = "\x1b[38;2;255;215;0m";
+    pub const number = "\x1b[38;2;249;175;79m";
+    pub const string = "\x1b[38;2;127;217;98m";
 };

@@ -38,7 +38,7 @@ test "Null coalescing operator" {
 }
 
 test "Unwrap map subscript" {
-    {str, str} map = {
+    {str: str} map = {
         "yo": "lo",
         "mo": "jo",
     };
@@ -51,7 +51,7 @@ object You {
 }
 
 test "Field access on map subscript" {
-    {str, You} map = {
+    {str: You} map = {
         "yo": You{}
     };
 

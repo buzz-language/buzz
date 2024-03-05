@@ -1,26 +1,24 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const _value = @import("value.zig");
-const _chunk = @import("chunk.zig");
+const Value = @import("value.zig").Value;
+const Chunk = @import("Chunk.zig");
+const OpCode = Chunk.OpCode;
+const Ast = @import("Ast.zig");
 const _disassembler = @import("disassembler.zig");
 const _obj = @import("obj.zig");
-const _node = @import("node.zig");
 const Allocator = std.mem.Allocator;
 const BuildOptions = @import("build_options");
 const _memory = @import("memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
-const MIRJIT = @import("mirjit.zig");
-const Token = @import("token.zig").Token;
-const Reporter = @import("reporter.zig");
-const FFI = @import("ffi.zig");
+const is_wasm = builtin.cpu.arch.isWasm();
+const JIT = if (!is_wasm) @import("Jit.zig") else void;
+const Token = @import("Token.zig");
+const Reporter = @import("Reporter.zig");
+const FFI = if (!is_wasm) @import("FFI.zig") else void;
+const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 
-const Value = _value.Value;
-const valueToString = _value.valueToString;
-const valueToStringAlloc = _value.valueToStringAlloc;
-const valueEql = _value.valueEql;
-const valueIs = _value.valueIs;
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
 const ObjNative = _obj.ObjNative;
@@ -43,13 +41,10 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
 const ObjForeignContainer = _obj.ObjForeignContainer;
-const FunctionNode = _node.FunctionNode;
 const cloneObject = _obj.cloneObject;
-const OpCode = _chunk.OpCode;
-const Chunk = _chunk.Chunk;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
-const jmp = @import("jmp.zig");
+const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 
 pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
 
@@ -59,9 +54,10 @@ pub const RunFlavor = enum {
     Check,
     Fmt,
     Ast,
+    Repl,
 
     pub inline fn resolveImports(self: RunFlavor) bool {
-        return self == .Run or self == .Test;
+        return self == .Run or self == .Test or self == .Repl;
     }
 };
 
@@ -78,7 +74,7 @@ pub const CallFrame = struct {
     error_value: ?Value = null,
 
     // Line in source code where the call occured
-    call_site: ?Token,
+    call_site: ?Ast.TokenIndex,
 
     // Offset at which error can be handled (means we're in a try block)
     try_ip: ?usize = null,
@@ -91,11 +87,14 @@ pub const CallFrame = struct {
     native_call_error_value: ?Value = null,
 };
 
-pub const TryCtx = extern struct {
-    previous: ?*TryCtx,
-    env: jmp.jmp_buf = undefined,
-    // FIXME: remember top here
-};
+pub const TryCtx = if (!is_wasm)
+    extern struct {
+        previous: ?*TryCtx,
+        env: jmp.jmp_buf = undefined,
+        // FIXME: remember top here
+    }
+else
+    void;
 
 pub const Fiber = struct {
     const Self = @This();
@@ -121,7 +120,9 @@ pub const Fiber = struct {
     method: ?*ObjString,
 
     frames: std.ArrayList(CallFrame),
-    frame_count: u64 = 0,
+    frame_count: usize = 0,
+    recursive_count: u32 = 0,
+    current_compiled_function: ?*ObjFunction = null,
 
     stack: []Value,
     stack_top: [*]Value,
@@ -150,7 +151,7 @@ pub const Fiber = struct {
             .allocator = allocator,
             .type_def = type_def,
             .parent_fiber = parent_fiber,
-            .stack = try allocator.alloc(Value, 100000),
+            .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
             .frames = std.ArrayList(CallFrame).init(allocator),
             .open_upvalues = null,
@@ -161,7 +162,7 @@ pub const Fiber = struct {
         };
 
         if (stack_slice != null) {
-            std.mem.copy(Value, self.stack, stack_slice.?);
+            std.mem.copyForwards(Value, self.stack, stack_slice.?);
 
             self.stack_top = @as([*]Value, @ptrCast(self.stack[stack_slice.?.len..]));
         } else {
@@ -197,6 +198,7 @@ pub const Fiber = struct {
                     self.arg_count,
                     if (self.has_catch_value) vm.pop() else null,
                     true,
+                    false,
                 );
             },
             else => unreachable,
@@ -229,7 +231,7 @@ pub const Fiber = struct {
                 .OP_FIBER_FOREACH => {
                     _ = vm.pop();
 
-                    var value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
 
                     value_slot.* = top;
                 },
@@ -315,7 +317,7 @@ pub const Fiber = struct {
                     // We don't care about the returned value
                     _ = vm.pop();
 
-                    var value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
 
                     value_slot.* = Value.Null;
                 },
@@ -328,41 +330,49 @@ pub const Fiber = struct {
 pub const VM = struct {
     const Self = @This();
 
+    var cycles: u128 = 0;
+
     pub const Error = error{
+        RuntimeError, // Thrown in wasm build because we can't stop the program
+        CantCompile,
         UnwrappedNull,
         OutOfBound,
         NumberOverflow,
         NotInFiber,
         FiberOver,
         BadNumber,
+        ReachedMaximumMemoryUsage,
+        ReachedMaximumCPUUsage,
+        ReachedMaximumRecursiveCall,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || Allocator.Error || std.fmt.BufPrintError;
 
     gc: *GarbageCollector,
     current_fiber: *Fiber,
+    current_ast: Ast,
     main_fiber: *Fiber,
     globals: std.ArrayList(Value),
+    globals_count: usize = 0,
     import_registry: *ImportRegistry,
-    mir_jit: ?MIRJIT = null,
+    jit: ?JIT = null,
     flavor: RunFlavor,
     reporter: Reporter,
     ffi: FFI,
 
     pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
-        var main_fiber = try gc.allocator.create(Fiber);
-
-        var self: Self = .{
+        return .{
             .gc = gc,
             .import_registry = import_registry,
             .globals = std.ArrayList(Value).init(gc.allocator),
-            .current_fiber = main_fiber,
-            .main_fiber = main_fiber,
+            .current_ast = undefined,
+            .current_fiber = undefined,
+            .main_fiber = undefined,
             .flavor = flavor,
-            .reporter = Reporter{ .allocator = gc.allocator },
-            .ffi = FFI.init(gc),
+            .reporter = Reporter{
+                .allocator = gc.allocator,
+            },
+            .ffi = if (!is_wasm) FFI.init(gc) else {},
         };
-
-        return self;
     }
 
     pub fn deinit(self: *Self) void {
@@ -372,7 +382,7 @@ pub const VM = struct {
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
-        var list_def: ObjList.ListDef = ObjList.ListDef.init(
+        const list_def = ObjList.ListDef.init(
             self.gc.allocator,
             try self.gc.allocateObject(
                 ObjTypeDef,
@@ -380,11 +390,11 @@ pub const VM = struct {
             ),
         );
 
-        var list_def_union: ObjTypeDef.TypeUnion = .{
+        const list_def_union: ObjTypeDef.TypeUnion = .{
             .List = list_def,
         };
 
-        var list_def_type: *ObjTypeDef = try self.gc.allocateObject(
+        const list_def_type: *ObjTypeDef = try self.gc.allocateObject(
             ObjTypeDef,
             ObjTypeDef{
                 .def_type = .List,
@@ -465,7 +475,7 @@ pub const VM = struct {
     }
 
     inline fn swap(self: *Self, from: u8, to: u8) void {
-        var temp: Value = (self.current_fiber.stack_top - to - 1)[0];
+        const temp: Value = (self.current_fiber.stack_top - to - 1)[0];
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
     }
@@ -482,7 +492,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, function: *ObjFunction, args: ?[][:0]u8) MIRJIT.Error!void {
+    pub fn interpret(self: *Self, ast: Ast, function: *ObjFunction, args: ?[][:0]u8) Error!void {
         const fiber_def = ObjFiber.FiberDef{
             .return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
             .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
@@ -498,6 +508,8 @@ pub const VM = struct {
             .resolved_type = resolved_type,
         });
 
+        self.current_ast = ast;
+        self.current_fiber = try self.gc.allocator.create(Fiber);
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             type_def,
@@ -537,8 +549,8 @@ pub const VM = struct {
     }
 
     inline fn readInstruction(self: *Self) u32 {
-        const current_frame: *CallFrame = self.currentFrame().?;
-        var instruction: u32 = current_frame.closure.function.chunk.code.items[current_frame.ip];
+        const current_frame = self.currentFrame().?;
+        const instruction = current_frame.closure.function.chunk.code.items[current_frame.ip];
 
         current_frame.ip += 1;
 
@@ -632,7 +644,9 @@ pub const VM = struct {
         OP_FIBER_FOREACH,
 
         OP_CALL,
+        OP_TAIL_CALL,
         OP_INSTANCE_INVOKE,
+        OP_INSTANCE_TAIL_INVOKE,
         OP_STRING_INVOKE,
         OP_PATTERN_INVOKE,
         OP_FIBER_INVOKE,
@@ -727,9 +741,24 @@ pub const VM = struct {
             self.gc.where = current_frame.closure.function.chunk.lines.items[current_frame.ip - 1];
         }
 
+        if (BuildOptions.cycle_limit) |limit| {
+            cycles += 1;
+
+            if (cycles > limit * 1000) {
+                self.throw(
+                    Error.ReachedMaximumCPUUsage,
+                    (self.gc.copyString("Maximum CPU usage reached") catch @panic("Maximum CPU usage reached")).toValue(),
+                    null,
+                    null,
+                ) catch @panic("Maximum CPU usage reached");
+
+                return;
+            }
+        }
+
         // Tail call
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             op_table[@intFromEnum(instruction)],
             .{
                 self,
@@ -741,11 +770,11 @@ pub const VM = struct {
         );
     }
 
-    inline fn panic(e: anytype) void {
+    fn vmPanic(e: anytype) void {
         std.debug.print("{}\n", .{e});
-        std.os.exit(1);
-
-        unreachable;
+        if (!is_wasm) {
+            std.os.exit(1);
+        }
     }
 
     fn OP_NULL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
@@ -753,7 +782,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -770,7 +799,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -787,7 +816,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -804,7 +833,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -821,7 +850,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -838,7 +867,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -852,13 +881,13 @@ pub const VM = struct {
 
     fn OP_CLONE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         self.clone() catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -875,7 +904,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -889,16 +918,17 @@ pub const VM = struct {
 
     fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         self.globals.ensureTotalCapacity(arg + 1) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         self.globals.expandToCapacity();
         self.globals.items[arg] = self.peek(0);
+        self.globals_count = @max(self.globals_count, arg);
         _ = self.pop();
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -915,7 +945,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -932,7 +962,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -949,7 +979,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -966,7 +996,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -983,7 +1013,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1000,7 +1030,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1017,7 +1047,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1030,14 +1060,14 @@ pub const VM = struct {
     }
 
     fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const str = valueToStringAlloc(self.gc.allocator, self.pop()) catch |e| {
-            panic(e);
+        const str = self.pop().toStringAlloc(self.gc.allocator) catch |e| {
+            vmPanic(e);
             unreachable;
         };
         self.push(
             Value.fromObj(
                 (self.gc.copyString(str.items) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toObj(),
             ),
@@ -1046,7 +1076,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1069,7 +1099,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1082,15 +1112,15 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var function: *ObjFunction = self.readConstant(arg).obj().access(ObjFunction, .Function, self.gc).?;
+        const function: *ObjFunction = self.readConstant(arg).obj().access(ObjFunction, .Function, self.gc).?;
         var closure: *ObjClosure = self.gc.allocateObject(
             ObjClosure,
             ObjClosure.init(self.gc.allocator, self, function) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             },
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1098,20 +1128,20 @@ pub const VM = struct {
 
         var i: usize = 0;
         while (i < function.upvalue_count) : (i += 1) {
-            var is_local: bool = self.readByte() == 1;
-            var index: u8 = self.readByte();
+            const is_local: bool = self.readByte() == 1;
+            const index: u8 = self.readByte();
 
             if (is_local) {
                 closure.upvalues.append(self.captureUpvalue(&(current_frame.slots[index])) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             } else {
                 closure.upvalues.append(current_frame.closure.upvalues.items[index]) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
@@ -1119,7 +1149,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1137,7 +1167,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1158,7 +1188,7 @@ pub const VM = struct {
         const stack_slice = stack_ptr[0..stack_len];
 
         var fiber = self.gc.allocator.create(Fiber) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         fiber.* = Fiber.init(
@@ -1171,7 +1201,7 @@ pub const VM = struct {
             catch_count > 0,
             null,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1184,7 +1214,7 @@ pub const VM = struct {
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
         }) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1192,7 +1222,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1215,7 +1245,7 @@ pub const VM = struct {
         const stack_slice = stack_ptr[0..stack_len];
 
         var fiber = self.gc.allocator.create(Fiber) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         fiber.* = Fiber.init(
@@ -1228,7 +1258,7 @@ pub const VM = struct {
             catch_count > 0,
             method,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1241,7 +1271,7 @@ pub const VM = struct {
         var obj_fiber = self.gc.allocateObject(ObjFiber, ObjFiber{
             .fiber = fiber,
         }) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1249,7 +1279,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1264,13 +1294,13 @@ pub const VM = struct {
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.@"resume"(self) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1285,13 +1315,13 @@ pub const VM = struct {
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
         obj_fiber.fiber.resolve_(self) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1308,7 +1338,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1333,13 +1363,44 @@ pub const VM = struct {
             catch_value,
             false,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_TAIL_CALL(self: *Self, _: *CallFrame, full_instruction: u32, _: OpCode, _: u24) void {
+        const arg_count: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
+        const catch_count: u16 = @intCast(0x0000ffff & full_instruction);
+
+        // FIXME: no reason to take the catch value off the stack
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        self.tailCall(
+            self.peek(arg_count),
+            arg_count,
+            catch_value,
+            false,
+        ) catch |e| {
+            vmPanic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1366,19 +1427,72 @@ pub const VM = struct {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
             self.callValue(field, arg_count, catch_value, false) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
-            _ = self.invokeFromObject(instance.object.?, method, arg_count, catch_value, false) catch |e| {
-                panic(e);
+            _ = self.invokeFromObject(
+                instance.object.?,
+                method,
+                arg_count,
+                catch_value,
+                false,
+                false,
+            ) catch |e| {
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_INSTANCE_TAIL_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(arg_instruction >> 24);
+        const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const instance: *ObjObjectInstance = self.peek(arg_count).obj().access(ObjObjectInstance, .ObjectInstance, self.gc).?;
+
+        assert(instance.object != null);
+
+        if (instance.fields.get(method)) |field| {
+            (self.current_fiber.stack_top - arg_count - 1)[0] = field;
+
+            self.tailCall(field, arg_count, catch_value, false) catch |e| {
+                vmPanic(e);
+                unreachable;
+            };
+        } else {
+            _ = self.invokeFromObject(
+                instance.object.?,
+                method,
+                arg_count,
+                catch_value,
+                false,
+                true,
+            ) catch |e| {
+                vmPanic(e);
+                unreachable;
+            };
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1398,20 +1512,20 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjString.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1431,20 +1545,20 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjPattern.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1464,19 +1578,19 @@ pub const VM = struct {
         const catch_value = if (catch_count > 0) self.pop() else null;
 
         const member = (ObjFiber.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1497,20 +1611,20 @@ pub const VM = struct {
 
         const list = self.peek(arg_count).obj().access(ObjList, .List, self.gc).?;
         const member = (list.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
 
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1531,20 +1645,20 @@ pub const VM = struct {
 
         const map = self.peek(arg_count).obj().access(ObjMap, .Map, self.gc).?;
         const member = (map.member(self, method) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).?;
 
-        var member_value: Value = member.toValue();
+        const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
         self.callValue(member_value, arg_count, catch_value, false) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1558,7 +1672,7 @@ pub const VM = struct {
 
     // result_count > 0 when the return is `export`
     inline fn returnFrame(self: *Self) bool {
-        var result = self.pop();
+        const result = self.pop();
 
         const frame: *CallFrame = self.currentFrame().?;
 
@@ -1572,7 +1686,7 @@ pub const VM = struct {
             // We're in a fiber
             if (self.current_fiber.parent_fiber != null) {
                 self.current_fiber.finish(self, result) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
 
@@ -1581,7 +1695,9 @@ pub const VM = struct {
             }
 
             // We're not in a fiber, the program is over
-            _ = self.pop();
+            if (self.flavor != .Repl) {
+                _ = self.pop();
+            }
             return true;
         }
 
@@ -1593,6 +1709,35 @@ pub const VM = struct {
         return false;
     }
 
+    inline fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) Error!void {
+        // Is or will be JIT compiled, call and stop there
+        if (!is_wasm and !in_fiber and try self.compileAndCall(closure, arg_count, catch_value)) {
+            return;
+        }
+
+        const frame = self.currentFrame().?;
+        const call_site = self.getSite();
+
+        // Close upvalues
+        self.closeUpValues(&frame.slots[0]);
+
+        // Shift new call arguments at start of current frame
+        std.mem.copyForwards(
+            Value,
+            frame.slots[0..(arg_count + 1)],
+            (self.current_fiber.stack_top - arg_count - 1)[0..(arg_count + 1)],
+        );
+
+        // Reposition stack top
+        self.current_fiber.stack_top = frame.slots + arg_count + 1;
+
+        // Repurpose frame
+        frame.closure = closure;
+        frame.ip = 0;
+        frame.call_site = call_site;
+        frame.error_value = catch_value;
+    }
+
     fn OP_RETURN(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         if (self.returnFrame() or self.currentFrame().?.in_native_call) {
             return;
@@ -1600,7 +1745,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1625,18 +1770,18 @@ pub const VM = struct {
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
                 self.globals.append(global) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
         } else {
             var vm = self.gc.allocator.create(VM) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
             // FIXME: give reference to JIT?
             vm.* = VM.init(self.gc, self.import_registry, self.flavor) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
             // TODO: how to free this since we copy things to new vm, also fails anyway
@@ -1645,13 +1790,13 @@ pub const VM = struct {
             //     defer gn.deinit();
             // }
 
-            vm.interpret(closure.function, null) catch |e| {
-                panic(e);
+            vm.interpret(self.current_ast, closure.function, null) catch |e| {
+                vmPanic(e);
                 unreachable;
             };
 
             // Top of stack is how many export we got
-            var exported_count = vm.peek(0).integer();
+            const exported_count = vm.peek(0).integer();
 
             // Copy them to this vm globals
             var import_cache = std.ArrayList(Value).init(self.gc.allocator);
@@ -1660,18 +1805,18 @@ pub const VM = struct {
                 while (i > 0) : (i -= 1) {
                     const global = vm.peek(@intCast(i));
                     self.globals.append(global) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     };
                     import_cache.append(global) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     };
                 }
             }
 
             self.import_registry.put(fullpath, import_cache) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -1682,7 +1827,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1701,7 +1846,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1719,7 +1864,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1738,13 +1883,13 @@ pub const VM = struct {
             null,
             null,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1761,7 +1906,7 @@ pub const VM = struct {
             ObjList,
             ObjList.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1769,7 +1914,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1796,7 +1941,7 @@ pub const VM = struct {
                 ) catch @panic("Could not instanciate list"),
             ),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1816,7 +1961,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1829,11 +1974,11 @@ pub const VM = struct {
     }
 
     fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
-        var list_value: Value = self.peek(0);
+        var list = self.peek(1).obj().access(ObjList, .List, self.gc).?;
+        const list_value = self.peek(0);
 
         list.rawAppend(self.gc, list_value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1841,7 +1986,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1858,7 +2003,7 @@ pub const VM = struct {
             self.gc.allocator,
             self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?,
         )) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1866,7 +2011,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1879,12 +2024,12 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
-        var key: Value = self.peek(1);
-        var value: Value = self.peek(0);
+        var map = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
+        const key = self.peek(1);
+        const value = self.peek(0);
 
         map.set(self.gc, key, value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -1893,7 +2038,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1906,20 +2051,20 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list: *ObjList = self.peek(1).obj().access(ObjList, .List, self.gc).?;
+        const list = self.peek(1).obj().access(ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -1930,20 +2075,20 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
 
             return;
         }
 
-        var list_item: Value = list.items.items[list_index];
+        const list_item = list.items.items[list_index];
 
         // Pop list and index
         _ = self.pop();
@@ -1954,7 +2099,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1967,8 +2112,8 @@ pub const VM = struct {
     }
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map: *ObjMap = self.peek(1).obj().access(ObjMap, .Map, self.gc).?;
-        var index: Value = self.peek(0);
+        var map = self.peek(1).obj().access(ObjMap, .Map, self.gc).?;
+        const index = self.peek(0);
 
         // Pop map and key
         _ = self.pop();
@@ -1983,7 +2128,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -1996,20 +2141,20 @@ pub const VM = struct {
     }
 
     fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
+        const str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
         const index = self.peek(0).integer();
 
         if (index < 0) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound string access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2017,8 +2162,8 @@ pub const VM = struct {
         const str_index: usize = @intCast(index);
 
         if (str_index < str.string.len) {
-            var str_item: Value = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
-                panic(e);
+            const str_item = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch |e| {
+                vmPanic(e);
                 unreachable;
             }).toValue();
 
@@ -2032,20 +2177,20 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound str access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2066,13 +2211,13 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2081,7 +2226,7 @@ pub const VM = struct {
 
         if (list_index < list.items.items.len) {
             list.set(self.gc, list_index, value) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
 
@@ -2096,20 +2241,20 @@ pub const VM = struct {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2127,7 +2272,7 @@ pub const VM = struct {
         const value = self.peek(0);
 
         map.set(self.gc, index, value) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2141,7 +2286,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2154,7 +2299,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
+        const enum_ = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         _ = self.pop();
 
@@ -2165,7 +2310,7 @@ pub const VM = struct {
                 .case = @intCast(arg),
             },
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2173,7 +2318,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2186,14 +2331,14 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var enum_case: *ObjEnumInstance = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
+        const enum_case = self.peek(0).obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
 
         _ = self.pop();
-        self.push(enum_case.enum_ref.cases.items[enum_case.case]);
+        self.push(enum_case.enum_ref.cases[enum_case.case]);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2206,17 +2351,17 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var case_value = self.pop();
-        var enum_: *ObjEnum = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
+        const case_value = self.pop();
+        const enum_ = self.pop().obj().access(ObjEnum, .Enum, self.gc).?;
 
         var found = false;
-        for (enum_.cases.items, 0..) |case, index| {
-            if (valueEql(case, case_value)) {
+        for (enum_.cases, 0..) |case, index| {
+            if (case.eql(case_value)) {
                 var enum_case: *ObjEnumInstance = self.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                     .enum_ref = enum_,
                     .case = @intCast(index),
                 }) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
 
@@ -2233,7 +2378,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2254,7 +2399,7 @@ pub const VM = struct {
                 self.readConstant(@as(u24, @intCast(self.readInstruction()))).obj().access(ObjTypeDef, .Type, self.gc).?,
             ),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2262,7 +2407,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2288,7 +2433,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2326,11 +2471,11 @@ pub const VM = struct {
                     self.gc,
                     kv.key_ptr.*,
                     self.cloneValue(kv.value_ptr.*) catch |e| {
-                        panic(e);
+                        vmPanic(e);
                         unreachable;
                     },
                 ) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             }
@@ -2340,7 +2485,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2361,7 +2506,7 @@ pub const VM = struct {
             name,
             method.obj().access(ObjClosure, .Closure, self.gc).?,
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2369,7 +2514,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2383,18 +2528,18 @@ pub const VM = struct {
 
     fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const name = self.readString(arg);
-        var property: Value = self.peek(0);
-        var object: *ObjObject = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
+        const property = self.peek(0);
+        var object = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
 
         if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
             object.setField(self.gc, name, property) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
             assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
             object.setStaticField(self.gc, name, property) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2403,7 +2548,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2424,7 +2569,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2451,7 +2596,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2474,7 +2619,7 @@ pub const VM = struct {
         } else if (obj_instance.object) |object| {
             if (object.methods.get(name)) |method| {
                 self.bindMethod(method, null) catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 };
             } else {
@@ -2484,7 +2629,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2501,11 +2646,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (list.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2514,7 +2659,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2530,11 +2675,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (map.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2543,7 +2688,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2559,11 +2704,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjString.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2572,7 +2717,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2588,11 +2733,11 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjPattern.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         } else {
@@ -2601,7 +2746,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2617,18 +2762,18 @@ pub const VM = struct {
         const name: *ObjString = self.readString(arg);
 
         if (ObjFiber.member(self, name) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |member| {
             self.bindMethod(null, member) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2646,7 +2791,7 @@ pub const VM = struct {
 
         // Set new value
         object.setStaticField(self.gc, name, self.peek(0)) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2657,7 +2802,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2692,7 +2837,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2726,7 +2871,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2743,7 +2888,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2762,7 +2907,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2799,7 +2944,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2836,7 +2981,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2853,13 +2998,13 @@ pub const VM = struct {
         const left: *ObjString = self.pop().obj().access(ObjString, .String, self.gc).?;
 
         self.push(Value.fromObj((left.concat(self, right) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }).toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2877,11 +3022,11 @@ pub const VM = struct {
 
         var new_list = std.ArrayList(Value).init(self.gc.allocator);
         new_list.appendSlice(left.items.items) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         new_list.appendSlice(right.items.items) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
 
@@ -2891,14 +3036,14 @@ pub const VM = struct {
                 .methods = left.methods,
                 .items = new_list,
             }) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue(),
         );
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2915,13 +3060,13 @@ pub const VM = struct {
         const left: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
 
         var new_map = left.map.clone() catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         };
         var it = right.map.iterator();
         while (it.next()) |entry| {
             new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
@@ -2932,14 +3077,14 @@ pub const VM = struct {
                 .methods = left.methods,
                 .map = new_map,
             }) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue(),
         );
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2959,7 +3104,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -2979,7 +3124,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3008,7 +3153,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3037,7 +3182,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3072,7 +3217,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3101,7 +3246,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3126,7 +3271,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3151,7 +3296,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3175,7 +3320,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3213,7 +3358,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3251,7 +3396,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3264,11 +3409,11 @@ pub const VM = struct {
     }
 
     fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value.fromBoolean(valueEql(self.pop(), self.pop())));
+        self.push(Value.fromBoolean(self.pop().eql(self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3281,11 +3426,11 @@ pub const VM = struct {
     }
 
     fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.push(Value.fromBoolean(valueIs(self.pop(), self.pop())));
+        self.push(Value.fromBoolean(self.pop().is(self.pop())));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3302,7 +3447,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3321,7 +3466,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3340,7 +3485,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3357,7 +3502,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3375,7 +3520,7 @@ pub const VM = struct {
         const str: *ObjString = self.peek(0).obj().access(ObjString, .String, self.gc).?;
 
         key_slot.* = if (str.next(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |new_index|
             Value.fromInteger(new_index)
@@ -3385,14 +3530,14 @@ pub const VM = struct {
         // Set new value
         if (key_slot.*.isInteger()) {
             value_slot.* = (self.gc.copyString(&([_]u8{str.string[@as(usize, @intCast(key_slot.integer()))]})) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             }).toValue();
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3406,15 +3551,15 @@ pub const VM = struct {
 
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var list: *ObjList = self.peek(0).obj().access(ObjList, .List, self.gc).?;
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        var list = self.peek(0).obj().access(ObjList, .List, self.gc).?;
 
         // Get next index
         key_slot.* = if (list.rawNext(
             self,
             if (key_slot.*.isNull()) null else key_slot.integer(),
         ) catch |e| {
-            panic(e);
+            vmPanic(e);
             unreachable;
         }) |new_index|
             Value.fromInteger(new_index)
@@ -3428,7 +3573,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3442,22 +3587,22 @@ pub const VM = struct {
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var enum_case: ?*ObjEnumInstance = if (value_slot.*.isNull())
+        const enum_case = if (value_slot.*.isNull())
             null
         else
             value_slot.obj().access(ObjEnumInstance, .EnumInstance, self.gc).?;
         var enum_: *ObjEnum = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
         // Get next enum case
-        var next_case: ?*ObjEnumInstance = enum_.rawNext(self, enum_case) catch |e| {
-            panic(e);
+        const next_case = enum_.rawNext(self, enum_case) catch |e| {
+            vmPanic(e);
             unreachable;
         };
         value_slot.* = (if (next_case) |new_case| Value.fromObj(new_case.toObj()) else Value.Null);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3470,12 +3615,12 @@ pub const VM = struct {
     }
 
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var map: *ObjMap = self.peek(0).obj().access(ObjMap, .Map, self.gc).?;
-        var current_key: ?Value = if (!key_slot.*.isNull()) key_slot.* else null;
+        const current_key = if (!key_slot.*.isNull()) key_slot.* else null;
 
-        var next_key: ?Value = map.rawNext(current_key);
+        const next_key = map.rawNext(current_key);
         key_slot.* = if (next_key) |unext_key| unext_key else Value.Null;
 
         if (next_key) |unext_key| {
@@ -3484,7 +3629,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3497,21 +3642,21 @@ pub const VM = struct {
     }
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var fiber = self.peek(0).obj().access(ObjFiber, .Fiber, self.gc).?;
 
         if (fiber.fiber.status == .Over) {
             value_slot.* = Value.Null;
         } else {
             fiber.fiber.@"resume"(self) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3529,20 +3674,20 @@ pub const VM = struct {
             self.throw(
                 Error.UnwrappedNull,
                 (self.gc.copyString("Force unwrapped optional is null") catch |e| {
-                    panic(e);
+                    vmPanic(e);
                     unreachable;
                 }).toValue(),
                 null,
                 null,
             ) catch |e| {
-                panic(e);
+                vmPanic(e);
                 unreachable;
             };
         }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3559,7 +3704,7 @@ pub const VM = struct {
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
-            .always_tail,
+            dispatch_call_modifier,
             dispatch,
             .{
                 self,
@@ -3603,7 +3748,7 @@ pub const VM = struct {
         );
     }
 
-    pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Token) MIRJIT.Error!void {
+    pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) Error!void {
         var stack = if (previous_stack) |pstack|
             pstack.*
         else
@@ -3624,7 +3769,8 @@ pub const VM = struct {
         while (self.current_fiber.frame_count > 0 or self.current_fiber.parent_fiber != null) {
             const frame = self.currentFrame();
             if (self.current_fiber.frame_count > 0) {
-                if (frame.?.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+                const function_type = frame.?.closure.function.type_def.resolved_type.?.Function.function_type;
+                if (function_type != .ScriptEntryPoint and function_type != .Repl) {
                     try stack.append(frame.?.*);
                 }
 
@@ -3657,7 +3803,7 @@ pub const VM = struct {
                     }
                 }
 
-                const value_str = try valueToStringAlloc(self.gc.allocator, processed_payload);
+                const value_str = try processed_payload.toStringAlloc(self.gc.allocator);
                 defer value_str.deinit();
 
                 self.reportRuntimeError(
@@ -3666,7 +3812,11 @@ pub const VM = struct {
                     stack.items,
                 );
 
-                std.os.exit(1);
+                if (!is_wasm) {
+                    std.os.exit(1);
+                } else {
+                    return Error.RuntimeError;
+                }
             } else if (self.current_fiber.frame_count == 0) {
                 // Error raised inside a fiber, forward it to parent fiber
                 self.current_fiber = self.current_fiber.parent_fiber.?;
@@ -3694,7 +3844,7 @@ pub const VM = struct {
         }
     }
 
-    fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Token, stack: []const CallFrame) void {
+    fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Ast.TokenIndex, stack: []const CallFrame) void {
         var notes = std.ArrayList(Reporter.Note).init(self.gc.allocator);
         defer {
             for (notes.items) |note| {
@@ -3724,7 +3874,7 @@ pub const VM = struct {
                         else
                             unext.closure.function.name.string,
                         if (frame.call_site) |call_site|
-                            call_site.script_name
+                            self.current_ast.tokens.items(.script_name)[call_site]
                         else
                             frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
@@ -3740,7 +3890,7 @@ pub const VM = struct {
                         else
                             "  ╰─",
                         if (frame.call_site) |call_site|
-                            call_site.script_name
+                            self.current_ast.tokens.items(.script_name)[call_site]
                         else
                             frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
                     },
@@ -3751,8 +3901,8 @@ pub const VM = struct {
                 writer.print(
                     ":{d}:{d}",
                     .{
-                        call_site.line + 1,
-                        call_site.column,
+                        self.current_ast.tokens.items(.line)[call_site] + 1,
+                        self.current_ast.tokens.items(.column)[call_site],
                     },
                 ) catch @panic("Could not report error");
             }
@@ -3770,7 +3920,7 @@ pub const VM = struct {
             .error_type = .runtime,
             .items = &[_]Reporter.ReportItem{
                 .{
-                    .location = error_site orelse stack[0].call_site.?,
+                    .location = self.current_ast.tokens.get(error_site orelse stack[0].call_site.?),
                     .kind = .@"error",
                     .message = message,
                 },
@@ -3781,20 +3931,18 @@ pub const VM = struct {
         err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
     }
 
-    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
-        closure.function.call_count += 1;
-
+    fn compileAndCall(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!bool {
         var native = closure.function.native;
-        if (self.mir_jit) |*mir_jit| {
-            mir_jit.call_count += 1;
+        if (self.jit) |*jit| {
+            jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (!in_fiber and self.shouldCompileFunction(closure)) {
-                var timer = std.time.Timer.start() catch unreachable;
+            if (self.shouldCompileFunction(closure)) {
+                var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
                 var success = true;
-                mir_jit.compileFunction(closure) catch |err| {
-                    if (err == MIRJIT.Error.CantCompile) {
+                jit.compileFunction(self.current_ast, closure) catch |err| {
+                    if (err == Error.CantCompile) {
                         success = false;
                     } else {
                         return err;
@@ -3811,7 +3959,7 @@ pub const VM = struct {
                     );
                 }
 
-                mir_jit.jit_time += timer.read();
+                jit.jit_time += timer.read();
 
                 if (success) {
                     native = closure.function.native;
@@ -3820,7 +3968,7 @@ pub const VM = struct {
         }
 
         // Is there a compiled version of it?
-        if (!in_fiber and native != null) {
+        if (native != null) {
             if (BuildOptions.jit_debug) {
                 std.debug.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
             }
@@ -3832,32 +3980,56 @@ pub const VM = struct {
                 catch_value,
             );
 
+            return true;
+        }
+
+        return false;
+    }
+
+    fn call(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value, in_fiber: bool) Error!void {
+        closure.function.call_count += 1;
+
+        if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
+            // If recursive call, update counter
+            self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
+                self.current_fiber.recursive_count + 1
+            else
+                0;
+
+            if (self.current_fiber.recursive_count > recursive_call_limit) {
+                try self.throw(
+                    VM.Error.ReachedMaximumRecursiveCall,
+                    (try self.gc.copyString("Maximum recursive call reached")).toValue(),
+                    null,
+                    null,
+                );
+
+                return;
+            }
+        }
+
+        // Is or will be JIT compiled, call and stop there
+        if (!is_wasm and !in_fiber and try self.compileAndCall(closure, arg_count, catch_value)) {
             return;
         }
 
         if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
             std.debug.print(
                 "\x1b[33m▶ Test: {s}\x1b[0m\n",
-                .{@as(*FunctionNode, @ptrCast(@alignCast(closure.function.node))).test_message.?},
+                .{
+                    self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
+                },
             );
         }
 
-        // TODO: check for stack overflow
-        var frame = CallFrame{
+        const frame = CallFrame{
             .closure = closure,
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.current_fiber.stack_top - arg_count - 1,
-            .call_site = if (self.currentFrame()) |current_frame|
-                current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
-            else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
-                const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
-
-                break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
-            } else null,
+            .call_site = self.getSite(),
+            .error_value = catch_value,
         };
-
-        frame.error_value = catch_value;
 
         if (self.current_fiber.frames.items.len <= self.current_fiber.frame_count) {
             try self.current_fiber.frames.append(frame);
@@ -3870,6 +4042,16 @@ pub const VM = struct {
         if (BuildOptions.jit_debug) {
             std.debug.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
         }
+    }
+
+    fn getSite(self: *Self) ?Ast.TokenIndex {
+        return if (self.currentFrame()) |current_frame|
+            current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
+        else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
+            const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
+
+            break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
+        } else null;
     }
 
     fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
@@ -3926,7 +4108,7 @@ pub const VM = struct {
     }
 
     // A JIT compiled function pops its stack on its own
-    fn callCompiled(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+    fn callCompiled(self: *Self, closure: *ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         const was_in_native_call = self.currentFrame() != null and self.currentFrame().?.in_native_call;
         if (self.currentFrame()) |frame| {
             frame.in_native_call = true;
@@ -3935,8 +4117,8 @@ pub const VM = struct {
 
         var ctx = NativeCtx{
             .vm = self,
-            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .globals = closure.globals.items.ptr,
+            .upvalues = closure.upvalues.items.ptr,
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
@@ -3984,7 +4166,7 @@ pub const VM = struct {
         self.push(Value.fromObj(bound.toObj()));
     }
 
-    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) MIRJIT.Error!void {
+    pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) Error!void {
         var obj: *Obj = callee.obj();
         switch (obj.obj_type) {
             .Bound => {
@@ -4030,9 +4212,66 @@ pub const VM = struct {
         }
     }
 
-    fn invokeFromObject(self: *Self, object: *ObjObject, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
+    fn tailCall(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value, in_fiber: bool) Error!void {
+        var obj: *Obj = callee.obj();
+        switch (obj.obj_type) {
+            .Bound => {
+                const bound = obj.access(ObjBoundMethod, .Bound, self.gc).?;
+                (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
+
+                if (bound.closure) |closure| {
+                    return try self.repurposeFrame(
+                        closure,
+                        arg_count,
+                        catch_value,
+                        in_fiber,
+                    );
+                } else {
+                    assert(bound.native != null);
+                    return try self.callNative(
+                        null,
+                        @ptrCast(@alignCast(bound.native.?.native)),
+                        arg_count,
+                        catch_value,
+                    );
+                }
+            },
+            .Closure => {
+                return try self.repurposeFrame(
+                    obj.access(ObjClosure, .Closure, self.gc).?,
+                    arg_count,
+                    catch_value,
+                    in_fiber,
+                );
+            },
+            .Native => {
+                return try self.callNative(
+                    null,
+                    @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
+                    arg_count,
+                    catch_value,
+                );
+            },
+            else => {
+                unreachable;
+            },
+        }
+    }
+
+    fn invokeFromObject(
+        self: *Self,
+        object: *ObjObject,
+        name: *ObjString,
+        arg_count: u8,
+        catch_value: ?Value,
+        in_fiber: bool,
+        tail_call: bool,
+    ) !Value {
         if (object.methods.get(name)) |method| {
-            try self.call(method, arg_count, catch_value, in_fiber);
+            if (tail_call)
+                try self.tailCall(method.toValue(), arg_count, catch_value, in_fiber)
+            else
+                try self.call(method, arg_count, catch_value, in_fiber);
 
             return method.toValue();
         }
@@ -4041,7 +4280,14 @@ pub const VM = struct {
     }
 
     // FIXME: find way to remove
-    pub fn invoke(self: *Self, name: *ObjString, arg_count: u8, catch_value: ?Value, in_fiber: bool) !Value {
+    pub fn invoke(
+        self: *Self,
+        name: *ObjString,
+        arg_count: u8,
+        catch_value: ?Value,
+        in_fiber: bool,
+        tail_call: bool,
+    ) !Value {
         var receiver: Value = self.peek(arg_count);
 
         var obj: *Obj = receiver.obj();
@@ -4054,16 +4300,26 @@ pub const VM = struct {
                 if (instance.fields.get(name)) |field| {
                     (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-                    try self.callValue(field, arg_count, catch_value, in_fiber);
+                    if (tail_call)
+                        try self.tailCall(field, arg_count, catch_value, in_fiber)
+                    else
+                        try self.callValue(field, arg_count, catch_value, in_fiber);
 
                     return field;
                 }
 
-                return try self.invokeFromObject(instance.object.?, name, arg_count, catch_value, in_fiber);
+                return try self.invokeFromObject(
+                    instance.object.?,
+                    name,
+                    arg_count,
+                    catch_value,
+                    in_fiber,
+                    tail_call,
+                );
             },
             .String => {
                 if (try ObjString.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4075,7 +4331,7 @@ pub const VM = struct {
             },
             .Pattern => {
                 if (try ObjPattern.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4087,7 +4343,7 @@ pub const VM = struct {
             },
             .Fiber => {
                 if (try ObjFiber.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4101,7 +4357,7 @@ pub const VM = struct {
                 const list = obj.access(ObjList, .List, self.gc).?;
 
                 if (try list.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4115,7 +4371,7 @@ pub const VM = struct {
                 const map = obj.access(ObjMap, .Map, self.gc).?;
 
                 if (try map.member(self, name)) |member| {
-                    var member_value: Value = member.toValue();
+                    const member_value = member.toValue();
                     (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
                     try self.callValue(member_value, arg_count, catch_value, in_fiber);
@@ -4168,22 +4424,24 @@ pub const VM = struct {
     fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
-        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint) {
+        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint or function_type == .Repl) {
             return false;
         }
 
-        if (self.mir_jit != null and (self.mir_jit.?.compiled_closures.get(closure) != null or self.mir_jit.?.blacklisted_closures.get(closure) != null)) {
+        if (self.jit != null and (self.jit.?.compiled_closures.get(closure) != null or self.jit.?.blacklisted_closures.get(closure) != null)) {
             return false;
         }
 
-        const function_node: *FunctionNode = @ptrCast(@alignCast(closure.function.node));
-        const user_hot = function_node.node.docblock != null and std.mem.indexOf(u8, function_node.node.docblock.?.lexeme, "@hot") != null;
+        const user_hot = if (self.current_ast.nodes.items(.components)[closure.function.node].Function.docblock) |docblock|
+            std.mem.indexOf(u8, self.current_ast.tokens.items(.lexeme)[docblock], "@hot") != null
+        else
+            false;
 
         return if (BuildOptions.jit_always_on)
             return true
         else
             user_hot or
                 (closure.function.call_count > 10 and
-                (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.mir_jit.?.call_count))) > BuildOptions.jit_prof_threshold);
+                (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold);
     }
 };

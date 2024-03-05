@@ -1,0 +1,47 @@
+import "std";
+
+fun mul(int a, int b) > int {
+    return a * b;
+}
+
+fun tail(int a, int b) > int {
+    return mul(a, b);
+}
+
+test "simple tail call" {
+    assert(tail(a: 5, b: 2) == 10);
+}
+
+fun recursive(int limit, int current) > int {
+    if (current > limit) {
+        return current;
+    }
+
+    return recursive(limit, current: current + 1);
+}
+
+test "recursive tail call" {
+    assert(recursive(limit: 5, current: 0) == 6);
+}
+
+object Tail {
+    int a,
+    int b,
+
+    fun mul(int c) > int {
+        return (this.a + this.b) * c;
+    }
+
+    fun tail(int c) > int {
+        return this.mul(c);
+    }
+}
+
+test "dot tail call" {
+    const result = Tail{
+        a = 5,
+        b = 2,
+    }.tail(3);
+
+    print("{result}");
+}

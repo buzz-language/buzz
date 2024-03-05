@@ -7,7 +7,7 @@ import "errors";
 export enum HttpError {
     CertificateBundleLoadFailure,
     CompressionInitializationFailed,
-    CompressionNotSupported,
+    CompressionUnsupported,
     ConnectionRefused,
     ConnectionResetByPeer,
     ConnectionTimedOut,
@@ -17,9 +17,10 @@ export enum HttpError {
     HttpChunkInvalid,
     HttpConnectionHeaderUnsupported,
     HttpHeaderContinuationsUnsupported,
-    HttpHeadersExceededSizeLimit,
     HttpHeadersInvalid,
-    HttpRedirectMissingLocation,
+    HttpHeadersOversize,
+    HttpRedirectLocationInvalid,
+    HttpRedirectLocationMissing,
     HttpTransferEncodingUnsupported,
     InvalidCharacter,
     InvalidContentLength,
@@ -30,7 +31,7 @@ export enum HttpError {
     NameServerFailure,
     NetworkUnreachable,
     Overflow,
-    RedirectRequiresResend
+    RedirectRequiresResend,
     StreamTooLong,
     TemporaryNameServerFailure,
     TlsAlert,
@@ -66,13 +67,15 @@ extern fun HttpClientNew() > ud;
 || @private
 extern fun HttpClientDeinit(ud client) > void;
 || @private
-extern fun HttpClientSend(ud client, Method method, str uri, {str, str} headers) > ud !> HttpError;
+extern fun HttpClientSend(ud client, Method method, str uri, {str: str} headers) > ud !> HttpError;
 || @private
 extern fun HttpRequestWait(ud request) > void !> HttpError;
 || @private
 extern fun HttpRequestRead(ud request) > Response !> HttpError;
+|| @private
+extern fun HttpRequestDeinit(ud request) > void;
 
-const {int, str} reasons = {
+const {int: str} reasons = {
     100: "Continue",
     101: "Switching Protocols",
     102: "Processing",
@@ -154,6 +157,7 @@ object Connection {
 export object Client {
     || @private
     ud client,
+    bool collected = false,
 
     static fun init() > Client {
         return Client{
@@ -161,8 +165,8 @@ export object Client {
         };
     }
 
-    fun send(Request request) > Response > void !> HttpError, InvalidArgumentError, HttpParseError {
-        this.start(request);
+    fun send(Request request) > Response *> void !> HttpError, InvalidArgumentError, HttpParseError {
+        _ = this.start(request);
 
         yield void;
 
@@ -170,7 +174,7 @@ export object Client {
     }
 
     fun start(Request request) > Request !> HttpError {
-        ud requestPtr = HttpClientSend(
+        var requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,
             uri: request.uri,
@@ -183,7 +187,9 @@ export object Client {
     }
 
     fun collect() > void {
-        HttpClientDeinit(this.client);
+        if (!this.collected) {
+            HttpClientDeinit(this.client);
+        }
     }
 }
 
@@ -191,9 +197,10 @@ export object Request {
     ud? request = null,
     Response? response = null,
     Method method,
-    {str, str} headers = {<str, str>},
+    {str: str} headers = {<str: str>},
     str uri = "/",
     str? body = null,
+    bool collected = false,
 
     fun wait() > Response !> HttpError, InvalidArgumentError, HttpParseError {
         if (this.response != null) {
@@ -211,7 +218,7 @@ export object Request {
 
     fun toString() > str {
         try {
-            Buffer result = Buffer.init();
+            var result = Buffer.init();
 
             result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
             foreach (str key, str value in this.headers) {
@@ -227,16 +234,26 @@ export object Request {
 
         return "";
     }
+
+    fun collect() > void {
+        if (this.collected) {
+            return;
+        }
+
+        if (this.request -> request) {
+            HttpRequestDeinit(request);
+        }
+    }
 }
 
 export object Response {
     int status = 200,
-    {str, str} headers = {<str, str>},
+    {str: str} headers = {<str: str>},
     str? body = null,
 
     fun toString() > str {
         try {
-            Buffer result = Buffer.init();
+            var result = Buffer.init();
 
             result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
             foreach (str key, str value in this.headers) {

@@ -1,7 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
-const jmp = @import("../jmp.zig");
+const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
+pub const Native = fn (ctx: *NativeCtx) callconv(.C) c_int;
+pub const NativeFn = *const Native;
 
 // FIXME: all those should operate on Value
 // FIXME: some should only be available to the JIT compiler
@@ -36,8 +45,17 @@ pub const ZigType = opaque {
     pub extern fn bz_zigTypeAlignment(self: *ZigType) u16;
 };
 
+var gpa = std.heap.GeneralPurposeAllocator(.{
+    .safety = builtin.mode == .Debug,
+}){};
+
 pub const VM = opaque {
-    pub const allocator = @import("../buzz_api.zig").allocator;
+    pub const allocator = if (builtin.mode == .Debug or is_wasm)
+        gpa.allocator()
+    else if (BuildOptions.mimalloc)
+        @import("mimalloc.zig").mim_allocator
+    else
+        std.heap.c_allocator;
 
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
@@ -48,7 +66,14 @@ pub const VM = opaque {
         file_name: ?[*]const u8,
         file_name_len: usize,
     ) ?*ObjFunction;
-    pub extern fn bz_interpret(self: *VM, function: *ObjFunction) bool;
+    pub extern fn bz_interpret(self: *VM, ast: *anyopaque, function: *ObjFunction) bool;
+    pub extern fn bz_run(
+        self: *VM,
+        source: ?[*]const u8,
+        source_len: usize,
+        file_name: ?[*]const u8,
+        file_name_len: usize,
+    ) bool;
     pub extern fn bz_call(
         self: *VM,
         closure: *ObjClosure,

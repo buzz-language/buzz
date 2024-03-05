@@ -2,32 +2,14 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const http = std.http;
 
-fn getProxy() ?std.http.Client.HttpProxy {
-    const proxy = std.process.getEnvVarOwned(api.VM.allocator, "HTTPS_PROXY") catch std.process.getEnvVarOwned(api.VM.allocator, "HTTP_PROXY") catch std.process.getEnvVarOwned(api.VM.allocator, "https_proxy") catch std.process.getEnvVarOwned(api.VM.allocator, "http_proxy") catch null;
-
-    if (proxy == null) {
-        return null;
-    }
-
-    const proxy_uri = if (proxy) |p| std.Uri.parse(p) catch null else null;
-
-    return if (proxy_uri) |p|
-        .{
-            .protocol = if (std.mem.eql(u8, p.scheme, "https")) .tls else .plain,
-            .host = proxy_uri.?.host.?,
-            .port = p.port,
-        }
-    else
-        null;
-}
-
-export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     const client = api.VM.allocator.create(http.Client) catch @panic("Out of memory");
 
     client.* = http.Client{
         .allocator = api.VM.allocator,
-        .proxy = getProxy(),
     };
+
+    client.initDefaultProxies(api.VM.allocator) catch @panic("Out of memory");
 
     if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
@@ -38,20 +20,23 @@ export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     client.deinit();
+    api.VM.allocator.destroy(client);
 
     return 0;
 }
 
-export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
-    const method: http.Method = @enumFromInt(api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).integer());
+    var len: usize = 0;
+    const method_str = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).bz_valueToString(&len);
+    const method: http.Method = @enumFromInt(http.Method.parse(method_str.?[0..len]));
 
     var uri_len: usize = 0;
     const uri = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&uri_len);
@@ -60,7 +45,7 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     }
 
     const header_values = ctx.vm.bz_peek(0);
-    var headers = http.Headers.init(api.VM.allocator);
+    var headers = std.ArrayList(http.Header).init(api.VM.allocator);
     var next_header_key = api.Value.Null;
     var next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key);
     while (next_header_key.val != api.Value.Null.val) : (next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key)) {
@@ -73,29 +58,35 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
             @panic("Out of memory");
         }
 
-        headers.append(key.?[0..key_len], value.?[0..value_len]) catch @panic("Could not send request");
+        headers.append(
+            .{
+                .name = key.?[0..key_len],
+                .value = value.?[0..value_len],
+            },
+        ) catch @panic("Could not send request");
     }
 
     const request = api.VM.allocator.create(http.Client.Request) catch @panic("Out of memory");
+    const server_header_buffer = api.VM.allocator.alloc(u8, 16 * 1024) catch @panic("Out of memory");
 
-    request.* = client.request(
+    request.* = client.open(
         method,
         std.Uri.parse(uri.?[0..uri_len]) catch {
             ctx.vm.pushErrorEnum("http.HttpError", "MalformedUri");
 
             return -1;
         },
-        headers,
-        .{},
+        .{
+            .extra_headers = headers.items,
+            .server_header_buffer = server_header_buffer,
+        },
     ) catch |err| {
         handleError(ctx, err);
 
         return -1;
     };
 
-    const options = http.Client.Request.StartOptions{ .raw_uri = false };
-
-    request.start(options) catch |err| {
+    request.send(.{ .raw_uri = false }) catch |err| {
         handleStartError(ctx, err);
 
         return -1;
@@ -110,10 +101,17 @@ export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     }
 }
 
-export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
 
     request.wait() catch |err| {
         handleWaitError(ctx, err);
@@ -126,10 +124,36 @@ export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_valueToUserData();
-    const request = @as(*http.Client.Request, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
+
+    api.VM.allocator.free(request.response.parser.header_bytes_buffer);
+    request.deinit();
+    api.VM.allocator.destroy(request);
+
+    return 0;
+}
+
+pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
+    const userdata_value = ctx.vm.bz_peek(0);
+    const userdata = userdata_value.bz_valueToUserData();
+    const request = @as(
+        *http.Client.Request,
+        @ptrCast(
+            @alignCast(
+                @as(*anyopaque, @ptrFromInt(userdata)),
+            ),
+        ),
+    );
 
     var body_raw = std.ArrayList(u8).init(api.VM.allocator);
     defer body_raw.deinit();
@@ -208,7 +232,8 @@ export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
         headers,
     );
 
-    for (request.response.headers.list.items) |header| {
+    var header_it = request.response.iterateHeaders();
+    while (header_it.next()) |header| {
         api.ObjMap.bz_mapSet(
             ctx.vm,
             headers,
@@ -238,10 +263,9 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.OutOfMemory => @panic("Out of memory"),
 
-        error.RedirectRequiresResend,
         error.CertificateBundleLoadFailure,
         error.CompressionInitializationFailed,
-        error.CompressionNotSupported,
+        error.CompressionUnsupported,
         error.ConnectionRefused,
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
@@ -250,23 +274,22 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
         error.HttpChunkInvalid,
         error.HttpConnectionHeaderUnsupported,
         error.HttpHeaderContinuationsUnsupported,
-        error.HttpHeadersExceededSizeLimit,
         error.HttpHeadersInvalid,
-        error.HttpRedirectMissingLocation,
+        error.HttpHeadersOversize,
+        error.HttpRedirectLocationInvalid,
+        error.HttpRedirectLocationMissing,
         error.HttpTransferEncodingUnsupported,
         error.InvalidCharacter,
         error.InvalidContentLength,
-        error.InvalidFormat,
-        error.InvalidPort,
         error.NameServerFailure,
         error.NetworkUnreachable,
         error.Overflow,
+        error.RedirectRequiresResend,
         error.TemporaryNameServerFailure,
         error.TlsAlert,
         error.TlsFailure,
         error.TlsInitializationFailed,
         error.TooManyHttpRedirects,
-        error.UnexpectedCharacter,
         error.UnexpectedConnectFailure,
         error.UnexpectedReadFailure,
         error.UnexpectedWriteFailure,
@@ -325,10 +348,10 @@ fn handleResponseError(ctx: *api.NativeCtx, err: anytype) void {
         error.UnexpectedReadFailure,
         error.EndOfStream,
         error.HttpChunkInvalid,
-        error.HttpHeadersExceededSizeLimit,
         error.DecompressionFailure,
         error.InvalidTrailers,
         error.StreamTooLong,
+        error.HttpHeadersOversize,
         => ctx.vm.pushErrorEnum("http.HttpError", @errorName(err)),
     }
 }

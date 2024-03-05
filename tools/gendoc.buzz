@@ -12,24 +12,24 @@ object Declaration {
     str typeDef,
     str? docblock,
 
-    {str, Declaration} subDeclarations,
+    {str: Declaration} subDeclarations,
 
     static fun init(
         str declarationType,
         str typeDef,
         str? docblock,
-        {str, Declaration}? subDeclarations
+        {str: Declaration}? subDeclarations
     ) > Declaration -> Declaration{
         declarationType = declarationType,
         typeDef = typeDef,
         docblock = docblock,
-        subDeclarations = subDeclarations ?? {<str, Declaration>},
+        subDeclarations = subDeclarations ?? {<str: Declaration>},
     }
 
     | Split docblock by @ instructions
-    static fun handleDocblock(str docblock) > {str, str} {
+    static fun handleDocblock(str docblock) > {str: str} {
         const pat atPattern = $"@([^@ ]+)(\s+[^\n@]+)?";
-        {str, str} out = {<str, str>};
+        {str: str} out = {<str: str>};
 
         foreach (str line in docblock.split("\\n")) {
             if (atPattern.match(line) -> at) {
@@ -53,7 +53,7 @@ object Declaration {
             return;
         }
 
-        {str, str} processed = Declaration.handleDocblock(this.docblock ?? "");
+        {str: str} processed = Declaration.handleDocblock(this.docblock ?? "");
 
         | Ignore things marked with @private
         if (processed["private"] != null) {
@@ -85,7 +85,7 @@ fun extractDeclarations([Boxed] statements) > [Declaration] !> JsonParseError {
     [Declaration] declarations = [<Declaration>];
 
     foreach (Boxed statement in statements) {
-        {str, Boxed} statementMap = statement.mapValue();
+        {str: Boxed} statementMap = statement.mapValue();
         str nodeType = statement.q(["node"]).stringValue();
 
         if (
@@ -106,7 +106,7 @@ fun extractDeclarations([Boxed] statements) > [Declaration] !> JsonParseError {
             }
 
             if (nodeType == "ObjectDeclaration") {
-                {str, Boxed} props = statement.q(["members"]).mapValue();
+                {str: Boxed} props = statement.q(["members"]).mapValue();
                 foreach (str name, Boxed member in props) {
                     str typeDef = member.q(["type_def"]).stringValue();
                     str displayName = "{typeDef} {name}";
@@ -176,7 +176,7 @@ fun main([str] args) > void
        JsonParseError,
        WriteWhileReadingError
 {
-    {str, str} markdownDoc = {<str, str>};
+    {str: str} markdownDoc = {<str: str>};
     foreach (str file in list("src/lib")) {
         if (file.endsWith(".buzz")) {
             print("Generating doc for {file}...");

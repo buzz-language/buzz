@@ -29,7 +29,7 @@ test "typeof" {
     assert(typeof 1 == <int>, message: "typeof operator int");
     assert(typeof 3.14 == <float>, message: "typeof operator float");
     assert(typeof $"hello" == <pat>, message: "typeof operator pattern");
-    assert(typeof dumpType == <Function(type myType) > void > void>, message: "typeof operator");
+    assert(typeof dumpType == <Function(type myType) > void *> void>, message: "typeof operator");
 }
 
 test "type argument" {

@@ -3,6 +3,7 @@ const api = @import("buzz_api.zig");
 
 fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
         error.DiskQuota,
@@ -24,7 +25,7 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn makeDirectory(ctx: *api.NativeCtx) c_int {
+pub export fn makeDirectory(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -67,7 +68,7 @@ fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn delete(ctx: *api.NativeCtx) c_int {
+pub export fn delete(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -92,7 +93,9 @@ export fn delete(ctx: *api.NativeCtx) c_int {
 
 fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DiskQuota,
         error.FileBusy,
@@ -120,15 +123,15 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
+        error.UnrecognizedVolume,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
-        error.FileBusy,
         error.FileSystem,
         error.FileTooBig,
         error.InputOutput,
-        error.InvalidHandle,
-        error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
         error.NoDevice,
@@ -142,7 +145,6 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
-        error.WouldBlock,
         error.FileNotFound,
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
@@ -152,7 +154,7 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-export fn move(ctx: *api.NativeCtx) c_int {
+pub export fn move(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const source = ctx.vm.bz_peek(1).bz_valueToString(&len);
     const source_slice = source.?[0..len];
@@ -208,14 +210,15 @@ export fn move(ctx: *api.NativeCtx) c_int {
 
 fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
+        error.AntivirusInterference,
         error.BadPathName,
         error.DeviceBusy,
         error.FileBusy,
         error.FileLocksNotSupported,
         error.FileNotFound,
         error.FileTooBig,
-        error.InvalidHandle,
         error.InvalidUtf8,
         error.IsDir,
         error.NameTooLong,
@@ -239,10 +242,10 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
+        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
         error.DeviceBusy,
-        error.InvalidHandle,
         error.InvalidUtf8,
         error.NameTooLong,
         error.NoDevice,
@@ -263,29 +266,40 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
         error.SystemResources,
+        error.InvalidUtf8,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
-export fn list(ctx: *api.NativeCtx) c_int {
+pub export fn list(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
 
     const dir = if (std.fs.path.isAbsolute(filename_slice))
-        std.fs.openIterableDirAbsolute(filename_slice, .{}) catch |err| {
+        std.fs.openDirAbsolute(
+            filename_slice,
+            .{
+                .iterate = true,
+            },
+        ) catch |err| {
             handleOpenDirAbsoluteError(ctx, err);
             return -1;
         }
     else
-        std.fs.cwd().openIterableDir(filename_slice, .{}) catch |err| {
+        std.fs.cwd().openDir(
+            filename_slice,
+            .{
+                .iterate = true,
+            },
+        ) catch |err| {
             handleOpenDirError(ctx, err);
             return -1;
         };
 
-    var file_list = api.ObjList.bz_newList(
+    const file_list = api.ObjList.bz_newList(
         ctx.vm,
         api.ObjTypeDef.bz_stringType(ctx.vm),
     );
@@ -313,7 +327,7 @@ export fn list(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-export fn exists(ctx: *api.NativeCtx) c_int {
+pub export fn exists(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];

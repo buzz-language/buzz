@@ -5,20 +5,24 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const TryCtx = _vm.TryCtx;
 const _obj = @import("obj.zig");
-const _value = @import("value.zig");
+const Value = @import("value.zig").Value;
 const memory = @import("memory.zig");
-const _parser = @import("parser.zig");
-const _codegen = @import("codegen.zig");
+const Parser = @import("Parser.zig");
+const CodeGen = @import("Codegen.zig");
 const BuildOptions = @import("build_options");
-const jmp = @import("jmp.zig");
-const FunctionNode = @import("node.zig").FunctionNode;
+const is_wasm = builtin.cpu.arch.isWasm();
+const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
-const Token = @import("token.zig").Token;
+const Token = @import("Token.zig");
+const Ast = @import("Ast.zig");
 
-const Value = _value.Value;
-const valueToStringAlloc = _value.valueToStringAlloc;
-const valueEql = _value.valueEql;
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
+const eql = Value.eql;
 const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjPattern = _obj.ObjPattern;
@@ -40,19 +44,17 @@ const ObjForeignContainer = _obj.ObjForeignContainer;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const TypeRegistry = memory.TypeRegistry;
-const Parser = _parser.Parser;
-const CodeGen = _codegen.CodeGen;
 const GarbageCollector = memory.GarbageCollector;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{
-    .safety = true,
+    .safety = builtin.mode == .Debug,
 }){};
 
-pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+pub const allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
     gpa.allocator()
 else if (BuildOptions.mimalloc)
     @import("mimalloc.zig").mim_allocator
-else
+else if (!is_wasm)
     std.heap.c_allocator;
 
 // Stack manipulation
@@ -144,7 +146,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
     if (value.isNull()) {
         std.debug.print("null", .{});
     } else if (!value.isObj() or seen.get(value.obj()) != null) {
-        const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+        const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
         defer string.deinit();
 
         std.debug.print("{s}", .{string.items});
@@ -161,7 +163,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Fiber,
             .EnumInstance,
             => {
-                const string = valueToStringAlloc(vm.gc.allocator, value) catch std.ArrayList(u8).init(vm.gc.allocator);
+                const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                 defer string.deinit();
 
                 std.debug.print("{s}", .{string.items});
@@ -182,7 +184,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Pattern => {
                 const pattern = ObjPattern.cast(value.obj()).?;
 
-                std.debug.print("_{s}_", .{pattern.source});
+                std.debug.print("$\"{s}\"", .{pattern.source});
             },
 
             .List => {
@@ -219,7 +221,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
                 for (enum_type_def.cases.items, 0..) |case, i| {
                     std.debug.print("{s} -> ", .{case});
-                    valueDump(enumeration.cases.items[i], vm, seen, depth);
+                    valueDump(enumeration.cases[i], vm, seen, depth);
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("}}", .{});
@@ -339,7 +341,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 }
 
 /// Dump value
-export fn bz_valueDump(value: Value, vm: *VM) void {
+pub export fn bz_valueDump(value: Value, vm: *VM) void {
     var seen = std.AutoHashMap(*_obj.Obj, void).init(vm.gc.allocator);
     defer seen.deinit();
 
@@ -426,7 +428,7 @@ export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) 
 }
 
 export fn bz_toString(vm: *VM, value: Value) Value {
-    const str = valueToStringAlloc(vm.gc.allocator, value) catch {
+    const str = value.toStringAlloc(vm.gc.allocator) catch {
         @panic("Could not convert value to string");
     };
     defer str.deinit();
@@ -496,16 +498,16 @@ export fn bz_collect(self: *VM) bool {
 }
 
 export fn bz_newList(vm: *VM, of_type: Value) Value {
-    var list_def: ObjList.ListDef = ObjList.ListDef.init(
+    const list_def: ObjList.ListDef = ObjList.ListDef.init(
         vm.gc.allocator,
         ObjTypeDef.cast(of_type.obj()).?,
     );
 
-    var list_def_union: ObjTypeDef.TypeUnion = .{
+    const list_def_union: ObjTypeDef.TypeUnion = .{
         .List = list_def,
     };
 
-    var list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
+    const list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
         .def_type = .List,
         .optional = false,
         .resolved_type = list_def_union,
@@ -594,7 +596,7 @@ export fn bz_userDataToValue(userdata: *ObjUserData) Value {
 }
 
 export fn bz_newVM(self: *VM) ?*VM {
-    var vm = self.gc.allocator.create(VM) catch {
+    const vm = self.gc.allocator.create(VM) catch {
         return null;
     };
     var gc = self.gc.allocator.create(GarbageCollector) catch {
@@ -619,7 +621,13 @@ export fn bz_deinitVM(_: *VM) void {
     // self.deinit();
 }
 
-export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) ?*ObjFunction {
+export fn bz_compile(
+    self: *VM,
+    source: ?[*]const u8,
+    source_len: usize,
+    file_name: ?[*]const u8,
+    file_name_len: usize,
+) ?*ObjFunction {
     if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
         return null;
     }
@@ -645,23 +653,68 @@ export fn bz_compile(self: *VM, source: ?[*]const u8, source_len: usize, file_na
         strings.deinit();
     }
 
-    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |function_node| {
-        return function_node.toByteCode(function_node, &codegen, null) catch null;
+    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |ast| {
+        return codegen.generate(ast) catch null;
     } else {
         return null;
     }
 }
 
-export fn bz_interpret(self: *VM, function: *ObjFunction) bool {
-    self.interpret(function, null) catch {
+export fn bz_interpret(self: *VM, ast: *anyopaque, function: *ObjFunction) bool {
+    self.interpret(@as(*Ast, @ptrCast(@alignCast(ast))).*, function, null) catch {
         return false;
     };
 
     return true;
 }
 
+export fn bz_run(
+    self: *VM,
+    source: ?[*]const u8,
+    source_len: usize,
+    file_name: ?[*]const u8,
+    file_name_len: usize,
+) bool {
+    if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
+        return false;
+    }
+
+    var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
+    var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
+    var parser = Parser.init(
+        self.gc,
+        &imports,
+        false,
+        self.flavor,
+    );
+    var codegen = CodeGen.init(
+        self.gc,
+        &parser,
+        self.flavor,
+        null,
+    );
+    defer {
+        codegen.deinit();
+        imports.deinit();
+        parser.deinit();
+        strings.deinit();
+    }
+
+    if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |ast| {
+        if (codegen.generate(ast) catch null) |function| {
+            self.interpret(ast, function, null) catch {
+                return false;
+            };
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
 fn calleeIsCompiled(value: Value) bool {
-    var obj: *Obj = value.obj();
+    const obj: *Obj = value.obj();
     return switch (obj.obj_type) {
         .Bound => bound: {
             const bound = ObjBoundMethod.cast(obj).?;
@@ -704,6 +757,7 @@ pub export fn bz_invoke(
         method,
         len,
         if (catch_value) |v| v.* else null,
+        false,
         false,
     ) catch unreachable;
 
@@ -986,14 +1040,14 @@ export fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) Val
 export fn bz_getEnumCaseValue(enum_instance_value: Value) Value {
     const instance = ObjEnumInstance.cast(enum_instance_value.obj()).?;
 
-    return instance.enum_ref.cases.items[instance.case];
+    return instance.enum_ref.cases[instance.case];
 }
 
 export fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) Value {
     const enum_ = ObjEnum.cast(enum_value.obj()).?;
 
-    for (enum_.cases.items, 0..) |case, index| {
-        if (valueEql(case, case_value)) {
+    for (enum_.cases, 0..) |case, index| {
+        if (eql(case, case_value)) {
             var enum_case: *ObjEnumInstance = vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
                 .enum_ref = enum_,
                 .case = @intCast(index),
@@ -1019,7 +1073,7 @@ export fn bz_toObjNative(value: Value) *ObjNative {
 }
 
 export fn bz_valueEqual(self: Value, other: Value) Value {
-    return Value.fromBoolean(_value.valueEql(self, other));
+    return Value.fromBoolean(self.eql(other));
 }
 
 export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
@@ -1048,13 +1102,17 @@ export fn bz_mapGet(map: Value, key: Value) Value {
 }
 
 export fn bz_valueIs(self: Value, type_def: Value) Value {
-    return Value.fromBoolean(_value.valueIs(type_def, self));
+    return Value.fromBoolean(type_def.is(self));
 }
 
 export fn bz_setTryCtx(self: *VM) *TryCtx {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // It would be better that this was in an ALLOCA, but with it memory keeps slowing leaking
     // Maybe the jmp throws off the stack?
-    var try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
+    const try_ctx = self.gc.allocator.create(TryCtx) catch @panic("Could not create try context");
     try_ctx.* = .{
         .previous = self.current_fiber.try_context,
         .env = undefined,
@@ -1068,6 +1126,10 @@ export fn bz_setTryCtx(self: *VM) *TryCtx {
 }
 
 export fn bz_popTryCtx(self: *VM) void {
+    if (is_wasm) {
+        unreachable;
+    }
+
     if (self.current_fiber.try_context) |try_ctx| {
         self.current_fiber.try_context = try_ctx.previous;
 
@@ -1077,6 +1139,10 @@ export fn bz_popTryCtx(self: *VM) void {
 
 // Like bz_throw but assumes the error payload is already on the stack
 export fn bz_rethrow(vm: *VM) void {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // Are we in a JIT compiled function and within a try-catch?
     if ((vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
         // FIXME: close try scope
@@ -1111,6 +1177,10 @@ export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
 }
 
 export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
+    if (is_wasm) {
+        unreachable;
+    }
+
     const bound = if (closure_value.obj().obj_type == .Bound)
         ObjBoundMethod.cast(closure_value.obj()).?
     else
@@ -1128,6 +1198,23 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     else
         null;
 
+    if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
+        // If recursive call, update counter
+        ctx.vm.current_fiber.recursive_count = if (closure != null and closure.?.function == ctx.vm.current_fiber.current_compiled_function)
+            ctx.vm.current_fiber.recursive_count + 1
+        else
+            0;
+
+        if (ctx.vm.current_fiber.recursive_count > recursive_call_limit) {
+            ctx.vm.throw(
+                VM.Error.ReachedMaximumRecursiveCall,
+                (ctx.vm.gc.copyString("Maximum recursive call reached") catch @panic("Maximum recursive call reached")).toValue(),
+                null,
+                null,
+            ) catch @panic("Maximum recursive call reached");
+        }
+    }
+
     // If bound method, replace closure on the stack by the receiver
     if (bound != null) {
         (ctx.vm.current_fiber.stack_top - arg_count - 1)[0] = bound.?.receiver;
@@ -1142,7 +1229,11 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     };
 
     if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
-        ctx.vm.mir_jit.?.compileFunction(closure.?) catch @panic("Failed compiling function");
+        ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, closure.?) catch @panic("Failed compiling function");
+    }
+
+    if (closure) |cls| {
+        ctx.vm.current_fiber.current_compiled_function = cls.function;
     }
 
     return if (closure) |cls| cls.function.native_raw.? else native.?.native;
@@ -1150,12 +1241,16 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
 
 export fn bz_closure(
     ctx: *NativeCtx,
-    function_node: *FunctionNode,
+    function_node: Ast.Node.Index,
     native: *anyopaque,
     native_raw: *anyopaque,
 ) Value {
+    if (is_wasm) {
+        unreachable;
+    }
+
     // Set native pointers in objfunction
-    var obj_function = function_node.function.?;
+    var obj_function = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.function.?;
     obj_function.native = native;
     obj_function.native_raw = native_raw;
 
@@ -1171,9 +1266,9 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
-    ctx.vm.mir_jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
+    ctx.vm.jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
 
-    var it = function_node.upvalue_binding.iterator();
+    var it = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.upvalue_binding.iterator();
     while (it.next()) |kv| {
         const is_local = kv.value_ptr.*;
         const index = kv.key_ptr.*;
@@ -1337,6 +1432,10 @@ export fn dumpInt(value: u64) void {
 }
 
 export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*const ZigType {
+    if (is_wasm) {
+        return null;
+    }
+
     const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
 
     if (zdef) |uzdef| {
@@ -1554,7 +1653,7 @@ export fn bz_writeZigValueToBuffer(
                 @as(u8, 1)
             else
                 @as(u8, 0));
-            var bytes = std.mem.asBytes(&unwrapped);
+            const bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
         },
@@ -1563,13 +1662,13 @@ export fn bz_writeZigValueToBuffer(
             switch (ztype.Int.bits) {
                 64 => {
                     const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
-                    var bytes = std.mem.asBytes(&unwrapped);
+                    const bytes = std.mem.asBytes(&unwrapped);
 
                     buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
                 },
                 1...32 => {
                     const unwrapped = value.integer();
-                    var bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
+                    const bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
 
                     buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
                 },
@@ -1579,13 +1678,13 @@ export fn bz_writeZigValueToBuffer(
         .Float => switch (ztype.Float.bits) {
             32 => {
                 const unwrapped = @as(f32, @floatCast(value.float()));
-                var bytes = std.mem.asBytes(&unwrapped);
+                const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
             },
             64 => {
                 const unwrapped = value.float();
-                var bytes = std.mem.asBytes(&unwrapped);
+                const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
             },
@@ -1607,7 +1706,7 @@ export fn bz_writeZigValueToBuffer(
         .Opaque,
         => {
             const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
-            var bytes = std.mem.asBytes(&unwrapped);
+            const bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
         },

@@ -5,26 +5,73 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const RunFlavor = _vm.RunFlavor;
 const ImportRegistry = _vm.ImportRegistry;
-const _parser = @import("parser.zig");
-const Parser = _parser.Parser;
-const CompileError = _parser.CompileError;
-const CodeGen = @import("codegen.zig").CodeGen;
+const Parser = @import("Parser.zig");
+const CodeGen = @import("Codegen.zig");
 const _obj = @import("obj.zig");
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
 const TypeRegistry = @import("memory.zig").TypeRegistry;
-const FunctionNode = @import("node.zig").FunctionNode;
+const Ast = @import("Ast.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("ext/clap/clap.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
-const MIRJIT = @import("mirjit.zig");
+const JIT = if (!is_wasm) @import("Jit.zig") else void;
+const is_wasm = builtin.cpu.arch.isWasm();
+const repl = if (!is_wasm) @import("repl.zig").repl else void;
+const wasm_repl = @import("wasm_repl.zig");
 
-fn toNullTerminated(allocator: std.mem.Allocator, string: []const u8) ![:0]u8 {
-    return allocator.dupeZ(u8, string);
+pub export const initRepl_export = wasm_repl.initRepl;
+pub export const runLine_export = wasm_repl.runLine;
+
+pub const os = if (is_wasm)
+    @import("wasm.zig")
+else
+    std.os;
+
+fn printBanner(out: std.fs.File.Writer, full: bool) void {
+    out.print(
+        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        .{
+            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+            BuildOptions.sha,
+        },
+    ) catch unreachable;
+
+    if (full) {
+        out.print(
+            "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
+            .{
+                builtin.zig_version,
+                switch (builtin.mode) {
+                    .ReleaseFast => "release-fast",
+                    .ReleaseSafe => "release-safe",
+                    .ReleaseSmall => "release-small",
+                    .Debug => "debug",
+                },
+                if (builtin.mode == .Debug)
+                    "gpa"
+                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
+                if (BuildOptions.memory_limit) |ml|
+                    ml
+                else
+                    0,
+                if (BuildOptions.memory_limit != null)
+                    "bytes"
+                else
+                    "(unlimited)",
+                if (BuildOptions.jit and BuildOptions.cycle_limit == null)
+                    "on"
+                else
+                    "off",
+                if (BuildOptions.cycle_limit) |cl| cl else 0,
+                if (BuildOptions.cycle_limit != null) "cycles" else "(unlimited)",
+            },
+        ) catch unreachable;
+    }
 }
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
-    var total_timer = std.time.Timer.start() catch unreachable;
+    var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
     gc.type_registry = TypeRegistry{
@@ -33,14 +80,14 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     };
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor);
-    vm.mir_jit = if (BuildOptions.jit)
-        MIRJIT.init(&vm)
+    vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
+        JIT.init(&vm)
     else
         null;
     defer {
-        if (vm.mir_jit != null) {
-            vm.mir_jit.?.deinit();
-            vm.mir_jit = null;
+        if (!is_wasm and vm.jit != null) {
+            vm.jit.?.deinit();
+            vm.jit = null;
         }
     }
     var parser = Parser.init(
@@ -53,7 +100,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         &gc,
         &parser,
         flavor,
-        if (vm.mir_jit) |*jit| jit else null,
+        if (vm.jit) |*jit| jit else null,
     );
     defer {
         codegen.deinit();
@@ -87,53 +134,38 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    if (try parser.parse(source, file_name)) |function_node| {
-        parsing_time = timer.read();
-        timer.reset();
+    if (try parser.parse(source, file_name)) |ast| {
+        if (!is_wasm) {
+            parsing_time = timer.read();
+            timer.reset();
+        }
 
         if (flavor == .Run or flavor == .Test) {
-            if (try codegen.generate(FunctionNode.cast(function_node).?)) |function| {
-                codegen_time = timer.read();
-                timer.reset();
-
-                switch (flavor) {
-                    .Run, .Test => try vm.interpret(
-                        function,
-                        args,
-                    ),
-                    .Fmt => {
-                        var formatted = std.ArrayList(u8).init(allocator);
-                        defer formatted.deinit();
-
-                        try function_node.render(function_node, &formatted.writer(), 0);
-
-                        std.debug.print("{s}", .{formatted.items});
-                    },
-                    .Ast => {
-                        var json = std.ArrayList(u8).init(allocator);
-                        defer json.deinit();
-
-                        try function_node.toJson(function_node, &json.writer());
-
-                        var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-                        defer allocator.free(without_nl);
-
-                        _ = try std.io.getStdOut().write(without_nl);
-                    },
-                    else => {},
+            if (try codegen.generate(ast)) |function| {
+                if (!is_wasm) {
+                    codegen_time = timer.read();
+                    timer.reset();
                 }
 
-                running_time = timer.read();
+                try vm.interpret(
+                    ast,
+                    function,
+                    args,
+                );
+
+                if (!is_wasm) {
+                    running_time = timer.read();
+                }
             } else {
-                return CompileError.Recoverable;
+                return Parser.CompileError.Recoverable;
             }
 
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-                const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
-                const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
-                const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
-                const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-                const jit_ms: f64 = if (vm.mir_jit) |jit|
+                const parsing_ms = @as(f64, @floatFromInt(parsing_time)) / 1000000;
+                const codegen_ms = @as(f64, @floatFromInt(codegen_time)) / 1000000;
+                const running_ms = @as(f64, @floatFromInt(running_time)) / 1000000;
+                const gc_ms = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
+                const jit_ms = if (vm.jit) |jit|
                     @as(f64, @floatFromInt(jit.jit_time)) / 1000000
                 else
                     0;
@@ -145,7 +177,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                         running_ms,
                         jit_ms,
                         gc_ms,
-                        @as(f64, @floatFromInt(total_timer.read())) / 1000000,
+                        @as(f64, @floatFromInt(if (!is_wasm) total_timer.read() else 0)) / 1000000,
                         gc.full_collection_count,
                         gc.light_collection_count,
                         gc.max_allocated,
@@ -153,38 +185,39 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                 );
             }
         } else {
-            switch (flavor) {
-                .Run, .Test => unreachable,
-                .Fmt => {
-                    var formatted = std.ArrayList(u8).init(allocator);
-                    defer formatted.deinit();
-
-                    try function_node.render(function_node, &formatted.writer(), 0);
-
-                    std.debug.print("{s}", .{formatted.items});
-                },
-                .Ast => {
-                    var json = std.ArrayList(u8).init(allocator);
-                    defer json.deinit();
-
-                    try function_node.toJson(function_node, &json.writer());
-
-                    var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-                    defer allocator.free(without_nl);
-
-                    _ = try std.io.getStdOut().write(without_nl);
-                },
-                else => {},
-            }
+            std.debug.print("Formatting and Ast dump is deactivated", .{});
+            // switch (flavor) {
+            //     .Run, .Test => unreachable,
+            //     .Fmt => {
+            //         var formatted = std.ArrayList(u8).init(allocator);
+            //         defer formatted.deinit();
+            //
+            //         try function_node.render(function_node, &formatted.writer(), 0);
+            //
+            //         std.debug.print("{s}", .{formatted.items});
+            //     },
+            //     .Ast => {
+            //         var json = std.ArrayList(u8).init(allocator);
+            //         defer json.deinit();
+            //
+            //         try function_node.toJson(function_node, &json.writer());
+            //
+            //         var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
+            //         defer allocator.free(without_nl);
+            //
+            //         _ = try std.io.getStdOut().write(without_nl);
+            //     },
+            //     else => {},
+            // }
         }
     } else {
-        return CompileError.Recoverable;
+        return Parser.CompileError.Recoverable;
     }
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    var allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = builtin.mode == .Debug }){};
+    var allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
         gpa.allocator()
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
@@ -204,9 +237,15 @@ pub fn main() !void {
     );
 
     var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-    }) catch |err| {
+    var res = clap.parse(
+        clap.Help,
+        &params,
+        clap.parsers.default,
+        .{
+            .allocator = allocator,
+            .diagnostic = &diag,
+        },
+    ) catch |err| {
         // Report useful error and exit
         diag.report(std.io.getStdErr().writer(), err) catch {};
         return err;
@@ -214,32 +253,14 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.version == 1) {
-        std.debug.print(
-            "👨‍🚀 buzz {s}-{s} Copyright (C) 2021-2023 Benoit Giannangeli\nBuilt with Zig {} {s}\nAllocator: {s}\nJIT: {s}\n",
-            .{
-                if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
-                BuildOptions.sha,
-                builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
-                if (builtin.mode == .Debug)
-                    "gpa"
-                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.jit)
-                    "on"
-                else
-                    "off",
-            },
-        );
+        printBanner(std.io.getStdOut().writer(), true);
 
-        std.os.exit(0);
+        if (!is_wasm) {
+            std.os.exit(0);
+        }
     }
 
-    if (res.args.help == 1 or res.positionals.len == 0) {
+    if (res.args.help == 1) {
         std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
         try clap.usage(
@@ -261,7 +282,9 @@ pub fn main() !void {
             },
         );
 
-        std.os.exit(0);
+        if (!is_wasm) {
+            std.os.exit(0);
+        }
     }
 
     if (res.args.library.len > 0) {
@@ -277,7 +300,7 @@ pub fn main() !void {
 
     var positionals = std.ArrayList([:0]u8).init(allocator);
     for (res.positionals) |pos| {
-        try positionals.append(try toNullTerminated(allocator, pos));
+        try positionals.append(try allocator.dupeZ(u8, pos));
     }
     defer {
         for (positionals.items) |pos| {
@@ -287,47 +310,70 @@ pub fn main() !void {
     }
 
     const flavor: RunFlavor = if (res.args.check == 1)
-        RunFlavor.Check
+        .Check
     else if (res.args.@"test" == 1)
-        RunFlavor.Test
+        .Test
     else if (res.args.fmt == 1)
-        RunFlavor.Fmt
+        .Fmt
     else if (res.args.tree == 1)
-        RunFlavor.Ast
+        .Ast
+    else if (res.positionals.len == 0)
+        .Repl
     else
-        RunFlavor.Run;
+        .Run;
 
-    runFile(
-        allocator,
-        res.positionals[0],
-        positionals.items[1..],
-        flavor,
-    ) catch |err| {
-        if (BuildOptions.debug) {
-            std.debug.print("Failed with error {}\n", .{err});
-        }
-        // TODO: should probably choses appropriate error code
-        std.os.exit(1);
-    };
+    if (!is_wasm and flavor == .Repl) {
+        repl(allocator) catch {
+            if (!is_wasm) {
+                std.os.exit(1);
+            }
 
-    std.os.exit(0);
+            std.debug.print("REPL stopped", .{});
+        };
+    } else if (!is_wasm and positionals.items.len > 0) {
+        runFile(
+            allocator,
+            res.positionals[0],
+            positionals.items[1..],
+            flavor,
+        ) catch {
+            if (!is_wasm) {
+                std.os.exit(1);
+            }
+
+            std.debug.print("VM stopped", .{});
+        };
+    } else if (is_wasm) {
+        std.debug.print("NYI wasm repl", .{});
+    } else {
+        std.debug.print("Nothing to run", .{});
+    }
+
+    if (!is_wasm) {
+        std.os.exit(0);
+    }
 }
 
 test "Testing behavior" {
     var gpa = std.heap.GeneralPurposeAllocator(.{
-        .safety = true,
+        .safety = builtin.mode == .Debug,
     }){};
     var allocator: Allocator = gpa.allocator();
 
     var count: usize = 0;
     var fail_count: usize = 0;
     {
-        var test_dir = try std.fs.cwd().openIterableDir("tests", .{});
+        var test_dir = try std.fs.cwd().openDir(
+            "tests",
+            .{
+                .iterate = true,
+            },
+        );
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
             if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
-                var file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+                const file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
 
                 std.debug.print("{s}\n", .{file.name});
@@ -352,24 +398,29 @@ test "Testing behavior" {
     }
 
     {
-        var test_dir = try std.fs.cwd().openIterableDir("tests/compile_errors", .{});
+        var test_dir = try std.fs.cwd().openDir(
+            "tests/compile_errors",
+            .{
+                .iterate = true,
+            },
+        );
         var it = test_dir.iterate();
 
         while (try it.next()) |file| : (count += 1) {
             if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
-                var file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
+                const file_name: []u8 = try allocator.alloc(u8, 21 + file.name.len);
                 defer allocator.free(file_name);
                 _ = try std.fmt.bufPrint(file_name, "tests/compile_errors/{s}", .{file.name});
 
                 // First line of test file is expected error message
                 const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
                 const reader = test_file.reader();
-                const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', 16 * 8 * 64);
+                const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
                 defer allocator.free(first_line);
-                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{_parser.buzz_prefix(allocator)}) catch unreachable;
+                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{Parser.buzzPrefix()}) catch unreachable;
                 defer allocator.free(arg0);
 
-                const result = try std.ChildProcess.exec(
+                const result = try std.ChildProcess.run(
                     .{
                         .allocator = allocator,
                         .argv = ([_][]const u8{

@@ -1,6 +1,6 @@
 import "std";
 
-fun fibonnaci(int n) > void > int? {
+fun fibonnaci(int n) > void *> int? {
     int n1 = 0;
     int n2 = 1;
     int? next = null;
@@ -20,5 +20,26 @@ test "finobacci generator" {
         assert(suite[i] == n, message: "could iterate over fiber");
 
         i = i + 1;
+    }
+}
+
+object Hello {
+    fun range() > [int] *> int? {
+        var list = [<int>];
+        foreach (int i in 0..10) {
+            _ = yield i;
+
+            list.append(i);
+        }
+
+        return list;
+    }
+}
+
+test "dot async call" {
+    var hello = Hello{};
+
+    foreach (int i in &hello.range()) {
+        print("i {i}");
     }
 }

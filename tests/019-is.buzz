@@ -28,7 +28,7 @@ test "`is` operator" {
     assert(myFun is Function(int id) > int, message: "`is` for a function");
 
     assert([<int>, 1,2,3] is [int], message: "`is` on a list");
-    assert({<str, int>, "one": 1} is {str, int}, message: "`is` on a map");
+    assert({<str: int>, "one": 1} is {str: int}, message: "`is` on a map");
     | TODO: should be `Function(MyObj) > bool`
     assert(MyObj{}.bound is Function() > bool, message: "`is` on bound method");
 }

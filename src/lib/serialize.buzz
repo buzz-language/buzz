@@ -32,9 +32,9 @@ export object Boxed {
     }
 
     || When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
-    fun map() > {str, Boxed}? {
-        if (this.data as? {str, any} -> dataMap) {
-            {str, Boxed} boxedMap = {<str, Boxed>};
+    fun map() > {str: Boxed}? {
+        if (this.data as? {str: any} -> dataMap) {
+            {str: Boxed} boxedMap = {<str: Boxed>};
 
             foreach (str key, any value in dataMap) {
                 boxedMap[key] = Boxed{ data = value };
@@ -70,7 +70,7 @@ export object Boxed {
     || @return wrapped data number value or `0` if not a float
     fun floatingValue() > float -> this.floating() ?? 0.0
     || @return wrapped data map value or empty map if not a map
-    fun mapValue() > {str, Boxed} -> this.map() ?? {<str, Boxed>}
+    fun mapValue() > {str: Boxed} -> this.map() ?? {<str: Boxed>}
     || @return wrapped data list value or empty list if not a list
     fun listValue() > [Boxed] -> this.list() ?? [<Boxed>]
 
@@ -217,8 +217,8 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str, any} !> JsonParseError, WriteWhileReadingError {
-        {str, any} map = {<str, any>};
+    fun map() > {str: any} !> JsonParseError, WriteWhileReadingError {
+        {str: any} map = {<str: any>};
 
         while (true) {
             this.skipWhitespaces();

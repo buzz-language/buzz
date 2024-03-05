@@ -1,0 +1,4 @@
+| `out` statement is only allowed inside a block expression
+test "misplaced out statement" {
+    out "not allowed";
+}

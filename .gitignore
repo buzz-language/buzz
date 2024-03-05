@@ -118,3 +118,4 @@ dist/
 *.o
 
 tests/utils/libforeign.*
+buzz_history

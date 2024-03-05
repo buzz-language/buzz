@@ -1,0 +1,4 @@
+| Import path can't be empty
+import "";
+
+test "empty import" {}

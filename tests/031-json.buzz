@@ -2,7 +2,7 @@ import "std";
 import "serialize";
 
 test "Json.encode" {
-    {str, any} data = {
+    {str: any} data = {
         "hello": "world",
         "bye": 42,
     };
@@ -21,11 +21,11 @@ test "Json.decode" {
 }
 
 test "Boxed.q" {
-    {str, any} data = {
+    {str: any} data = {
         "submap": {
-            <str, any>,
+            <str: any>,
             "subsubmap": {
-                <str, any>,
+                <str: any>,
                 "one": 1,
                 "two": 2,
             }

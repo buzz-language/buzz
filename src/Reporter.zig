@@ -1,9 +1,13 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const Token = @import("token.zig").Token;
+const Token = @import("Token.zig");
 const o = @import("obj.zig");
 const ObjTypeDef = o.ObjTypeDef;
 const PlaceholderDef = o.PlaceholderDef;
+const Scanner = @import("scanner.zig").Scanner;
+const Ast = @import("Ast.zig");
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 
 const Self = @This();
 
@@ -100,6 +104,9 @@ pub const Error = enum(u8) {
     discarded_value = 88,
     unused_argument = 89,
     inferred_type = 90,
+    empty_import = 91,
+    import_already_exists = 92,
+    code_after_return = 93,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -161,7 +168,7 @@ pub const ReportItem = struct {
 
 pub const ReportOptions = struct {
     surrounding_lines: usize = 2,
-    and_stop: bool = false,
+    color: bool = true,
 };
 
 pub const Report = struct {
@@ -178,29 +185,57 @@ pub const Report = struct {
     pub fn report(self: *Report, reporter: *Self, out: anytype) !void {
         assert(self.items.len > 0);
 
+        const colorterm = std.os.getenv("COLORTERM");
+        const true_color = if (colorterm) |ct|
+            std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
+        else
+            false;
+
         // Print main error message
         const main_item = self.items[0];
 
-        try out.print(
-            "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
-            .{
-                main_item.location.script_name,
-                main_item.location.line + 1,
-                main_item.location.column,
-                main_item.kind.color(),
-                main_item.kind.prefix(),
-                @intFromEnum(self.error_type),
-                if (reporter.error_prefix) |prefix|
-                    prefix
-                else
-                    "",
-                if (reporter.error_prefix != null)
-                    main_item.kind.nameLower()
-                else
-                    main_item.kind.name(),
-                self.message,
-            },
-        );
+        if (self.options.color) {
+            try out.print(
+                "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
+                .{
+                    main_item.location.script_name,
+                    main_item.location.line + 1,
+                    main_item.location.column,
+                    main_item.kind.color(),
+                    main_item.kind.prefix(),
+                    @intFromEnum(self.error_type),
+                    if (reporter.error_prefix) |prefix|
+                        prefix
+                    else
+                        "",
+                    if (reporter.error_prefix != null)
+                        main_item.kind.nameLower()
+                    else
+                        main_item.kind.name(),
+                    self.message,
+                },
+            );
+        } else {
+            try out.print(
+                "\n{s}:{}:{}: [{s}{d}] {s}{s}: {s}\n",
+                .{
+                    main_item.location.script_name,
+                    main_item.location.line + 1,
+                    main_item.location.column,
+                    main_item.kind.prefix(),
+                    @intFromEnum(self.error_type),
+                    if (reporter.error_prefix) |prefix|
+                        prefix
+                    else
+                        "",
+                    if (reporter.error_prefix != null)
+                        main_item.kind.nameLower()
+                    else
+                        main_item.kind.name(),
+                    self.message,
+                },
+            );
+        }
 
         // Print items
 
@@ -228,7 +263,11 @@ pub const Report = struct {
         var file_it = reported_files.iterator();
         while (file_it.next()) |file_entry| {
             if (reported_files.count() > 1) {
-                try out.print("       \x1b[2m╭─\x1b[0m \x1b[4m{s}\x1b[0m\n", .{file_entry.key_ptr.*});
+                if (self.options.color) {
+                    try out.print("       \x1b[2m╭─\x1b[0m \x1b[4m{s}\x1b[0m\n", .{file_entry.key_ptr.*});
+                } else {
+                    try out.print("       ╭─ {s}\n", .{file_entry.key_ptr.*});
+                }
             }
 
             // Sort items by location in the source
@@ -275,7 +314,11 @@ pub const Report = struct {
 
                 // Is there a gap between two report items?
                 if (overlapping_before < 0) {
-                    try out.print("       \x1b[2m ...\x1b[0m\n", .{});
+                    if (self.options.color) {
+                        try out.print("       \x1b[2m ...\x1b[0m\n", .{});
+                    } else {
+                        try out.print("        ...\n", .{});
+                    }
                 }
 
                 overlapping_before = @max(overlapping_before, 0);
@@ -301,11 +344,13 @@ pub const Report = struct {
                 var l: usize = line - @min(line, @as(usize, @intCast(before)));
                 for (lines.items, 0..) |src_line, line_index| {
                     if (l != line) {
-                        try out.print("\x1b[2m", .{});
+                        if (self.options.color) {
+                            try out.print("\x1b[2m", .{});
+                        }
                     }
 
                     try out.print(
-                        " {: >5} {s} {s}\n\x1b[0m",
+                        " {: >5} {s} ",
                         .{
                             l + 1,
                             if (line_index == 0 and (reported_files.count() == 1 or index > 0))
@@ -314,13 +359,37 @@ pub const Report = struct {
                                 "╰─"
                             else
                                 "│ ",
-                            src_line,
                         },
                     );
 
                     if (l == line) {
+                        if (self.options.color) {
+                            var scanner = Scanner.init(
+                                reporter.allocator,
+                                "reporter",
+                                src_line,
+                            );
+                            scanner.highlight(out, true_color);
+                        } else {
+                            try out.writeAll(src_line);
+                        }
+                    } else {
+                        try out.writeAll(src_line);
+                    }
+
+                    if (self.options.color) {
+                        try out.writeAll("\n\x1b[0m");
+                    } else {
+                        try out.writeAll("\n");
+                    }
+
+                    if (l == line) {
                         // Print error cursors
-                        try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                        if (self.options.color) {
+                            try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                        } else {
+                            try out.print("       ┆  ", .{});
+                        }
                         var column: usize = 0;
                         for (report_items.items) |item| {
                             const indent = if (item.location.column > 0)
@@ -329,16 +398,32 @@ pub const Report = struct {
                                 0;
                             try out.writeByteNTimes(' ', indent);
 
-                            if (item.location.lexeme.len > 1) {
-                                try out.print("\x1b[{d}m╭", .{item.kind.color()});
-                            } else {
-                                try out.print("\x1b[{d}m┬", .{item.kind.color()});
+                            if (self.options.color) {
+                                try out.print("\x1b[{d}m", .{item.kind.color()});
                             }
-                            var i: usize = 0;
-                            while (i < item.location.lexeme.len - 1) : (i += 1) {
+
+                            try out.print(
+                                "{s}",
+                                .{
+                                    if (item.location.lexeme.len > 1)
+                                        "╭"
+                                    else
+                                        "┬",
+                                },
+                            );
+
+                            if (item.location.lexeme.len > 1) {
+                                var i: usize = 0;
+                                while (i < item.location.lexeme.len - 1) : (i += 1) {
+                                    try out.print("─", .{});
+                                }
+                            } else {
                                 try out.print("─", .{});
                             }
-                            try out.print("\x1b[0m", .{});
+
+                            if (self.options.color) {
+                                try out.print("\x1b[0m", .{});
+                            }
 
                             column += indent + item.location.lexeme.len;
                         }
@@ -347,18 +432,31 @@ pub const Report = struct {
 
                         // Print error messages
                         for (report_items.items) |item| {
-                            try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                            if (self.options.color) {
+                                try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                            } else {
+                                try out.print("       ┆  ", .{});
+                            }
                             try out.writeByteNTimes(' ', if (item.location.column > 0)
                                 item.location.column - 1
                             else
                                 0);
-                            try out.print(
-                                "\x1b[{d}m╰─ {s}\x1b[0m\n",
-                                .{
-                                    item.kind.color(),
-                                    item.message,
-                                },
-                            );
+                            if (self.options.color) {
+                                try out.print(
+                                    "\x1b[{d}m╰─ {s}\x1b[0m\n",
+                                    .{
+                                        item.kind.color(),
+                                        item.message,
+                                    },
+                                );
+                            } else {
+                                try out.print(
+                                    "╰─ {s}\n",
+                                    .{
+                                        item.message,
+                                    },
+                                );
+                            }
                         }
                     }
 
@@ -371,19 +469,26 @@ pub const Report = struct {
 
         // Print notes
         for (self.notes) |note| {
-            try out.print(
-                "\x1b[{d}m{s}{s}\x1b[0m {s}\n",
-                .{
-                    note.kind.color(),
-                    if (note.show_prefix) note.kind.name() else "",
-                    if (note.show_prefix) ":" else "",
-                    note.message,
-                },
-            );
-        }
-
-        if (self.options.and_stop) {
-            std.os.exit(1);
+            if (self.options.color) {
+                try out.print(
+                    "\x1b[{d}m{s}{s}\x1b[0m {s}\n",
+                    .{
+                        note.kind.color(),
+                        if (note.show_prefix) note.kind.name() else "",
+                        if (note.show_prefix) ":" else "",
+                        note.message,
+                    },
+                );
+            } else {
+                try out.print(
+                    "{s}{s} {s}\n",
+                    .{
+                        if (note.show_prefix) note.kind.name() else "",
+                        if (note.show_prefix) ":" else "",
+                        note.message,
+                    },
+                );
+            }
         }
     }
 };
@@ -575,17 +680,17 @@ pub fn reportTypeCheck(
 }
 
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast, placeholder: PlaceholderDef) void {
     if (placeholder.parent) |parent| {
         if (parent.def_type == .Placeholder) {
-            self.reportPlaceholder(parent.resolved_type.?.Placeholder);
+            self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
         }
     } else {
         // Should be a root placeholder with a name
         assert(placeholder.name != null);
         self.reportErrorFmt(
             .undefined,
-            placeholder.where,
+            ast.tokens.get(placeholder.where),
             "`{s}` is not defined",
             .{placeholder.name.?.string},
         );
@@ -629,7 +734,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "callSomething",
                     .line = 2,
                     .column = 5,
@@ -641,7 +746,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "true",
                     .line = 2,
                     .column = 19,
@@ -653,7 +758,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "complex",
                     .line = 2,
                     .column = 25,
@@ -665,7 +770,7 @@ test "multiple error on one line" {
                 .location = Token{
                     .source = source,
                     .script_name = "test",
-                    .token_type = .Identifier,
+                    .tag = .Identifier,
                     .lexeme = "print",
                     .line = 9,
                     .column = 13,

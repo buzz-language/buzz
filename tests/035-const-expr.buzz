@@ -1,6 +1,6 @@
 import "std";
 
-fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewhere street", "town": "New York" }) > void {
+fun hello([str] name = ["John", "Doe"], {str: str} address = { "street": "somewhere street", "town": "New York" }) > void {
     assert(name.len() == 2, message: "default arg is clone of the default value");
     assert(address.size() == 2, message: "default arg is clone of the default value");
 
@@ -12,7 +12,7 @@ fun hello([str] name = ["John", "Doe"], {str, str} address = { "street": "somewh
 
 object A {
     [int] list = [1, 2, 3],
-    {str, int} map = { "yo": 1 },
+    {str: int} map = { "yo": 1 },
 }
 
 test "Constant expression" {

@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 const std = @import("std");
 const _obj = @import("../obj.zig");
 const ObjString = _obj.ObjString;
@@ -6,11 +8,8 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const ObjClosure = _obj.ObjClosure;
 const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
-const _value = @import("../value.zig");
+const Value = @import("../value.zig").Value;
 const buzz_api = @import("../buzz_api.zig");
-const Value = _value.Value;
-const valueEql = _value.valueEql;
-const valueToString = _value.valueToString;
 
 pub fn append(ctx: *NativeCtx) c_int {
     const list_value: Value = ctx.vm.peek(1);
@@ -20,7 +19,11 @@ pub fn append(ctx: *NativeCtx) c_int {
     list.rawAppend(ctx.vm.gc, value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
             std.debug.print("Could not append to list", .{});
-            std.os.exit(1);
+            if (!is_wasm) {
+                std.os.exit(1);
+            } else {
+                unreachable;
+            }
         }).toValue();
 
         ctx.vm.push(messageValue);
@@ -45,7 +48,11 @@ pub fn insert(ctx: *NativeCtx) c_int {
     list.rawInsert(ctx.vm.gc, @as(usize, @intCast(index)), value) catch {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
             std.debug.print("Could not insert into list", .{});
-            std.os.exit(1);
+            if (!is_wasm) {
+                std.os.exit(1);
+            } else {
+                unreachable;
+            }
         }).toValue();
 
         ctx.vm.push(messageValue);
@@ -90,7 +97,11 @@ pub fn remove(ctx: *NativeCtx) c_int {
     ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
     ctx.vm.gc.markObjDirty(&list.obj) catch {
         std.debug.print("Could not remove from list", .{});
-        std.os.exit(1);
+        if (!is_wasm) {
+            std.os.exit(1);
+        } else {
+            unreachable;
+        }
     };
 
     return 1;
@@ -118,7 +129,7 @@ fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
 pub fn sort(ctx: *NativeCtx) c_int {
     var self = ObjList.cast(ctx.vm.peek(1).obj()).?;
     // fun compare(T lhs, T rhs) > bool
-    var sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     std.sort.insertion(
         Value,
@@ -142,7 +153,7 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
     var index: ?usize = null;
     var i: usize = 0;
     for (self.items.items) |item| {
-        if (valueEql(needle, item)) {
+        if (needle.eql(item)) {
             index = i;
             break;
         }
@@ -170,15 +181,15 @@ pub fn clone(ctx: *NativeCtx) c_int {
 }
 
 pub fn join(ctx: *NativeCtx) c_int {
-    var self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    var separator: *ObjString = ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const separator = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
-        valueToString(&writer, item) catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("could not stringify item") catch null;
+        item.toString(&writer) catch {
+            const err = ctx.vm.gc.copyString("could not stringify item") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
             return -1;
@@ -186,7 +197,7 @@ pub fn join(ctx: *NativeCtx) c_int {
 
         if (i + 1 < self.items.items.len) {
             writer.writeAll(separator.string) catch {
-                var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+                const err = ctx.vm.gc.copyString("could not join list") catch null;
                 ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
                 return -1;
@@ -195,7 +206,7 @@ pub fn join(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push((ctx.vm.gc.copyString(result.items) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("could not join list") catch null;
+        const err = ctx.vm.gc.copyString("could not join list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -210,14 +221,14 @@ pub fn sub(ctx: *NativeCtx) c_int {
     const upto = ctx.vm.peek(0).integerOrNull();
 
     if (start < 0 or start >= self.items.items.len) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+        const err = ctx.vm.gc.copyString("`start` is out of bound") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
     }
 
     if (upto != null and upto.? < 0) {
-        var err: ?*ObjString = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
+        const err = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -227,19 +238,19 @@ pub fn sub(ctx: *NativeCtx) c_int {
         @as(usize, @intCast(start + upto.?))
     else
         self.items.items.len;
-    var substr: []Value = self.items.items[@as(usize, @intCast(start))..limit];
+    const substr = self.items.items[@as(usize, @intCast(start))..limit];
 
     var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
         .type_def = self.type_def,
         .methods = self.methods.clone() catch {
-            var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+            const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
             ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
             return -1;
         },
         .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
     }) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+        const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -248,7 +259,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     ctx.vm.push(list.toValue());
 
     list.items.appendSlice(substr) catch {
-        var err: ?*ObjString = ctx.vm.gc.copyString("Could not get sub list") catch null;
+        const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
         ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
 
         return -1;
@@ -262,11 +273,7 @@ pub fn next(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const list_index: Value = ctx.vm.peek(0);
 
-    var next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch |err| {
-        // TODO: should we distinguish NativeFn and ExternFn ?
-        std.debug.print("{}\n", .{err});
-        std.os.exit(1);
-    };
+    const next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch @panic("Out of memory");
 
     ctx.vm.push(if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null);
 
