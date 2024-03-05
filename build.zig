@@ -90,7 +90,7 @@ const BuzzBuildOptions = struct {
 };
 
 fn getBuzzPrefix(b: *Build) []const u8 {
-    return std.os.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
+    return std.process.getEnvVarOwned(b.allocator, "BUZZ_PATH") catch std.fs.path.dirname(b.exe_dir).?;
 }
 
 pub fn build(b: *Build) !void {

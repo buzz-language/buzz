@@ -44,7 +44,7 @@ const ObjForeignContainer = _obj.ObjForeignContainer;
 const cloneObject = _obj.cloneObject;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
-const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
+const jmp = if (!is_wasm) @import("jmp.zig") else void;
 
 pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
 

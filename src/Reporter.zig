@@ -185,7 +185,12 @@ pub const Report = struct {
     pub fn report(self: *Report, reporter: *Self, out: anytype) !void {
         assert(self.items.len > 0);
 
-        const colorterm = std.os.getenv("COLORTERM");
+        const colorterm = std.process.getEnvVarOwned(std.heap.c_allocator, "COLORTERM") catch null;
+        defer {
+            if (colorterm) |ct| {
+                std.heap.c_allocator.free(ct);
+            }
+        }
         const true_color = if (colorterm) |ct|
             std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
         else

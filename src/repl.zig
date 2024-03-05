@@ -85,7 +85,12 @@ pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
 }
 
 pub fn repl(allocator: std.mem.Allocator) !void {
-    const colorterm = std.os.getenv("COLORTERM");
+    const colorterm = std.process.getEnvVarOwned(allocator, "COLORTERM") catch null;
+    defer {
+        if (colorterm) |ct| {
+            allocator.free(ct);
+        }
+    }
     const true_color = if (colorterm) |ct|
         std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
     else
@@ -143,7 +148,9 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
     try buzz_history_path.writer().print(
         "{s}/.buzz_history\x00",
-        .{std.os.getenv("HOME") orelse "."},
+        .{
+            std.process.getEnvVarOwned(allocator, "HOME") catch ".",
+        },
     );
 
     _ = ln.linenoiseHistorySetMaxLen(100);

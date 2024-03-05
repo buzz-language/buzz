@@ -139,7 +139,10 @@ pub fn defaultBuzzPrefix() []const u8 {
 
 var _buzz_path_buffer: [4096]u8 = undefined;
 pub fn buzzPrefix() []const u8 {
-    if (std.os.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
+    if (std.process.getEnvVarOwned(std.heap.c_allocator, "BUZZ_PATH") catch null) |buzz_path| {
+        return buzz_path;
+    }
+
     const path = if (!is_wasm)
         std.fs.selfExePath(&_buzz_path_buffer) catch return defaultBuzzPrefix()
     else
