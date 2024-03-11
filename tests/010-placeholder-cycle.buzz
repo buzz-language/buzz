@@ -21,6 +21,6 @@ object Node {
 }
 
 test "Cyclic placeholders" {
-    print("{A}");
-    print("{B}");
+    std.print("{A}");
+    std.print("{B}");
 }

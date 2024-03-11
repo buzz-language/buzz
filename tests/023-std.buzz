@@ -1,23 +1,23 @@
 import "std";
 
-test "parseInt/Float" {
-    assert(parseInt("12") == 12, message: "Could parse int");
-    assert(parseFloat("12.42") == 12.42, message: "Could parse float");
-    assert(parseInt("not a number") == null, message: "Doesn't parse stupid shit");
+test "std.parseInt/Float" {
+    std.assert(std.parseInt("12") == 12, message: "Could parse int");
+    std.assert(std.parseFloat("12.42") == 12.42, message: "Could parse float");
+    std.assert(std.parseInt("not a number") == null, message: "Doesn't parse stupid shit");
 
-    assert(toInt(23.34) == 23, message: "Could cast float to int");
-    assert(toFloat(23) == 23.0, message: "Could cast int to float");
-    assert(toUd(23) is ud, message: "Could cast int to ud");
-    assert(toUd(23.0) is ud, message: "Could cast float to ud");
+    std.assert(std.toInt(23.34) == 23, message: "Could cast float to int");
+    std.assert(std.toFloat(23) == 23.0, message: "Could cast int to float");
+    std.assert(std.toUd(23) is ud, message: "Could cast int to ud");
+    std.assert(std.toUd(23.0) is ud, message: "Could cast float to ud");
 
-    assert(parseUd("42") == toUd(42), message: "Could parse ud");
+    std.assert(std.parseUd("42") == std.toUd(42), message: "Could parse ud");
 }
 
 test "char" {
-    assert(char(65) == "A", message: "char");
+    std.assert(std.char(65) == "A", message: "char");
 }
 
 test "random" {
-    assert(random(min: 5, max: 10) >= 5, message: "random range");
-    assert(random(max: 10) <= 10, message: "random range");
+    std.assert(std.random(min: 5, max: 10) >= 5, message: "random range");
+    std.assert(std.random(max: 10) <= 10, message: "random range");
 }

@@ -5,7 +5,7 @@ fun count::<T>([T] list) > int {
 }
 
 test "Simple generic" {
-    assert(count::<int>([1, 2, 3]) == 3, message: "could use generics");
+    std.assert(count::<int>([1, 2, 3]) == 3, message: "could use generics");
 }
 
 fun extractList::<T>(obj{ [T] list } data) > [T] {
@@ -15,7 +15,7 @@ fun extractList::<T>(obj{ [T] list } data) > [T] {
 test "Generic within anonymous object" {
     [int] list = [1, 2, 3];
 
-    assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
+    std.assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
 }
 
 fun countMap::<K, V>({K: V} map) > int {
@@ -29,7 +29,7 @@ test "Multiple generic types" {
         "three": 3,
     };
 
-    assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
+    std.assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
 }
 
 fun extractMap::<K, V>(obj{ {K: V} map } data) > {K: V} {
@@ -43,7 +43,7 @@ test "Generic within anonymous object and map" {
         "three": 3,
     };
 
-    assert(extractMap::<str, int>(.{ map = map }) == map, message: "could use generic within anonymous object");
+    std.assert(extractMap::<str, int>(.{ map = map }) == map, message: "could use generic within anonymous object");
 }
 
 fun countShuffleGenerics::<A, B>() > Function([A] a, [B] b) > int {
@@ -54,7 +54,7 @@ test "Generic in lambda function definition" {
     [str] a = ["one", "two", "three"];
     [int] b = [1, 2, 3];
 
-    assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
+    std.assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
 }
 
 fun genericReturn::<T>(T value) > T {
@@ -62,7 +62,7 @@ fun genericReturn::<T>(T value) > T {
 }
 
 test "generic return" {
-    assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
+    std.assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
 }
 
 fun fiber::<T>([T] data) > void *> T? {
@@ -79,12 +79,12 @@ test "Generic with fibers" {
         sum = sum + resume f ?? 0;
     }
 
-    assert(sum == 6, message: "could user generic in fiber definition");
+    std.assert(sum == 6, message: "could user generic in fiber definition");
 }
 
 
 test "Generics in placeholders" {
-    assert(
+    std.assert(
         countAgain::<int>([1, 2, 3]) == 3,
         message: "Could use generics with placeholders"
     );
@@ -99,7 +99,7 @@ fun doubleGeneric::<A, B>(Function::<C, D>() > int lambda) > int {
 }
 
 test "Generic with generic lambda parameter" {
-    assert(
+    std.assert(
         doubleGeneric::<str, int>(
             fun::<E, F>() > int -> 12
         ) == 12,

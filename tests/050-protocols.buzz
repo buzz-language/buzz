@@ -48,7 +48,7 @@ test "Protocols" {
         name = "bandit",
     };
 
-    assert(bob.greater(joe), message: "could implement protocol");
+    std.assert(bob.greater(joe), message: "could implement protocol");
 
     Nameable nameable = bandit;
     nameable = joe;
@@ -59,20 +59,20 @@ test "Protocols" {
         item.rename(newNames[i]);
     }
 
-    assert(bandit.name == "Chili", message: "could call protocol method");
-    assert(joe.name == "Nick", message: "could call protocol method");
+    std.assert(bandit.name == "Chili", message: "could call protocol method");
+    std.assert(joe.name == "Nick", message: "could call protocol method");
 
     {Nameable: bool} map = {
         bandit: true,
         joe: false,
     };
 
-    assert(map[joe] == false, message: "could hold protocol as map key");
+    std.assert(map[joe] == false, message: "could hold protocol as map key");
 
     {str: Nameable} mapValue = {
         "bandit": bandit,
         "joe": joe,
     };
 
-    assert(mapValue["joe"] == joe, message: "could hold protocol as map value");
+    std.assert(mapValue["joe"] == joe, message: "could hold protocol as map value");
 }

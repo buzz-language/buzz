@@ -1,3 +1,5 @@
+namespace ffi;
+
 export fun cstr(str string) -> "{string}\0";
 
 export object FFITypeMismatchError {

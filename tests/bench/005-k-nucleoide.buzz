@@ -1,8 +1,8 @@
 import "std";
-import "io" as io;
+import "io";
 import "errors";
 
-fun readSequence() > str !> ReadWriteError, FileSystemError, UnexpectedError {
+fun readSequence() > str !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError {
     bool skippedIgnoredSequences = false;
     [str] lines = [<str>];
     for (str? line = ""; line != null; line = io.stdin.readLine()) { | catch null doesn't work
@@ -36,7 +36,7 @@ fun count(str sequence, str fragment) > void {
     for (int frame = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
-    print("{frequency[fragment] ?? 0}\t{fragment}");
+    std.print("{frequency[fragment] ?? 0}\t{fragment}");
 }
 
 fun frequency(str sequence, int k) > void {
@@ -47,13 +47,13 @@ fun frequency(str sequence, int k) > void {
 
     int sum = sequence.len() - k + 1;
     foreach (str c, int f in frequency) {
-        print("{c} {(f * 100) / sum}");
+        std.print("{c} {(f * 100) / sum}");
     }
-    print("");
+    std.print("");
 }
 
 | buzz tests/bench/005-k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
-fun main([str] args) > void {
+fun main([str] _) > void {
     str sequence = readSequence() catch "";
     frequency(sequence, k: 1);
     frequency(sequence, k: 2);

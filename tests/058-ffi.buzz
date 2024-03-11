@@ -1,5 +1,5 @@
 import "std";
-import "buffer";
+import "buffer" as _;
 import "debug";
 import "ffi";
 
@@ -12,16 +12,16 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "scalar type" {
-    assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
+    std.assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
 }
 
 test "cstring" {
-    fprint(cstr("hello world"));
+    fprint(ffi.cstr("hello world"));
 }
 
 test "pointer with Buffer" {
     | TODO: would be better with object destructor so the buffer can be collected
-    Buffer buffer = Buffer.init();
+    var buffer = Buffer.init();
 
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
@@ -31,17 +31,17 @@ test "pointer with Buffer" {
         | But: that would require a new type
         | Since we cache the result of the type parsing this roughly equivalent
         buffer.writeZ::<int>("u64", values: [1]);
-        assert(false, message: "Using bad buzz type triggers error");
-    } catch (FFITypeMismatchError _) {
-        assert(true, message: "Using bad buzz type triggers error");
+        std.assert(false, message: "Using bad buzz type triggers error");
+    } catch (ffi.FFITypeMismatchError _) {
+        std.assert(true, message: "Using bad buzz type triggers error");
     }
 
-    int i32align = alignOf("i32");
+    int i32align = ffi.alignOf("i32");
     int len = buffer.len(align: i32align);
-    assert(len == buffer.len() / 4, message: "Len align");
+    std.assert(len == buffer.len() / 4, message: "Len align");
     int total = sum(buffer.ptr(), len: len);
 
-    assert(total == 12, message: "Could call FFI function with pointer argument");
+    std.assert(total == 12, message: "Could call FFI function with pointer argument");
 
     int readTotal = 0;
     foreach (int i in 0..buffer.len(align: i32align)) {
@@ -51,11 +51,11 @@ test "pointer with Buffer" {
         );
     }
 
-    assert(readTotal == total, message: "Could read from pointer");
+    std.assert(readTotal == total, message: "Could read from pointer");
 
     int subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
 
-    assert(subTotal == 11, message: "Could get ptr at offset");
+    std.assert(subTotal == 11, message: "Could get ptr at offset");
 }
 
 zdef("tests/utils/libforeign", `
@@ -71,41 +71,41 @@ zdef("tests/utils/libforeign", `
 
 test "struct" {
     Data data = Data{
-        msg = cstr("bye world"),
+        msg = ffi.cstr("bye world"),
         id = 123,
         value = 42.0,
     };
 
-    assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
-    assert(data.id == 123, message: "Could instanciate Zig struct");
+    std.assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
+    std.assert(data.id == 123, message: "Could instanciate Zig struct");
 
     data.id = 42;
 
-    assert(data.id == 42, message: "Could set Zig struct field");
+    std.assert(data.id == 42, message: "Could set Zig struct field");
 
-    assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
+    std.assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
 
     set_data_id(data);
 
-    assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
+    std.assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
 }
 
 test "write/read struct in buffer" {
     Data data = Data{
-        msg = cstr("bye world"),
+        msg = ffi.cstr("bye world"),
         id = 123,
         value = 42.0,
     };
 
-    Buffer buffer = Buffer.init();
+    var buffer = Buffer.init();
 
     buffer.writeStruct::<Data>(Data, values: [data]);
 
-    assert(buffer.toString().len() == sizeOfStruct(Data), message: "Could write struct to buffer");
+    std.assert(buffer.toString().len() == ffi.sizeOfStruct(Data), message: "Could write struct to buffer");
 
     Data read = buffer.readStruct::<Data>(Data);
 
-    assert(
+    std.assert(
         read.msg == data.msg and read.id == data.id,
         message: "Could read struct from buffer"
     );
@@ -132,23 +132,23 @@ test "union" {
     Misc misc = Misc{
         data = Data{
             id = 123,
-            msg = cstr("hello world"),
+            msg = ffi.cstr("hello world"),
             value = 42.0,
         }
     };
 
-    assert(get_misc_msg(misc) == cstr("hello world"), message: "Could read union field");
+    std.assert(get_misc_msg(misc) == ffi.cstr("hello world"), message: "Could read union field");
 
     misc.flag = Flag{
         id = 123,
         value = true,
     };
 
-    assert(get_misc_flag(misc), message: "Could read union field");
+    std.assert(get_misc_flag(misc), message: "Could read union field");
 
     misc.id = 321;
 
-    assert(misc.id == 321, message: "Got expected memory layout of a C union");
-    assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
-    assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
+    std.assert(misc.id == 321, message: "Got expected memory layout of a C union");
+    std.assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
+    std.assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
 }

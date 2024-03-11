@@ -10,7 +10,7 @@ test "break statement" {
         }
     }
 
-    assert(i == 3, message: "break");
+    std.assert(i == 3, message: "break");
 }
 
 test "continue statement" {
@@ -25,5 +25,5 @@ test "continue statement" {
         i = i + 1;
     }
 
-    assert(i == 11, message: "break");
+    std.assert(i == 11, message: "break");
 }

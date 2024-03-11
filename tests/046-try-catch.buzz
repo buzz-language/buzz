@@ -10,7 +10,7 @@ fun partialCatch() > void !> str {
 
         throw 12;
     } catch (int _) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 }
 
@@ -38,24 +38,24 @@ test "Try catch" {
 
         partialCatch();
 
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     } catch (str error) {
         str _ = "a local in catch clause";
 
-        assert(error == "Yolo", message: "caught error");
+        std.assert(error == "Yolo", message: "caught error");
     } catch (int _) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     } catch {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 
     str afterLocal = "bye";
 
-    assert(setme == "yes", message: "error was handled and code continues");
+    std.assert(setme == "yes", message: "error was handled and code continues");
 
-    assert(returnFromCatch() == 21, message: "return from catch clause works");
+    std.assert(returnFromCatch() == 21, message: "return from catch clause works");
 
-    assert(afterLocal == "bye", message: "catch closed its scope");
+    std.assert(afterLocal == "bye", message: "catch closed its scope");
 }
 
 test "catch any catches everything" {
@@ -64,8 +64,8 @@ test "catch any catches everything" {
         willFail();
     } catch (any error) {
         caught = true;
-        assert(error is str, message: "Could cath any error");
+        std.assert(error is str, message: "Could cath any error");
     }
 
-    assert(caught, message: "Could catch any error");
+    std.assert(caught, message: "Could catch any error");
 }

@@ -1,3 +1,5 @@
+namespace crypto;
+
 || Hash algorithms
 export enum HashAlgorithm {
     Md5,

@@ -2,29 +2,29 @@ import "std";
 
 test "if statement" {
     if (2 > 1) {
-        assert(true, message: "if");
+        std.assert(true, message: "if");
     } else {
-        assert(false, message: "else");
+        std.assert(false, message: "else");
     }
 
     if (2 < 1) {
-        assert(false, message: "if");
+        std.assert(false, message: "if");
     } else {
-        assert(true, message: "else");
+        std.assert(true, message: "else");
     }
 }
 
 test "if statement with placeholder" {
     if (ahead == "wat") {
-        assert(true, message: "works with a placeholder");
+        std.assert(true, message: "works with a placeholder");
     } else {
-        assert(false, message: "if failed with placeholder");
+        std.assert(false, message: "if failed with placeholder");
     }
 
     | if (objAhead.name == "joe") {
-    |     assert(true, message: "works with a placeholder");
+    |     std.assert(true, message: "works with a placeholder");
     | } else {
-    |     assert(false, message: "if failed with placeholder");
+    |     std.assert(false, message: "if failed with placeholder");
     | }
 }
 
@@ -34,7 +34,7 @@ test "while statement" {
         i = i + 1;
     }
 
-    assert(i == 10, message: "while");
+    std.assert(i == 10, message: "while");
 }
 
 | test "while statement with placeholder" {
@@ -42,7 +42,7 @@ test "while statement" {
 |         objAhead.age = objAhead.age + 1;
 |     }
 
-|     assert(objAhead.age == 10, message: "while with placeholder");
+|     std.assert(objAhead.age == 10, message: "while with placeholder");
 | }
 
 test "do-until statement" {
@@ -51,7 +51,7 @@ test "do-until statement" {
         i = i - 1;
     } until (i == 0)
 
-    assert(i == 0, message: "do until");
+    std.assert(i == 0, message: "do until");
 }
 
 str ahead = "wat";

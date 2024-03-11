@@ -1,3 +1,5 @@
+namespace testing;
+
 import "std" as std;
 
 int unexported = 42;

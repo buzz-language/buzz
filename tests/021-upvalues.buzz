@@ -4,7 +4,7 @@ fun upvals() > Function() {
     int upvalue = 12;
     str up = "up";
 
-    return fun () > void -> print("{upvalue} {up}");
+    return fun () > void -> std.print("{upvalue} {up}");
 }
 
 test "Upvalues" {

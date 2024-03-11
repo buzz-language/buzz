@@ -11,19 +11,19 @@ test "fiber" {
         sum = sum + resume counter ?? 0;
     }
     
-    assert(counter.over(), message: "Fiber should be over now");
+    std.assert(counter.over(), message: "Fiber should be over now");
     
     | resolve runs fiber until it's over and dismiss any yielded value along the way
-    assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
-    assert(sum == 45, message: "Sum is good");
+    std.assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
+    std.assert(sum == 45, message: "Sum is good");
 
-    assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
+    std.assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
 }
 
 | returns str, yields int
 fun count(int n) > str *> int? {
-    assert(currentFiber() is fib<str, int?>, message: "Can get current fiber");
-    assert(!currentFiber().isMain(), message: "Can know if fiber is main one");
+    std.assert(std.currentFiber() is fib<str, int?>, message: "Can get current fiber");
+    std.assert(!std.currentFiber().isMain(), message: "Can know if fiber is main one");
 
     for (int i = 0; i < n; i = i + 1) {
         | error or yield is ignored if not called with a async call?
@@ -46,7 +46,7 @@ fun caughFiberFail() > bool !> str {
 }
 
 test "Throw inside a fiber" {
-    assert(caughFiberFail() catch true, message: "Caught an error from a fiber");
+    std.assert(caughFiberFail() catch true, message: "Caught an error from a fiber");
 }
 
 fun closedUpvalue() > Function() > str {
@@ -60,11 +60,11 @@ test "Opened upvalue in fiber" {
 
     Function() > str fiberFn = fun () > str -> "hello {upvalue}";
 
-    assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
+    std.assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
 }
 
 test "Closed upvalue in fiber" {
-    assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
+    std.assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
 }
 
 test "Wrapping call inside complex expressions" {
@@ -72,5 +72,5 @@ test "Wrapping call inside complex expressions" {
         "hello": fun () > str -> "hello world",
     };
 
-    assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");
+    std.assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");
 }

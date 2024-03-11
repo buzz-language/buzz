@@ -2,24 +2,24 @@ import "std";
 import "os" as os;
 
 test "os.env" {
-    assert(os.env("HOME") != null, message: "could get env variable");
+    std.assert(os.env("HOME") != null, message: "could get env variable");
 }
 
 test "os.time" {
-    assert(os.time() > 0, message: "Got time");
+    std.assert(os.time() > 0, message: "Got time");
 }
 
 test "os.tmpDir" {
     | TODO: replace by .len check
-    assert(os.tmpDir() != "", message: "Got system tmp dir");
+    std.assert(os.tmpDir() != "", message: "Got system tmp dir");
 }
 
 test "os.tmpFilename" {
-    assert(os.tmpFilename("buzz_test") != "", message: "Got tmp file name");
+    std.assert(os.tmpFilename("buzz_test") != "", message: "Got tmp file name");
 }
 
 test "os.execute" {
-    assert(os.execute(["./zig-out/bin/buzz", "--version"]) == 0, message: "Could execute a command");
+    std.assert(os.execute(["./zig-out/bin/buzz", "--version"]) == 0, message: "Could execute a command");
 }
 
 test "os.sleep" {

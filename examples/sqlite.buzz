@@ -1,8 +1,9 @@
+namespace sqlite;
+
 import "ffi";
 import "std";
-import "buffer";
-import "serialize";
-import "log";
+import "buffer" as _;
+import "serialize" as _;
 
 zdef("sqlite3", `
     fn sqlite3_initialize() c_int;
@@ -152,7 +153,7 @@ export object Statement {
     ud stmt,
 
     fun execute() > [[Boxed]] *> [Boxed]? !> SQLiteError {
-        Logger.instance?.debug("Executing query `{this.query}`", namespace: "SQL");
+        std.print("Executing query `{this.query}`");
         ResultCode code = ResultCode.Ok;
 
         [[Boxed]] rows = [<[Boxed]>];
@@ -198,14 +199,14 @@ export object Statement {
             const [Boxed] boxedRow = (Boxed.init(row) catch void).listValue();
             rows.append(boxedRow);
 
-            yield boxedRow;
+            _ = yield boxedRow;
         }
 
         return rows;
     }
 
     fun collect() > void {
-        sqlite3_finalize(this.stmt);
+        _ = sqlite3_finalize(this.stmt);
     }
 }
 
@@ -213,13 +214,7 @@ export object Database {
     ud db,
 
     fun collect() > void {
-        const ResultCode code = ResultCode(sqlite3_close_v2(this.db)) ?? ResultCode.Error;
-        if (code != ResultCode.Ok) {
-            throw SQLiteError{
-                code = code,
-                message = "Could not close database: {code} {sqlite3_errmsg(this.db)}"
-            };
-        }
+        _ = ResultCode(sqlite3_close_v2(this.db)) ?? ResultCode.Error;
     }
 
     fun prepare(Query query) > Statement !> SQLiteError {
@@ -228,12 +223,12 @@ export object Database {
 
     fun prepareRaw(str query) > Statement !> SQLiteError {
         Buffer buffer = Buffer.init();
-        buffer.writeUserData(toUd(0)) catch void;
+        buffer.writeUserData(std.toUd(0)) catch void;
 
         const ResultCode code = ResultCode(
             sqlite3_prepare_v2(
                 db: this.db,
-                zSql: cstr(query),
+                zSql: ffi.cstr(query),
                 nBytes: -1,
                 ppStmt: buffer.ptr(),
                 pzTail: null,
@@ -268,11 +263,11 @@ export object SQLite {
     }
 
     static fun escape(str string) > str {
-        return sqlite3_mprintf(cstr(string)) ?? "";
+        return sqlite3_mprintf(ffi.cstr(string)) ?? "";
     } 
 
     fun collect() > void {
-        sqlite3_shutdown();
+        _ = sqlite3_shutdown();
     }
 
     fun open(str filename, [OpenFlag] flags) > Database !> SQLiteError {
@@ -282,11 +277,11 @@ export object SQLite {
         }
 
         Buffer buffer = Buffer.init();
-        buffer.writeUserData(toUd(0)) catch void;
+        buffer.writeUserData(std.toUd(0)) catch void;
 
         const ResultCode code = ResultCode(
             sqlite3_open_v2(
-                filename: cstr(filename),
+                filename: ffi.cstr(filename),
                 ppDb: buffer.ptr(),
                 flags: cFlags,
                 zVfs: null
@@ -300,7 +295,7 @@ export object SQLite {
             };
         }
 
-        Logger.instance?.info("Database `{filename}` opened", namespace: "SQL");
+        std.print("Database `{filename}` opened");
 
         return Database {
             db = buffer.readUserData()!,
@@ -319,10 +314,10 @@ test "Testing sqlite" {
         )
     `);
 
-    statement.execute();
+    _ =  statement.execute();
 
     foreach (str name in ["john", "joe", "janet", "joline"]) {
-        Query{}
+        _ = Query{}
             .insertInto("test", columns: [ "name" ])
             .values([ "'{name}'" ])
             .execute(database);
@@ -334,6 +329,6 @@ test "Testing sqlite" {
         .prepare(database);
 
     foreach ([Boxed] row in &select.execute()) {
-        print("{row[0].integerValue()}: {row[1].stringValue()}");
+        std.print("{row[0].integerValue()}: {row[1].stringValue()}");
     }
 }

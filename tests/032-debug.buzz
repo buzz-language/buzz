@@ -7,12 +7,12 @@ import "serialize";
 |     str source = debug.ast(`
 |         import \"std\";
 |
-|         fun main([str] _) > void -> print(\"hello world\");
+|         fun main([str] _) > void -> std.print(\"hello world\");
 |     `, scriptName: "test");
 |
 |     Boxed jsonAST = jsonDecode(source);
 |
-|     print(jsonEncode(jsonAST));
+|     std.print(jsonEncode(jsonAST));
 | }
 
 enum MyEnum {

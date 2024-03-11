@@ -1,15 +1,15 @@
-import "os" as os;
+namespace fs;
+
+import "os";
 import "errors";
 
 || Returns current directory absolute path
 || @return current directory
-export fun currentDirectory() > str !> FileSystemError, InvalidArgumentError {
-    str? dir = os.env("PWD");
-
-    if (dir != null) {
-        return dir!;
+export fun currentDirectory() > str !> errors.FileSystemError, errors.InvalidArgumentError {
+    if (os.env("PWD") -> dir) {
+        return dir;
     } else {
-        throw FileSystemError.BadPathName;
+        throw errors.FileSystemError.BadPathName;
     }
 
     | TODO: should not be required since there's throw in the else branch
@@ -18,22 +18,22 @@ export fun currentDirectory() > str !> FileSystemError, InvalidArgumentError {
 
 || Creates directory path
 || @param path directory to create
-export extern fun makeDirectory(str path) > void !> FileSystemError, UnexpectedError;
+export extern fun makeDirectory(str path) > void !> errors.FileSystemError, errors.UnexpectedError;
 
 || Deletes directory or file at path
 || @param path direcotry/file to delete
-export extern fun delete(str path) > void !> FileSystemError, UnexpectedError;
+export extern fun delete(str path) > void !> errors.FileSystemError, errors.UnexpectedError;
 
 || Moves/renames file
 || @param source file to move
 || @param destination where to move it
-export extern fun move(str source, str destination) > void !> FileSystemError, UnexpectedError;
+export extern fun move(str source, str destination) > void !> errors.FileSystemError, errors.UnexpectedError;
 
 || List files under path
 || @param path directory to list
-export extern fun list(str path) > [str] !> FileSystemError, UnexpectedError;
+export extern fun list(str path) > [str] !> errors.FileSystemError, errors.UnexpectedError;
 
 || Returns true if path exists
 || @param path directory/file to test
 || @return wether file exists
-export extern fun exists(str path) > bool !> FileSystemError;
+export extern fun exists(str path) > bool !> errors.FileSystemError;

@@ -1,4 +1,5 @@
-import "errors";
+namespace buffer;
+
 import "ffi";
 import "std";
 
@@ -44,21 +45,21 @@ extern fun BufferAt(ud userdata, int index) > int;
 || @private
 extern fun BufferSetAt(ud userdata, int index, int value) > void;
 || @private
-extern fun BufferWriteZ(ud userdata, str zigType, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteZ(ud userdata, str zigType, [any] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError;
 || @private
-extern fun BufferWriteZAt(ud userdata, int at, str zigType, [any] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteZAt(ud userdata, int at, str zigType, [any] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError;
 || @private
-extern fun BufferReadZ::<T>(ud userdata, str zigType) > T !> FFITypeMismatchError;
+extern fun BufferReadZ::<T>(ud userdata, str zigType) > T !> ffi.FFITypeMismatchError;
 || @private
-extern fun BufferReadZAt::<T>(ud userdata, int at, str zigType) > T !> FFITypeMismatchError;
+extern fun BufferReadZAt::<T>(ud userdata, int at, str zigType) > T !> ffi.FFITypeMismatchError;
 || @private
-extern fun BufferWriteStruct::<T>(ud userdata, type structType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteStruct::<T>(ud userdata, type structType, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError;
 || @private
-extern fun BufferWriteStructAt::<T>(ud userdata, type structType, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError;
+extern fun BufferWriteStructAt::<T>(ud userdata, type structType, int at, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError;
 || @private
-extern fun BufferReadStruct::<T>(ud userdata, type structType) > T !> FFITypeMismatchError;
+extern fun BufferReadStruct::<T>(ud userdata, type structType) > T !> ffi.FFITypeMismatchError;
 || @private
-extern fun BufferReadStructAt::<T>(ud userdata, type structType, int at) > T !> FFITypeMismatchError;
+extern fun BufferReadStructAt::<T>(ud userdata, type structType, int at) > T !> ffi.FFITypeMismatchError;
 
 || Read and write data to a string buffer
 export object Buffer {
@@ -105,35 +106,35 @@ export object Buffer {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
-    fun writeZ::<T>(str zigType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+    fun writeZ::<T>(str zigType, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError {
         BufferWriteZ(this.buffer, zigType: zigType, values: values);
     }
 
-    fun writeZAt::<T>(int at, str zigType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+    fun writeZAt::<T>(int at, str zigType, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError {
         BufferWriteZAt(this.buffer, at: at, zigType: zigType, values: values);
     }
 
-    fun readZ::<T>(str zigType) > T !> FFITypeMismatchError {
+    fun readZ::<T>(str zigType) > T !> ffi.FFITypeMismatchError {
         return BufferReadZ::<T>(this.buffer, zigType: zigType);
     }
 
-    fun readZAt::<T>(int at, str zigType) > T !> FFITypeMismatchError {
+    fun readZAt::<T>(int at, str zigType) > T !> ffi.FFITypeMismatchError {
         return BufferReadZAt::<T>(this.buffer, at: at, zigType: zigType);
     }
 
-    fun writeStruct::<T>(type structType, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+    fun writeStruct::<T>(type structType, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError {
         BufferWriteStruct::<T>(this.buffer, structType: structType, values: values);
     }
 
-    fun writeStructAt::<T>(type structType, int at, [T] values) > void !> WriteWhileReadingError, FFITypeMismatchError {
+    fun writeStructAt::<T>(type structType, int at, [T] values) > void !> WriteWhileReadingError, ffi.FFITypeMismatchError {
         BufferWriteStructAt::<T>(this.buffer, structType: structType, at: at, values: values);
     }
 
-    fun readStruct::<T>(type structType) > T !> FFITypeMismatchError {
+    fun readStruct::<T>(type structType) > T !> ffi.FFITypeMismatchError {
         return BufferReadStruct::<T>(this.buffer, structType: structType);
     }
 
-    fun readStructAt::<T>(type structType, int at) > T !> FFITypeMismatchError {
+    fun readStructAt::<T>(type structType, int at) > T !> ffi.FFITypeMismatchError {
         return BufferReadStructAt::<T>(this.buffer, structType: structType, at: at);
     }
 

@@ -38,6 +38,9 @@ var value = from {
 ```
 - `recursive_call_limit` build option limit recursive calls (default to 200)
 - Compiler will warn about code after a `return` statement
+- `namespace` (https://github.com/buzz-language/buzz/issues/271): if a script exports at least one symbol, it has to define a namespace for the script with `namespace mynamespace`
+    - By default, imported symbols from another script will be under `libprefix.XXXX`
+    - When importing something, you can still redefine its namespace prefix with `import "..." as mynewnamespace` or remove it altogether with `import "..." _`
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)

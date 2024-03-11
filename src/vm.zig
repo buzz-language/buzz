@@ -4054,7 +4054,7 @@ pub const VM = struct {
         } else null;
     }
 
-    fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+    fn callNative(self: *Self, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
         const was_in_native_call = self.currentFrame().?.in_native_call;
         self.currentFrame().?.in_native_call = true;
         self.currentFrame().?.native_call_error_value = catch_value;
@@ -4062,8 +4062,8 @@ pub const VM = struct {
         var result: Value = Value.Null;
         var ctx = NativeCtx{
             .vm = self,
-            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .globals = &[_]Value{},
+            .upvalues = &[_]*ObjUpValue{},
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
@@ -4183,7 +4183,6 @@ pub const VM = struct {
                 } else {
                     assert(bound.native != null);
                     return try self.callNative(
-                        null,
                         @ptrCast(@alignCast(bound.native.?.native)),
                         arg_count,
                         catch_value,
@@ -4200,7 +4199,6 @@ pub const VM = struct {
             },
             .Native => {
                 return try self.callNative(
-                    null,
                     @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
                     arg_count,
                     catch_value,
@@ -4229,7 +4227,6 @@ pub const VM = struct {
                 } else {
                     assert(bound.native != null);
                     return try self.callNative(
-                        null,
                         @ptrCast(@alignCast(bound.native.?.native)),
                         arg_count,
                         catch_value,
@@ -4246,7 +4243,6 @@ pub const VM = struct {
             },
             .Native => {
                 return try self.callNative(
-                    null,
                     @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
                     arg_count,
                     catch_value,

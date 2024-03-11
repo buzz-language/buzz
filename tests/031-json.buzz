@@ -7,15 +7,15 @@ test "Json.encode" {
         "bye": 42,
     };
 
-    assert(
-        jsonEncode(Boxed.init(data)) == `\{"hello":"world","bye":42}`,
+    std.assert(
+        serialize.jsonEncode(serialize.Boxed.init(data)) == `\{"hello":"world","bye":42}`,
         message: "valid encode"
     );
 }
 
 test "Json.decode" {
-    assert(
-        jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
+    std.assert(
+        serialize.jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
         message: "could decode simple JSON"
     );
 }
@@ -32,7 +32,7 @@ test "Boxed.q" {
         }
     };
 
-    Boxed boxed = Boxed.init(data);
+    var boxed = serialize.Boxed.init(data);
 
-    assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
+    std.assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
 }

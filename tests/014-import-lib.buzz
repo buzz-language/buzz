@@ -1,6 +1,6 @@
 import print, assert from "std";
 
 test "Using a function coming from a library" {
-    assert(true, message: "yeah!");
-    print("wat");
+    std.assert(true, message: "yeah!");
+    std.print("wat");
 }

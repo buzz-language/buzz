@@ -1,8 +1,8 @@
 import "std";
-import "io" as io;
+import "io";
 import "os";
 import "debug";
-import "examples/sdl-wrapped";
+import "examples/sdl-wrapped" as _;
 
 | buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
 object World {
@@ -18,7 +18,7 @@ object World {
         };
 
         for (int i = 0; i < width * height; i = i + 1) {
-            world.cells.append(random(max: 5) == 1);
+            world.cells.append(std.random(max: 5) == 1);
         }
 
         return world;
@@ -156,8 +156,8 @@ fun main([str] args) > void !> SDLError {
         height: 600,
     );
 
-    int? width = if (args.len() > 0) parseInt(args[0]) else null;
-    int? height = if (args.len() > 1) parseInt(args[1]) else null;
+    int? width = if (args.len() > 0) std.parseInt(args[0]) else null;
+    int? height = if (args.len() > 1) std.parseInt(args[1]) else null;
 
     var world = World.init(
         width: width ?? 10,

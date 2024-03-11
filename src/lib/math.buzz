@@ -1,3 +1,5 @@
+namespace math;
+
 import "errors";
 
 || @return absolute value of n
@@ -62,7 +64,7 @@ extern fun bzsqrt(float n) > float;
 extern fun bztan(float n) > float;
 
 || @return `x`^`y`
-extern fun pow(float x, float y) > float !> OverflowError, UnderflowError;
+extern fun pow(float x, float y) > float !> errors.OverflowError, errors.UnderflowError;
 
 export abs;
 export acos;

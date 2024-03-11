@@ -6,7 +6,7 @@ object Some {
 }
 
 test "Badly initializing an object declared in another file" {
-    CompileError o = CompileError{
+    var _ = errors.CompileError{
         name = "wtf",
     };
 }

@@ -11,5 +11,5 @@ fun two() > void {
 
 test "Deep yield" {
     fib<void, str?> fiber = &two();
-    print(resume fiber ?? "nope");
+    std.print(resume fiber ?? "nope");
 }

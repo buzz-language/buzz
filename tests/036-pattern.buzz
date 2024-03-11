@@ -5,9 +5,9 @@ test "pattern.match" {
 
     [str]? results = pattern.match("All i want to say is hello joe! hello mundo!");
 
-    assert(results?.len() == 2, message: "1 match and 1 capture");
-    assert(results![0] == "hello joe", message: "first is match");
-    assert(results![1] == "joe", message: "second is capture");
+    std.assert(results?.len() == 2, message: "1 match and 1 capture");
+    std.assert(results![0] == "hello joe", message: "first is match");
+    std.assert(results![1] == "joe", message: "second is capture");
 }
 
 test "pattern.matchAll" {
@@ -15,24 +15,24 @@ test "pattern.matchAll" {
 
     [[str]]? results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
 
-    assert(results?.len() == 3, message: "found 3 matches");
-    assert(results![2].len() == 2, message: "1 match and 1 capture");
-    assert(results![2][1] == "neighbor", message: "capture is correct");
+    std.assert(results?.len() == 3, message: "found 3 matches");
+    std.assert(results![2].len() == 2, message: "1 match and 1 capture");
+    std.assert(results![2][1] == "neighbor", message: "capture is correct");
 }
 
 test "Escaped pattern delimiter" {
     pat pattern = $"hello \" world";
 
-    assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
+    std.assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
 }
 
 test "replace" {
-    assert(
+    std.assert(
         $"world".replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
         message: "replace"
     );
 
-    assert(
+    std.assert(
         $"alright".replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
         message: "replaceAll"
     );

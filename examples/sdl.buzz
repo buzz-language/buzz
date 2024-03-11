@@ -1,5 +1,5 @@
 import "std";
-import "examples/sdl-wrapped";
+import "examples/sdl-wrapped" as _;
 
 | buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
 fun main([str] args) > int !> SDLError {

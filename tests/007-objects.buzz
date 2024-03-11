@@ -5,8 +5,8 @@ object First {
     int age = 10,
 
     fun sayHello() > void {
-        print("hello");
-        print(this.name);
+        std.print("hello");
+        std.print(this.name);
     }
 }
 
@@ -15,10 +15,10 @@ test "Objects" {
         name = "John",
     };
 
-    assert(first.name == "John", message: "object instance, field access");
+    std.assert(first.name == "John", message: "object instance, field access");
 
     first.age = 21;
-    assert(first.age == 21, message: "field assignment");
+    std.assert(first.age == 21, message: "field assignment");
 
     first.sayHello();
 }
@@ -40,5 +40,5 @@ object Second {
 test "Object with static fields" {
     Second second = Second.init();
 
-    assert(second.id == Second.nextId, message: "could use static fields");
+    std.assert(second.id == Second.nextId, message: "could use static fields");
 }

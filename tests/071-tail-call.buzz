@@ -9,7 +9,7 @@ fun tail(int a, int b) > int {
 }
 
 test "simple tail call" {
-    assert(tail(a: 5, b: 2) == 10);
+    std.assert(tail(a: 5, b: 2) == 10);
 }
 
 fun recursive(int limit, int current) > int {
@@ -21,7 +21,7 @@ fun recursive(int limit, int current) > int {
 }
 
 test "recursive tail call" {
-    assert(recursive(limit: 5, current: 0) == 6);
+    std.assert(recursive(limit: 5, current: 0) == 6);
 }
 
 object Tail {
@@ -43,5 +43,5 @@ test "dot tail call" {
         b = 2,
     }.tail(3);
 
-    print("{result}");
+    std.print("{result}");
 }

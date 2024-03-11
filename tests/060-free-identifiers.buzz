@@ -3,7 +3,7 @@ import "std";
 test "Free identifiers" {
     str @"non-standard-identifier" = "hello world";
 
-    assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
+    std.assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
 }
 
 object A {
@@ -15,5 +15,5 @@ test "Free identifier as object field" {
         @"type" = "Hello",
     };
 
-    assert(a.@"type" == "Hello", message: "Could use non-standard identifiers as object field");
+    std.assert(a.@"type" == "Hello", message: "Could use non-standard identifiers as object field");
 }

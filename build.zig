@@ -442,7 +442,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
             .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
             .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
-            .{ .name = "test", .path = null },
+            .{ .name = "testing", .path = null },
             .{ .name = "errors", .path = null },
         };
 

@@ -20,7 +20,7 @@ fun run() > void {
         sum = sum + resume counter ?? 0;
     }
 
-    print(resolve counter);
+    std.print(resolve counter);
 }
 
 test "fiber error location" {

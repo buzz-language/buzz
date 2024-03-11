@@ -1,26 +1,26 @@
 import "std";
 
 test "Escape sequences" {
-    print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");
+    std.print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");
 }
 
 test "String interpolation" {
     str name = "joe";
     int age = 12;
 
-    assert(
+    std.assert(
         "{"$"} hello {name} i'm {age} years old {3+4}"
             == "$ hello joe i'm 12 years old 7",
         message: "interpolation"
     );
 
-    assert("not starting with a {name} {age} yeah!"
+    std.assert("not starting with a {name} {age} yeah!"
         == "not starting with a joe 12 yeah!",
         message: "interpolation order");
 
-    assert("\60\61\62" == "<=>", message: "raw char");
+    std.assert("\60\61\62" == "<=>", message: "raw char");
 }
 
 test "Printing empty string" {
-    print("");
+    std.print("");
 }
