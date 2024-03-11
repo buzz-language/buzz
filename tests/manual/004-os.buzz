@@ -1,4 +1,4 @@
-import "os" as os;
+import "os";
 
 test "os.exit" {
     os.exit(12);

@@ -1,10 +1,10 @@
 import "std";
 
 fun hello([str] name = ["John", "Doe"], {str: str} address = { "street": "somewhere street", "town": "New York" }) > void {
-    assert(name.len() == 2, message: "default arg is clone of the default value");
-    assert(address.size() == 2, message: "default arg is clone of the default value");
+    std.assert(name.len() == 2, message: "default arg is clone of the default value");
+    std.assert(address.size() == 2, message: "default arg is clone of the default value");
 
-    print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
+    std.print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
 
     name.append("Yolo");
     address["country"] = "US";
@@ -22,16 +22,16 @@ test "Constant expression" {
     A a = A{};
     A b = A{};
 
-    assert(a.list != b.list, message: "object default value were cloned");
-    assert(a.map != b.map, message: "object default value were cloned");
+    std.assert(a.list != b.list, message: "object default value were cloned");
+    std.assert(a.map != b.map, message: "object default value were cloned");
 
     a.list.append(4);
 
-    assert(a.list.len() == 4, message: "object default value were cloned");
-    assert(b.list.len() == 3, message: "object default value were cloned");
+    std.assert(a.list.len() == 4, message: "object default value were cloned");
+    std.assert(b.list.len() == 3, message: "object default value were cloned");
 
     a.map["lo"] = 4;
 
-    assert(a.map.size() == 2, message: "object default value were cloned");
-    assert(b.map.size() == 1, message: "object default value were cloned");
+    std.assert(a.map.size() == 2, message: "object default value were cloned");
+    std.assert(b.map.size() == 1, message: "object default value were cloned");
 }

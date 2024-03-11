@@ -1,3 +1,5 @@
+namespace gc;
+
 || Error occured while collecting
 object CollectError {}
 

@@ -1,8 +1,8 @@
 import "std";
-import "buffer";
+import "buffer" as _;
 
 test "Reading and writing in a buffer" {
-    Buffer buffer = Buffer.init();
+    var buffer = Buffer.init();
 
     buffer.writeInt("hello world".len());
     buffer.write("hello world");
@@ -16,19 +16,19 @@ test "Reading and writing in a buffer" {
         1,                                                    | true
     ];
     foreach (int i, str char in buffer.toString()) {
-        assert(expected[i] == char.byte(0), message: "Buffer has expected content");
+        std.assert(expected[i] == char.byte(0), message: "Buffer has expected content");
     }
 
-    assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
+    std.assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
     
     const int len = buffer.readInt() ?? -1;
-    assert(len == 11, message: "could read number");
+    std.assert(len == 11, message: "could read number");
 
-    assert(buffer.read(len) == "hello world", message: "could read n bytes");
-    assert(buffer.readFloat() == 1238.324, message: "could read float");
-    assert(buffer.readBoolean() == true, message: "could read boolean");
+    std.assert(buffer.read(len) == "hello world", message: "could read n bytes");
+    std.assert(buffer.readFloat() == 1238.324, message: "could read float");
+    std.assert(buffer.readBoolean() == true, message: "could read boolean");
 
     buffer.empty();
 
-    assert(buffer.len() == 0, message: "could empty buffer");
+    std.assert(buffer.len() == 0, message: "could empty buffer");
 }

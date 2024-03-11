@@ -9,7 +9,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub export fn serialize(ctx: *api.NativeCtx) c_int {
+pub export fn serializeValue(ctx: *api.NativeCtx) c_int {
     const to_serialize = ctx.vm.bz_peek(0);
 
     var error_value = api.Value.Void;

@@ -2,26 +2,26 @@ import "std";
 
 test "if" {
     if (true) {
-        assert(true, message: "only this branch should be generated");
+        std.assert(true, message: "only this branch should be generated");
     } else {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 }
 
 test "foreach" {
     foreach (str _ in {<str: str>}) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 }
 
 test "while" {
     while (false) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 }
 
 test "for" {
     for (int i = 0; false; i = i + 1) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 }

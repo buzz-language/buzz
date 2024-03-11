@@ -19,16 +19,16 @@ fun myFun(int id) > int {
 }
 
 test "`is` operator" {
-    assert(12 is int, message: "`is` on int");
-    assert(true is bool, message: "`is` on bool");
-    assert("yo" is str, message: "`is` on str");
+    std.assert(12 is int, message: "`is` on int");
+    std.assert(true is bool, message: "`is` on bool");
+    std.assert("yo" is str, message: "`is` on str");
 
-    assert(MyObj{} is MyObj, message: "`is` for an object instance");
-    assert(MyEnum.one is MyEnum, message: "`is` for an enum instance");
-    assert(myFun is Function(int id) > int, message: "`is` for a function");
+    std.assert(MyObj{} is MyObj, message: "`is` for an object instance");
+    std.assert(MyEnum.one is MyEnum, message: "`is` for an enum instance");
+    std.assert(myFun is Function(int id) > int, message: "`is` for a function");
 
-    assert([<int>, 1,2,3] is [int], message: "`is` on a list");
-    assert({<str: int>, "one": 1} is {str: int}, message: "`is` on a map");
+    std.assert([<int>, 1,2,3] is [int], message: "`is` on a list");
+    std.assert({<str: int>, "one": 1} is {str: int}, message: "`is` on a map");
     | TODO: should be `Function(MyObj) > bool`
-    assert(MyObj{}.bound is Function() > bool, message: "`is` on bound method");
+    std.assert(MyObj{}.bound is Function() > bool, message: "`is` on bound method");
 }

@@ -1,5 +1,4 @@
-import "std";
-import "errors";
+namespace debug;
 
 || Dump any value to stdout
 export extern fun dump(any value) > void;

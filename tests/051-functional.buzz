@@ -8,7 +8,7 @@ test "list.forEach" {
         sum = sum + element;
     });
 
-    assert(sum == 10, message: "could use list.forEach");
+    std.assert(sum == 10, message: "could use list.forEach");
 }
 
 test "list.map" {
@@ -16,7 +16,7 @@ test "list.map" {
 
     [str] mapped = data.map::<str>(fun (int _, int element) -> "{element}");
 
-    assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
+    std.assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
 }
 
 test "list.filter" {
@@ -24,7 +24,7 @@ test "list.filter" {
 
     [int] odd = data.filter(fun (int _, int element) -> element % 2 != 0);
 
-    assert(odd.join(", ") == "1, 3", message: "could use filter");
+    std.assert(odd.join(", ") == "1, 3", message: "could use filter");
 }
 
 test "list.reduce" {
@@ -35,7 +35,7 @@ test "list.reduce" {
         initial: 0
     );
 
-    assert(sum == 10, message: "could use reduce");
+    std.assert(sum == 10, message: "could use reduce");
 }
 
 test "list.sort" {
@@ -44,7 +44,7 @@ test "list.sort" {
     _ = data.sort(fun (int left, int right) -> left < right);
 
     foreach (int i, int value in [-3, 0, 1, 3, 10, 12]) {
-        assert(data[i] == value, message: "list is not ordered");
+        std.assert(data[i] == value, message: "list is not ordered");
     }
 }
 
@@ -61,7 +61,7 @@ test "map.forEach" {
         fun (str _, int value) > void -> sum = sum + value
     );
 
-    assert(sum == 11, message: "could use map.forEach");
+    std.assert(sum == 11, message: "could use map.forEach");
 }
 
 test "map.map" {
@@ -78,7 +78,7 @@ test "map.map" {
     );
 
     foreach (str key, int value in map) {
-        assert(inverted[value] == key, message: "Could use map.map");
+        std.assert(inverted[value] == key, message: "Could use map.map");
     }
 }
 
@@ -94,7 +94,7 @@ test "map.filter" {
         fun (str _, int value) -> value % 2 != 0
     );
 
-    assert(filtered["two"] == null, message: "Could use map.filter");
+    std.assert(filtered["two"] == null, message: "Could use map.filter");
 }
 
 test "map.reduce" {
@@ -110,7 +110,7 @@ test "map.reduce" {
         initial: 0
     );
 
-    assert(sum == 11, message: "could use reduce");
+    std.assert(sum == 11, message: "could use reduce");
 }
 
 test "map.sort" {
@@ -129,7 +129,7 @@ test "map.sort" {
     [str] ordered = [ "one", "two", "three", "five" ];
     int i = 0;
     foreach (str key in map.keys()) {
-        assert(ordered[i] == key, message: "Could sort map");
+        std.assert(ordered[i] == key, message: "Could sort map");
 
         i = i + 1;
     }

@@ -1,17 +1,19 @@
+namespace io;
+
 import "errors";
 
 || @private
-extern fun FileOpen(str filename, int mode) > int !> FileSystemError, UnexpectedError;
+extern fun FileOpen(str filename, int mode) > int !> errors.FileSystemError, errors.UnexpectedError;
 || @private
 extern fun FileClose(int fd) > void;
 || @private
-extern fun FileReadAll(int fd, int? maxSize) > str !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadAll(int fd, int? maxSize) > str !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError;
 || @private
-extern fun FileReadLine(int fd, int? maxSize) > str? !> ReadWriteError, FileSystemError, UnexpectedError;
+extern fun FileReadLine(int fd, int? maxSize) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError;
 || @private
-extern fun FileRead(int fd, int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError;
+extern fun FileRead(int fd, int n) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.InvalidArgumentError, errors.UnexpectedError;
 || @private
-extern fun FileWrite(int fd, str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError;
+extern fun FileWrite(int fd, str bytes) > void !> errors.FileSystemError, errors.ReadWriteError, errors.UnexpectedError;
 || @private
 extern fun getStdIn() > int;
 || @private
@@ -37,7 +39,7 @@ export object File {
     || @param filename Path of file to open
     || @param mode Mode with which to open it
     || @return opened file
-    static fun open(str filename, FileMode mode) > File !> FileSystemError, UnexpectedError {
+    static fun open(str filename, FileMode mode) > File !> errors.FileSystemError, errors.UnexpectedError {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
@@ -54,26 +56,26 @@ export object File {
 
     || Reads file until `EOF`
     || @return Read data
-    fun readAll(int? maxSize) > str !> ReadWriteError, FileSystemError, UnexpectedError {
+    fun readAll(int? maxSize) > str !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError {
         return FileReadAll(this.fd, maxSize);
     }
 
     || Reads next line, returns null if nothing to read
     || @return Read data
-    fun readLine(int? maxSize) > str? !> ReadWriteError, FileSystemError, UnexpectedError {
+    fun readLine(int? maxSize) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError {
         return FileReadLine(this.fd, maxSize);
     }
 
     || Reads `n` bytes, returns null if nothing to read
     || @param n how many bytes to read
     || @return Read data
-    fun read(int n) > str? !> ReadWriteError, FileSystemError, InvalidArgumentError, UnexpectedError {
+    fun read(int n) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.InvalidArgumentError, errors.UnexpectedError {
         return FileRead(this.fd, n: n);
     }
 
     || Write bytes
     || @param bytes string to write
-    fun write(str bytes) > void !> FileSystemError, ReadWriteError, UnexpectedError {
+    fun write(str bytes) > void !> errors.FileSystemError, errors.ReadWriteError, errors.UnexpectedError {
         FileWrite(this.fd, bytes: bytes);
     }
 
@@ -92,4 +94,4 @@ export const File stderr = File{ fd = getStdErr() };
 
 || Run a buzz file
 || @param filename path to buzz file
-export extern fun runFile(str filename) > void !> CompileError, InterpretError, FileSystemError, ReadWriteError;
+export extern fun runFile(str filename) > void !> errors.CompileError, errors.InterpretError, errors.FileSystemError, errors.ReadWriteError;

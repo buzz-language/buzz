@@ -2,18 +2,18 @@ import "std";
 import "io";
 
 test "runFile" {
-    runFile("tests/utils/testing.buzz");
+    io.runFile("tests/utils/testing.buzz");
 
-    assert(true, message: "Could run a buzz file");
+    std.assert(true, message: "Could run a buzz file");
 }
 
 test "run non existent file" {
     bool errorRaised = false;
     try {
-        runFile("tests/utils/testingsldkfj.buzz");
+        io.runFile("tests/utils/testingsldkfj.buzz");
     } catch {
         errorRaised = true;
     }
 
-    assert(errorRaised, message: "Non existent file raised an error");
+    std.assert(errorRaised, message: "Non existent file raised an error");
 }

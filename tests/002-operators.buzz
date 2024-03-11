@@ -1,30 +1,30 @@
 import "std";
 
 test "Binary operators" {
-    assert(12 == 12, message: "equality (number)");
-    assert(12 + 12 == 24, message: "addition");
-    assert(12 - 12 == 0, message: "substraction");
-    assert(12 * 12 == 144, message: "multiplication");
-    assert(12 / 12 == 1, message: "division");
-    assert(12 % 12 == 0, message: "modulo");
-    assert(12 != 13, message: "inequality");
-    assert(12 >= 12, message: "greater or equal");
-    assert(12 <= 12, message: "less or equal");
-    assert(12 > 11, message: "greater");
-    assert(12 < 13, message: "less");
-    assert(12 > 3 and 5 < 12, message: "and");
-    assert(12 > 3 or 12 < 5, message: "or");
+    std.assert(12 == 12, message: "equality (number)");
+    std.assert(12 + 12 == 24, message: "addition");
+    std.assert(12 - 12 == 0, message: "substraction");
+    std.assert(12 * 12 == 144, message: "multiplication");
+    std.assert(12 / 12 == 1, message: "division");
+    std.assert(12 % 12 == 0, message: "modulo");
+    std.assert(12 != 13, message: "inequality");
+    std.assert(12 >= 12, message: "greater or equal");
+    std.assert(12 <= 12, message: "less or equal");
+    std.assert(12 > 11, message: "greater");
+    std.assert(12 < 13, message: "less");
+    std.assert(12 > 3 and 5 < 12, message: "and");
+    std.assert(12 > 3 or 12 < 5, message: "or");
 }
 
 test "Binary operators for strings" {
-    assert("hello " + "world" == "hello world", message: "string concat");
-    assert("hello" == "hello", message: "equality (string");
+    std.assert("hello " + "world" == "hello world", message: "string concat");
+    std.assert("hello" == "hello", message: "equality (string");
 }
 
 test "Unary operators (constant folded)" {
-    assert(-12 < 0, message: "negate operator");
-    assert(!false, message: "not operator");
-    assert(~15 == -16, message: "~");
+    std.assert(-12 < 0, message: "negate operator");
+    std.assert(!false, message: "not operator");
+    std.assert(~15 == -16, message: "~");
 }
 
 test "Unary operators" {
@@ -32,7 +32,7 @@ test "Unary operators" {
     bool b = false;
     int c = 15;
 
-    assert(-a < 0, message: "negate operator");
-    assert(!b, message: "not operator");
-    assert(~c == -16, message: "~");
+    std.assert(-a < 0, message: "negate operator");
+    std.assert(!b, message: "not operator");
+    std.assert(~c == -16, message: "~");
 }

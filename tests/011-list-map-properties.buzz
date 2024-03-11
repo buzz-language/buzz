@@ -14,6 +14,6 @@ test "List and Map as Object properties" {
         },
     };
 
-    assert(hey.ages[0] == 1, message: "list access");
-    assert(hey.names[1] == "hello", message: "map access");
+    std.assert(hey.ages[0] == 1, message: "list access");
+    std.assert(hey.names[1] == "hello", message: "map access");
 }

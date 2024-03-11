@@ -14,9 +14,9 @@ fun run() > void {
 
         throw SomeError{};
     } catch (str _) {
-        assert(false, message: "Could throw inside try/catch");
+        std.assert(false, message: "Could throw inside try/catch");
     } catch (SomeError _) {
-        assert(true, message: "Could throw inside try/catch");
+        std.assert(true, message: "Could throw inside try/catch");
     }
 }
 

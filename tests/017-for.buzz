@@ -6,7 +6,7 @@ test "for loop" {
         sum = sum + i;
     }
 
-    assert(sum == 45, message: "for loop");
+    std.assert(sum == 45, message: "for loop");
 }
 
 test "multiple variable and expressions in for loop" {
@@ -15,5 +15,5 @@ test "multiple variable and expressions in for loop" {
         sum = sum + i + j;
     }
 
-    assert(sum == 90, message: "multiple var loop");
+    std.assert(sum == 90, message: "multiple var loop");
 }

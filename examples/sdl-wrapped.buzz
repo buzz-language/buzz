@@ -1,3 +1,5 @@
+namespace sdl;
+
 import "std";
 import "ffi";
 
@@ -212,7 +214,7 @@ export object SDL {
             flags = flags \ subsystem.value;
         }
 
-        if (SDL_Init(toFloat(flags)) != 0) {
+        if (SDL_Init(std.toFloat(flags)) != 0) {
             throw SDLError{
                 message = "SDL_Init error: {SDL_GetError()}",
             };
@@ -293,7 +295,7 @@ export object Renderer {
     ) > Texture !> SDLError {
         const SDL_Texture? texture = SDL_CreateTexture(
             this.renderer,
-            format: toFloat(format.value),
+            format: std.toFloat(format.value),
             access: access.value,
             w: width,
             h: height,
@@ -415,12 +417,12 @@ export object Window {
         }
 
         const SDL_Window? window = SDL_CreateWindow(
-            cstr(name),
+            ffi.cstr(name),
             x,
             y,
             w: width,
             h: height,
-            flags: toFloat(windowFlags),
+            flags: std.toFloat(windowFlags),
         );
 
         if (window -> unwrapped) {
@@ -446,7 +448,7 @@ export object Window {
         const SDL_Renderer? renderer = SDL_CreateRenderer(
             this.window,
             index: index,
-            flags: toFloat(rendererFlags),
+            flags: std.toFloat(rendererFlags),
         );
 
         if (renderer -> unwrapped) {

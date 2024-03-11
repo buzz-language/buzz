@@ -1,6 +1,4 @@
-import "std";
-import "test";
-import "os";
+import "testing" as _;
 
 test "Test std lib" {
     Tester t = Tester.init(

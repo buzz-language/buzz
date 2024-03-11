@@ -8,31 +8,31 @@ test "Maps" {
 
     _ = {1: true, 2: false};
 
-    assert(map["bye"] is int?, message: "yeah");
+    std.assert(map["bye"] is int?, message: "yeah");
 
-    assert(map["bye"] == 2, message: "map subscript");
-    assert(({1: true, 2: false})[2] == false, message: "map expression subscript");
+    std.assert(map["bye"] == 2, message: "map subscript");
+    std.assert(({1: true, 2: false})[2] == false, message: "map expression subscript");
 
-    assert(map.remove("hello") == 1, message: "removed element");
-    | assert(map["hello"] == null, message: "removed element");
-    assert(map.size() == 1, message: "map size");
+    std.assert(map.remove("hello") == 1, message: "removed element");
+    | std.assert(map["hello"] == null, message: "removed element");
+    std.assert(map.size() == 1, message: "map size");
 }
 
 test "map merge" {
     {str: int} map = {"one": 1, "two": 22} + {"three": 3, "two": 2};
 
-    assert(map["two"] == 2, message: "map merge");
-    assert(map.size() == 3, message: "map merge");
+    std.assert(map["two"] == 2, message: "map merge");
+    std.assert(map.size() == 3, message: "map merge");
 }
 
 test "map.keys" {
-    assert({"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
+    std.assert({"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
 }
 
 test "map.values" {
-    assert({"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
+    std.assert({"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
 
-    assert({<str: str>}.keys().len() == 0, message: "yo empty map");
+    std.assert({<str: str>}.keys().len() == 0, message: "yo empty map");
 }
 
 test "map.diff" {
@@ -50,7 +50,7 @@ test "map.diff" {
 
     {str: int} diff = first.diff(second);
 
-    assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
+    std.assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
 }
 
 test "map.intersect" {
@@ -68,7 +68,7 @@ test "map.intersect" {
 
     {str: int} intersect = first.intersect(second);
 
-    assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
+    std.assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
 }
 
 test "map.clone" {
@@ -79,18 +79,18 @@ test "map.clone" {
     };
     {str: int} copy = first.clone();
 
-    assert(copy.size() == first.size(), message: "Could clone map");
+    std.assert(copy.size() == first.size(), message: "Could clone map");
     foreach (str key, int value in copy) {
-        assert(first[key] == value, message: "Could clone map");
+        std.assert(first[key] == value, message: "Could clone map");
     }
 }
 
 test "empty map type inferring" {
     var map = {};
 
-    assert(typeof map == <{any: any}>);
+    std.assert(typeof map == <{any: any}>);
 
     {str: int} smap = {};
 
-    assert(typeof smap == <{str: int}>);
+    std.assert(typeof smap == <{str: int}>);
 }

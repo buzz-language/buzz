@@ -2,6 +2,6 @@ import "std";
 
 fun main([str] args) > void {
     foreach (int index, str arg in args) {
-        print("{index}: {arg}");
+        std.print("{index}: {arg}");
     }
 }

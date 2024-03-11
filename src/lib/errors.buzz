@@ -1,3 +1,5 @@
+namespace errors;
+
 export enum FileSystemError {
     AccessDenied,
     AntivirusInterference,

@@ -3,10 +3,10 @@ import "std";
 test "Lists" {
     [int] list = [1, 2, 3, 4];
 
-    assert(list.len() == 4, message: "len");
+    std.assert(list.len() == 4, message: "len");
 
     [str] strList = ["hello", "world"];
-    assert(strList[0] == "hello", message: "subscript");
+    std.assert(strList[0] == "hello", message: "subscript");
 
     | A lone list expression
     _ = ["hello", "world"];
@@ -14,57 +14,57 @@ test "Lists" {
 
     [[str]] nestedList = [["hello"], ["world"]];
     
-    assert(nestedList[0][0] == "hello", message: "nested list");
+    std.assert(nestedList[0][0] == "hello", message: "nested list");
 
     strList[1] = "yolo";
-    assert(strList[1] == "yolo", message: "list assignment");
+    std.assert(strList[1] == "yolo", message: "list assignment");
 
     strList.append("dojo");
-    assert(strList[strList.len() - 1] == "dojo", message: "append to list");
+    std.assert(strList[strList.len() - 1] == "dojo", message: "append to list");
 
     str? removed = strList.remove(1);
-    assert(strList.len() == 2, message: "removed element form list");
-    assert(strList[0] == "hello" and strList[1] == "dojo", message: "item were properly shifted");
-    assert(removed == "yolo", message: "removed element has the correct value");
+    std.assert(strList.len() == 2, message: "removed element form list");
+    std.assert(strList[0] == "hello" and strList[1] == "dojo", message: "item were properly shifted");
+    std.assert(removed == "yolo", message: "removed element has the correct value");
 
-    assert(strList.remove(12) == null, message: "returns null when removing non existent index");
+    std.assert(strList.remove(12) == null, message: "returns null when removing non existent index");
 }
 
 test "list.sub" {
     [int] list = [1, 2, 3, 4];
     [int] sub = list.sub(1, len: 2);
 
-    assert(sub.len() == 2 and sub[0] == 2 and sub[1] == 3, message: "list.sub");
+    std.assert(sub.len() == 2 and sub[0] == 2 and sub[1] == 3, message: "list.sub");
 }
 
 test "list.indexOf" {
-    assert([0, 1, 2, 3].indexOf(2) == 2, message: "list.indexOf");
+    std.assert([0, 1, 2, 3].indexOf(2) == 2, message: "list.indexOf");
 }
 
 test "list.join" {
-    assert([1, 2, 3, 4].join(",") == "1,2,3,4", message: "list.join");
+    std.assert([1, 2, 3, 4].join(",") == "1,2,3,4", message: "list.join");
 }
 
 test "list concat" {
-    assert(([1, 2, 3] + [4, 5, 6]).join(",") == "1,2,3,4,5,6", message: "list concat");
+    std.assert(([1, 2, 3] + [4, 5, 6]).join(",") == "1,2,3,4,5,6", message: "list concat");
 }
 
 test "list.clone" {
     [int] list = [1, 2, 3];
     [int] copy = list.clone();
 
-    assert(list.len() == copy.len(), message: "Could clone list");
+    std.assert(list.len() == copy.len(), message: "Could clone list");
     foreach (int i, int el in copy) {
-        assert(list[i] == el, message: "Could clone list");
+        std.assert(list[i] == el, message: "Could clone list");
     }
 }
 
 test "empty list type inferring" {
     var list = [];
 
-    assert(typeof list == <[any]>);
+    std.assert(typeof list == <[any]>);
 
     [str] slist = [];
 
-    assert(typeof slist == <[str]>);
+    std.assert(typeof slist == <[str]>);
 }

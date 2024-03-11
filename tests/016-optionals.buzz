@@ -6,13 +6,13 @@ test "Optional force unwrapping with `!`" {
     | I think it's saner for it to not be catchable but to provides safe way to unwrap it
     str? hello = "hello world";
 
-    assert(hello! == "hello world", message: "Could force unwrap an optional");
+    std.assert(hello! == "hello world", message: "Could force unwrap an optional");
 }
 
 test "Optional graceful unwrapping with `?`" {
     [int]? optList = [1, 2, 3];
 
-    assert(optList?.len() == 3, message: "could unwrap optList");
+    std.assert(optList?.len() == 3, message: "could unwrap optList");
 }
 
 object Me {
@@ -24,17 +24,17 @@ test "Optional chaining" {
         list = [1, 2, 3],
     };
 
-    assert(me?.list?.len() == 3, message: "chaining optionals work");
+    std.assert(me?.list?.len() == 3, message: "chaining optionals work");
 
     Me? you = null;
 
-    assert(you?.list?.len() == null, message: "chaining optionals work");
+    std.assert(you?.list?.len() == null, message: "chaining optionals work");
 }
 
 test "Null coalescing operator" {
     str? hello = null;
 
-    assert(hello ?? "world" == "world", message: "null coalescing");
+    std.assert(hello ?? "world" == "world", message: "null coalescing");
 }
 
 test "Unwrap map subscript" {
@@ -43,7 +43,7 @@ test "Unwrap map subscript" {
         "mo": "jo",
     };
 
-    assert(map["yo"]?.len() == 2, message: "could unwrap map subscript");
+    std.assert(map["yo"]?.len() == 2, message: "could unwrap map subscript");
 }
 
 object You {
@@ -55,7 +55,7 @@ test "Field access on map subscript" {
         "yo": You{}
     };
 
-    assert(map["yo"]?.name == "joe", message: "could field access map subscript");
+    std.assert(map["yo"]?.name == "joe", message: "could field access map subscript");
 }
 
 object A {

@@ -17,7 +17,7 @@ test "finobacci generator" {
     [int] suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
     int i = 0;
     foreach (int n in &fibonnaci(10)) {
-        assert(suite[i] == n, message: "could iterate over fiber");
+        std.assert(suite[i] == n, message: "could iterate over fiber");
 
         i = i + 1;
     }
@@ -40,6 +40,6 @@ test "dot async call" {
     var hello = Hello{};
 
     foreach (int i in &hello.range()) {
-        print("i {i}");
+        std.print("i {i}");
     }
 }

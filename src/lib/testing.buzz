@@ -1,4 +1,5 @@
-import "std";
+namespace testing;
+
 import "os";
 import "io";
 
@@ -120,9 +121,9 @@ export object Tester {
     }
 
     fun it(str message, Function() > void fn) > void {
-        float startTime = time();
+        float startTime = os.time();
 
-        stdout.write(yellow("▶ Test: {message}\n")) catch void;
+        io.stdout.write(yellow("▶ Test: {message}\n")) catch void;
 
         if (this.beforeEach -> beforeEach) {
             beforeEach(this);
@@ -137,7 +138,7 @@ export object Tester {
 
         this.tests.append(previousFailCount == this.failedAsserts());
 
-        this.elapsed = this.elapsed + (time() - startTime);
+        this.elapsed = this.elapsed + (os.time() - startTime);
     }
 
     fun summary() > void {
@@ -147,17 +148,17 @@ export object Tester {
 
         const failed = this.failedTests();
 
-        stdout.write("\n") catch void;
+        io.stdout.write("\n") catch void;
 
         foreach (bool testStatus in this.tests) {
             if (testStatus) {
-                stdout.write(green("●")) catch void;
+                io.stdout.write(green("●")) catch void;
             } else {
-                stdout.write(yellow("●")) catch void;
+                io.stdout.write(yellow("●")) catch void;
             }
         }
 
-        stdout.write(
+        io.stdout.write(
             green("\n{this.succeededTests()}")
             + dim(" successes, ")
             + yellow("{failed}")
@@ -167,12 +168,12 @@ export object Tester {
         ) catch void;
 
         if (failed > 0) {
-            exit(1);
+            os.exit(1);
         }
     }
 
     fun report(str? error, str? message) > void {
-        stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
+        io.stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
     }
 
     fun assert(bool condition, str? error, str? message) > void {

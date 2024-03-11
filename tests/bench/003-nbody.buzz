@@ -1,5 +1,5 @@
 import "std";
-import "math" as math;
+import "math";
 
 const float pi = 3.141592653589793;
 const float solarMass = 4.0 * pi * pi;
@@ -150,16 +150,16 @@ fun main([str] args) > void {
 
     int N = 1000;
     if (args.len() > 0) {
-        N = parseInt(args[0]) ?? 1000;
+        N = std.parseInt(args[0]) ?? 1000;
     }
     int nbody = bodies.len();
 
     offsetMomentum(bodies, nbody: nbody);
-    print("{energy(bodies, nbody: nbody)}");
+    std.print("{energy(bodies, nbody: nbody)}");
 
     for (int i = 0; i < N; i = i + 1) {
         advance(bodies, nbody: nbody, dt: 0.01);
     }
 
-    print("{energy(bodies, nbody: nbody)}");
+    std.print("{energy(bodies, nbody: nbody)}");
 }

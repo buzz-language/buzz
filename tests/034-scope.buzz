@@ -11,20 +11,20 @@ test "locals inside a foreach" {
             str newnew = "yoyo";
             str oldold = "lolo";
 
-            assert(new == "yo", message: "locals are ok");
-            assert(old == "lo", message: "locals are ok");
-            assert(newnew == "yoyo", message: "locals are ok");
-            assert(oldold == "lolo", message: "locals are ok");
+            std.assert(new == "yo", message: "locals are ok");
+            std.assert(old == "lo", message: "locals are ok");
+            std.assert(newnew == "yoyo", message: "locals are ok");
+            std.assert(oldold == "lolo", message: "locals are ok");
         }
 
-        assert(hello == "");
+        std.assert(hello == "");
     }
 
     for (int i = 0; i < 3; i = i + 1) {
         str new = "yo";
         str old = "lo";
 
-        assert(new == "yo", message: "locals are ok");
-        assert(old == "lo", message: "locals are ok");
+        std.assert(new == "yo", message: "locals are ok");
+        std.assert(old == "lo", message: "locals are ok");
     }
 }

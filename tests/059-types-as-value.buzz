@@ -7,7 +7,7 @@ enum B {
 }
 
 fun dumpType(type myType) > void {
-    print("{myType}");
+    std.print("{myType}");
 }
 
 protocol C {}
@@ -17,19 +17,19 @@ test "Types as value" {
     type another = <str>;
     type again = <str>;
 
-    assert(another == again, message: "Can compare type values");
+    std.assert(another == again, message: "Can compare type values");
 }
 
 test "typeof" {
-    assert(typeof A{} == <A>, message: "typeof operator instance");
-    assert(typeof B.case == <B>, message: "typeof operator case");
-    assert(typeof "hello" == <str>, message: "typeof operator str");
-    assert(typeof true == <bool>, message: "typeof operator bool");
-    assert(typeof null == <void>, message: "typeof operator null");
-    assert(typeof 1 == <int>, message: "typeof operator int");
-    assert(typeof 3.14 == <float>, message: "typeof operator float");
-    assert(typeof $"hello" == <pat>, message: "typeof operator pattern");
-    assert(typeof dumpType == <Function(type myType) > void *> void>, message: "typeof operator");
+    std.assert(typeof A{} == <A>, message: "typeof operator instance");
+    std.assert(typeof B.case == <B>, message: "typeof operator case");
+    std.assert(typeof "hello" == <str>, message: "typeof operator str");
+    std.assert(typeof true == <bool>, message: "typeof operator bool");
+    std.assert(typeof null == <void>, message: "typeof operator null");
+    std.assert(typeof 1 == <int>, message: "typeof operator int");
+    std.assert(typeof 3.14 == <float>, message: "typeof operator float");
+    std.assert(typeof $"hello" == <pat>, message: "typeof operator pattern");
+    std.assert(typeof dumpType == <Function(type myType) > void *> void>, message: "typeof operator");
 }
 
 test "type argument" {
@@ -44,10 +44,10 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "necessary weirdness" {
-    assert((<A>) == typeof A{}, message: "typeof Object == typeof Object instance");
+    std.assert((<A>) == typeof A{}, message: "typeof Object == typeof Object instance");
 
-    assert(typeof C == <type>, message: "protocol is a type at runtime");
-    assert(typeof Data == <type>, message: "fstruct is a type at runtime");
+    std.assert(typeof C == <type>, message: "protocol is a type at runtime");
+    std.assert(typeof Data == <type>, message: "fstruct is a type at runtime");
 }
 
 fun generic::<T>(T value) > T {
@@ -55,11 +55,11 @@ fun generic::<T>(T value) > T {
 }
 
 fun typeArg(type T, str value) > str {
-    dump(T);
+    debug.dump(T);
     return value;
 }
 
 test "generic type expression ambiguity" {
-    dump(generic::<str>("hello"));
-    dump(typeArg(<str>, value: "hello"));
+    debug.dump(generic::<str>("hello"));
+    debug.dump(typeArg(<str>, value: "hello"));
 }

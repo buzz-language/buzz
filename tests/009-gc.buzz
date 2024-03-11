@@ -25,6 +25,6 @@ test "GC, collecting unreferenced objects" {
 
     gc.collect();
 
-    assert(gc.allocated() <= before, message: "Garbage was collected");
-    assert(collectorCalled, message: "Object collector was called");
+    std.assert(gc.allocated() <= before, message: "Garbage was collected");
+    std.assert(collectorCalled, message: "Object collector was called");
 }

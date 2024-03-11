@@ -1,7 +1,7 @@
+namespace http;
+
 import "std";
-import "os";
 import "buffer";
-import "io";
 import "errors";
 
 export enum HttpError {
@@ -165,7 +165,7 @@ export object Client {
         };
     }
 
-    fun send(Request request) > Response *> void !> HttpError, InvalidArgumentError, HttpParseError {
+    fun send(Request request) > Response *> void !> HttpError, errors.InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
         yield void;
@@ -202,9 +202,9 @@ export object Request {
     str? body = null,
     bool collected = false,
 
-    fun wait() > Response !> HttpError, InvalidArgumentError, HttpParseError {
+    fun wait() > Response !> HttpError, errors.InvalidArgumentError, HttpParseError {
         if (this.response != null) {
-            throw InvalidArgumentError{};
+            throw errors.InvalidArgumentError{};
         }
 
         if (this.request -> request) {
@@ -213,12 +213,12 @@ export object Request {
             return HttpRequestRead(request);
         }
 
-        throw InvalidArgumentError{};
+        throw errors.InvalidArgumentError{};
     }
 
     fun toString() > str {
         try {
-            var result = Buffer.init();
+            var result = buffer.Buffer.init();
 
             result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
             foreach (str key, str value in this.headers) {
@@ -253,7 +253,7 @@ export object Response {
 
     fun toString() > str {
         try {
-            var result = Buffer.init();
+            var result = buffer.Buffer.init();
 
             result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
             foreach (str key, str value in this.headers) {

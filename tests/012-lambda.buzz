@@ -3,7 +3,7 @@ import "std";
 test "Lambda/Anonymous functions" {
     Function(int n) > int mul = fun (int n) > int -> n * 2;
 
-    assert(mul(1) == 2, message: "called a lambda function");
+    std.assert(mul(1) == 2, message: "called a lambda function");
 }
 
 fun callThis(Function(int n) > int fn, int arg) > int {
@@ -11,13 +11,13 @@ fun callThis(Function(int n) > int fn, int arg) > int {
 }
 
 test "Function as arguments" {
-    assert((fun (int n) > int { return n * n; })(10) == 100, message: "called anonymous function");
-    assert((fun (int n) > int -> n * n)(10) == 100, message: "called lambda function");
-    assert(callThis(fun (int n) > int -> n * 2, arg: 2) == 4, message: "called a function from a function");
+    std.assert((fun (int n) > int { return n * n; })(10) == 100, message: "called anonymous function");
+    std.assert((fun (int n) > int -> n * n)(10) == 100, message: "called lambda function");
+    std.assert(callThis(fun (int n) > int -> n * 2, arg: 2) == 4, message: "called a function from a function");
 }
 
 fun mul(int a, int b) > int -> a * b;
 
 test "Any function can be an arrow function" {
-    assert(mul(a: 2, b: 2) == 4, message: "arrow function");
+    std.assert(mul(a: 2, b: 2) == 4, message: "arrow function");
 }

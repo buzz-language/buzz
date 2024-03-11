@@ -5,10 +5,10 @@ test "If arrow" {
     str? optS = "hello";
 
     if (opt -> _) {
-        assert(false, message: "unreachable");
+        std.assert(false, message: "unreachable");
     }
 
     if (optS -> unwrapped) {
-        assert(unwrapped == "hello", message: "Could if-arrow unwrap");
+        std.assert(unwrapped == "hello", message: "Could if-arrow unwrap");
     }
 }

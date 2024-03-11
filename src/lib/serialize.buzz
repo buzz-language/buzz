@@ -1,5 +1,7 @@
-import "std";
+namespace serialize;
+
 import "buffer";
+import "std";
 
 || Utility object to manage deserialized data from, for example, decoded JSON
 export object Boxed {
@@ -7,7 +9,7 @@ export object Boxed {
 
     static fun init(any data) > Boxed !> CircularReference, NotSerializable {
         return Boxed{
-            data = serialize(data),
+            data = serializeValue(data),
         };
     }
 
@@ -100,7 +102,7 @@ export object NotSerializable {
     str message = "Not serializable",
 }
 
-export extern fun serialize(any value) > any !> CircularReference, NotSerializable;
+export extern fun serializeValue(any value) > any !> CircularReference, NotSerializable;
 
 export object JsonParseError {
     str? message = null,
@@ -162,7 +164,7 @@ object JsonParser {
         }
     }
 
-    fun next() > any !> JsonParseError, WriteWhileReadingError {
+    fun next() > any !> JsonParseError, buffer.WriteWhileReadingError {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
@@ -193,7 +195,7 @@ object JsonParser {
         throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
     }
 
-    fun array() > [any] !> JsonParseError, WriteWhileReadingError {
+    fun array() > [any] !> JsonParseError, buffer.WriteWhileReadingError {
         [any] array = [<any>];
 
         while (true) {
@@ -217,7 +219,7 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str: any} !> JsonParseError, WriteWhileReadingError {
+    fun map() > {str: any} !> JsonParseError, buffer.WriteWhileReadingError {
         {str: any} map = {<str: any>};
 
         while (true) {
@@ -254,7 +256,7 @@ object JsonParser {
         str number = parsed;
 
         bool isFloat = false;
-        while (parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
+        while (std.parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
             str? char = this.advance();
 
             if (char == null) {
@@ -269,19 +271,19 @@ object JsonParser {
         }
 
         if (isFloat) {
-            if (parseFloat(number) -> floating) {
+            if (std.parseFloat(number) -> floating) {
                 return floating;
             }
-        } else if (parseInt(number) -> integer) {
+        } else if (std.parseInt(number) -> integer) {
             return integer;
         }
         
         throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
     }
 
-    fun string() > str !> WriteWhileReadingError {
+    fun string() > str !> buffer.WriteWhileReadingError {
         str? char = this.advance();
-        Buffer string = Buffer.init();
+        var string = buffer.Buffer.init();
         
         while (char != null and char != "\"") {
             if (char == "\\") {
@@ -355,7 +357,7 @@ export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
 || Decode string into a Json instance
 || @param str json The JSON string
 || @return Boxed
-export fun jsonDecode(str json) > Boxed !> JsonParseError, WriteWhileReadingError {
+export fun jsonDecode(str json) > Boxed !> JsonParseError, buffer.WriteWhileReadingError {
     return Boxed{
         data = JsonParser{
             source = json

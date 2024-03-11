@@ -184,8 +184,8 @@ pub const Local = struct {
 };
 
 pub const Global = struct {
-    prefix: ?[]const u8 = null,
-    name: *obj.ObjString, // TODO: do i need to mark those? does it need to be an objstring?
+    prefix: ?[]const u8,
+    name: *obj.ObjString,
     name_token: Ast.TokenIndex,
     location: Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
@@ -461,6 +461,7 @@ const rules = [_]ParseRule{
     .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
     .{ .prefix = null, .infix = null, .precedence = .None }, // var
     .{ .prefix = null, .infix = null, .precedence = .None }, // out
+    .{ .prefix = null, .infix = null, .precedence = .None }, // namespace
 };
 
 ast: Ast,
@@ -478,8 +479,8 @@ test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
-// TODO: make this a multiarray?
 globals: std.ArrayList(Global),
+namespace: ?[]const u8 = null,
 flavor: RunFlavor,
 ffi: FFI,
 reporter: Reporter,
@@ -857,7 +858,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     // Then put any exported globals on the stack
     if (function_type == .ScriptEntryPoint) {
         for (self.globals.items, 0..) |global, index| {
-            if (std.mem.eql(u8, global.name.string, "main") and !global.hidden and global.prefix == null) {
+            if (std.mem.eql(u8, global.name.string, "main") and !global.hidden and (self.namespace == null or global.prefix == null or std.mem.eql(u8, global.prefix.?, self.namespace.?))) {
                 entry.main_slot = index;
                 entry.main_location = global.location;
                 break;
@@ -1365,6 +1366,8 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
             break :user_decl null;
         } else if (global_scope and !constant and try self.match(.Export))
             try self.exportStatement()
+        else if (global_scope and !constant and try self.match(.Namespace))
+            try self.namespaceStatement()
         else
             null;
 
@@ -1432,12 +1435,15 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     } else if (try self.match(.Out)) {
         std.debug.assert(!hanging);
         return try self.outStatement();
+    } else if (try self.match(.Namespace)) {
+        std.debug.assert(!hanging);
+        return try self.namespaceStatement();
     } else if (try self.match(.Throw)) {
         const start_location = self.current_token.? - 1;
         // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
         const error_value = try self.expression(false);
 
-        try self.consume(.Semicolon, "Expected `;` after `throw` expression.");
+        try self.consume(.Semicolon, "Expected `;` after statement.");
 
         return try self.ast.appendNode(
             .{
@@ -1507,6 +1513,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
 
     try self.globals.append(
         Global{
+            .prefix = self.namespace,
             .name_token = name,
             .name = try self.gc.copyString(lexemes[name]),
             .location = name,
@@ -1572,7 +1579,17 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
     var i: usize = self.globals.items.len - 1;
     while (i >= 0) : (i -= 1) {
         const global: *Global = &self.globals.items[i];
-        if (((prefix == null and global.prefix == null) or (prefix != null and global.prefix != null and std.mem.eql(u8, prefix.?, global.prefix.?))) and std.mem.eql(u8, name, global.name.string) and !global.hidden) {
+        // zig fmt: off
+        if (
+            (
+                global.prefix == null // Not prefixed
+                or (prefix != null and std.mem.eql(u8, prefix.?, global.prefix.?)) // Same prefix as provided
+                or (self.namespace != null and std.mem.eql(u8, global.prefix.?, self.namespace.?)) // Prefix is the current namespace
+            )
+            and std.mem.eql(u8, name, global.name.string)
+            and !global.hidden
+        ) {
+        // zig fmt: on
             if (!global.initialized) {
                 self.reportErrorFmt(
                     .global_initializer,
@@ -5701,11 +5718,11 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     const fun_typedef = self.ast.nodes.items(.type_def)[function_node].?;
 
     if (fun_typedef.resolved_type.?.Function.lambda) {
-        try self.consume(.Semicolon, "Expected `;` after lambda function");
+        try self.consume(.Semicolon, "Expected `;` after statement");
     }
 
     if (function_type == .Extern) {
-        try self.consume(.Semicolon, "Expected `;` after `extern` function declaration.");
+        try self.consume(.Semicolon, "Expected `;` after statement.");
     }
 
     // Enforce main signature
@@ -5766,26 +5783,32 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
 fn exportStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
+    if (self.namespace == null) {
+        self.reportError(.syntax, "A exporting script must provide a namespace");
+    }
+
     if (self.check(.Identifier) and (try self.checkAhead(.Semicolon, 0) or try self.checkAhead(.As, 0) or try self.checkAhead(.Dot, 0))) {
         try self.consume(.Identifier, "Expected identifier after `export`.");
         const identifier = self.current_token.? - 1;
 
         // Search for a global with that name
         if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[identifier])) |slot| {
-            const global: *Global = &self.globals.items[slot];
+            const global = &self.globals.items[slot];
             global.referenced = true;
             var alias: ?Ast.TokenIndex = null;
 
             global.exported = true;
-            if (global.prefix != null or self.check(.As)) {
-                try self.consume(.As, "Expected `as` after prefixed global.");
+            if (try self.match(.As)) {
                 try self.consume(.Identifier, "Expected identifier after `as`.");
 
                 global.export_alias = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
                 alias = self.current_token.? - 1;
             }
 
-            try self.consume(.Semicolon, "Expected `;` after export.");
+            // If we're exporting an imported global, overwrite is prefix
+            global.prefix = self.namespace;
+
+            try self.consume(.Semicolon, "Expected `;` after statement.");
 
             return try self.ast.appendNode(
                 .{
@@ -6670,7 +6693,7 @@ fn varDeclaration(
     switch (terminator) {
         .OptComma => _ = try self.match(.Comma),
         .Comma => try self.consume(.Comma, "Expected `,` after variable declaration."),
-        .Semicolon => try self.consume(.Semicolon, "Expected `;` after variable declaration."),
+        .Semicolon => try self.consume(.Semicolon, "Expected `;` after statement."),
         .Nothing => {},
     }
 
@@ -7141,17 +7164,15 @@ fn importScript(
 
             for (parser.globals.items) |*global| {
                 if (global.exported) {
-                    global.*.exported = false;
+                    global.exported = false;
 
                     if (global.export_alias) |export_alias| {
-                        global.*.name = try self.gc.copyString(export_alias);
-                        global.*.export_alias = null;
+                        global.name = try self.gc.copyString(export_alias);
+                        global.export_alias = null;
                     }
                 } else {
-                    global.*.hidden = true;
+                    global.hidden = true;
                 }
-
-                global.*.prefix = prefix;
 
                 try import.?.globals.append(global.*);
             }
@@ -7170,7 +7191,9 @@ fn importScript(
 
     if (import) |imported| {
         const selective_import = imported_symbols.count() > 0;
-        for (imported.globals.items) |*global| {
+        for (imported.globals.items) |imported_global| {
+            var global = imported_global;
+
             if (!global.hidden) {
                 if (imported_symbols.get(global.name.string) != null) {
                     _ = imported_symbols.remove(global.name.string);
@@ -7190,12 +7213,15 @@ fn importScript(
                     );
                 }
 
-                global.*.prefix = prefix;
+                global.prefix = if (prefix != null and std.mem.eql(u8, "_", prefix.?))
+                    null // import "..." as _; | Erased prefix so the imported global are in the importer script namespace
+                else
+                    prefix orelse global.prefix;
             }
 
             // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
             //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
-            try self.globals.append(global.*);
+            try self.globals.append(global);
         }
     } else {
         // TODO: when it cannot load dynamic library, the error is the same
@@ -7384,12 +7410,15 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         prefix = self.current_token.? - 1;
     }
 
-    try self.consume(.Semicolon, "Expected `;` after import.");
+    try self.consume(.Semicolon, "Expected `;` after statement.");
 
     const import = if (!self.reporter.had_error)
         try self.importScript(
             file_name,
-            if (prefix) |pr| self.ast.tokens.items(.lexeme)[pr] else null,
+            if (prefix) |pr|
+                self.ast.tokens.items(.lexeme)[pr]
+            else
+                null,
             &imported_symbols,
         )
     else
@@ -7962,7 +7991,7 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
         null;
 
     if (value) |uvalue| {
-        try self.consume(.Semicolon, "Expected `;` after return value.");
+        try self.consume(.Semicolon, "Expected `;` after statement.");
 
         // Tail call (TODO: do it for dot call)
         if (self.ast.nodes.items(.tag)[uvalue] == .Call) {
@@ -8004,7 +8033,7 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
 
     const expr = try self.expression(false);
 
-    try self.consume(.Semicolon, "Expected `;` after `out` statement.");
+    try self.consume(.Semicolon, "Expected `;` after statement.");
 
     return try self.ast.appendNode(
         .{
@@ -8014,6 +8043,35 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
             .type_def = self.ast.nodes.items(.type_def)[expr],
             .components = .{
                 .Out = expr,
+            },
+        },
+    );
+}
+
+fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+
+    // Should be the first statement
+    const components = self.ast.nodes.items(.components);
+    const current_body = components[self.current.?.function_node].Function.body;
+    if (current_body == null or components[current_body.?].Block.len > 0) {
+        self.reportError(.syntax, "`namespace` should be the first statement");
+    }
+
+    try self.consume(.Identifier, "Expected namespace identifier");
+
+    const identifier = self.current_token.? - 1;
+    self.namespace = self.ast.tokens.items(.lexeme)[identifier];
+
+    try self.consume(.Semicolon, "Expected `;` after statement.");
+
+    return try self.ast.appendNode(
+        .{
+            .tag = .Namespace,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .components = .{
+                .Namespace = identifier,
             },
         },
     );
@@ -8107,7 +8165,7 @@ fn breakStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
         self.reportError(.syntax, "break is not allowed here.");
     }
 
-    try self.consume(.Semicolon, "Expected `;` after `break`.");
+    try self.consume(.Semicolon, "Expected `;` after statement.");
 
     return try self.ast.appendNode(
         .{
@@ -8132,7 +8190,7 @@ fn continueStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
         self.reportError(.syntax, "continue is not allowed here.");
     }
 
-    try self.consume(.Semicolon, "Expected `;` after `continue`.");
+    try self.consume(.Semicolon, "Expected `;` after statement.");
 
     return try self.ast.appendNode(
         .{

@@ -3,8 +3,8 @@ import "tests/utils/import-b";
 import "tests/utils/import-a";
 
 test "Mutual import" {
-    print("t: {Hello}");
-    printClass();
-    print("{hello}");
-    assert(hello is Hello, message: "multiple import of the same script produce the same globals");
+    std.print("t: {a.Hello}");
+    b.printClass();
+    std.print("{b.hello}");
+    std.assert(b.hello is a.Hello, message: "multiple import of the same script produce the same globals");
 }

@@ -58,7 +58,7 @@ jit: ?*JIT,
 reporter: Reporter,
 
 const generators = [_]NodeGen{
-    &noGen, // AnonymousObjectType,
+    noGen, // AnonymousObjectType,
     generateAs, // As,
     generateAsyncCall, // AsyncCall,
     generateBinary, // Binary,
@@ -93,6 +93,7 @@ const generators = [_]NodeGen{
     noGen, // ListType,
     generateMap, // Map,
     noGen, // MapType,
+    noGen, // Namespace,
     generateNamedVariable, // NamedVariable,
     generateNull, // Null,
     generateObjectDeclaration, // ObjectDeclaration,

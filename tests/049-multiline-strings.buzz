@@ -10,8 +10,8 @@ test "Multiline strings" {
         `}
     }`;
 
-    Boxed json = jsonDecode(multi);
+    var json = serialize.jsonDecode(multi);
 
-    assert(json.q(["yes"]).integer() == 15, message: "multiline string is valid");
-    assert(json.q(["another"]).string() == "one", message: "multiline string is valid");
+    std.assert(json.q(["yes"]).integer() == 15, message: "multiline string is valid");
+    std.assert(json.q(["another"]).string() == "one", message: "multiline string is valid");
 }
