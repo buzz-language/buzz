@@ -1,0 +1,7 @@
+| Unused import
+import "math";
+import "std";
+
+test "Doing nothing with the math import" {
+    std.print("hello");
+}

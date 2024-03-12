@@ -189,14 +189,14 @@ pub const Global = struct {
     name_token: Ast.TokenIndex,
     location: Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
+    export_alias: ?[]const u8 = null,
+    imported_from: ?[]const u8 = null,
+
     initialized: bool = false,
     exported: bool = false,
-    export_alias: ?[]const u8 = null,
     hidden: bool = false,
     constant: bool,
     referenced: bool = false,
-    // When resolving a placeholder, the start of the resolution is the global
-    // If `constant` is true, we can search for any `.Assignment` link and fail then.
 
     pub fn isReferenced(self: Global) bool {
         const function_type = if (self.type_def.def_type == .Function)
@@ -264,6 +264,11 @@ pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayList(Global),
     absolute_path: *obj.ObjString,
+};
+
+const LocalScriptImport = struct {
+    referenced: bool = false,
+    location: Ast.TokenIndex,
 };
 
 pub var user_library_paths: ?[][]const u8 = null;
@@ -473,8 +478,10 @@ script_name: []const u8 = undefined,
 imported: bool = false,
 // True when parsing a declaration inside an export statement
 exporting: bool = false,
-// Cached imported functions
+// Cached imported functions (shared across instances of Parser)
 imports: *std.StringHashMap(ScriptImport),
+// Keep track of things imported by the current script
+script_imports: std.StringHashMap(LocalScriptImport),
 test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
@@ -497,6 +504,7 @@ pub fn init(
     var self = Self{
         .gc = gc,
         .imports = imports,
+        .script_imports = std.StringHashMap(LocalScriptImport).init(gc.allocator),
         .imported = imported,
         .globals = std.ArrayList(Global).init(gc.allocator),
         .flavor = flavor,
@@ -515,6 +523,7 @@ pub fn init(
 
 pub fn deinit(self: *Self) void {
     self.globals.deinit();
+    self.script_imports.deinit();
     if (self.opt_jumps) |jumps| {
         jumps.deinit();
     }
@@ -890,6 +899,21 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     for (self.globals.items) |global| {
         if (global.type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, global.type_def.resolved_type.?.Placeholder);
+        }
+    }
+
+    // Check there's no unreferenced imports
+    var it = self.script_imports.iterator();
+    while (it.next()) |kv| {
+        if (!kv.value_ptr.*.referenced) {
+            const location = self.ast.tokens.get(kv.value_ptr.*.location);
+
+            self.reporter.warnFmt(
+                .unused_import,
+                location,
+                "Unused import",
+                .{},
+            );
         }
     }
 
@@ -2956,8 +2980,22 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
 
     // Search for a global with that name
     if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[user_type_name])) |slot| {
-        var_type = self.globals.items[slot].type_def;
+        const global = self.globals.items[slot];
+
+        var_type = global.type_def;
         global_slot = @intCast(slot);
+
+        if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+            const imported_from = global.imported_from.?;
+
+            try self.script_imports.put(
+                imported_from,
+                .{
+                    .location = self.script_imports.get(imported_from).?.location,
+                    .referenced = true,
+                },
+            );
+        }
     }
 
     // If none found, create a placeholder
@@ -4729,10 +4767,24 @@ fn namedVariable(self: *Self, name: Ast.TokenIndex, can_assign: bool) Error!Ast.
         slot_type = .UpValue;
         slot_constant = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].constant;
     } else if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[name])) |uslot| {
-        var_def = self.globals.items[uslot].type_def;
+        const global = self.globals.items[uslot];
+
+        var_def = global.type_def;
         slot = uslot;
         slot_type = .Global;
-        slot_constant = self.globals.items[uslot].constant;
+        slot_constant = global.constant;
+
+        if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+            const imported_from = global.imported_from.?;
+
+            try self.script_imports.put(
+                imported_from,
+                .{
+                    .location = self.script_imports.get(imported_from).?.location,
+                    .referenced = true,
+                },
+            );
+        }
     } else {
         slot = try self.declarePlaceholder(name, null);
         var_def = self.globals.items[slot].type_def;
@@ -5794,10 +5846,22 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         // Search for a global with that name
         if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[identifier])) |slot| {
             const global = &self.globals.items[slot];
-            global.referenced = true;
-            var alias: ?Ast.TokenIndex = null;
 
+            global.referenced = true;
             global.exported = true;
+            if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+                const imported_from = global.imported_from.?;
+
+                try self.script_imports.put(
+                    imported_from,
+                    .{
+                        .location = self.script_imports.get(imported_from).?.location,
+                        .referenced = true,
+                    },
+                );
+            }
+
+            var alias: ?Ast.TokenIndex = null;
             if (try self.match(.As)) {
                 try self.consume(.Identifier, "Expected identifier after `as`.");
 
@@ -7123,6 +7187,7 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
 
 fn importScript(
     self: *Self,
+    path_token: Ast.TokenIndex,
     file_name: []const u8,
     prefix: ?[]const u8,
     imported_symbols: *std.StringHashMap(Ast.Node.Index),
@@ -7178,6 +7243,12 @@ fn importScript(
             }
 
             try self.imports.put(file_name, import.?);
+            try self.script_imports.put(
+                file_name,
+                .{
+                    .location = path_token,
+                },
+            );
         }
 
         // Caught up this parser with the import parser status
@@ -7218,6 +7289,8 @@ fn importScript(
                 else
                     prefix orelse global.prefix;
             }
+
+            global.imported_from = file_name;
 
             // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
             //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
@@ -7414,6 +7487,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     const import = if (!self.reporter.had_error)
         try self.importScript(
+            path_token,
             file_name,
             if (prefix) |pr|
                 self.ast.tokens.items(.lexeme)[pr]
@@ -7618,7 +7692,21 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
         // Search for a global with that name
         if (var_type == null) {
             if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[user_type_name])) |slot| {
-                var_type = self.globals.items[slot].type_def;
+                const global = self.globals.items[slot];
+
+                var_type = global.type_def;
+
+                if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+                    const imported_from = global.imported_from.?;
+
+                    try self.script_imports.put(
+                        imported_from,
+                        .{
+                            .location = self.script_imports.get(imported_from).?.location,
+                            .referenced = true,
+                        },
+                    );
+                }
             }
         }
 

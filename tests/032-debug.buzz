@@ -1,6 +1,5 @@
-import "std";
-import "debug" as debug;
-import "serialize";
+import "debug";
+| import "serialize";
 
 | TODO: put back one debug.ast is reactivated
 | test "Get AST" {

@@ -1,5 +1,4 @@
 import "std";
-import "debug";
 
 object Person {
     str name,

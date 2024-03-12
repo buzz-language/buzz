@@ -1,6 +1,5 @@
 import "std";
 import "buffer" as _;
-import "debug";
 import "ffi";
 
 | TODO: one zdef for one lib and multiple declarations

@@ -1,6 +1,5 @@
 import "std";
-import "gc" as gc;
-import "debug";
+import "gc";
 
 bool collectorCalled = false;
 
