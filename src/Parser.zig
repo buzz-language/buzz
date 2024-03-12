@@ -797,6 +797,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     var entry = Ast.Function.Entry{
         .test_slots = undefined,
         .test_locations = undefined,
+        .exported_globals = undefined,
     };
 
     self.script_name = file_name;
@@ -868,23 +869,26 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 
     var test_slots = std.ArrayList(usize).init(self.gc.allocator);
     var test_locations = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
-    // Create an entry point wich runs all `test`
+    var exported_globals = std.ArrayList(u24).init(self.gc.allocator);
     for (self.globals.items, 0..) |global, index| {
+        // Remember which slot is a test
         if (global.type_def.def_type == .Function and global.type_def.resolved_type.?.Function.function_type == .Test) {
             try test_slots.append(index);
             try test_locations.append(global.location);
+        }
+
+        // If we're being imported, remember which globals are exported by this script
+        if (self.imported and global.exported) {
+            try exported_globals.append(@intCast(index));
         }
     }
 
     test_slots.shrinkAndFree(test_slots.items.len);
     test_locations.shrinkAndFree(test_locations.items.len);
+    exported_globals.shrinkAndFree(exported_globals.items.len);
+    entry.exported_globals = exported_globals.items;
     entry.test_slots = test_slots.items;
     entry.test_locations = test_locations.items;
-
-    // If we're being imported, put all globals on the stack
-    if (self.imported) {
-        entry.exported_count = self.globals.items.len;
-    }
 
     // Check there's no more root placeholders
     for (self.globals.items) |global| {
@@ -7217,11 +7221,9 @@ fn importScript(
                     null // import "..." as _; | Erased prefix so the imported global are in the importer script namespace
                 else
                     prefix orelse global.prefix;
-            }
 
-            // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
-            //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
-            try self.globals.append(global);
+                try self.globals.append(global);
+            }
         }
     } else {
         // TODO: when it cannot load dynamic library, the error is the same

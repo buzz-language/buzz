@@ -891,9 +891,9 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Va
                     }
                 },
                 .Object => {
-                    const obj_enum = ObjObject.cast(global.obj()).?;
+                    const obj_object = ObjObject.cast(global.obj()).?;
 
-                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Object.qualified_name.string)) {
+                    if (std.mem.eql(u8, qualified_name[0..len], obj_object.type_def.resolved_type.?.Object.qualified_name.string)) {
                         return global;
                     }
                 },

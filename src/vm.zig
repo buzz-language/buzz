@@ -1043,7 +1043,15 @@ pub const VM = struct {
     }
 
     fn OP_CONSTANT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        self.push(self.readConstant(arg));
+        const constant = self.readConstant(arg);
+
+        self.push(constant);
+
+        // If native function, set its globals so it can reference things from the script in which it is defined
+        if (constant.isObj() and constant.obj().obj_type == .Native) {
+            const native = constant.obj().access(ObjNative, .Native, self.gc).?;
+            native.globals = &self.globals;
+        }
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -4054,7 +4062,7 @@ pub const VM = struct {
         } else null;
     }
 
-    fn callNative(self: *Self, closure: ?*ObjClosure, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
+    fn callNative(self: *Self, native: *ObjNative, arg_count: u8, catch_value: ?Value) !void {
         const was_in_native_call = self.currentFrame().?.in_native_call;
         self.currentFrame().?.in_native_call = true;
         self.currentFrame().?.native_call_error_value = catch_value;
@@ -4062,12 +4070,13 @@ pub const VM = struct {
         var result: Value = Value.Null;
         var ctx = NativeCtx{
             .vm = self,
-            .globals = if (closure) |uclosure| uclosure.globals.items.ptr else &[_]Value{},
-            .upvalues = if (closure) |uclosure| uclosure.upvalues.items.ptr else &[_]*ObjUpValue{},
+            .globals = if (native.globals) |globals| globals.items.ptr else &[_]Value{},
+            .upvalues = &[_]*ObjUpValue{},
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
-        const native_return = native(&ctx);
+        const native_fn: NativeFn = @ptrCast(@alignCast(native.native));
+        const native_return = native_fn(&ctx);
 
         self.currentFrame().?.in_native_call = was_in_native_call;
         self.currentFrame().?.native_call_error_value = null;
@@ -4183,7 +4192,6 @@ pub const VM = struct {
                 } else {
                     assert(bound.native != null);
                     return try self.callNative(
-                        null,
                         @ptrCast(@alignCast(bound.native.?.native)),
                         arg_count,
                         catch_value,
@@ -4200,7 +4208,6 @@ pub const VM = struct {
             },
             .Native => {
                 return try self.callNative(
-                    null,
                     @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
                     arg_count,
                     catch_value,
@@ -4229,7 +4236,6 @@ pub const VM = struct {
                 } else {
                     assert(bound.native != null);
                     return try self.callNative(
-                        null,
                         @ptrCast(@alignCast(bound.native.?.native)),
                         arg_count,
                         catch_value,
@@ -4246,7 +4252,6 @@ pub const VM = struct {
             },
             .Native => {
                 return try self.callNative(
-                    null,
                     @ptrCast(@alignCast(obj.access(ObjNative, .Native, self.gc).?.native)),
                     arg_count,
                     catch_value,

@@ -2086,6 +2086,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
         .function_node = node,
     };
 
+    // FIXME: in the case of an ObjNative function, this is lost and stupid
     var function = try obj.ObjFunction.init(
         self.gc.allocator,
         self.ast,
@@ -2185,9 +2186,9 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
                 }
             }
 
-            // If we're being imported, put all globals on the stack
+            // If we're being imported, put exported globals on the stack
             if (components.import_root) {
-                if (components.entry.?.exported_count > 16777215) {
+                if (components.entry.?.exported_globals.len > std.math.maxInt(u24)) {
                     self.reporter.reportErrorAt(
                         .export_count,
                         self.ast.tokens.get(locations[node]),
@@ -2195,12 +2196,11 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
                     );
                 }
 
-                var index: usize = 0;
-                while (index < components.entry.?.exported_count) : (index += 1) {
-                    try self.emitCodeArg(locations[node], .OP_GET_GLOBAL, @intCast(index));
+                for (components.entry.?.exported_globals) |global| {
+                    try self.emitCodeArg(locations[node], .OP_GET_GLOBAL, global);
                 }
 
-                try self.emitCodeArg(locations[node], .OP_EXPORT, @intCast(components.entry.?.exported_count));
+                try self.emitCodeArg(locations[node], .OP_EXPORT, @intCast(components.entry.?.exported_globals.len));
             } else {
                 try self.emitOpCode(locations[node], .OP_VOID);
                 try self.emitOpCode(locations[node], .OP_RETURN);

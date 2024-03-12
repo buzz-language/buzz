@@ -334,7 +334,7 @@ pub const Function = struct {
         main_location: ?TokenIndex = null,
         test_slots: []usize,
         test_locations: []TokenIndex,
-        exported_count: usize = 0,
+        exported_globals: []u24,
     };
 };
 

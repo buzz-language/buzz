@@ -873,6 +873,7 @@ pub const ObjClosure = struct {
 
     upvalues: std.ArrayList(*ObjUpValue),
     // Pointer to the global with which the function was declared
+    // FIXME: could be in ObjFunction directly
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
@@ -938,6 +939,8 @@ pub const ObjNative = struct {
     // TODO: issue is list.member which separate its type definition from its runtime creation
     // type_def: *ObjTypeDef,
     native: *anyopaque,
+    // Pointer to the global with which the function was declared
+    globals: ?*std.ArrayList(Value) = null,
 
     pub fn mark(_: *Self, _: *GarbageCollector) void {}
 
