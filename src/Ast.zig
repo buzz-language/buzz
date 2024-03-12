@@ -583,7 +583,6 @@ pub fn isConstant(self: Self, node: Node.Index) bool {
         .ObjectDeclaration,
         .ObjectInit,
         .ProtocolDeclaration,
-        .Range,
         .Resolve,
         .Resume,
         .Return,
@@ -598,6 +597,7 @@ pub fn isConstant(self: Self, node: Node.Index) bool {
         => false,
         .As => self.isConstant(self.nodes.items(.components)[node].As.left),
         .Is => self.isConstant(self.nodes.items(.components)[node].Is.left),
+        .Range => self.isConstant(self.nodes.items(.components)[node].Range.low) and self.isConstant(self.nodes.items(.components)[node].Range.high),
         .Binary => {
             const components = self.nodes.items(.components)[node].Binary;
 
@@ -945,6 +945,17 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                     try self.toValue(components.body, gc)
                 else
                     try self.toValue(components.else_branch.?, gc);
+            },
+            .Range => range: {
+                const components = self.nodes.items(.components)[node].Range;
+
+                break :range (try gc.allocateObject(
+                    obj.ObjRange,
+                    .{
+                        .low = (try self.toValue(components.low, gc)).integer(),
+                        .high = (try self.toValue(components.high, gc)).integer(),
+                    },
+                )).toValue();
             },
             .List => list: {
                 const components = self.nodes.items(.components)[node].List;

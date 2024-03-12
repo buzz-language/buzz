@@ -33,6 +33,7 @@ const ObjUserData = _obj.ObjUserData;
 const ObjPattern = _obj.ObjPattern;
 const ObjFiber = _obj.ObjFiber;
 const ObjForeignContainer = _obj.ObjForeignContainer;
+const ObjRange = _obj.ObjRange;
 
 pub const TypeRegistry = struct {
     const Self = @This();
@@ -154,6 +155,8 @@ pub const GarbageCollector = struct {
     objpattern_memberDefs: std.StringHashMap(*ObjTypeDef),
     objstring_members: std.AutoHashMap(*ObjString, *ObjNative),
     objstring_memberDefs: std.StringHashMap(*ObjTypeDef),
+    objrange_memberDefs: std.StringHashMap(*ObjTypeDef),
+    objrange_members: std.AutoHashMap(*ObjString, *ObjNative),
 
     full_collection_count: usize = 0,
     light_collection_count: usize = 0,
@@ -176,6 +179,8 @@ pub const GarbageCollector = struct {
             .objpattern_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
             .objstring_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
             .objstring_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
+            .objrange_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
+            .objrange_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
         };
     }
 
@@ -201,6 +206,8 @@ pub const GarbageCollector = struct {
         self.objpattern_memberDefs.deinit();
         self.objstring_members.deinit();
         self.objstring_memberDefs.deinit();
+        self.objrange_members.deinit();
+        self.objrange_memberDefs.deinit();
     }
 
     pub fn allocate(self: *Self, comptime T: type) !*T {
@@ -277,6 +284,7 @@ pub const GarbageCollector = struct {
             ObjPattern => ObjPattern.toObj(obj),
             ObjFiber => ObjFiber.toObj(obj),
             ObjForeignContainer => ObjForeignContainer.toObj(obj),
+            ObjRange => ObjRange.toObj(obj),
             else => {},
         };
 
@@ -310,6 +318,7 @@ pub const GarbageCollector = struct {
                     ObjPattern => .Pattern,
                     ObjFiber => .Fiber,
                     ObjForeignContainer => .ForeignContainer,
+                    ObjRange => .Range,
                     else => {},
                 },
             );
@@ -494,6 +503,7 @@ pub const GarbageCollector = struct {
             .Pattern => obj.access(ObjPattern, .Pattern, self).?.mark(self),
             .Fiber => obj.access(ObjFiber, .Fiber, self).?.mark(self),
             .ForeignContainer => obj.access(ObjForeignContainer, .ForeignContainer, self).?.mark(self),
+            .Range => obj.access(ObjRange, .Range, self).?.mark(self),
         };
 
         if (BuildOptions.gc_debug) {
@@ -665,6 +675,9 @@ pub const GarbageCollector = struct {
 
                 free(self, ObjForeignContainer, obj_foreignstruct);
             },
+            .Range => {
+                free(self, ObjRange, ObjRange.cast(obj).?);
+            },
         }
 
         self.obj_collected = null;
@@ -772,6 +785,21 @@ pub const GarbageCollector = struct {
 
         {
             var it = self.objstring_memberDefs.iterator();
+            while (it.next()) |kv| {
+                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
+            }
+        }
+
+        {
+            var it = self.objrange_members.iterator();
+            while (it.next()) |kv| {
+                try self.markObj(kv.key_ptr.*.toObj());
+                try self.markObj(kv.value_ptr.*.toObj());
+            }
+        }
+
+        {
+            var it = self.objrange_memberDefs.iterator();
             while (it.next()) |kv| {
                 try self.markObj(@constCast(kv.value_ptr.*.toObj()));
             }

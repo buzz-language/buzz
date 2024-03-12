@@ -5,7 +5,10 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const TryCtx = _vm.TryCtx;
 const _obj = @import("obj.zig");
-const Value = @import("value.zig").Value;
+const _value = @import("value.zig");
+const Integer = _value.Integer;
+const Float = _value.Float;
+const Value = _value.Value;
 const memory = @import("memory.zig");
 const Parser = @import("Parser.zig");
 const CodeGen = @import("Codegen.zig");
@@ -41,6 +44,7 @@ const ObjNative = _obj.ObjNative;
 const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjFiber = _obj.ObjFiber;
 const ObjForeignContainer = _obj.ObjForeignContainer;
+const ObjRange = _obj.ObjRange;
 const NativeFn = _obj.NativeFn;
 const NativeCtx = _obj.NativeCtx;
 const TypeRegistry = memory.TypeRegistry;
@@ -82,12 +86,12 @@ export fn bz_pushBool(self: *VM, value: bool) void {
 }
 
 /// Push a float value on the stack
-export fn bz_pushFloat(self: *VM, value: f64) void {
+export fn bz_pushFloat(self: *VM, value: Float) void {
     self.push(Value.fromFloat(value));
 }
 
 /// Push a integer value on the stack
-export fn bz_pushInteger(self: *VM, value: i32) void {
+export fn bz_pushInteger(self: *VM, value: Integer) void {
     self.push(Value.fromInteger(value));
 }
 
@@ -196,6 +200,12 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                     std.debug.print(", ", .{});
                 }
                 std.debug.print("]", .{});
+            },
+
+            .Range => {
+                const range = ObjRange.cast(value.obj()).?;
+
+                std.debug.print("{}..{}", .{ range.low, range.high });
             },
 
             .Map => {
@@ -495,6 +505,16 @@ export fn bz_collect(self: *VM) bool {
     };
 
     return true;
+}
+
+export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
+    return Value.fromObj((vm.gc.allocateObject(
+        ObjRange,
+        ObjRange{
+            .low = low,
+            .high = high,
+        },
+    ) catch @panic("Could not create range")).toObj());
 }
 
 export fn bz_newList(vm: *VM, of_type: Value) Value {
@@ -1351,6 +1371,27 @@ export fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, b
         method.toValue();
 }
 
+export fn bz_getRangeField(vm: *VM, range_value: Value, field_name_value: Value, bind: bool) Value {
+    const range = ObjRange.cast(range_value.obj()).?;
+    const member_name = ObjString.cast(field_name_value.obj()).?;
+
+    if (ObjRange.member(vm, member_name) catch @panic("Could not get range method")) |method| {
+        return if (bind)
+            bz_bindMethod(
+                vm,
+                range.toValue(),
+                Value.Null,
+                method.toValue(),
+            )
+        else
+            method.toValue();
+    } else if (std.mem.eql(u8, member_name.string, "high")) {
+        return Value.fromInteger(range.high);
+    }
+
+    return Value.fromInteger(range.low);
+}
+
 export fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value {
     const map = ObjMap.cast(map_value.obj()).?;
     const method = (map.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get map method")).?;
@@ -1395,6 +1436,26 @@ export fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value {
 
     index.* = Value.Null;
     return Value.Null;
+}
+
+export fn bz_rangeNext(range_value: Value, index_slot: Value) Value {
+    const range = ObjRange.cast(range_value.obj()).?;
+
+    if (index_slot.integerOrNull()) |index| {
+        if (range.low < range.high) {
+            return if (index + 1 >= range.high)
+                Value.Null
+            else
+                Value.fromInteger(index + 1);
+        } else {
+            return if (index - 1 <= range.high)
+                Value.Null
+            else
+                Value.fromInteger(index - 1);
+        }
+    }
+
+    return Value.fromInteger(range.low);
 }
 
 export fn bz_mapNext(_: *VM, map_value: Value, key: *Value) Value {
@@ -1544,7 +1605,7 @@ export fn bz_readZigValueFromBuffer(
                     if (ztype.Int.signedness == .signed) {
                         break :integer Value.fromInteger(
                             std.mem.bytesToValue(
-                                i32,
+                                Integer,
                                 bytes[0..4],
                             ),
                         );
@@ -1597,17 +1658,14 @@ export fn bz_readZigValueFromBuffer(
             switch (ztype.Float.bits) {
                 32 => {
                     break :float Value.fromFloat(
-                        @as(
-                            f64,
-                            @floatCast(
-                                std.mem.bytesToValue(f32, bytes[0..4]),
-                            ),
+                        @floatCast(
+                            std.mem.bytesToValue(f32, bytes[0..4]),
                         ),
                     );
                 },
                 64 => {
                     break :float Value.fromFloat(
-                        std.mem.bytesToValue(f64, bytes[0..8]),
+                        std.mem.bytesToValue(Float, bytes[0..8]),
                     );
                 },
                 else => break :float Value.Void,

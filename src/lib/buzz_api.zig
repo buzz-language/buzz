@@ -329,6 +329,12 @@ pub const ObjString = opaque {
     pub extern fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value;
 };
 
+pub const ObjRange = opaque {
+    pub extern fn bz_newRange(vm: *VM, low: i32, high: i32) Value;
+    pub extern fn bz_rangeNext(range_value: Value, index_slot: Value) Value;
+    pub extern fn bz_getRangeField(vm: *VM, range_value: Value, field_name_value: Value, bind: bool) Value;
+};
+
 pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: Value) Value;
     pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) void;

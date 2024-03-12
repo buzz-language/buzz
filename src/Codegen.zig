@@ -1346,6 +1346,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
                 .Fiber => .OP_FIBER_INVOKE,
                 .List => .OP_LIST_INVOKE,
                 .Map => .OP_MAP_INVOKE,
+                .Range => .OP_RANGE_INVOKE,
                 else => unexpected: {
                     std.debug.assert(self.reporter.had_error);
                     break :unexpected if (components.tail_call)
@@ -1425,6 +1426,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
         .Pattern,
         .Fiber,
         .ForeignContainer,
+        .Range,
         => {},
         else => self.reporter.reportErrorAt(
             .field_access,
@@ -1450,6 +1452,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
         .String => .OP_GET_STRING_PROPERTY,
         .Pattern => .OP_GET_PATTERN_PROPERTY,
         .Fiber => .OP_GET_FIBER_PROPERTY,
+        .Range => .OP_GET_RANGE_PROPERTY,
         else => null,
     };
 
@@ -1534,6 +1537,21 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
                 .OP_GET_ENUM_CASE,
                 @intCast(components.value_or_call_or_enum.EnumCase),
             );
+        },
+        .Range => {
+            if (components.member_kind == .Call) {
+                try self.emitOpCode(locations[node], .OP_COPY);
+
+                _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
+            } else {
+                std.debug.assert(components.member_kind != .Value);
+
+                try self.emitCodeArg(
+                    locations[node],
+                    get_code.?,
+                    try self.identifierConstant(identifier_lexeme),
+                );
+            }
         },
         .EnumInstance => {
             std.debug.assert(std.mem.eql(u8, identifier_lexeme, "value"));
@@ -1887,6 +1905,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
                     self.ast.tokens.get(locations[components.key]),
                     "No key available when iterating over enum.",
                 ),
+                .Range => self.reporter.reportErrorAt(
+                    .foreach_key_type,
+                    self.ast.tokens.get(locations[components.key]),
+                    "No key available when iterating over range.",
+                ),
                 else => self.reporter.reportErrorAt(
                     .foreach_iterable,
                     self.ast.tokens.get(locations[components.iterable]),
@@ -1925,6 +1948,18 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
                         iterable_type_def.resolved_type.?.List.item_type,
+                        self.ast.tokens.get(locations[components.value]),
+                        value_type_def,
+                        "Bad value type",
+                    );
+                }
+            },
+            .Range => {
+                if (value_type_def.def_type != .Integer or value_type_def.optional) {
+                    self.reporter.reportTypeCheck(
+                        .foreach_value_type,
+                        self.ast.tokens.get(locations[components.iterable]),
+                        try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
                         self.ast.tokens.get(locations[components.value]),
                         value_type_def,
                         "Bad value type",
@@ -1986,6 +2021,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
             .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
             .String => obj.ObjString.cast(iterable).?.string.len == 0,
             .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
+            .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
             else => self.reporter.had_error,
         }) {
             try self.patchOptJumps(node);
@@ -2008,6 +2044,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
             .Enum => .OP_ENUM_FOREACH,
             .Map => .OP_MAP_FOREACH,
             .Fiber => .OP_FIBER_FOREACH,
+            .Range => .OP_RANGE_FOREACH,
             else => unexpected: {
                 std.debug.assert(self.reporter.had_error);
                 break :unexpected .OP_STRING_FOREACH;

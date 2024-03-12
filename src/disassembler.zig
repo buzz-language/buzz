@@ -242,6 +242,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_ENUM_FOREACH,
         .OP_MAP_FOREACH,
         .OP_FIBER_FOREACH,
+        .OP_RANGE_FOREACH,
         .OP_RESUME,
         .OP_YIELD,
         .OP_RESOLVE,
@@ -281,6 +282,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_GET_STRING_PROPERTY,
         .OP_GET_PATTERN_PROPERTY,
         .OP_GET_FIBER_PROPERTY,
+        .OP_GET_RANGE_PROPERTY,
         .OP_SET_OBJECT_PROPERTY,
         .OP_SET_INSTANCE_PROPERTY,
         .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
@@ -303,6 +305,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_FIBER_INVOKE,
         .OP_LIST_INVOKE,
         .OP_MAP_INVOKE,
+        .OP_RANGE_INVOKE,
         => try invokeInstruction(instruction, chunk, offset),
 
         .OP_CALL,
@@ -431,6 +434,12 @@ pub const DumpState = struct {
                     const pattern = obj.ObjPattern.cast(value.obj()).?;
 
                     out.print("$\"{s}\"", .{pattern.source}) catch unreachable;
+                },
+
+                .Range => {
+                    const range = obj.ObjRange.cast(value.obj()).?;
+
+                    out.print("{}..{}", .{ range.low, range.high }) catch unreachable;
                 },
 
                 .List => {

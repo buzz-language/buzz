@@ -2,8 +2,13 @@ import "std";
 
 test "Range" {
     int limit = 10;
-    [int] range = 0..limit;
-    std.assert(range.len() == 10, message: "Could create list from range");
+    range rg = 0..limit;
+
+    std.assert(rg.low == 0, message: "Could get low limit of range");
+    std.assert(rg.high == 10, message: "Could get high limit of range");
+
+    [int] list = rg.toList();
+    std.assert(list.len() == 10, message: "Could create list from range");
 
     int sum = 0;
     foreach (int n in 0..10) {
@@ -14,8 +19,13 @@ test "Range" {
 
 test "Inverted range" {
     int limit = 0;
-    [int] range = 10..limit;
-    std.assert(range.len() == 10, message: "Could create list from inverted range");
+    range rg = 10..limit;
+
+    std.assert(rg.low == 10, message: "Could get low limit of range");
+    std.assert(rg.high == 0, message: "Could get high limit of range");
+
+    [int] list = rg.toList();
+    std.assert(list.len() == 10, message: "Could create list from inverted range");
 
     int sum = 0;
     foreach (int n in 10..0) {

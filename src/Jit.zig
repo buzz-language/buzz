@@ -1412,6 +1412,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
         .Type,
         .Fiber,
         .UserData,
+        .Range,
         => self.buildValueToObj(value, dest),
         .ForeignContainer => try self.buildValueToForeignContainer(value, dest),
         .Placeholder,
@@ -1442,6 +1443,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
         .Type,
         .Fiber,
         .UserData,
+        .Range,
         => self.buildValueFromObj(value, dest),
         .ForeignContainer,
         .Placeholder,
@@ -1682,6 +1684,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .Fiber,
             .List,
             .Map,
+            .Range,
             => try self.buildExternApiCall(
                 switch (invoked_on.?) {
                     .ObjectInstance, .ProtocolInstance => .bz_getInstanceField,
@@ -1690,6 +1693,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     .Fiber => .bz_getFiberField,
                     .List => .bz_getListField,
                     .Map => .bz_getMapField,
+                    .Range => .bz_getRangeField,
                     else => unreachable,
                 },
                 callee,
@@ -2825,123 +2829,23 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn generateRange(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].Range;
-    const type_def = self.state.?.ast.nodes.items(.type_def)[node];
 
-    const new_list = m.MIR_new_reg_op(
+    const new_range = m.MIR_new_reg_op(
         self.ctx,
-        try self.REG("new_list", m.MIR_T_I64),
+        try self.REG("new_range", m.MIR_T_I64),
     );
 
     try self.buildExternApiCall(
-        .bz_newList,
-        new_list,
+        .bz_newRange,
+        new_range,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, type_def.?.resolved_type.?.List.item_type.toValue().val),
+            (try self.generateNode(components.low)).?,
+            (try self.generateNode(components.high)).?,
         },
     );
 
-    // Prevent collection
-    try self.buildPush(new_list);
-
-    const low = (try self.generateNode(components.low)).?;
-    const high = (try self.generateNode(components.high)).?;
-
-    const current = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG("current", m.MIR_T_I64),
-    );
-    self.MOV(current, low);
-    const reached_limit = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG("reached_limit", m.MIR_T_I64),
-    );
-    const unwrapped_low = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG("unwrapped_low", m.MIR_T_I64),
-    );
-    try self.unwrap(.Integer, low, unwrapped_low);
-
-    const unwrapped_high = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG("unwrapped_high", m.MIR_T_I64),
-    );
-    try self.unwrap(.Integer, high, unwrapped_high);
-
-    // Select increment
-    const is_negative_delta = m.MIR_new_reg_op(
-        self.ctx,
-        try self.REG("is_negative_delta", m.MIR_T_I64),
-    );
-    self.GES(is_negative_delta, unwrapped_low, unwrapped_high);
-
-    const neg_loop_label = m.MIR_new_label(self.ctx);
-    self.BEQ(
-        m.MIR_new_label_op(self.ctx, neg_loop_label),
-        is_negative_delta,
-        m.MIR_new_uint_op(self.ctx, 1),
-    );
-
-    const exit_label = m.MIR_new_label(self.ctx);
-
-    const pos_loop_label = m.MIR_new_label(self.ctx);
-    self.append(pos_loop_label);
-
-    self.GES(reached_limit, unwrapped_low, unwrapped_high);
-    self.BEQ(
-        m.MIR_new_label_op(self.ctx, exit_label),
-        reached_limit,
-        m.MIR_new_uint_op(self.ctx, 1),
-    );
-
-    // Add new element
-    try self.buildExternApiCall(
-        .bz_listAppend,
-        null,
-        &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            new_list,
-            current,
-        },
-    );
-
-    // Increment
-    self.ADDS(unwrapped_low, unwrapped_low, m.MIR_new_uint_op(self.ctx, 1));
-    self.wrap(.Integer, unwrapped_low, current);
-
-    self.JMP(pos_loop_label);
-
-    self.append(neg_loop_label);
-
-    self.LES(reached_limit, unwrapped_low, unwrapped_high);
-    self.BEQ(
-        m.MIR_new_label_op(self.ctx, exit_label),
-        reached_limit,
-        m.MIR_new_uint_op(self.ctx, 1),
-    );
-
-    // Add new element
-    try self.buildExternApiCall(
-        .bz_listAppend,
-        null,
-        &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            new_list,
-            current,
-        },
-    );
-
-    // Increment
-    self.SUBS(unwrapped_low, unwrapped_low, m.MIR_new_uint_op(self.ctx, 1));
-    self.wrap(.Integer, unwrapped_low, current);
-
-    self.JMP(neg_loop_label);
-
-    self.append(exit_label);
-
-    try self.buildPop(null); // Pop list
-
-    return new_list;
+    return new_range;
 }
 
 fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
@@ -3053,6 +2957,30 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     );
                     try self.buildExternApiCall(
                         .bz_getStringField,
+                        res,
+                        &[_]m.MIR_op_t{
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                            (try self.generateNode(components.callee)).?,
+                            m.MIR_new_uint_op(self.ctx, member_identifier),
+                            m.MIR_new_uint_op(self.ctx, 1),
+                        },
+                    );
+
+                    return res;
+                },
+            }
+        },
+
+        .Range => {
+            switch (components.member_kind) {
+                .Call => return try self.generateCall(components.value_or_call_or_enum.Call),
+                else => {
+                    const res = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("res", m.MIR_T_I64),
+                    );
+                    try self.buildExternApiCall(
+                        .bz_getRangeField,
                         res,
                         &[_]m.MIR_op_t{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -3940,6 +3868,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .Map => o.ObjMap.cast(iterable.obj()).?.map.count() == 0,
             .String => o.ObjString.cast(iterable.obj()).?.string.len == 0,
             .Enum => o.ObjEnum.cast(iterable.obj()).?.cases.len == 0,
+            .Range => o.ObjRange.cast(iterable.obj()).?.high == o.ObjRange.cast(iterable.obj()).?.low,
             else => unreachable,
         }) {
             return null;
@@ -3977,6 +3906,22 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.LOAD(value_ptr),
             &[_]m.MIR_op_t{
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                iterable,
+                try self.LOAD(value_ptr),
+            },
+        );
+
+        // If next key is null stop, otherwise do loop
+        self.BEQ(
+            m.MIR_new_label_op(self.ctx, out_label),
+            try self.LOAD(value_ptr),
+            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+        );
+    } else if (iterable_type_def.?.def_type == .Range) {
+        try self.buildExternApiCall(
+            .bz_rangeNext,
+            try self.LOAD(value_ptr),
+            &[_]m.MIR_op_t{
                 iterable,
                 try self.LOAD(value_ptr),
             },

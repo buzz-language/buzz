@@ -41,6 +41,7 @@ const ObjBoundMethod = _obj.ObjBoundMethod;
 const ObjTypeDef = _obj.ObjTypeDef;
 const ObjPattern = _obj.ObjPattern;
 const ObjForeignContainer = _obj.ObjForeignContainer;
+const ObjRange = _obj.ObjRange;
 const cloneObject = _obj.cloneObject;
 const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
@@ -639,6 +640,7 @@ pub const VM = struct {
         OP_LOOP,
         OP_STRING_FOREACH,
         OP_LIST_FOREACH,
+        OP_RANGE_FOREACH,
         OP_ENUM_FOREACH,
         OP_MAP_FOREACH,
         OP_FIBER_FOREACH,
@@ -652,6 +654,7 @@ pub const VM = struct {
         OP_FIBER_INVOKE,
         OP_LIST_INVOKE,
         OP_MAP_INVOKE,
+        OP_RANGE_INVOKE,
 
         OP_CLOSURE,
         OP_CLOSE_UPVALUE,
@@ -681,6 +684,7 @@ pub const VM = struct {
         OP_GET_STRING_PROPERTY,
         OP_GET_PATTERN_PROPERTY,
         OP_GET_FIBER_PROPERTY,
+        OP_GET_RANGE_PROPERTY,
         OP_SET_OBJECT_PROPERTY,
         OP_SET_INSTANCE_PROPERTY,
         OP_SET_FCONTAINER_INSTANCE_PROPERTY,
@@ -1537,6 +1541,39 @@ pub const VM = struct {
         );
     }
 
+    fn OP_RANGE_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const method: *ObjString = self.readString(arg);
+        const arg_instruction: u32 = self.readInstruction();
+        const arg_count: u8 = @intCast(arg_instruction >> 24);
+        const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
+        const catch_value = if (catch_count > 0) self.pop() else null;
+
+        const member = (ObjRange.member(self, method) catch |e| {
+            vmPanic(e);
+            unreachable;
+        }).?;
+        const member_value: Value = member.toValue();
+        (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
+
+        self.callValue(member_value, arg_count, catch_value, false) catch |e| {
+            vmPanic(e);
+            unreachable;
+        };
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     fn OP_PATTERN_INVOKE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const method: *ObjString = self.readString(arg);
         const arg_instruction: u32 = self.readInstruction();
@@ -1930,34 +1967,18 @@ pub const VM = struct {
         const high = self.pop().integer();
         const low = self.pop().integer();
 
-        var list: *ObjList = self.gc.allocateObject(
-            ObjList,
-            ObjList.init(
-                self.gc.allocator,
-                self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Integer,
-                    },
-                ) catch @panic("Could not instanciate list"),
-            ),
-        ) catch |e| {
-            vmPanic(e);
-            unreachable;
-        };
-
-        self.push(Value.fromObj(list.toObj()));
-
-        if (low < high) {
-            var i: i32 = low;
-            while (i < high) : (i += 1) {
-                list.rawAppend(self.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
-            }
-        } else {
-            var i: i32 = low;
-            while (i > high) : (i -= 1) {
-                list.rawAppend(self.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
-            }
-        }
+        self.push(
+            Value.fromObj((self.gc.allocateObject(
+                ObjRange,
+                ObjRange{
+                    .high = high,
+                    .low = low,
+                },
+            ) catch |e| {
+                vmPanic(e);
+                unreachable;
+            }).toObj()),
+        );
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2769,6 +2790,42 @@ pub const VM = struct {
                 vmPanic(e);
                 unreachable;
             };
+        } else {
+            unreachable;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_GET_RANGE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+        const range = self.peek(0).obj().access(ObjRange, .Range, self.gc).?;
+        const name: *ObjString = self.readString(arg);
+
+        if (ObjRange.member(self, name) catch |e| {
+            vmPanic(e);
+            unreachable;
+        }) |member| {
+            self.bindMethod(null, member) catch |e| {
+                vmPanic(e);
+                unreachable;
+            };
+        } else if (std.mem.eql(u8, "high", name.string)) {
+            _ = self.pop(); // Pop range
+            self.push(Value.fromInteger(range.high));
+        } else {
+            _ = self.pop(); // Pop range
+            self.push(Value.fromInteger(range.low));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -3569,6 +3626,40 @@ pub const VM = struct {
         // Set new value
         if (key_slot.*.isInteger()) {
             value_slot.* = list.items.items[@as(usize, @intCast(key_slot.integer()))];
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_RANGE_FOREACH(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const range = self.peek(0).obj().access(ObjRange, .Range, self.gc).?;
+
+        if (value_slot.integerOrNull()) |index| {
+            if (range.low < range.high) {
+                value_slot.* = if (index + 1 >= range.high)
+                    Value.Null
+                else
+                    Value.fromInteger(index + 1);
+            } else {
+                value_slot.* = if (index - 1 <= range.high)
+                    Value.Null
+                else
+                    Value.fromInteger(index - 1);
+            }
+        } else {
+            value_slot.* = Value.fromInteger(range.low);
         }
 
         const next_full_instruction: u32 = self.readInstruction();

@@ -12,6 +12,7 @@ const Parser = @import("Parser.zig");
 const _memory = @import("memory.zig");
 const GarbageCollector = _memory.GarbageCollector;
 const TypeRegistry = _memory.TypeRegistry;
+const Integer = @import("value.zig").Integer;
 const Value = @import("value.zig").Value;
 const Token = @import("Token.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
@@ -48,6 +49,7 @@ pub const ObjType = enum {
     Pattern,
     Fiber,
     ForeignContainer,
+    Range,
 };
 
 pub const Obj = struct {
@@ -122,6 +124,48 @@ pub const Obj = struct {
                 const enum_instance = self.access(ObjEnumInstance, .EnumInstance, vm.gc).?;
 
                 return try enum_instance.enum_ref.cases[enum_instance.case].serialize(vm, seen);
+            },
+
+            .Range => {
+                const range = self.access(ObjRange, .Range, vm.gc).?;
+
+                const map_type = vm.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .Map,
+                        .resolved_type = .{
+                            .Map = ObjMap.MapDef.init(
+                                vm.gc.allocator,
+                                vm.gc.type_registry.getTypeDef(
+                                    .{ .def_type = .String },
+                                ) catch return error.OutOfMemory,
+                                vm.gc.type_registry.getTypeDef(
+                                    .{ .def_type = .Integer },
+                                ) catch return error.OutOfMemory,
+                            ),
+                        },
+                    },
+                ) catch return error.OutOfMemory;
+
+                const serialized_range = vm.gc.allocateObject(
+                    ObjMap,
+                    ObjMap.init(
+                        vm.gc.allocator,
+                        map_type,
+                    ),
+                ) catch return error.OutOfMemory;
+
+                serialized_range.map.put(
+                    (vm.gc.copyString("low") catch return error.OutOfMemory).toValue(),
+                    Value.fromInteger(range.low),
+                ) catch return error.OutOfMemory;
+
+                serialized_range.map.put(
+                    (vm.gc.copyString("high") catch return error.OutOfMemory).toValue(),
+                    Value.fromInteger(range.high),
+                ) catch return error.OutOfMemory;
+
+                return serialized_range.toValue();
             },
 
             .List => {
@@ -300,6 +344,7 @@ pub const Obj = struct {
 
     pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
         return switch (self.obj_type) {
+            .Range => try gc.type_registry.getTypeDef(.{ .def_type = .Range }),
             .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
             .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
             .Fiber => try gc.type_registry.getTypeDef(.{ .def_type = .Fiber }),
@@ -335,6 +380,7 @@ pub const Obj = struct {
         }
 
         return switch (self.obj_type) {
+            .Range => type_def.def_type == .Range,
             .String => type_def.def_type == .String,
             .Pattern => type_def.def_type == .Pattern,
             .Fiber => ObjFiber.cast(self).?.is(type_def),
@@ -449,6 +495,12 @@ pub const Obj = struct {
                 const other_fiber: *ObjFiber = ObjFiber.cast(other).?;
 
                 return self_fiber.fiber == other_fiber.fiber;
+            },
+            .Range => {
+                const self_range = ObjRange.cast(self).?;
+                const other_range = ObjRange.cast(other).?;
+
+                return self_range.low == other_range.low and self_range.high == other_range.high;
             },
             .Bound,
             .Closure,
@@ -2386,6 +2438,83 @@ pub const ObjList = struct {
     };
 };
 
+pub const ObjRange = struct {
+    const Self = @This();
+
+    obj: Obj = .{ .obj_type = .Range },
+
+    low: Integer,
+    high: Integer,
+
+    pub fn mark(_: *Self, _: *GarbageCollector) void {}
+
+    pub inline fn toObj(self: *Self) *Obj {
+        return &self.obj;
+    }
+
+    pub inline fn toValue(self: *Self) Value {
+        return Value.fromObj(self.toObj());
+    }
+
+    pub inline fn cast(obj: *Obj) ?*Self {
+        return obj.cast(Self, .Range);
+    }
+
+    const members = std.ComptimeStringMap(
+        NativeFn,
+        .{
+            .{ "toList", buzz_builtin.range.toList },
+        },
+    );
+
+    const members_typedef = std.ComptimeStringMap(
+        []const u8,
+        .{
+            .{ "toList", "extern Function toList() > [int]" },
+        },
+    );
+
+    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
+        if (vm.gc.objrange_members.get(method)) |native| {
+            return native;
+        }
+
+        if (members.get(method.string)) |nativeFn| {
+            var native: *ObjNative = try vm.gc.allocateObject(
+                ObjNative,
+                .{
+                    // Complains about const qualifier discard otherwise
+                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
+                },
+            );
+
+            try vm.gc.objrange_members.put(method, native);
+
+            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+
+            return native;
+        }
+
+        return null;
+    }
+    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
+        if (parser.gc.objrange_memberDefs.get(method)) |umethod| {
+            return umethod;
+        }
+
+        if (members_typedef.get(method)) |member_typedef| {
+            const native_type = try parser.parseTypeDefFrom(member_typedef);
+
+            try parser.gc.objrange_memberDefs.put(method, native_type);
+
+            return native_type;
+        }
+
+        return null;
+    }
+};
+
 /// Map
 pub const ObjMap = struct {
     const Self = @This();
@@ -3369,6 +3498,7 @@ pub const ObjTypeDef = struct {
         Type, // Something that holds a type, not an actual type
         UserData,
         Void,
+        Range,
 
         Enum,
         EnumInstance,
@@ -3402,6 +3532,7 @@ pub const ObjTypeDef = struct {
         Type: void,
         UserData: void,
         Void: void,
+        Range: void,
 
         Enum: ObjEnum.EnumDef,
         EnumInstance: *ObjTypeDef,
@@ -3499,6 +3630,7 @@ pub const ObjTypeDef = struct {
             .ProtocolInstance,
             .Any,
             .ForeignContainer,
+            .Range,
             => self,
 
             .Placeholder => placeholder: {
@@ -3871,6 +4003,7 @@ pub const ObjTypeDef = struct {
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
             .Any => try writer.writeAll("any"),
+            .Range => try writer.writeAll("range"),
             .Fiber => {
                 try writer.writeAll("fib<");
                 try self.resolved_type.?.Fiber.return_type.toStringRaw(writer, qualified);
@@ -4239,6 +4372,7 @@ pub const ObjTypeDef = struct {
             .Pattern,
             .UserData,
             .Type,
+            .Range,
             .Any,
             => unreachable,
 
@@ -4354,6 +4488,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .Pattern,
         .Fiber,
         .ForeignContainer,
+        .Range,
         => return Value.fromObj(obj),
 
         .List => {
@@ -4459,6 +4594,18 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
             @intFromPtr(ObjObject.cast(obj).?),
             ObjObject.cast(obj).?.name.string,
         }),
+        .Range => {
+            const range = ObjRange.cast(obj).?;
+
+            try writer.print(
+                "range: 0x{x} {}..{}",
+                .{
+                    @intFromPtr(range),
+                    range.low,
+                    range.high,
+                },
+            );
+        },
         .List => {
             const list: *ObjList = ObjList.cast(obj).?;
 

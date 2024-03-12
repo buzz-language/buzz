@@ -670,6 +670,7 @@ pub const Scanner = struct {
                         .AsQuestion,
                         .Out,
                         .Namespace,
+                        .Range,
                         => if (true_color) Color.keyword else Color.magenta,
                         // Punctuation
                         .LeftBracket,

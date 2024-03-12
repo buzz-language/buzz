@@ -467,6 +467,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // var
     .{ .prefix = null, .infix = null, .precedence = .None }, // out
     .{ .prefix = null, .infix = null, .precedence = .None }, // namespace
+    .{ .prefix = null, .infix = null, .precedence = .None }, // range
 };
 
 ast: Ast,
@@ -1292,6 +1293,14 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
             try self.varDeclaration(
                 false,
                 try self.simpleType(.Bool),
+                .Semicolon,
+                constant,
+                true,
+            )
+        else if (try self.match(.Range))
+            try self.varDeclaration(
+                false,
+                try self.simpleType(.Range),
                 .Semicolon,
                 constant,
                 true,
@@ -2412,6 +2421,25 @@ fn parseTypeDef(
                     .{
                         .optional = optional,
                         .def_type = .Bool,
+                    },
+                ),
+                .components = .{
+                    .SimpleType = {},
+                },
+            },
+        );
+    } else if (try self.match(.Range)) {
+        const optional = try self.match(.Question);
+
+        return self.ast.appendNode(
+            .{
+                .tag = .SimpleType,
+                .location = self.current_token.? - 1,
+                .end_location = self.current_token.? - 1,
+                .type_def = try self.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = optional,
+                        .def_type = .Range,
                     },
                 ),
                 .components = .{
@@ -3917,6 +3945,49 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     }
                 } else {
                     self.reportError(.property_does_not_exists, "String property doesn't exist.");
+                }
+            },
+            .Range => {
+                if (try obj.ObjRange.memberDef(self, member_name)) |member_type_def| {
+                    const generic_resolve = if (try self.match(.DoubleColon))
+                        try self.parseGenericResolve(member_type_def, null)
+                    else
+                        null;
+
+                    self.ast.nodes.items(.components)[dot_node].Dot.generic_resolve = generic_resolve;
+
+                    const member = if (generic_resolve) |gr|
+                        self.ast.nodes.items(.type_def)[gr]
+                    else
+                        member_type_def;
+
+                    if (try self.match(.LeftParen)) {
+                        // `call` will look to the parent node for the function definition
+                        self.ast.nodes.items(.type_def)[dot_node] = member;
+                        var components = self.ast.nodes.items(.components);
+                        components[dot_node].Dot.member_type_def = member.?;
+                        components[dot_node].Dot.member_kind = .Call;
+                        const dot_call = try self.call(
+                            can_assign,
+                            dot_node,
+                        );
+                        components = self.ast.nodes.items(.components);
+                        components[dot_node].Dot.value_or_call_or_enum = .{
+                            .Call = dot_call,
+                        };
+
+                        // Node type is the return type of the call
+                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[components[dot_node].Dot.value_or_call_or_enum.Call];
+                    } else {
+                        // Range has only native functions
+                        self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
+                        self.ast.nodes.items(.type_def)[dot_node] = member;
+                    }
+                } else if (std.mem.eql(u8, member_name, "high") or std.mem.eql(u8, member_name, "low")) {
+                    self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
+                    self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer });
+                } else {
+                    self.reportError(.property_does_not_exists, "Range property doesn't exist.");
                 }
             },
             .Pattern => {
@@ -5564,7 +5635,7 @@ fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
             .type_def = try self.gc.type_registry.getTypeDef(
                 .{
                     .optional = false,
-                    .def_type = .List,
+                    .def_type = .Range,
                     .resolved_type = resolved_type,
                 },
             ),

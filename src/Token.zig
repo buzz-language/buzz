@@ -177,6 +177,7 @@ pub const Type = enum {
     Var, // var
     Out, // out
     Namespace, // namespace
+    Range, // range
 };
 
 pub const keywords = std.ComptimeStringMap(
@@ -217,6 +218,7 @@ pub const keywords = std.ComptimeStringMap(
         .{ "out", .Out },
         .{ "pat", .Pat },
         .{ "protocol", .Protocol },
+        .{ "range", .Range },
         .{ "resolve", .Resolve },
         .{ "resume", .Resume },
         .{ "return", .Return },
