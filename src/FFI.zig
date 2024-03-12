@@ -493,7 +493,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 
     const zig_type = ZigType{
         .Union = .{
-            .layout = .Extern,
+            .layout = .@"extern",
             .fields = fields.items,
             .decls = decls.items,
             .tag_type = null,
@@ -598,7 +598,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
 
     const zig_type = ZigType{
         .Struct = .{
-            .layout = .Extern,
+            .layout = .@"extern",
             .fields = fields.items,
             .decls = decls.items,
             .is_tuple = false,
