@@ -4,6 +4,7 @@ test "Range" {
     int limit = 10;
     range rg = 0..limit;
 
+    std.assert(rg == 0..10, message: "Could compare ranges");
     std.assert(rg.low == 0, message: "Could get low limit of range");
     std.assert(rg.high == 10, message: "Could get high limit of range");
 

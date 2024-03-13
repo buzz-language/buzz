@@ -904,17 +904,19 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     }
 
     // Check there's no unreferenced imports
-    var it = self.script_imports.iterator();
-    while (it.next()) |kv| {
-        if (!kv.value_ptr.*.referenced) {
-            const location = self.ast.tokens.get(kv.value_ptr.*.location);
+    if (self.flavor != .Repl) {
+        var it = self.script_imports.iterator();
+        while (it.next()) |kv| {
+            if (!kv.value_ptr.*.referenced) {
+                const location = self.ast.tokens.get(kv.value_ptr.*.location);
 
-            self.reporter.warnFmt(
-                .unused_import,
-                location,
-                "Unused import",
-                .{},
-            );
+                self.reporter.warnFmt(
+                    .unused_import,
+                    location,
+                    "Unused import",
+                    .{},
+                );
+            }
         }
     }
 
