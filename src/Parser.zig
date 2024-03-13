@@ -1638,8 +1638,16 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
             return i;
             // Is it an import prefix?
         } else if (global.prefix != null and std.mem.eql(u8, name, global.prefix.?)) {
+            const had_error = self.reporter.had_error;
+
             try self.consume(.Dot, "Expected `.` after import prefix.");
             try self.consume(.Identifier, "Expected identifier after import prefix.");
+
+            // Avoid infinite recursion
+            if (!had_error and self.reporter.had_error) {
+                return null;
+            }
+
             return try self.resolveGlobal(global.prefix.?, self.ast.tokens.items(.lexeme)[self.current_token.? - 1]);
         }
 
