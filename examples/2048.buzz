@@ -1,0 +1,306 @@
+| The rules are that on each turn the player must choose a direction (up, down,
+| left or right) and all tiles move as far as possible in that direction, some
+| more than others. Two adjacent tiles (in that direction only) with matching
+| numbers combine into one bearing the sum of those numbers. A move is valid
+| when at least one tile can be moved, if only by combination. A new tile with
+| the value of 2 is spawned at the end of each turn at a randomly chosen empty
+| square, if there is one. To win the player must create a tile with the number
+| 2048. The player loses if no valid moves are possible.
+|
+| The name comes from the popular open-src implementation of this game
+| mechanic: https://gabrielecirulli.github.io/2048/.
+|
+| Requirements:
+| - "Non-greedy" movement. The tiles that were created by combining other tiles
+| should not be combined again during the same turn (move). That is to say that
+| moving the tile row of [2][2][2][2] to the right should result in
+| ......[4][4] and not .........[8]
+| - "Move direction priority". If more than one variant of combining is
+| possible, move direction shows one that will take effect. For example, moving
+| the tile row of ...[2][2][2] to the right should result in ......[2][4] and
+| not ......[4][2]
+| - Adding a new tile on a blank space. Most of the time new "2" is to be added
+| and occasionally (10% of the time) - "4"
+| - Check for valid moves. The player shouldn't be able to skip their turn by
+| trying a move that doesn't change the board.
+| - Win condition.
+| - Lose condition.
+
+import "std";
+import "io";
+import "errors";
+import "os";
+
+object Pair {
+    int srcX,
+    int srcY,
+    int srcValue,
+
+    int destX,
+    int destY,
+    int destValue,
+}
+
+object Game {
+    [[int]] board = [<[int]>],
+    int size = 4,
+    int goal = 2048,
+    int score = 0,
+    bool invalidMove = false,
+
+    static fun init(int size = 4, int goal = 2048) > Game {
+        const game = Game{
+            size,
+            goal
+        };
+
+        foreach (int x in 0..game.size) {
+            game.board.append([<int>]);
+
+            foreach (int _ in 0..game.size) {
+                game.board[x].append(0);
+            }
+        }
+
+        return game;
+    }
+
+    fun reset() > void {
+        this.score = 0;
+
+        foreach (int x in 0..this.size) {
+            foreach (int y in 0..this.size) {
+                this.board[x][y] = 0;
+            }
+        }
+    }
+
+    | Add new tile at a random free sp
+    fun addNewTile() > void {
+        const free = this.freeSpots();
+
+        if (free.len() == 0) {
+            return;
+        }
+
+        const spot = free[std.random(min: 0, max: free.len() - 1)];
+        this.board[spot.x][spot.y] = if (std.random(min: 0, max: 9) == 0)
+            4
+        else
+            2;
+    }
+
+    | Return list of free spots
+    fun freeSpots() > [obj{ int x, int y }] {
+        [obj{ int x, int y}] spots = [];
+
+        foreach (int x, [int] row in this.board) {
+            foreach (int y, int value in row) {
+                if (value == 0) {
+                    spots.append(.{ x = x, y = y });
+                }
+            }
+        }
+
+        return spots;
+    }
+
+    | Render board
+    fun render() > void {
+        try {
+            io.stdout.write("\27\91H\27\91J╭{"─".repeat(this.size * 7)}╮\n");
+
+            foreach (int x, [int] row in this.board) {
+                io.stdout.write("│ ");
+                
+                foreach (int y, int value in row) {
+                    if (value != 0) {
+                        | TODO: we need formatting to be available in buzz
+                        if (value < 10) {
+                            io.stdout.write("    {value} ");
+                        } else if (value < 100) {
+                            io.stdout.write("   {value} ");
+                        } else if (value < 1000) {
+                            io.stdout.write("  {value} ");
+                        } else {
+                            io.stdout.write(" {value} ");
+                        }
+                    } else {
+                        io.stdout.write("      ");
+                    }
+
+                    if (y < this.size - 1) {
+                        io.stdout.write("│");
+                    }
+                }
+
+                io.stdout.write("│\n");
+
+                if (x < this.size - 1) {
+                    io.stdout.write("├{"─".repeat(this.size * 7)}┤\n");
+                }
+            }
+
+            io.stdout.write("╰{"─".repeat(this.size * 7)}╯\n");
+            
+            io.stdout.write("Score: {this.score} / {this.goal}\n");
+
+            if (this.invalidMove) {
+                this.invalidMove = false;
+                io.stdout.write("Invalid move, try again\n");
+            }
+        } catch {
+            io.stderr.write("Error while rendering board\n") catch void;
+        }
+    }
+
+    fun iterate(bool axis, int direction) > [Pair] {
+        [Pair] result = [];
+
+        foreach (int x in 0..this.size) {
+            foreach (int y in 0..this.size) {
+                const pair = Pair{
+                    srcX = x,
+                    srcY = y,
+                    srcValue = this.board[x][y],
+
+                    destX = if (!axis) x + direction else x,
+                    destY = if (axis) y + direction else y,
+                    destValue = 0,
+                };
+
+                if (pair.destX >= this.size or pair.destY >= this.size or pair.destX < 0 or pair.destY < 0) {
+                    continue;
+                }
+
+                pair.destValue = this.board[pair.destX][pair.destY];
+
+                result.append(pair);
+            }
+        }
+
+        if (direction < 0) {
+            result = result.reverse();
+        }
+
+        return result;
+    }
+
+    fun shift(bool axis, int direction) > int {
+        var totalDone = 0;
+
+        foreach (int _ in 0..this.size) {
+            var done = 0;
+
+            foreach (Pair pair in this.iterate(axis, direction)) {
+                if (pair.destValue == 0 and pair.srcValue != 0) {
+                    this.board[pair.destX][pair.destY] = pair.srcValue;
+                    this.board[pair.srcX][pair.srcY] = 0;
+
+                    done = done + 1;
+                }
+            }
+
+            totalDone = totalDone + done;
+            if (done == 0) {
+                break;
+            }
+        }
+
+        return totalDone;
+    }
+
+    fun merge(bool axis, int direction) > int {
+        var done = 0;
+
+        foreach (Pair pair in this.iterate(axis, direction)) {
+            if (pair.destValue != 0 and pair.destValue == pair.srcValue) {
+                this.board[pair.srcX][pair.srcY] = this.board[pair.srcX][pair.srcY] + pair.destValue;
+                this.board[pair.destX][pair.destY] = 0;
+
+                this.score = this.score + this.board[pair.srcX][pair.srcY];
+                done = done + 1;
+            }
+        }        
+
+        return done;
+    }
+
+    fun move() > bool {
+        io.stdout.write("(wasd to move, q to quit, r to restart)\n> ") catch void;
+        const command = io.stdin.read(1) catch void;
+
+        if (command == "q") {
+            os.exit(0);
+        }
+
+        if (command == "r") {
+            this.reset();
+            return true;
+        }
+
+        var axis = false;
+        var direction = 1;
+        if (command == "w") {
+            direction = -1;
+            axis = false;
+        } else if (command == "a") {
+            direction = -1;
+            axis = true;
+        } else if (command == "s") {
+            direction = 1;
+            axis = false;
+        } else if (command == "d") {
+            direction = 1;
+            axis = true;
+        } else {
+            io.stderr.write("Invalid command\n") catch void;
+            return false;
+        }
+
+        var done = 0;
+        | Shift in that direction
+        done = done + this.shift(axis, direction);
+        | Merge equal numbers in opposite direction
+        done = done + this.merge(axis, direction: direction * -1);
+        | Shift merged numebrs in that direction
+        done = done + this.shift(axis, direction);
+
+        return done > 0;
+    }
+
+    fun step() > void {
+        this.render();
+
+        if (this.move()) {
+            this.addNewTile();
+        } else {
+            if (this.freeSpots().len() == 0) {
+                io.stderr.write("No move left, you lost.\n") catch void;
+                os.exit(0);
+            } else {
+                this.invalidMove = true;
+            }
+        }
+
+        | Did we win?
+        foreach (int x in 0..this.size) {
+            foreach (int y in 0..this.size) {
+                if (this.board[x][y] == this.goal) {
+                    io.stdout.write("YOU WON!\n") catch void;
+                }
+            }
+        }
+    }
+}
+
+fun main([str] _) > void {
+    const game = Game.init();
+
+    game.addNewTile();
+    game.render();
+
+    while (true) {
+        game.step();
+    }
+}
