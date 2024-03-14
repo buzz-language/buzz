@@ -1,0 +1,107 @@
+import "std";
+import "examples/sdl-wrapped" as _;
+import "math";
+
+fun hypot(int x, int y) > int {
+    return std.toInt(math.sqrt(std.toFloat(x * x + y * y)));
+}
+
+fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > void !> SDLError {
+    [int] nx = [];
+    [int] ny = [];
+    [Color] colors = [];
+
+    foreach (int _ in 0..numCells) {
+        nx.append(std.random(min: 0, max: width));
+        ny.append(std.random(min: 0, max: height));
+        colors.append(Color{
+            red = std.random(min: 0, max: 255),
+            green = std.random(min: 0, max: 255),
+            blue = std.random(min: 0, max: 255)
+        });
+    }
+
+    renderer.setRenderDrawColor(
+        Color{
+            red = 255,
+            green = 255,
+            blue = 255,
+        }
+    );
+
+    foreach (int y in 0..width) {
+        foreach (int x in 0..height) {
+            int dmin = hypot(x: width - 1, y: height - 1);
+            int j = -1;
+            foreach (int i in 0..numCells) {
+                int d = hypot(x: nx[i] - x, y: ny[i] - y);
+                if (d < dmin) {
+                    dmin = d;
+                    j = i;
+                }
+            }
+
+            renderer.setRenderDrawColor(colors[j]);
+
+            renderer.drawPoint(x, y);
+        }
+    }
+
+    renderer.setRenderDrawColor(
+        Color{
+            red = 255,
+            green = 255,
+            blue = 255,
+        }
+    );
+
+    foreach (int b in 0..numCells) {
+        renderer.drawPoint(x: nx[b], y: ny[b]);
+    }
+}
+
+fun main([str] _) > void !> SDLError {
+    const width = 400;
+    const height = 400;
+    const numCells = 50;
+
+    var sdl = SDL.init([Subsystem.Video]);
+
+    var window = Window.init(
+        "buzz example: Voronoi Diagram",
+        width,
+        height,
+        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+    );
+
+    var renderer = window.createRenderer(
+        index: -1,
+        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+    );
+
+    var texture = renderer.createTexture(
+        format: PixelFormat.RGBA8888,
+        access: TextureAccess.Target,
+        width,
+        height,
+    );
+
+    renderer.setRenderTarget(texture);
+    generateVoronoi(renderer, width, height, numCells);
+    renderer.setRenderTarget(null);
+
+    while (true) {
+        if (sdl.pollEvent() -> event) {
+            if (event.@"type" == EventType.Quit.value) {
+                break;
+            }
+        }
+
+        renderer.renderCopy(texture);
+        renderer.renderPresent();
+
+        sdl.delay(100.0);
+    }
+
+    sdl.quit();
+}
