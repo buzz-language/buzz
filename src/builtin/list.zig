@@ -72,6 +72,22 @@ pub fn len(ctx: *NativeCtx) c_int {
     return 1;
 }
 
+pub fn reverse(ctx: *NativeCtx) c_int {
+    const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
+
+    var new_list = ctx.vm.gc.allocateObject(
+        ObjList,
+        ObjList.init(ctx.vm.gc.allocator, list.type_def),
+    ) catch @panic("Out of memory");
+
+    new_list.items.appendSlice(list.items.items) catch @panic("Out of memory");
+    std.mem.reverse(Value, new_list.items.items);
+
+    ctx.vm.push(new_list.toValue());
+
+    return 1;
+}
+
 pub fn pop(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 

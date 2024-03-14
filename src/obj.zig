@@ -1621,6 +1621,7 @@ pub const ObjList = struct {
             .{ "pop", buzz_builtin.list.pop },
             .{ "reduce", buzz_builtin.list.reduce },
             .{ "remove", buzz_builtin.list.remove },
+            .{ "reverse", buzz_builtin.list.reverse },
             .{ "sort", buzz_builtin.list.sort },
             .{ "sub", buzz_builtin.list.sub },
         },
@@ -2429,6 +2430,34 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("clone", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "reverse")) {
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                const method_def = ObjFunction.FunctionDef{
+                    .id = ObjFunction.FunctionDef.nextId(),
+                    .script_name = try parser.gc.copyString("builtin"),
+                    .name = try parser.gc.copyString("reverse"),
+                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                    .return_type = obj_list,
+                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                    .function_type = .Extern,
+                };
+
+                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
+
+                try self.methods.put("reverse", native_type);
 
                 return native_type;
             }
