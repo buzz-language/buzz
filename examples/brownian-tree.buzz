@@ -1,0 +1,134 @@
+import "std";
+import "examples/sdl-wrapped" as _;
+
+fun seed([[bool]] canvas) > void {
+    foreach (int i in 0..canvas.len()) {
+        canvas[0][i] = true;
+        canvas[canvas.len() - 1][i] = true;
+    }
+
+    foreach (int i in 0..canvas.len()) {
+        canvas[i][0] = true;
+        canvas[i][canvas[0].len() - 1] = true;
+    }
+}
+
+fun setParticle([[bool]] canvas) > obj{ int x, int y } {
+    var posX = 0;
+    var posY = 0;
+    do {
+        posX = std.random(min: 0, max: canvas.len() - 1);
+        posY = std.random(min: 0, max: canvas[0].len() - 1);
+    } until (!canvas[posX][posY])
+
+    return .{
+        x = posX,
+        y = posY
+    };
+}
+
+fun iterate([[bool]] canvas, int numParticles) {
+    foreach (int _ in 0..numParticles) {
+        const pos = setParticle(canvas);
+        
+        while (true) {
+            const dx = std.random(min: 0, max: 5) - 3;
+            const dy = std.random(min: 0, max: 5) - 3;
+
+            if (pos.x + dx >= 0 and pos.x + dx < canvas.len() and pos.y + dy >= 0 and pos.y + dy < canvas[0].len()) {
+                if (canvas[pos.x + dx][pos.y + dy]) {
+                    canvas[pos.x][pos.y] = true;
+                    break;
+                } else {
+                    pos.x = pos.x + dx;
+                    pos.y = pos.y + dy;
+                }
+            }
+        }
+    }
+}
+
+fun draw([[bool]] canvas, Renderer renderer) > void !> SDLError {
+    foreach (int x in 0..canvas.len()) {
+        foreach (int y in 0..canvas[0].len()) {
+            renderer.setRenderDrawColor(
+                if (canvas[x][y])
+                    Color{
+                        red = 255,
+                        green = 255,
+                        blue = 255,
+                    }
+                else
+                    Color{
+                        red = 0,
+                        green = 0,
+                        blue = 0,
+                    }
+            );
+
+            renderer.drawPoint(x, y);
+        }
+    }
+}
+
+fun main([str] _) > void !> SDLError {
+    const sizeX = 200;
+    const sizeY = 200;
+    const numParticles = 16000;
+
+    [[bool]] canvas = [];
+    foreach (int i in 0..sizeX) {
+        canvas.append([<bool>]);
+
+        foreach (int _ in 0..sizeY) {
+            canvas[i].append(false);
+        }
+    }
+
+    seed(canvas);
+    iterate(canvas, numParticles);
+
+    var sdl = SDL.init([Subsystem.Video]);
+
+    var window = Window.init(
+        "buzz example: Browian Tree",
+        width: sizeX,
+        height: sizeY,
+        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+    );
+
+    var renderer = window.createRenderer(
+        index: -1,
+        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+    );
+
+    var texture = renderer.createTexture(
+        format: PixelFormat.RGBA8888,
+        access: TextureAccess.Target,
+        width: sizeX,
+        height: sizeY,
+    );
+
+    var dt = sdl.ticks();
+    while (true) {
+        if (sdl.pollEvent() -> event) {
+            if (event.@"type" == EventType.Quit.value) {
+                break;
+            }
+        }
+
+        if (sdl.ticks() - dt > 300) {
+            dt = sdl.ticks();
+            renderer.setRenderTarget(texture);
+            draw(canvas, renderer);
+            renderer.setRenderTarget(null);
+        }
+
+        renderer.renderCopy(texture);
+        renderer.renderPresent();
+
+        sdl.delay(100.0);
+    }
+
+    sdl.quit();
+}

@@ -43,6 +43,7 @@ zdef("SDL2", `
     fn SDL_Delay(ms: u32) void;
     fn SDL_Quit() void;
     fn SDL_RenderFillRect(renderer: *SDL_Renderer, rect: *const SDL_Rect) c_int;
+    fn SDL_RenderDrawPoint(renderer: *SDL_Renderer, x: c_int, y: c_int) c_int;
     fn SDL_SetRenderDrawColor(renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) c_int;
     fn SDL_PollEvent(event: *SDL_Event) c_int;
     fn SDL_CreateTexture(renderer: *SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) ?*SDL_Texture;
@@ -313,7 +314,7 @@ export object Renderer {
     }
 
     fun setRenderTarget(Texture? texture) > void !> SDLError {
-        const int result = SDL_SetRenderTarget(
+        const result = SDL_SetRenderTarget(
             this.renderer,
             texture: if (texture != null)
                 texture!.texture
@@ -329,7 +330,7 @@ export object Renderer {
     }
 
     fun setRenderDrawColor(Color color) > void !> SDLError {
-        const int result = SDL_SetRenderDrawColor(
+        const result = SDL_SetRenderDrawColor(
             this.renderer,
             r: color.red,
             g: color.green,
@@ -345,7 +346,7 @@ export object Renderer {
     }
 
     fun fillRect(Rect rect) > void !> SDLError {
-        const int result = SDL_RenderFillRect(
+        const result = SDL_RenderFillRect(
             this.renderer,
             rect: SDL_Rect{
                 x = rect.x,
@@ -362,8 +363,21 @@ export object Renderer {
         }
     }
 
+    fun drawPoint(int x, int y) > void !> SDLError {
+        const result = SDL_RenderDrawPoint(
+            this.renderer,
+            x, y,
+        );
+
+        if (result != 0) {
+            throw SDLError{
+                message = "SDL_RenderDrawPoint error: {SDL_GetError()}",
+            };
+        }
+    }
+
     fun renderCopy(Texture texture, Rect? srcRect = null, Rect? dstRect = null) > void !> SDLError {
-        const int result = SDL_RenderCopy(
+        const result = SDL_RenderCopy(
             this.renderer,
             texture: texture.texture,
             srcrect: if (srcRect != null)
