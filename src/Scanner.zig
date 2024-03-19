@@ -39,8 +39,6 @@ pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) S
 }
 
 pub fn scanToken(self: *Self) !Token {
-    self.skipWhitespaces();
-
     self.current.start = self.current.offset;
     self.current.start_line = self.current.line;
     self.current.start_column = self.current.column;
@@ -120,46 +118,15 @@ pub fn scanToken(self: *Self) !Token {
         '`' => self.string(true),
         '\'' => self.byte(),
         '@' => self.atIdentifier(),
-        '|' => self.docblock(),
         '$' => self.pattern(),
+
+        '|' => self.comment(),
+        ' ', '\r', '\t' => self.whitespace(),
+        '\n' => self.makeToken(.NewLine, null, null, null),
+        '#' => self.shebang(),
 
         else => self.makeToken(.Error, "Unexpected character.", null, null),
     };
-}
-
-fn skipWhitespaces(self: *Self) void {
-    while (true) {
-        const char: u8 = self.peek();
-
-        switch (char) {
-            ' ', '\r', '\t' => _ = self.advance(),
-            '\n' => {
-                self.current.line += 1;
-                self.current.column = 0;
-                _ = self.advance();
-            },
-            '#' => { // Shebang
-                if (self.token_index == 0 and self.peekNext() == '!') {
-                    while (self.peek() != '\n' and !self.isEOF()) {
-                        _ = self.advance();
-                    }
-                } else {
-                    return;
-                }
-            },
-            '|' => {
-                // It's a docblock, we don't skip it
-                if (self.peekNext() == '|') {
-                    return;
-                }
-
-                while (self.peek() != '\n' and !self.isEOF()) {
-                    _ = self.advance();
-                }
-            },
-            else => return,
-        }
-    }
 }
 
 fn isNumber(char: u8) bool {
@@ -170,8 +137,12 @@ fn isLetter(char: u8) bool {
     return (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z');
 }
 
-fn docblock(self: *Self) !Token {
-    _ = self.advance(); // Skip second `|`
+fn comment(self: *Self) !Token {
+    const isDocblock = self.peek() == '|';
+
+    if (isDocblock) {
+        _ = self.advance();
+    }
 
     var block = std.ArrayList(u8).init(self.allocator);
 
@@ -182,6 +153,16 @@ fn docblock(self: *Self) !Token {
             if (char == '\n') {
                 self.current.line += 1;
                 self.current.column = 0;
+
+                if (!isDocblock) {
+                    return self.makeToken(
+                        .Comment,
+                        std.mem.trim(u8, block.items, " "),
+                        null,
+                        null,
+                    );
+                }
+
                 _ = self.advance();
 
                 try block.append('\n');
@@ -203,7 +184,24 @@ fn docblock(self: *Self) !Token {
         }
     }
 
-    return self.makeToken(.Docblock, std.mem.trim(u8, block.items, " "), null, null);
+    std.debug.assert(isDocblock);
+    return self.makeToken(
+        .Docblock,
+        std.mem.trim(u8, block.items, " "),
+        null,
+        null,
+    );
+}
+
+fn skipWhitespaces(self: *Self) void {
+    while (true) {
+        const char: u8 = self.peek();
+
+        switch (char) {
+            ' ', '\r', '\t' => _ = self.advance(),
+            else => return,
+        }
+    }
 }
 
 fn atIdentifier(self: *Self) !Token {
@@ -408,6 +406,41 @@ fn hexa(self: *Self) Token {
                 null,
             );
         },
+    );
+}
+
+fn whitespace(self: *Self) !Token {
+    while (self.peek() == ' ' or self.peek() == '\r' or self.peek() == '\t') {
+        _ = self.advance();
+    }
+
+    return self.makeToken(
+        .Whitespace,
+        self.source[self.current.start..self.current.offset],
+        null,
+        null,
+    );
+}
+
+fn shebang(self: *Self) !Token {
+    if (self.peek() == '!') {
+        while (self.peek() != '\n') {
+            _ = self.advance();
+        }
+
+        return self.makeToken(
+            .Shebang,
+            self.source[self.current.start + 2 .. self.current.offset],
+            null,
+            null,
+        );
+    }
+
+    return self.makeToken(
+        .Error,
+        "Malformed or misplaced shebang comment",
+        null,
+        null,
     );
 }
 
@@ -691,8 +724,8 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .FloatValue,
                     => if (true_color) Color.number else Color.yellow,
                     .String, .Pattern => if (true_color) Color.string else Color.green,
-                    .Identifier => "",
-                    .Docblock => if (true_color) Color.comment else Color.dim,
+                    .Identifier, .Whitespace, .NewLine => "",
+                    .Docblock, .Comment, .Shebang => if (true_color) Color.comment else Color.dim,
                     .Eof, .Error => unreachable,
                 },
                 token.lexeme,

@@ -178,6 +178,11 @@ pub const Type = enum {
     Out, // out
     Namespace, // namespace
     Range, // range
+
+    Comment,
+    Shebang,
+    Whitespace,
+    NewLine,
 };
 
 pub const keywords = std.ComptimeStringMap(

@@ -468,6 +468,10 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // out
     .{ .prefix = null, .infix = null, .precedence = .None }, // namespace
     .{ .prefix = null, .infix = null, .precedence = .None }, // range
+    .{ .prefix = null, .infix = null, .precedence = .None }, // comment
+    .{ .prefix = null, .infix = null, .precedence = .None }, // shebang
+    .{ .prefix = null, .infix = null, .precedence = .None }, // whitespace
+    .{ .prefix = null, .infix = null, .precedence = .None }, // newline
 };
 
 ast: Ast,
@@ -564,8 +568,13 @@ pub fn advance(self: *Self) !void {
 
             _ = try self.ast.appendToken(new_token);
 
-            if (new_token.tag != .Error or new_token.tag == .Eof) {
-                break;
+            // Ignore comment and whitespaces or error
+            switch (new_token.tag) {
+                .Error => {},
+                .Comment, .Whitespace, .NewLine, .Shebang => {
+                    self.current_token = if (self.current_token) |ct| ct + 1 else 0;
+                },
+                else => break,
             }
         }
     }
@@ -589,8 +598,13 @@ fn advancePastEof(self: *Self) !void {
 
             _ = try self.ast.appendToken(new_token);
 
-            if (new_token.tag != .Error) {
-                break;
+            // Ignore comment and whitespaces or error
+            switch (new_token.tag) {
+                .Error => {},
+                .Comment, .Whitespace, .NewLine, .Shebang => {
+                    self.current_token = if (self.current_token) |ct| ct + 1 else 0;
+                },
+                else => break,
             }
         }
     }
@@ -601,6 +615,14 @@ pub fn consume(self: *Self, tag: Token.Type, message: []const u8) !void {
         try self.advance();
         return;
     }
+
+    std.debug.print(
+        "Consumed {s} instead of {s}\n",
+        .{
+            @tagName(self.ast.tokens.items(.tag)[self.current_token.?]),
+            @tagName(tag),
+        },
+    );
 
     self.reportErrorAtCurrent(.syntax, message);
 }

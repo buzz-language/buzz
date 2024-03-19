@@ -20,7 +20,10 @@ pub const TokenList = std.MultiArrayList(Token);
 pub const NodeList = std.MultiArrayList(Node);
 
 allocator: std.mem.Allocator,
+// Only significant tokens
 tokens: TokenList,
+// All tokens (including whitespaces, new line and comments)
+full_tokens: TokenList,
 nodes: NodeList,
 root: ?Node.Index = null,
 
@@ -28,6 +31,7 @@ pub fn init(allocator: std.mem.Allocator) Self {
     return .{
         .allocator = allocator,
         .tokens = TokenList{},
+        .full_tokens = TokenList{},
         .nodes = NodeList{},
     };
 }
@@ -44,7 +48,12 @@ pub inline fn appendNode(self: *Self, node: Node) !Node.Index {
 }
 
 pub inline fn appendToken(self: *Self, token: Token) !TokenIndex {
-    try self.tokens.append(self.allocator, token);
+    switch (token.tag) {
+        .Comment, .NewLine, .Shebang => {},
+        else => try self.tokens.append(self.allocator, token),
+    }
+    try self.full_tokens.append(self.allocator, token);
+    std.debug.print("{} {s}\n", .{ self.full_tokens.len - 1, @tagName(self.full_tokens.items(.tag)[self.full_tokens.len - 1]) });
 
     return @intCast(self.tokens.len - 1);
 }
