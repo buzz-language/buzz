@@ -37,7 +37,7 @@ const disassembler = @import("disassembler.zig");
 const dumpStack = disassembler.dumpStack;
 const DumpState = disassembler.DumpState;
 const CodeGen = @import("Codegen.zig");
-const Scanner = @import("scanner.zig").Scanner;
+const Scanner = @import("Scanner.zig");
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
     out.print(

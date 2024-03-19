@@ -16,7 +16,7 @@ const CodeGen = @import("Codegen.zig");
 const Value = @import("value.zig").Value;
 const disassembler = @import("disassembler.zig");
 const DumpState = disassembler.DumpState;
-const Scanner = @import("scanner.zig").Scanner;
+const Scanner = @import("Scanner.zig");
 const printBanner = @import("repl.zig").printBanner;
 
 pub const ReplCtx = extern struct {

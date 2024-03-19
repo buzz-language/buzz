@@ -1,6 +1,6 @@
 const std = @import("std");
 const Parser = @import("Parser.zig");
-const Scanner = @import("scanner.zig").Scanner;
+const Scanner = @import("Scanner.zig");
 const obj = @import("obj.zig");
 const Value = @import("value.zig").Value;
 const Token = @import("Token.zig");
