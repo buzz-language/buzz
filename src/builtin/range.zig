@@ -47,3 +47,19 @@ pub fn len(ctx: *obj.NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn invert(ctx: *obj.NativeCtx) c_int {
+    const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+
+    ctx.vm.push(
+        Value.fromObj((ctx.vm.gc.allocateObject(
+            obj.ObjRange,
+            obj.ObjRange{
+                .high = range.low,
+                .low = range.high,
+            },
+        ) catch @panic("Could not instanciate range")).toObj()),
+    );
+
+    return 1;
+}
