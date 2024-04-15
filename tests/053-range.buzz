@@ -16,6 +16,8 @@ test "Range" {
         sum = sum + n;
     }
     std.assert(sum == 45, message: "Could iterate over range");
+
+    std.assert(rg.len() == 10);
 }
 
 test "Inverted range" {
@@ -33,4 +35,6 @@ test "Inverted range" {
         sum = sum + n;
     }
     std.assert(sum == 55, message: "Could iterate over inverted range");
+
+    std.assert(rg.len() == 10);
 }

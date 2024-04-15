@@ -14,7 +14,7 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
                 },
             ) catch @panic("Could not instanciate list"),
         ),
-    ) catch @panic("Could not instanceiate range");
+    ) catch @panic("Could not instanciate range");
 
     ctx.vm.push(Value.fromObj(list.toObj()));
 
@@ -29,6 +29,21 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
             list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
         }
     }
+
+    return 1;
+}
+
+pub fn len(ctx: *obj.NativeCtx) c_int {
+    const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+
+    ctx.vm.push(
+        Value.fromInteger(
+            if (range.low < range.high)
+                range.high - range.low
+            else
+                range.low - range.high,
+        ),
+    );
 
     return 1;
 }

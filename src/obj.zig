@@ -2493,6 +2493,7 @@ pub const ObjRange = struct {
         NativeFn,
         .{
             .{ "toList", buzz_builtin.range.toList },
+            .{ "len", buzz_builtin.range.len },
         },
     );
 
@@ -2500,6 +2501,7 @@ pub const ObjRange = struct {
         []const u8,
         .{
             .{ "toList", "extern Function toList() > [int]" },
+            .{ "len", "extern Function len() > int" },
         },
     );
 
