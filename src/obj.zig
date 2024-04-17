@@ -66,7 +66,7 @@ pub const Obj = struct {
             return null;
         }
 
-        return @fieldParentPtr(T, "obj", obj);
+        return @alignCast(@fieldParentPtr("obj", obj));
     }
 
     pub inline fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GarbageCollector) ?*T {

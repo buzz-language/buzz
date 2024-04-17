@@ -24,7 +24,7 @@ pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
         ctx.vm.bz_peek(0).integer(),
     );
 
-    ctx.vm.bz_pushBool(std.os.isatty(handle));
+    ctx.vm.bz_pushBool(std.posix.isatty(handle));
 
     return 1;
 }

@@ -256,7 +256,7 @@ pub fn main() !void {
         printBanner(std.io.getStdOut().writer(), true);
 
         if (!is_wasm) {
-            std.os.exit(0);
+            std.posix.exit(0);
         }
     }
 
@@ -283,7 +283,7 @@ pub fn main() !void {
         );
 
         if (!is_wasm) {
-            std.os.exit(0);
+            std.posix.exit(0);
         }
     }
 
@@ -325,7 +325,7 @@ pub fn main() !void {
     if (!is_wasm and flavor == .Repl) {
         repl(allocator) catch {
             if (!is_wasm) {
-                std.os.exit(1);
+                std.posix.exit(1);
             }
 
             std.debug.print("REPL stopped", .{});
@@ -338,7 +338,7 @@ pub fn main() !void {
             flavor,
         ) catch {
             if (!is_wasm) {
-                std.os.exit(1);
+                std.posix.exit(1);
             }
 
             std.debug.print("VM stopped", .{});
@@ -350,7 +350,7 @@ pub fn main() !void {
     }
 
     if (!is_wasm) {
-        std.os.exit(0);
+        std.posix.exit(0);
     }
 }
 
@@ -460,5 +460,5 @@ test "Testing behavior" {
         fail_count,
     });
 
-    std.os.exit(if (fail_count == 0) 0 else 1);
+    std.posix.exit(if (fail_count == 0) 0 else 1);
 }

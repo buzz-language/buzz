@@ -777,7 +777,7 @@ pub const VM = struct {
     fn vmPanic(e: anytype) void {
         std.debug.print("{}\n", .{e});
         if (!is_wasm) {
-            std.os.exit(1);
+            std.posix.exit(1);
         }
     }
 
@@ -3904,7 +3904,7 @@ pub const VM = struct {
                 );
 
                 if (!is_wasm) {
-                    std.os.exit(1);
+                    std.posix.exit(1);
                 } else {
                     return Error.RuntimeError;
                 }

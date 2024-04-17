@@ -219,7 +219,7 @@ pub export fn assert(ctx: *api.NativeCtx) c_int {
         }
 
         if (!is_wasm) {
-            std.os.exit(1);
+            std.posix.exit(1);
         }
     }
 

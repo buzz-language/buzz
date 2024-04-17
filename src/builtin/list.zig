@@ -20,7 +20,7 @@ pub fn append(ctx: *NativeCtx) c_int {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
             std.debug.print("Could not append to list", .{});
             if (!is_wasm) {
-                std.os.exit(1);
+                std.posix.exit(1);
             } else {
                 unreachable;
             }
@@ -49,7 +49,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
         const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
             std.debug.print("Could not insert into list", .{});
             if (!is_wasm) {
-                std.os.exit(1);
+                std.posix.exit(1);
             } else {
                 unreachable;
             }
@@ -114,7 +114,7 @@ pub fn remove(ctx: *NativeCtx) c_int {
     ctx.vm.gc.markObjDirty(&list.obj) catch {
         std.debug.print("Could not remove from list", .{});
         if (!is_wasm) {
-            std.os.exit(1);
+            std.posix.exit(1);
         } else {
             unreachable;
         }

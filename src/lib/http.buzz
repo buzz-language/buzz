@@ -44,7 +44,7 @@ export enum HttpError {
     UnexpectedWriteFailure,
     UnknownHostName,
     UnsupportedTransferEncoding,
-    UnsupportedUrlScheme,
+    UnsupportedUriScheme,
     UriMissingHost,
 }
 

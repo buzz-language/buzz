@@ -27,7 +27,7 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
     const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch @panic("Out of memory");
     defer api.VM.allocator.free(key_slice);
 
-    if (std.os.getenvZ(key_slice)) |value| {
+    if (std.posix.getenvZ(key_slice)) |value| {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
             @panic("Out of memory");
         });
@@ -43,7 +43,7 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
 fn sysTempDir() []const u8 {
     return switch (builtin.os.tag) {
         .windows => unreachable, // TODO: GetTempPath
-        else => std.os.getenv("TMPDIR") orelse std.os.getenv("TMP") orelse std.os.getenv("TEMP") orelse std.os.getenv("TEMPDIR") orelse "/tmp",
+        else => std.posix.getenv("TMPDIR") orelse std.posix.getenv("TMP") orelse std.posix.getenv("TEMP") orelse std.posix.getenv("TEMPDIR") orelse "/tmp",
     };
 }
 
@@ -92,11 +92,11 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-// If it was named `exit` it would be considered by zig as a callback when std.os.exit is called
+// If it was named `exit` it would be considered by zig as a callback when std.posix.exit is called
 pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
-    std.os.exit(@intCast(exitCode));
+    std.posix.exit(@intCast(exitCode));
 
     return 0;
 }
@@ -332,11 +332,11 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketClose(ctx: *api.NativeCtx) c_int {
-    const socket: std.os.socket_t = @intCast(
+    const socket: std.posix.socket_t = @intCast(
         ctx.vm.bz_peek(0).integer(),
     );
 
-    std.os.shutdown(socket, .both) catch @panic("Could not stop socket");
+    std.posix.shutdown(socket, .both) catch @panic("Could not stop socket");
 
     return 0;
 }
@@ -376,7 +376,7 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
         return -1;
     }
 
-    const handle: std.os.socket_t = @intCast(
+    const handle: std.posix.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
 
@@ -434,7 +434,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
-    const handle: std.os.socket_t = @intCast(
+    const handle: std.posix.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
     const max_size = ctx.vm.bz_peek(0);
@@ -479,7 +479,7 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
-    const handle: std.os.socket_t = @intCast(
+    const handle: std.posix.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
     const max_size = ctx.vm.bz_peek(0);
@@ -523,7 +523,7 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
-    const handle: std.os.socket_t = @intCast(
+    const handle: std.posix.socket_t = @intCast(
         ctx.vm.bz_peek(1).integer(),
     );
 

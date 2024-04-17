@@ -6,7 +6,7 @@ const JIT = @import("Jit.zig");
 const jmp = @import("jmp.zig").jmp;
 
 export fn bz_exit(code: c_int) noreturn {
-    std.os.exit(@truncate(@as(c_uint, @bitCast(code))));
+    std.posix.exit(@truncate(@as(c_uint, @bitCast(code))));
 }
 
 pub const ExternApi = enum {

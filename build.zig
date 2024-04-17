@@ -90,13 +90,13 @@ const BuzzBuildOptions = struct {
 };
 
 fn getBuzzPrefix(b: *Build) []const u8 {
-    return std.os.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
+    return std.posix.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
 }
 
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.12.0-dev.3245+4f782d1e8") catch return;
+    const min_zig = std.SemanticVersion.parse("0.12.0-dev.3666+a2b834e8c") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -128,8 +128,8 @@ pub fn build(b: *Build) !void {
             "\n \t",
         ),
         // Current commit sha
-        .sha = std.os.getenv("GIT_SHA") orelse
-            std.os.getenv("GITHUB_SHA") orelse std.mem.trim(
+        .sha = std.posix.getenv("GIT_SHA") orelse
+            std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
             u8,
             (std.ChildProcess.run(.{
                 .allocator = b.allocator,
@@ -320,7 +320,7 @@ pub fn build(b: *Build) !void {
         const prefix = if (result) |r|
             std.mem.trim(u8, r.stdout, "\n")
         else
-            std.os.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
+            std.posix.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
 
         var include = std.ArrayList(u8).init(b.allocator);
         include.writer().print("{s}{s}include", .{ prefix, std.fs.path.sep_str }) catch unreachable;

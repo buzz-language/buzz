@@ -86,7 +86,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    request.send(.{ .raw_uri = false }) catch |err| {
+    request.send() catch |err| {
         handleStartError(ctx, err);
 
         return -1;
@@ -295,7 +295,7 @@ fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
         error.UnexpectedWriteFailure,
         error.UnknownHostName,
         error.UnsupportedTransferEncoding,
-        error.UnsupportedUrlScheme,
+        error.UnsupportedUriScheme,
         error.UriMissingHost,
         => ctx.vm.pushErrorEnum("http.HttpError", @errorName(err)),
     }
@@ -331,7 +331,7 @@ fn handleError(ctx: *api.NativeCtx, err: anytype) void {
         error.UnexpectedWriteFailure,
         error.UnknownHostName,
         error.UnsupportedTransferEncoding,
-        error.UnsupportedUrlScheme,
+        error.UnsupportedUriScheme,
         error.UriMissingHost,
         => ctx.vm.pushErrorEnum("http.HttpError", @errorName(err)),
     }
