@@ -1,0 +1,101 @@
+namespace thread;
+
+|| @private
+extern fun ThreadSpawn(any function, [any] arguments, any catchValue) > ud !> ThreadError;
+|| @private
+extern fun ThreadJoin(ud thread) > void;
+|| @private
+extern fun ThreadDetach(ud thread) > void;
+|| @private
+extern fun ThreadCollect(ud thread) > void;
+|| @private
+extern fun SemaphoreInit() > ud;
+|| @private
+extern fun SemaphoreWait(ud handle) > void;
+|| @private
+extern fun SemaphorePost(ud handle) > void;
+|| @private
+extern fun SemaphoreCollect(ud handle) > void;
+
+export extern fun initMutex() > float;
+export extern fun lockMutex(float handle) > void;
+export extern fun tryLockMutex(float handle) > bool;
+export extern fun unlockMutex(float handle) > void;
+export extern fun collectMutex(float handle) > void;
+
+export enum State {
+    Running,
+    Detached,
+    Completed,
+}
+
+export enum ThreadError {
+    ThreadQuotaExceeded,
+    SystemResources,
+    OutOfMemory,
+    LockedMemoryLimitExceeded,
+    Unexpected,
+}
+
+| Do we want yield to be able to yield across threads?
+export object Thread {
+    ud handle,
+    State? state = null,
+
+    | TODO: `Function` type to enforce function without specifying its signature
+    static fun spawn(any function, [any] arguments, any catchValue = null) > Thread !> ThreadError {
+        return Thread{
+            handle = ThreadSpawn(
+                function,
+                arguments: arguments,
+                catchValue: catchValue
+            ),
+            state = State.Running,
+        };
+    }
+
+    fun join() > void !> ThreadError {
+        if (this.state != State.Running) {
+            return;
+        }
+
+        ThreadJoin(this.handle);
+        this.state = State.Completed;
+    }
+
+    fun detach() > void {
+        if (this.state != State.Running) {
+            return;
+        }
+
+        ThreadDetach(this.handle);
+        this.state = State.Detached;
+    }
+
+    fun collect() > void {
+        ThreadCollect(this.handle);
+        this.state = State.Detached;
+    }
+}
+
+export object Semaphore {
+    ud handle,
+
+    static fun init() > Semaphore {
+        return Semaphore{
+            handle = SemaphoreInit(),
+        };
+    }
+
+    fun wait() > void {
+        SemaphoreWait(this.handle);
+    }
+
+    fun post() > void {
+        SemaphorePost(this.handle);
+    }
+
+    fun collect() > void {
+        SemaphoreCollect(this.handle);
+    }
+}

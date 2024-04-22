@@ -441,6 +441,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
             .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
             .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
+            .{ .name = "thread", .path = "src/lib/buzz_thread.zig", .wasm_compatible = false },
             .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
             .{ .name = "testing", .path = null },
             .{ .name = "errors", .path = null },

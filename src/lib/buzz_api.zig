@@ -57,7 +57,8 @@ pub const VM = opaque {
     else
         std.heap.c_allocator;
 
-    pub extern fn bz_newVM(self: *VM) *VM;
+    pub extern fn bz_newVM(self: *VM) ?*VM;
+    pub extern fn bz_startVM(self: *VM) void;
     pub extern fn bz_deinitVM(self: *VM) void;
     pub extern fn bz_compile(
         self: *VM,
@@ -77,9 +78,9 @@ pub const VM = opaque {
     pub extern fn bz_call(
         self: *VM,
         closure: *ObjClosure,
-        arguments: ?[*]const *const Value,
+        arguments: ?[*]const Value,
         len: usize,
-        catch_value: ?*Value,
+        catch_value: ?*const Value,
     ) void;
     pub extern fn bz_push(self: *VM, value: Value) void;
     pub extern fn bz_pop(self: *VM) Value;
@@ -342,6 +343,7 @@ pub const ObjList = opaque {
     pub extern fn bz_listGet(self: Value, index: usize) Value;
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
+    pub extern fn bz_listPtr(self: *ObjList) [*]Value;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
     pub extern fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value;
     pub extern fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value;

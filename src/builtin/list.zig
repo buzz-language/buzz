@@ -129,13 +129,11 @@ const SortContext = struct {
 };
 
 fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
-    var args = [_]*const Value{ &lhs, &rhs };
-
     buzz_api.bz_call(
         context.ctx.vm,
         context.sort_closure,
-        @ptrCast(&args),
-        @intCast(args.len),
+        &.{ lhs, rhs },
+        2,
         null,
     );
 
@@ -301,15 +299,16 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-
-        var args = [_]*const Value{ &index_value, &item };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    Value.fromInteger(@intCast(index)),
+                    item,
+                },
+            ),
+            2,
             null,
         );
     }
@@ -323,15 +322,17 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     var accumulator = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-
-        var args = [_]*const Value{ &index_value, &item, &accumulator };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    Value.fromInteger(@intCast(index)),
+                    item,
+                    accumulator,
+                },
+            ),
+            3,
             null,
         );
 
@@ -356,14 +357,16 @@ pub fn filter(ctx: *NativeCtx) c_int {
     ) catch unreachable;
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        var args = [_]*const Value{ &index_value, &item };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    Value.fromInteger(@intCast(index)),
+                    item,
+                },
+            ),
+            2,
             null,
         );
 
@@ -391,14 +394,16 @@ pub fn map(ctx: *NativeCtx) c_int {
     ) catch unreachable; // TODO: handle error
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
-        var args = [_]*const Value{ &index_value, &item };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    Value.fromInteger(@intCast(index)),
+                    item,
+                },
+            ),
+            2,
             null,
         );
 

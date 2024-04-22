@@ -37,13 +37,17 @@ pub fn reduce(ctx: *NativeCtx) c_int {
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr, &accumulator };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    kv.key_ptr.*,
+                    kv.value_ptr.*,
+                    accumulator,
+                },
+            ),
+            3,
             null,
         );
 
@@ -69,13 +73,16 @@ pub fn filter(ctx: *NativeCtx) c_int {
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    kv.key_ptr.*,
+                    kv.value_ptr.*,
+                },
+            ),
+            2,
             null,
         );
 
@@ -95,13 +102,16 @@ pub fn forEach(ctx: *NativeCtx) c_int {
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    kv.key_ptr.*,
+                    kv.value_ptr.*,
+                },
+            ),
+            2,
             null,
         );
     }
@@ -143,13 +153,16 @@ pub fn map(ctx: *NativeCtx) c_int {
     const value_str = ctx.vm.gc.copyString("value") catch unreachable;
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
-
         buzz_api.bz_call(
             ctx.vm,
             closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(
+                &.{
+                    kv.key_ptr.*,
+                    kv.value_ptr.*,
+                },
+            ),
+            2,
             null,
         );
 
@@ -175,13 +188,11 @@ const SortContext = struct {
         const lhs = map_keys[lhs_index];
         const rhs = map_keys[rhs_index];
 
-        var args = [_]*const Value{ &lhs, &rhs };
-
         buzz_api.bz_call(
             context.ctx.vm,
             context.sort_closure,
-            @ptrCast(&args),
-            @intCast(args.len),
+            @ptrCast(&.{ lhs, rhs }),
+            2,
             null,
         );
 
