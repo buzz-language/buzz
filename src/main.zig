@@ -19,6 +19,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
 const repl = if (!is_wasm) @import("repl.zig").repl else void;
 const wasm_repl = @import("wasm_repl.zig");
+const LspServer = @import("lsp/Server.zig");
 
 pub export const initRepl_export = wasm_repl.initRepl;
 pub export const runLine_export = wasm_repl.runLine;
@@ -229,7 +230,7 @@ pub fn main() !void {
         \\-t, --test             Run test blocks in provided script
         \\-c, --check            Check script for error without running it
         \\-f, --fmt              Format script
-        \\-a, --tree             Dump AST as JSON
+        \\-l, --lsp              Start LSP server
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
         \\<str>...
@@ -315,14 +316,19 @@ pub fn main() !void {
         .Test
     else if (res.args.fmt == 1)
         .Fmt
-    else if (res.args.tree == 1)
-        .Ast
+    else if (res.args.lsp == 1)
+        .Lsp
     else if (res.positionals.len == 0)
         .Repl
     else
         .Run;
 
-    if (!is_wasm and flavor == .Repl) {
+    if (flavor == .Lsp) {
+        var server = try LspServer.init(allocator);
+        defer server.deinit();
+
+        try server.loop();
+    } else if (!is_wasm and flavor == .Repl) {
         repl(allocator) catch {
             if (!is_wasm) {
                 std.posix.exit(1);

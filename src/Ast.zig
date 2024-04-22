@@ -60,7 +60,7 @@ pub const Node = struct {
 
     /// If null, either its a statement or its a reference to something unknown that should ultimately raise a compile error
     type_def: ?*obj.ObjTypeDef = null,
-    /// Wether optional jumps must be patch before generate this node bytecode
+    /// Wether optional jumps must be patched before generating this node bytecode
     patch_opt_jumps: bool = false,
     /// Does this node closes a scope
     ends_scope: ?[]const Chunk.OpCode = null,

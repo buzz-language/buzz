@@ -54,7 +54,7 @@ pub const RunFlavor = enum {
     Test,
     Check,
     Fmt,
-    Ast,
+    Lsp,
     Repl,
 
     pub inline fn resolveImports(self: RunFlavor) bool {
