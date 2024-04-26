@@ -30,21 +30,20 @@ const OptJump = struct {
 const GenState = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
+
     // Root closure (not necessarily the one being compiled)
     closure: *o.ObjClosure,
     opt_jump: ?OptJump = null,
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
-
     ast: Ast,
-    function_node: Ast.Node.Index,
+    ast_node: Ast.Node.Index,
     return_counts: bool = false,
     return_emitted: bool = false,
 
     try_should_handle: ?std.AutoHashMap(*o.ObjTypeDef, void) = null,
 
     function: ?m.MIR_item_t = null,
-
     function_native: ?m.MIR_item_t = null,
     function_native_proto: ?m.MIR_item_t = null,
 
@@ -74,13 +73,17 @@ const Self = @This();
 vm: *VM,
 ctx: m.MIR_context_t,
 state: ?GenState = null,
-// List of closures being or already compiled
+// Set of closures being or already compiled
 compiled_closures: std.AutoHashMap(*o.ObjClosure, void),
-// Closure we can't compile (containing async call, or yield)
+// Closures we can't compile (containing async call, or yield)
 blacklisted_closures: std.AutoHashMap(*o.ObjClosure, void),
+// Set of hostpot being already compiled
+compiled_hotspots: std.AutoHashMap(Ast.Node.Index, void),
+// Hotspots we can't comiple (containing async call, or yield)
+blacklisted_hotspots: std.AutoHashMap(Ast.Node.Index, void),
 // MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
 // Once compiled, the value is set to an array of the native and raw native func_items
-functions_queue: std.AutoHashMap(Ast.Node.Index, ?[2]m.MIR_item_t),
+functions_queue: std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t),
 // ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
 objclosures_queue: std.AutoHashMap(*o.ObjClosure, void),
 // External api to link
@@ -97,8 +100,10 @@ pub fn init(vm: *VM) Self {
         .vm = vm,
         .ctx = m.MIR_init(),
         .compiled_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
+        .compiled_hotspots = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
         .blacklisted_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
-        .functions_queue = std.AutoHashMap(Ast.Node.Index, ?[2]m.MIR_item_t).init(vm.gc.allocator),
+        .blacklisted_hotspots = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
+        .functions_queue = std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t).init(vm.gc.allocator),
         .objclosures_queue = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .required_ext_api = std.AutoHashMap(ExternApi, void).init(vm.gc.allocator),
         .modules = std.ArrayList(m.MIR_module_t).init(vm.gc.allocator),
@@ -107,7 +112,9 @@ pub fn init(vm: *VM) Self {
 
 pub fn deinit(self: *Self) void {
     self.compiled_closures.deinit();
+    self.compiled_hotspots.deinit();
     self.blacklisted_closures.deinit();
+    self.blacklisted_hotspots.deinit();
     // std.debug.assert(self.functions_queue.count() == 0);
     self.functions_queue.deinit();
     // std.debug.assert(self.objclosures_queue.count() == 0);
@@ -130,35 +137,16 @@ fn reset(self: *Self) void {
 
 pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void {
     const function = closure.function;
-    const function_node = function.node;
+    const ast_node = function.node;
 
     // Remember we need to set this functions fields
     try self.objclosures_queue.put(closure, {});
 
     // Build the function
-    try self.buildFunction(ast, closure, function_node);
+    try self.buildFunction(ast, closure, ast_node);
 
-    // Did we encountered other functions that need to be compiled?
-    var it = self.functions_queue.iterator();
-    while (it.next()) |kv| {
-        const node = kv.key_ptr.*;
-
-        if (kv.value_ptr.* == null) {
-            // Does it have an associated closure?
-            var it2 = self.objclosures_queue.iterator();
-            var sub_closure: ?*o.ObjClosure = null;
-            while (it2.next()) |kv2| {
-                if (kv2.key_ptr.*.function.node == node) {
-                    sub_closure = kv2.key_ptr.*;
-                    break;
-                }
-            }
-            try self.buildFunction(ast, sub_closure, node);
-
-            // Building a new function might have added functions in the queue, so we reset the iterator
-            it = self.functions_queue.iterator();
-        }
-    }
+    // Did we encounter other functions to compile?
+    try self.buildCollateralFunctions(ast);
 
     // Load modules
     for (self.modules.items) |module| {
@@ -191,8 +179,8 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = m.MIR_gen(self.ctx, 0, items[0]);
-        const native_raw = m.MIR_gen(self.ctx, 0, items[1]);
+        const native = if (items[0]) |item| m.MIR_gen(self.ctx, 0, item) else null;
+        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, 0, item) else null;
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
@@ -208,23 +196,110 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     self.reset();
 }
 
-fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, function_node: Ast.Node.Index) Error!void {
+pub fn compileHotSpot(self: *Self, ast: Ast, hotspot_node: Ast.Node.Index) Error!*anyopaque {
+    // Build function surrounding the node
+    try self.buildFunction(ast, null, hotspot_node);
+
+    // Did we encounter other functions to compile?
+    try self.buildCollateralFunctions(ast);
+
+    // Load modules
+    for (self.modules.items) |module| {
+        m.MIR_load_module(self.ctx, module);
+    }
+
+    // Load external functions
+    var it_ext = self.required_ext_api.iterator();
+    while (it_ext.next()) |kv| {
+        switch (kv.key_ptr.*) {
+            // TODO: don't mix those with actual api functions
+            .rawfn, .nativefn => {},
+            else => m.MIR_load_external(
+                self.ctx,
+                kv.key_ptr.*.name(),
+                kv.key_ptr.*.ptr(),
+            ),
+        }
+    }
+
+    // Link everything together
+    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
+
+    m.MIR_gen_init(self.ctx, 1);
+    defer m.MIR_gen_finish(self.ctx);
+
+    // Generate all needed functions and set them in corresponding ObjFunctions
+    var it2 = self.functions_queue.iterator();
+    var hotspot_native: ?*anyopaque = null;
+    while (it2.next()) |kv| {
+        const node = kv.key_ptr.*;
+        const items = kv.value_ptr.*.?;
+
+        const native = if (items[0]) |item| m.MIR_gen(self.ctx, 0, item) else null;
+        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, 0, item) else null;
+
+        // Find out if we need to set it in a ObjFunction
+        var it3 = self.objclosures_queue.iterator();
+        while (it3.next()) |kv2| {
+            if (kv2.key_ptr.*.function.node == node) {
+                kv2.key_ptr.*.function.native = native;
+                kv2.key_ptr.*.function.native_raw = native_raw;
+                break;
+            }
+        }
+
+        // If its the hotspot, return the NativeFn pointer
+        if (node == hotspot_node) {
+            hotspot_native = native_raw;
+        }
+    }
+
+    self.reset();
+
+    return hotspot_native orelse Error.CantCompile;
+}
+
+fn buildCollateralFunctions(self: *Self, ast: Ast) Error!void {
+    var it = self.functions_queue.iterator();
+    while (it.next()) |kv| {
+        const node = kv.key_ptr.*;
+
+        if (kv.value_ptr.* == null) {
+            // Does it have an associated closure?
+            var it2 = self.objclosures_queue.iterator();
+            var sub_closure: ?*o.ObjClosure = null;
+            while (it2.next()) |kv2| {
+                if (kv2.key_ptr.*.function.node == node) {
+                    sub_closure = kv2.key_ptr.*;
+                    break;
+                }
+            }
+            try self.buildFunction(ast, sub_closure, node);
+
+            // Building a new function might have added functions in the queue, so we reset the iterator
+            it = self.functions_queue.iterator();
+        }
+    }
+}
+
+fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.Node.Index) Error!void {
     self.state = .{
         .ast = ast,
         .module = undefined,
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
-        .function_node = function_node,
+        .ast_node = ast_node,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = closure orelse self.state.?.closure,
     };
 
-    const qualified_name = try self.getFunctionQualifiedName(
-        function_node,
+    const tag = self.state.?.ast.nodes.items(.tag)[ast_node];
+    const qualified_name = try self.getQualifiedName(
+        ast_node,
         false,
     );
     defer qualified_name.deinit();
-    const raw_qualified_name = try self.getFunctionQualifiedName(
-        function_node,
+    const raw_qualified_name = try self.getQualifiedName(
+        ast_node,
         true,
     );
     defer raw_qualified_name.deinit();
@@ -249,6 +324,8 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, function_node: 
                 },
             );
         }
+    } else if (tag.isHotspot()) {
+        try self.compiled_hotspots.put(ast_node, {});
     } else {
         if (BuildOptions.jit_debug) {
             std.debug.print(
@@ -260,7 +337,10 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, function_node: 
         }
     }
 
-    _ = self.generateNode(function_node) catch |err| {
+    _ = (if (tag.isHotspot())
+        self.generateHotspotFunction(ast_node)
+    else
+        self.generateNode(ast_node)) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
                 std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
@@ -268,7 +348,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, function_node: 
 
             m.MIR_finish_func(self.ctx);
 
-            _ = self.functions_queue.remove(function_node);
+            _ = self.functions_queue.remove(ast_node);
             if (closure) |uclosure| {
                 _ = self.objclosures_queue.remove(uclosure);
                 try self.blacklisted_closures.put(uclosure, {});
@@ -1386,6 +1466,15 @@ fn buildReturn(self: *Self, value: m.MIR_op_t) !void {
 
     // Reset stack_top to base
     self.MOV(try self.LOAD(stack_top_ptr), base);
+
+    // If return whithin hotspot, push value, return 1 so the return is forwarded to caller
+    if (self.state.?.ast.nodes.items(.tag)[self.state.?.ast_node].isHotspot()) {
+        try self.buildPush(value);
+
+        self.RET(m.MIR_new_int_op(self.ctx, 1));
+
+        return;
+    }
 
     // Do return
     self.RET(value);
@@ -2742,9 +2831,11 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const previous_continue_label = self.state.?.continue_label;
     self.state.?.continue_label = cond_label;
 
-    // Init expressions
-    for (components.init_declarations) |expr| {
-        _ = try self.generateNode(expr);
+    if (self.state.?.ast_node != node) {
+        // Init expressions (if not hotspot)
+        for (components.init_declarations) |expr| {
+            _ = try self.generateNode(expr);
+        }
     }
 
     // Condition
@@ -3875,13 +3966,30 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         }
     }
 
-    // key, value and iterable are locals of the foreach scope
-    // var declaration so will push value on stack
-    _ = try self.generateNode(components.key);
-    // var declaration so will push value on stack
-    _ = try self.generateNode(components.value);
-    const iterable = (try self.generateNode(components.iterable)).?;
-    try self.buildPush(iterable);
+    const iterable = if (self.state.?.ast_node != node) regular: {
+        // key, value and iterable are locals of the foreach scope
+        // var declaration so will push value on stack
+        _ = try self.generateNode(components.key);
+        // var declaration so will push value on stack
+        _ = try self.generateNode(components.value);
+        const iterable = (try self.generateNode(components.iterable)).?;
+        try self.buildPush(iterable);
+
+        break :regular iterable;
+    } else hotspot: {
+        // When the loop is a hotspot, the foreach setup has already been done and the iterable is at the top of the stack
+        const iterable = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("iterable", m.MIR_T_I64),
+        );
+
+        try self.buildPeek(
+            0,
+            iterable,
+        );
+
+        break :hotspot iterable;
+    };
 
     const key_ptr = try self.buildStackPtr(2);
     const value_ptr = try self.buildStackPtr(1);
@@ -3899,7 +4007,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     // Call appropriate `next` method
     if (iterable_type_def.?.def_type == .Fiber) {
         // TODO: fiber foreach (tricky, need to complete foreach op after it has yielded)
-        unreachable;
+        return Error.CantCompile;
     } else if (iterable_type_def.?.def_type == .Enum) {
         try self.buildExternApiCall(
             .bz_enumNext,
@@ -4030,12 +4138,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     std.debug.assert(function_type != .Extern and function_type != .Script and function_type != .ScriptEntryPoint);
 
     // Get fully qualified name of function
-    var qualified_name = try self.getFunctionQualifiedName(node, true);
+    var qualified_name = try self.getQualifiedName(node, true);
     defer qualified_name.deinit();
 
     // If this is not the root function, we need to compile this later
-    if (self.state.?.function_node != node) {
-        var nativefn_qualified_name = try self.getFunctionQualifiedName(node, false);
+    if (self.state.?.ast_node != node) {
+        var nativefn_qualified_name = try self.getQualifiedName(node, false);
         defer nativefn_qualified_name.deinit();
 
         // Remember that we need to compile this function later
@@ -4121,7 +4229,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         _ = try self.generateNode(components.body.?);
     }
 
-    if (type_defs[self.state.?.function_node].?.resolved_type.?.Function.return_type.def_type == .Void and !self.state.?.return_emitted) {
+    if (type_defs[self.state.?.ast_node].?.resolved_type.?.Function.return_type.def_type == .Void and !self.state.?.return_emitted) {
         try self.buildReturn(m.MIR_new_uint_op(self.ctx, Value.Void.val));
     }
 
@@ -4141,6 +4249,72 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     return m.MIR_new_ref_op(self.ctx, function);
 }
 
+fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    const tag = self.state.?.ast.nodes.items(.tag)[node];
+
+    std.debug.assert(tag.isHotspot());
+
+    var qualified_name = try self.getQualifiedName(node, false);
+    defer qualified_name.deinit();
+
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    defer self.vm.gc.allocator.free(ctx_name);
+    const function = m.MIR_new_func_arr(
+        self.ctx,
+        @ptrCast(qualified_name.items.ptr),
+        1,
+        &[_]m.MIR_type_t{m.MIR_T_U64},
+        1,
+        &[_]m.MIR_var_t{
+            .{
+                .type = m.MIR_T_P,
+                .name = @ptrCast(ctx_name.ptr),
+                .size = undefined,
+            },
+        },
+    );
+
+    self.state.?.function = function;
+
+    // Build ref to ctx arg and vm
+    self.state.?.ctx_reg = m.MIR_reg(self.ctx, "ctx", function.u.func);
+    self.state.?.vm_reg = m.MIR_new_func_reg(self.ctx, function.u.func, m.MIR_T_I64, "vm");
+
+    const index = try self.REG("index", m.MIR_T_I64);
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, index),
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_P,
+            @offsetOf(o.NativeCtx, "vm"),
+            self.state.?.ctx_reg.?,
+            index,
+            0,
+        ),
+    );
+
+    _ = try self.generateNode(node);
+
+    // If we reach here, return 0 meaning there was no early return in the hotspot
+    self.RET(m.MIR_new_int_op(self.ctx, 0));
+
+    m.MIR_finish_func(self.ctx);
+
+    try self.functions_queue.put(
+        node,
+        [_]?m.MIR_item_t{
+            null,
+            self.state.?.function.?,
+        },
+    );
+
+    return m.MIR_new_ref_op(self.ctx, function);
+}
+
 fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.MIR_item_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
 
@@ -4149,7 +4323,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
 
     std.debug.assert(function_type != .Extern);
 
-    var nativefn_qualified_name = try self.getFunctionQualifiedName(node, false);
+    var nativefn_qualified_name = try self.getQualifiedName(node, false);
     defer nativefn_qualified_name.deinit();
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
@@ -4313,32 +4487,68 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     return function;
 }
 
-fn getFunctionQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList(u8) {
-    const components = self.state.?.ast.nodes.items(.components)[node].Function;
-    const type_defs = self.state.?.ast.nodes.items(.type_def);
+fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList(u8) {
+    const tag = self.state.?.ast.nodes.items(.tag)[node];
 
-    const function_def = type_defs[node].?.resolved_type.?.Function;
-    const function_type = function_def.function_type;
-    const name = function_def.name.string;
+    switch (tag) {
+        .Function => {
+            const components = self.state.?.ast.nodes.items(.components)[node].Function;
+            const type_defs = self.state.?.ast.nodes.items(.type_def);
 
-    var qualified_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+            const function_def = type_defs[node].?.resolved_type.?.Function;
+            const function_type = function_def.function_type;
+            const name = function_def.name.string;
 
-    try qualified_name.appendSlice(name);
+            var qualified_name = std.ArrayList(u8).init(self.vm.gc.allocator);
 
-    // Main and script are not allowed to be compiled
-    std.debug.assert(function_type != .ScriptEntryPoint and function_type != .Script);
+            try qualified_name.appendSlice(name);
 
-    // Don't qualify extern functions
-    if (function_type != .Extern) {
-        try qualified_name.append('.');
-        try qualified_name.writer().print("{}", .{components.id});
+            // Main and script are not allowed to be compiled
+            std.debug.assert(function_type != .ScriptEntryPoint and function_type != .Script);
+
+            // Don't qualify extern functions
+            if (function_type != .Extern) {
+                try qualified_name.append('.');
+                try qualified_name.writer().print("{}", .{components.id});
+            }
+            if (function_type != .Extern and raw) {
+                try qualified_name.appendSlice(".raw");
+            }
+            try qualified_name.append(0);
+
+            return qualified_name;
+        },
+
+        .For,
+        .ForEach,
+        .While,
+        => {
+            var qualified_name = std.ArrayList(u8).init(self.vm.gc.allocator);
+
+            try qualified_name.writer().print(
+                "{s}#{d}\x00",
+                .{
+                    @tagName(tag),
+                    node,
+                },
+            );
+
+            return qualified_name;
+        },
+
+        else => {
+            if (BuildOptions.debug) {
+                std.debug.print(
+                    "Ast {s} node are not valid hotspots",
+                    .{
+                        @tagName(tag),
+                    },
+                );
+            }
+
+            unreachable;
+        },
     }
-    if (function_type != .Extern and raw) {
-        try qualified_name.appendSlice(".raw");
-    }
-    try qualified_name.append(0);
-
-    return qualified_name;
 }
 
 pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefElement) Error!void {
@@ -4365,7 +4575,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
         .ast = ast,
         .module = module,
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
-        .function_node = undefined,
+        .ast_node = undefined,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = undefined,
     };
@@ -4657,7 +4867,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
         .ast = buzz_ast,
         .module = module,
         .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
-        .function_node = undefined,
+        .ast_node = undefined,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = undefined,
     };

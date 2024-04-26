@@ -57,8 +57,8 @@ jit: ?*JIT,
 
 reporter: Reporter,
 
-const generators = [_]NodeGen{
-    noGen, // AnonymousObjectType,
+const generators = [_]?NodeGen{
+    null, // AnonymousObjectType,
     generateAs, // As,
     generateAsyncCall, // AsyncCall,
     generateBinary, // Binary,
@@ -73,27 +73,27 @@ const generators = [_]NodeGen{
     generateEnum, // Enum,
     generateExport, // Export,
     generateExpression, // Expression,
-    noGen, // FiberType,
+    null, // FiberType,
     generateFloat, // Float,
     generateFor, // For,
     generateForceUnwrap, // ForceUnwrap,
     generateForEach, // ForEach,
     generateFunction, // Function,
-    noGen, // FunctionType,
+    null, // FunctionType,
     generateFunDeclaration, // FunDeclaration,
     generateGenericResolve, // GenericResolve,
-    noGen, // GenericResolveType,
-    noGen, // GenericType,
+    null, // GenericResolveType,
+    null, // GenericType,
     generateGrouping, // Grouping,
     generateIf, // If,
     generateImport, // Import,
     generateInteger, // Integer,
     generateIs, // Is,
     generateList, // List,
-    noGen, // ListType,
+    null, // ListType,
     generateMap, // Map,
-    noGen, // MapType,
-    noGen, // Namespace,
+    null, // MapType,
+    null, // Namespace,
     generateNamedVariable, // NamedVariable,
     generateNull, // Null,
     generateObjectDeclaration, // ObjectDeclaration,
@@ -105,7 +105,7 @@ const generators = [_]NodeGen{
     generateResolve, // Resolve,
     generateResume, // Resume,
     generateReturn, // Return,
-    noGen, // SimpleType,
+    null, // SimpleType,
     generateString, // String,
     generateStringLiteral, // StringLiteral,
     generateSubscript, // Subscript,
@@ -115,7 +115,7 @@ const generators = [_]NodeGen{
     generateTypeOfExpression, // TypeOfExpression,
     generateUnary, // Unary,
     generateUnwrap, // Unwrap,
-    noGen, // UserType,
+    null, // UserType,
     generateVarDeclaration, // VarDeclaration,
     generateVoid, // Void,
     generateWhile, // While,
@@ -245,12 +245,12 @@ pub fn patchJump(self: *Self, offset: usize) void {
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
-pub fn patchTry(self: *Self, offset: usize) void {
+pub fn patchTryOrJit(self: *Self, offset: usize) void {
     std.debug.assert(offset < self.currentCode());
 
     const jump: usize = self.currentCode();
 
-    if (jump > 16777215) {
+    if (jump > std.math.maxInt(u24)) {
         self.reportError(
             .block_too_large,
             "Try block too large.",
@@ -408,7 +408,11 @@ inline fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayLis
         return null;
     }
 
-    return try Self.generators[@intFromEnum(self.ast.nodes.items(.tag)[node])](self, node, breaks);
+    if (Self.generators[@intFromEnum(self.ast.nodes.items(.tag)[node])]) |generator| {
+        return generator(self, node, breaks);
+    }
+
+    return null;
 }
 
 fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
@@ -1773,6 +1777,8 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
     }
 
     const loop_start = self.currentCode();
+    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
+    try self.emit(locations[node], node);
 
     const condition_type_def = type_defs[components.condition].?;
     if (condition_type_def.def_type == .Placeholder) {
@@ -1828,6 +1834,8 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
 
     try self.patchOptJumps(node);
     try self.endScope(node);
+
+    self.patchTryOrJit(jit_jump);
 
     return null;
 }
@@ -2034,6 +2042,8 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
     _ = try self.generateNode(components.iterable, breaks);
 
     const loop_start: usize = self.currentCode();
+    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
+    try self.emit(locations[node], node);
 
     // Calls `next` and update key and value locals
     try self.emitOpCode(
@@ -2095,6 +2105,8 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
         self.ast.nodes.items(.ends_scope)[node] != null and self.ast.nodes.items(.ends_scope)[node].?.len == 3,
     );
     try self.endScope(node);
+
+    self.patchTryOrJit(jit_jump);
 
     return null;
 }
@@ -2272,7 +2284,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(u
     current_function.upvalue_count = @intCast(components.upvalue_binding.count());
 
     if (BuildOptions.debug) {
-        try disassembler.disassembleChunk(&current_function.chunk, current_function.name.string);
+        disassembler.disassembleChunk(&current_function.chunk, current_function.name.string);
         std.debug.print("\n\n", .{});
     }
 
@@ -3484,7 +3496,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
     var exit_jumps = std.ArrayList(usize).init(self.gc.allocator);
     defer exit_jumps.deinit();
 
-    self.patchTry(try_jump);
+    self.patchTryOrJit(try_jump);
     var has_unconditional = components.unconditional_clause != null;
     for (components.clauses) |clause| {
         const error_type = type_defs[clause.type_def].?;
@@ -3833,6 +3845,9 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
 
     const loop_start: usize = self.currentCode();
 
+    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
+    try self.emit(locations[node], node);
+
     if (condition_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
     }
@@ -3867,6 +3882,8 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
 
     try self.patchOptJumps(node);
     try self.endScope(node);
+
+    self.patchTryOrJit(jit_jump);
 
     return null;
 }

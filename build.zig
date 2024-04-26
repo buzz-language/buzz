@@ -23,12 +23,14 @@ const BuzzDebugOptions = struct {
 const BuzzJITOptions = struct {
     on: bool,
     always_on: bool,
+    hotspot_always_on: bool,
     debug: bool,
     prof_threshold: f128 = 0.05,
 
     pub fn step(self: BuzzJITOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
+        options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
         options.addOption(@TypeOf(self.on), "jit", self.on);
         options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
     }
@@ -251,6 +253,11 @@ pub fn build(b: *Build) !void {
                 bool,
                 "jit_always_on",
                 "JIT engine will compile any function encountered",
+            ) orelse false,
+            .hotspot_always_on = !is_wasm and b.option(
+                bool,
+                "jit_hotspot_always_on",
+                "JIT engine will compile any hotspot encountered",
             ) orelse false,
             .on = !is_wasm and b.option(
                 bool,

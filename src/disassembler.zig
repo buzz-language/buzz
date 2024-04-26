@@ -9,23 +9,23 @@ const global_allocator = @import("buzz_api.zig").allocator;
 const VM = _vm.VM;
 const OpCode = Chunk.OpCode;
 
-pub fn disassembleChunk(chunk: *Chunk, name: []const u8) !void {
+pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
     print("\u{001b}[2m", .{}); // Dimmed
     print("=== {s} ===\n", .{name});
 
     var offset: usize = 0;
     while (offset < chunk.code.items.len) {
-        offset = try disassembleInstruction(chunk, offset);
+        offset = disassembleInstruction(chunk, offset);
     }
     print("\u{001b}[0m", .{});
 }
 
-fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
-    var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
+    var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
     defer value_str.deinit();
 
     print("{s}\t{s}({} args, {} catches)", .{
@@ -88,9 +88,9 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     return offset + 1;
 }
 
-fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
-    var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
+    var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
     defer value_str.deinit();
 
     print(
@@ -105,24 +105,26 @@ fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
     return offset + 1;
 }
 
-fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) !usize {
+fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) usize {
     const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
     if (direction) {
         print(
-            "{s}\t{} -> {}",
+            "{s}\t{} + {} -> {}",
             .{
                 @tagName(code),
                 offset,
+                jump,
                 offset + 1 + 1 * jump,
             },
         );
     } else {
         print(
-            "{s}\t{} -> {}",
+            "{s}\t{} - {} -> {}",
             .{
                 @tagName(code),
                 offset,
+                jump,
                 offset + 1 - 1 * jump,
             },
         );
@@ -131,7 +133,7 @@ fn jumpInstruction(code: OpCode, chunk: *Chunk, direction: bool, offset: usize) 
     return offset + 1;
 }
 
-fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) !usize {
+fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const jump: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
 
     print(
@@ -183,7 +185,7 @@ pub fn dumpStack(vm: *VM) void {
     print("\u{001b}[0m", .{});
 }
 
-pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
+pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     print("\n{:0>3} ", .{offset});
     const lines = chunk.ast.tokens.items(.line);
 
@@ -249,9 +251,12 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_TRY_END,
         .OP_GET_ENUM_CASE_FROM_VALUE,
         .OP_TYPEOF,
+        .OP_HOTSPOT_CALL,
         => simpleInstruction(instruction, offset),
 
-        .OP_SWAP => bytesInstruction(instruction, chunk, offset),
+        .OP_SWAP,
+        .OP_HOTSPOT,
+        => bytesInstruction(instruction, chunk, offset),
 
         .OP_DEFINE_GLOBAL,
         .OP_GET_GLOBAL,
@@ -287,7 +292,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_SET_INSTANCE_PROPERTY,
         .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
         .OP_CONSTANT,
-        => try constantInstruction(instruction, chunk, offset),
+        => constantInstruction(instruction, chunk, offset),
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE,
@@ -306,7 +311,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
         .OP_LIST_INVOKE,
         .OP_MAP_INVOKE,
         .OP_RANGE_INVOKE,
-        => try invokeInstruction(instruction, chunk, offset),
+        => invokeInstruction(instruction, chunk, offset),
 
         .OP_CALL,
         .OP_TAIL_CALL,
@@ -318,7 +323,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) !usize {
             const constant: u24 = arg;
             var off_offset: usize = offset + 1;
 
-            var value_str = try chunk.constants.items[constant].toStringAlloc(global_allocator);
+            var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
             defer value_str.deinit();
 
             print(

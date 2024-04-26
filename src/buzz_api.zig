@@ -1357,8 +1357,9 @@ export fn bz_getFiberField(vm: *VM, fiber_value: Value, field_name_value: Value,
 }
 
 export fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value {
+    const field_name = ObjString.cast(field_name_value.obj()).?;
     const list = ObjList.cast(list_value.obj()).?;
-    const method = (list.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get list method")).?;
+    const method = (list.member(vm, field_name) catch @panic("Could not get list method")).?;
 
     return if (bind)
         bz_bindMethod(
