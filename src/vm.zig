@@ -43,7 +43,6 @@ const ObjPattern = _obj.ObjPattern;
 const ObjForeignContainer = _obj.ObjForeignContainer;
 const ObjRange = _obj.ObjRange;
 const cloneObject = _obj.cloneObject;
-const disassembleChunk = _disassembler.disassembleChunk;
 const dumpStack = _disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 
@@ -356,6 +355,8 @@ pub const VM = struct {
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
+    hotspots: std.AutoHashMap(Ast.Node.Index, usize),
+    hotspots_count: u128 = 0,
     flavor: RunFlavor,
     reporter: Reporter,
     ffi: FFI,
@@ -373,6 +374,7 @@ pub const VM = struct {
                 .allocator = gc.allocator,
             },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
+            .hotspots = std.AutoHashMap(Ast.Node.Index, usize).init(gc.allocator),
         };
     }
 
@@ -380,6 +382,7 @@ pub const VM = struct {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
         self.ffi.deinit();
+        self.hotspots.deinit();
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -706,6 +709,9 @@ pub const VM = struct {
         OP_TO_STRING,
 
         OP_TYPEOF,
+
+        OP_HOTSPOT,
+        OP_HOTSPOT_CALL,
     };
 
     fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: OpCode, arg: u24) void {
@@ -3807,6 +3813,98 @@ pub const VM = struct {
         );
     }
 
+    // Never generated if jit is disabled
+    fn OP_HOTSPOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, end_ip: u24) void {
+        const node = self.readInstruction();
+        const count = (self.hotspots.get(node) orelse 0) + 1;
+
+        self.hotspots.put(
+            node,
+            count,
+        ) catch @panic("Out of memory");
+
+        self.hotspots_count += 1;
+
+        if (self.shouldCompileHotspot(node)) {
+            var timer = std.time.Timer.start() catch unreachable;
+
+            if (self.jit.?.compileHotSpot(self.current_ast, node) catch null) |native| {
+                const obj_native = self.gc.allocateObject(
+                    ObjNative,
+                    .{
+                        .native = native,
+                    },
+                ) catch @panic("Out of memory");
+
+                if (BuildOptions.jit_debug) {
+                    std.debug.print(
+                        "Compiled hotspot {s} in function `{s}` in {d} ms\n",
+                        .{
+                            @tagName(self.current_ast.nodes.items(.tag)[node]),
+                            self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
+                            @as(f64, @floatFromInt(timer.read())) / 1000000,
+                        },
+                    );
+                }
+
+                // The now compile hotspot must be a new constant for the current function
+                self.currentFrame().?.closure.function.chunk.constants.append(
+                    obj_native.toValue(),
+                ) catch @panic("Out of memory");
+
+                // Patch bytecode to replace hotspot with function call
+                self.patchHotspot(
+                    self.current_ast.nodes.items(.location)[node],
+                    self.currentFrame().?.closure.function.chunk.constants.items.len - 1,
+                    end_ip,
+                ) catch @panic("Out of memory");
+            } else {
+                // Blacklist the node
+                self.jit.?.blacklisted_hotspots.put(node, {}) catch @panic("Out of memory");
+            }
+
+            self.jit.?.jit_time += timer.read();
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_HOTSPOT_CALL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        if (self.callHotspot(
+            @ptrCast(
+                @alignCast(
+                    self.pop().obj().access(ObjNative, .Native, self.gc).?.native,
+                ),
+            ),
+        ) and self.returnFrame()) {
+            return;
+        }
+
+        const next_full_instruction: u32 = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     pub fn run(self: *Self) void {
         const next_current_frame: *CallFrame = self.currentFrame().?;
         const next_full_instruction: u32 = self.readInstruction();
@@ -4143,6 +4241,27 @@ pub const VM = struct {
 
             break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
         } else null;
+    }
+
+    fn callHotspot(self: *Self, native: NativeFn) bool {
+        if (BuildOptions.jit_debug) {
+            std.debug.print("Calling hotspot {*}\n", .{native});
+        }
+
+        const was_in_native_call = self.currentFrame().?.in_native_call;
+        self.currentFrame().?.in_native_call = true;
+        defer self.currentFrame().?.in_native_call = was_in_native_call;
+
+        var ctx = NativeCtx{
+            .vm = self,
+            .globals = self.currentFrame().?.closure.globals.items.ptr,
+            .upvalues = self.currentFrame().?.closure.upvalues.items.ptr,
+            .base = self.currentFrame().?.slots,
+            .stack_top = &self.current_fiber.stack_top,
+        };
+
+        // If native returns 1 here, we know there was an early return in the hotspot
+        return native(&ctx) == 1;
     }
 
     fn callNative(self: *Self, native: NativeFn, arg_count: u8, catch_value: ?Value) !void {
@@ -4524,11 +4643,79 @@ pub const VM = struct {
         else
             false;
 
-        return if (BuildOptions.jit_always_on)
-            return true
-        else
+        return BuildOptions.jit_always_on or
             user_hot or
-                (closure.function.call_count > 10 and
-                (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold);
+            (closure.function.call_count > 10 and
+            (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold);
+    }
+
+    fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
+        if (!self.current_ast.nodes.items(.tag)[node].isHotspot()) {
+            return false;
+        }
+
+        if (self.jit != null and (self.jit.?.compiled_hotspots.get(node) != null or self.jit.?.blacklisted_hotspots.get(node) != null)) {
+            return false;
+        }
+
+        const count = self.hotspots.get(node) orelse 0;
+
+        // zig fmt: off
+        return BuildOptions.jit_always_on
+            or BuildOptions.jit_hotspot_always_on
+                or (count > 10
+                    and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) 
+                    > BuildOptions.jit_prof_threshold);
+        // zig fmt: on
+    }
+
+    fn patchHotspot(
+        self: *Self,
+        location: Ast.TokenIndex,
+        constant: usize,
+        to: usize,
+    ) !void {
+        const chunk = &self.currentFrame().?.closure.function.chunk;
+
+        // In order to not fuck up any other ip absolute instructions (like OP_JUMP, etc.), we only put the revelant
+        // new bytecode at the end of the range and jump to it.
+        const hotspot_call = [_]u32{
+            (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_CONSTANT))) << 24) | @as(u32, @intCast(constant)),
+            (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_HOTSPOT_CALL))) << 24),
+        };
+
+        try chunk.code.replaceRange(
+            to - hotspot_call.len,
+            hotspot_call.len,
+            &hotspot_call,
+        );
+
+        try chunk.lines.replaceRange(
+            to - hotspot_call.len,
+            hotspot_call.len,
+            &[_]Ast.TokenIndex{
+                location,
+                location,
+            },
+        );
+
+        const hotspot_call_start = to - hotspot_call.len;
+
+        // In the event that we are in a nested loop, we put a jump instruction in place of OP_HOTSPOT
+        chunk.code.items[self.currentFrame().?.ip - 2] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_JUMP))) << 24) | @as(
+            u32,
+            @intCast(
+                hotspot_call_start - (self.currentFrame().?.ip - 2) - 1, // -2 because OP_HOTSPOT has one more instruction for the node index
+            ),
+        );
+        // To avoid the disassembler being lost we replace the OP_HOTSPOT's node index instruction with OP_VOID
+        chunk.code.items[self.currentFrame().?.ip - 1] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_VOID))) << 24);
+
+        // Jump to it
+        self.currentFrame().?.ip = hotspot_call_start;
+
+        if (BuildOptions.debug) {
+            _disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
+        }
     }
 };

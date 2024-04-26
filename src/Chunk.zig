@@ -118,7 +118,7 @@ pub const OpCode = enum(u8) {
     OP_LIST_APPEND,
 
     OP_MAP,
-    // FIXMEL delete and only use OP_SET_MAP_SUBSCRIPT
+    // FIXME: delete and only use OP_SET_MAP_SUBSCRIPT
     OP_SET_MAP,
 
     OP_EXPORT,
@@ -126,6 +126,9 @@ pub const OpCode = enum(u8) {
 
     OP_TO_STRING,
     OP_TYPEOF,
+
+    OP_HOTSPOT,
+    OP_HOTSPOT_CALL,
 };
 
 /// A chunk of code to execute

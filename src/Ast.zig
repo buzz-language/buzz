@@ -137,6 +137,16 @@ pub const Node = struct {
         While,
         Yield,
         Zdef,
+
+        pub fn isHotspot(self: Tag) bool {
+            return switch (self) {
+                .While,
+                .For,
+                .ForEach,
+                => true,
+                else => false,
+            };
+        }
     };
 
     pub const Components = union(Tag) {
