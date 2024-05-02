@@ -12,8 +12,7 @@ const Reporter = @import("Reporter.zig");
 
 const Self = @This();
 
-const basic_types = std.ComptimeStringMap(
-    o.ObjTypeDef,
+const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
     .{
         .{ "u8", .{ .def_type = .Integer } },
         .{ "i8", .{ .def_type = .Integer } },
@@ -40,8 +39,7 @@ const basic_types = std.ComptimeStringMap(
     },
 );
 
-const zig_basic_types = std.ComptimeStringMap(
-    ZigType,
+const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
     .{
         .{
             "anyopaque",

@@ -18,8 +18,7 @@ const buzz_api = @import("lib/buzz_api.zig");
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
-const std_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const std_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "assert", &std_lib.assert },
         .{ "buzzPanic", &std_lib.buzzPanic },
@@ -37,8 +36,7 @@ const std_api = if (is_wasm) std.ComptimeStringMap(
 ) else void;
 
 const gc_lib = if (is_wasm) @import("lib/buzz_gc.zig") else void;
-const gc_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const gc_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "allocated", &gc_lib.allocated },
         .{ "collect", &gc_lib.collect },
@@ -46,8 +44,7 @@ const gc_api = if (is_wasm) std.ComptimeStringMap(
 ) else void;
 
 const math_lib = if (is_wasm) @import("lib/buzz_math.zig") else void;
-const math_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const math_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "abs", &math_lib.abs },
         .{ "acos", &math_lib.acos },
@@ -70,8 +67,7 @@ const math_api = if (is_wasm) std.ComptimeStringMap(
 ) else void;
 
 const buffer_lib = if (is_wasm) @import("lib/buzz_buffer.zig") else void;
-const buffer_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const buffer_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "BufferNew", &buffer_lib.BufferNew },
         .{ "BufferDeinit", &buffer_lib.BufferDeinit },
@@ -104,24 +100,21 @@ const buffer_api = if (is_wasm) std.ComptimeStringMap(
 ) else void;
 
 const debug_lib = if (is_wasm) @import("lib/buzz_debug.zig") else void;
-const debug_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const debug_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "dump", &debug_lib.dump },
     },
 ) else void;
 
 const serialize_lib = if (is_wasm) @import("lib/buzz_serialize.zig") else void;
-const serialize_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const serialize_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "serialize", &serialize_lib.serialize },
     },
 ) else void;
 
 const crypto_lib = if (is_wasm) @import("lib/buzz_crypto.zig") else void;
-const crypto_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
+const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
         .{ "hash", &crypto_lib.hash },
     },

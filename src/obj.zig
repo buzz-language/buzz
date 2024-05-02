@@ -542,8 +542,7 @@ pub const ObjFiber = struct {
         return obj.cast(Self, .Fiber);
     }
 
-    const members = std.ComptimeStringMap(
-        NativeFn,
+    const members = std.StaticStringMap(NativeFn).initComptime(
         .{
             .{ "over", buzz_builtin.fiber.over },
             .{ "cancel", buzz_builtin.fiber.cancel },
@@ -551,14 +550,13 @@ pub const ObjFiber = struct {
         },
     );
 
-    const members_typedef = std.ComptimeStringMap(
+    const members_typedef = std.StaticStringMap(
         []const u8,
-        .{
-            .{ "over", "extern Function over() > bool" },
-            .{ "cancel", "extern Function cancel() > void" },
-            .{ "isMain", "extern Function isMain() > bool" },
-        },
-    );
+    ).initComptime(.{
+        .{ "over", "extern Function over() > bool" },
+        .{ "cancel", "extern Function cancel() > void" },
+        .{ "isMain", "extern Function isMain() > bool" },
+    });
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objfiber_members.get(method)) |umethod| {
@@ -642,8 +640,7 @@ pub const ObjPattern = struct {
         return obj.cast(Self, .Pattern);
     }
 
-    const members = std.ComptimeStringMap(
-        NativeFn,
+    const members = std.StaticStringMap(NativeFn).initComptime(
         if (!is_wasm)
             .{
                 .{ "match", buzz_builtin.pattern.match },
@@ -658,8 +655,7 @@ pub const ObjPattern = struct {
             },
     );
 
-    const members_typedef = std.ComptimeStringMap(
-        []const u8,
+    const members_typedef = std.StaticStringMap([]const u8).initComptime(
         if (!is_wasm)
             .{
                 .{ "match", "extern Function match(str subject) > [str]?" },
@@ -786,8 +782,7 @@ pub const ObjString = struct {
         }
     }
 
-    pub const members = std.ComptimeStringMap(
-        NativeFn,
+    pub const members = std.StaticStringMap(NativeFn).initComptime(
         .{
             .{ "len", buzz_builtin.str.len },
             .{ "utf8Len", buzz_builtin.str.utf8Len },
@@ -811,8 +806,9 @@ pub const ObjString = struct {
         },
     );
 
-    pub const members_typedef = std.ComptimeStringMap(
+    pub const members_typedef = std.StaticStringMap(
         []const u8,
+    ).initComptime(
         .{
             .{ "len", "extern Function len() > int" },
             .{ "utf8Len", "extern Function utf8Len() > int" },
@@ -1605,8 +1601,9 @@ pub const ObjList = struct {
         return obj.cast(Self, .List);
     }
 
-    const members = std.ComptimeStringMap(
+    const members = std.StaticStringMap(
         NativeFn,
+    ).initComptime(
         .{
             .{ "append", buzz_builtin.list.append },
             .{ "clone", buzz_builtin.list.clone },
@@ -2489,8 +2486,7 @@ pub const ObjRange = struct {
         return obj.cast(Self, .Range);
     }
 
-    const members = std.ComptimeStringMap(
-        NativeFn,
+    const members = std.StaticStringMap(NativeFn).initComptime(
         .{
             .{ "toList", buzz_builtin.range.toList },
             .{ "len", buzz_builtin.range.len },
@@ -2498,8 +2494,7 @@ pub const ObjRange = struct {
         },
     );
 
-    const members_typedef = std.ComptimeStringMap(
-        []const u8,
+    const members_typedef = std.StaticStringMap([]const u8).initComptime(
         .{
             .{ "toList", "extern Function toList() > [int]" },
             .{ "len", "extern Function len() > int" },
@@ -2574,8 +2569,7 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    const members = std.ComptimeStringMap(
-        NativeFn,
+    const members = std.StaticStringMap(NativeFn).initComptime(
         .{
             .{ "clone", buzz_builtin.map.clone },
             .{ "diff", buzz_builtin.map.diff },
