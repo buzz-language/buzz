@@ -18,114 +18,93 @@ const buzz_api = @import("lib/buzz_api.zig");
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
-const std_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "assert", &std_lib.assert },
-        .{ "buzzPanic", &std_lib.buzzPanic },
-        .{ "char", &std_lib.char },
-        .{ "currentFiber", &std_lib.currentFiber },
-        .{ "parseFloat", &std_lib.parseFloat },
-        .{ "parseInt", &std_lib.parseInt },
-        .{ "parseUd", &std_lib.parseUd },
-        .{ "print", &std_lib.print },
-        .{ "random", &std_lib.random },
-        .{ "toFloat", &std_lib.toFloat },
-        .{ "toInt", &std_lib.toInt },
-        .{ "toUd", &std_lib.toUd },
-    },
-) else void;
+const std_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "assert", &std_lib.assert },
+    .{ "buzzPanic", &std_lib.buzzPanic },
+    .{ "char", &std_lib.char },
+    .{ "currentFiber", &std_lib.currentFiber },
+    .{ "parseFloat", &std_lib.parseFloat },
+    .{ "parseInt", &std_lib.parseInt },
+    .{ "parseUd", &std_lib.parseUd },
+    .{ "print", &std_lib.print },
+    .{ "random", &std_lib.random },
+    .{ "toFloat", &std_lib.toFloat },
+    .{ "toInt", &std_lib.toInt },
+    .{ "toUd", &std_lib.toUd },
+}) else void;
 
 const gc_lib = if (is_wasm) @import("lib/buzz_gc.zig") else void;
-const gc_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "allocated", &gc_lib.allocated },
-        .{ "collect", &gc_lib.collect },
-    },
-) else void;
+const gc_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "allocated", &gc_lib.allocated },
+    .{ "collect", &gc_lib.collect },
+}) else void;
 
 const math_lib = if (is_wasm) @import("lib/buzz_math.zig") else void;
-const math_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "abs", &math_lib.abs },
-        .{ "acos", &math_lib.acos },
-        .{ "asin", &math_lib.asin },
-        .{ "atan", &math_lib.atan },
-        .{ "bzsqrt", &math_lib.bzsqrt },
-        .{ "bzceil", &math_lib.bzceil },
-        .{ "bzcos", &math_lib.bzcos },
-        .{ "bzexp", &math_lib.bzexp },
-        .{ "bzfloor", &math_lib.bzfloor },
-        .{ "bzlog", &math_lib.bzlog },
-        .{ "minFloat", &math_lib.minFloat },
-        .{ "maxFloat", &math_lib.maxFloat },
-        .{ "minInt", &math_lib.minInt },
-        .{ "maxInt", &math_lib.maxInt },
-        .{ "bzsin", &math_lib.bzsin },
-        .{ "bztan", &math_lib.bztan },
-        .{ "pow", &math_lib.pow },
-    },
-) else void;
+const math_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "abs", &math_lib.abs },
+    .{ "acos", &math_lib.acos },
+    .{ "asin", &math_lib.asin },
+    .{ "atan", &math_lib.atan },
+    .{ "bzsqrt", &math_lib.bzsqrt },
+    .{ "bzceil", &math_lib.bzceil },
+    .{ "bzcos", &math_lib.bzcos },
+    .{ "bzexp", &math_lib.bzexp },
+    .{ "bzfloor", &math_lib.bzfloor },
+    .{ "bzlog", &math_lib.bzlog },
+    .{ "minFloat", &math_lib.minFloat },
+    .{ "maxFloat", &math_lib.maxFloat },
+    .{ "minInt", &math_lib.minInt },
+    .{ "maxInt", &math_lib.maxInt },
+    .{ "bzsin", &math_lib.bzsin },
+    .{ "bztan", &math_lib.bztan },
+    .{ "pow", &math_lib.pow },
+}) else void;
 
 const buffer_lib = if (is_wasm) @import("lib/buzz_buffer.zig") else void;
-const buffer_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "BufferNew", &buffer_lib.BufferNew },
-        .{ "BufferDeinit", &buffer_lib.BufferDeinit },
-        .{ "BufferRead", &buffer_lib.BufferRead },
-        .{ "BufferWrite", &buffer_lib.BufferWrite },
-        .{ "BufferReadBoolean", &buffer_lib.BufferReadBoolean },
-        .{ "BufferWriteBoolean", &buffer_lib.BufferWriteBoolean },
-        .{ "BufferWriteInt", &buffer_lib.BufferWriteInt },
-        .{ "BufferReadInt", &buffer_lib.BufferReadInt },
-        .{ "BufferWriteUserData", &buffer_lib.BufferWriteUserData },
-        .{ "BufferReadUserData", &buffer_lib.BufferReadUserData },
-        .{ "BufferWriteFloat", &buffer_lib.BufferWriteFloat },
-        .{ "BufferReadFloat", &buffer_lib.BufferReadFloat },
-        .{ "BufferLen", &buffer_lib.BufferLen },
-        .{ "BufferCursor", &buffer_lib.BufferCursor },
-        .{ "BufferBuffer", &buffer_lib.BufferBuffer },
-        .{ "BufferPtr", &buffer_lib.BufferPtr },
-        .{ "BufferEmpty", &buffer_lib.BufferEmpty },
-        .{ "BufferAt", &buffer_lib.BufferAt },
-        .{ "BufferSetAt", &buffer_lib.BufferSetAt },
-        .{ "BufferWriteZ", &buffer_lib.BufferWriteZ },
-        .{ "BufferWriteZAt", &buffer_lib.BufferWriteZAt },
-        .{ "BufferReadZ", &buffer_lib.BufferReadZ },
-        .{ "BufferReadZAt", &buffer_lib.BufferReadZAt },
-        .{ "BufferWriteStruct", &buffer_lib.BufferWriteStruct },
-        .{ "BufferWriteStructAt", &buffer_lib.BufferWriteStructAt },
-        .{ "BufferReadStruct", &buffer_lib.BufferReadStruct },
-        .{ "BufferReadStructAt", &buffer_lib.BufferReadStructAt },
-    },
-) else void;
+const buffer_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "BufferNew", &buffer_lib.BufferNew },
+    .{ "BufferDeinit", &buffer_lib.BufferDeinit },
+    .{ "BufferRead", &buffer_lib.BufferRead },
+    .{ "BufferWrite", &buffer_lib.BufferWrite },
+    .{ "BufferReadBoolean", &buffer_lib.BufferReadBoolean },
+    .{ "BufferWriteBoolean", &buffer_lib.BufferWriteBoolean },
+    .{ "BufferWriteInt", &buffer_lib.BufferWriteInt },
+    .{ "BufferReadInt", &buffer_lib.BufferReadInt },
+    .{ "BufferWriteUserData", &buffer_lib.BufferWriteUserData },
+    .{ "BufferReadUserData", &buffer_lib.BufferReadUserData },
+    .{ "BufferWriteFloat", &buffer_lib.BufferWriteFloat },
+    .{ "BufferReadFloat", &buffer_lib.BufferReadFloat },
+    .{ "BufferLen", &buffer_lib.BufferLen },
+    .{ "BufferCursor", &buffer_lib.BufferCursor },
+    .{ "BufferBuffer", &buffer_lib.BufferBuffer },
+    .{ "BufferPtr", &buffer_lib.BufferPtr },
+    .{ "BufferEmpty", &buffer_lib.BufferEmpty },
+    .{ "BufferAt", &buffer_lib.BufferAt },
+    .{ "BufferSetAt", &buffer_lib.BufferSetAt },
+    .{ "BufferWriteZ", &buffer_lib.BufferWriteZ },
+    .{ "BufferWriteZAt", &buffer_lib.BufferWriteZAt },
+    .{ "BufferReadZ", &buffer_lib.BufferReadZ },
+    .{ "BufferReadZAt", &buffer_lib.BufferReadZAt },
+    .{ "BufferWriteStruct", &buffer_lib.BufferWriteStruct },
+    .{ "BufferWriteStructAt", &buffer_lib.BufferWriteStructAt },
+    .{ "BufferReadStruct", &buffer_lib.BufferReadStruct },
+    .{ "BufferReadStructAt", &buffer_lib.BufferReadStructAt },
+}) else void;
 
 const debug_lib = if (is_wasm) @import("lib/buzz_debug.zig") else void;
-const debug_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "dump", &debug_lib.dump },
-    },
-) else void;
+const debug_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "dump", &debug_lib.dump },
+}) else void;
 
 const serialize_lib = if (is_wasm) @import("lib/buzz_serialize.zig") else void;
-const serialize_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "serialize", &serialize_lib.serialize },
-    },
-) else void;
+const serialize_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "serialize", &serialize_lib.serialize },
+}) else void;
 
 const crypto_lib = if (is_wasm) @import("lib/buzz_crypto.zig") else void;
-const crypto_api = if (is_wasm) std.ComptimeStringMap(
-    buzz_api.NativeFn,
-    .{
-        .{ "hash", &crypto_lib.hash },
-    },
-) else void;
+const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(.{
+    .{ "hash", &crypto_lib.hash },
+}) else void;
 
 // TODO: other libs
 

@@ -133,6 +133,8 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
 
         error.OutOfMemory => @panic("Out of memory"),
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+
+        else => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
