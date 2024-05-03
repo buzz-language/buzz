@@ -10,6 +10,7 @@ export enum FileSystemError {
     FileLocksNotSupported,
     FileNotFound,
     FileSystem,
+    InvalidBatchScriptArg,
     FileTooBig,
     InputOutput,
     InvalidHandle,
