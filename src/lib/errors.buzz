@@ -129,6 +129,3 @@ export object UnderflowError {
 export object UnexpectedError {
     str message = "UnexpectedError",
 }
-export object UnknownError {
-    str message = "UnknownError",
-}

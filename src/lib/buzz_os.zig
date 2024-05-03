@@ -114,6 +114,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.NameTooLong,
         error.NoDevice,
         error.NotDir,
+        error.InvalidBatchScriptArg,
         error.ProcessFdQuotaExceeded,
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
@@ -133,8 +134,6 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
 
         error.OutOfMemory => @panic("Out of memory"),
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-
-        else => ctx.vm.pushError("errors.UnknownError", null)
     }
 }
 
