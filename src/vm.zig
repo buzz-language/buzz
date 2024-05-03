@@ -5,7 +5,7 @@ const Value = @import("value.zig").Value;
 const Chunk = @import("Chunk.zig");
 const OpCode = Chunk.OpCode;
 const Ast = @import("Ast.zig");
-const _disassembler = @import("disassembler.zig");
+const disassembler = @import("disassembler.zig");
 const _obj = @import("obj.zig");
 const Allocator = std.mem.Allocator;
 const BuildOptions = @import("build_options");
@@ -43,7 +43,7 @@ const ObjPattern = _obj.ObjPattern;
 const ObjForeignContainer = _obj.ObjForeignContainer;
 const ObjRange = _obj.ObjRange;
 const cloneObject = _obj.cloneObject;
-const dumpStack = _disassembler.dumpStack;
+const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 
 pub const ImportRegistry = std.AutoHashMap(*ObjString, std.ArrayList(Value));
@@ -720,13 +720,22 @@ pub const VM = struct {
         }
 
         if (BuildOptions.debug_current_instruction or BuildOptions.debug_stack) {
-            std.debug.print(
-                "{}: {}\n",
-                .{
-                    current_frame.ip,
-                    instruction,
+            var report = Reporter.Report{
+                .message = @tagName(instruction),
+                .error_type = .no_error,
+                .options = .{
+                    .surrounding_lines = 1,
                 },
-            );
+                .items = &[_]Reporter.ReportItem{
+                    .{
+                        .location = self.current_ast.tokens.get(current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]),
+                        .kind = .hint,
+                        .message = @tagName(instruction),
+                    },
+                },
+            };
+
+            report.reportStderr(&self.reporter) catch unreachable;
         }
 
         // We're at the start of catch clauses because an error was thrown
@@ -4715,7 +4724,7 @@ pub const VM = struct {
         self.currentFrame().?.ip = hotspot_call_start;
 
         if (BuildOptions.debug) {
-            _disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
+            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
         }
     }
 };

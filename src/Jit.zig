@@ -4508,8 +4508,7 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList
 
             // Don't qualify extern functions
             if (function_type != .Extern) {
-                try qualified_name.append('.');
-                try qualified_name.writer().print("{}", .{components.id});
+                try qualified_name.writer().print(".{}", .{components.id});
             }
             if (function_type != .Extern and raw) {
                 try qualified_name.appendSlice(".raw");
