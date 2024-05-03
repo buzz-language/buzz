@@ -12,162 +12,166 @@ const Reporter = @import("Reporter.zig");
 
 const Self = @This();
 
-const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(.{
-    .{ "u8", .{ .def_type = .Integer } },
-    .{ "i8", .{ .def_type = .Integer } },
-    .{ "u16", .{ .def_type = .Integer } },
-    .{ "i16", .{ .def_type = .Integer } },
-    .{ "i32", .{ .def_type = .Integer } },
+const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
+    .{
+        .{ "u8", .{ .def_type = .Integer } },
+        .{ "i8", .{ .def_type = .Integer } },
+        .{ "u16", .{ .def_type = .Integer } },
+        .{ "i16", .{ .def_type = .Integer } },
+        .{ "i32", .{ .def_type = .Integer } },
 
-    // Could it be > 32bits one some systems?
-    .{ "c_int", .{ .def_type = .Integer } },
+        // Could it be > 32bits one some systems?
+        .{ "c_int", .{ .def_type = .Integer } },
 
-    .{ "c_uint", .{ .def_type = .Float } },
-    .{ "u32", .{ .def_type = .Float } },
-    .{ "i64", .{ .def_type = .Float } },
-    .{ "f32", .{ .def_type = .Float } },
-    .{ "f64", .{ .def_type = .Float } },
+        .{ "c_uint", .{ .def_type = .Float } },
+        .{ "u32", .{ .def_type = .Float } },
+        .{ "i64", .{ .def_type = .Float } },
+        .{ "f32", .{ .def_type = .Float } },
+        .{ "f64", .{ .def_type = .Float } },
 
-    .{ "u64", .{ .def_type = .UserData } },
-    .{ "usize", .{ .def_type = .UserData } },
+        .{ "u64", .{ .def_type = .UserData } },
+        .{ "usize", .{ .def_type = .UserData } },
 
-    .{ "bool", .{ .def_type = .Bool } },
+        .{ "bool", .{ .def_type = .Bool } },
 
-    .{ "void", .{ .def_type = .Void } },
-    .{ "anyopaque", .{ .def_type = .Void } },
-});
+        .{ "void", .{ .def_type = .Void } },
+        .{ "anyopaque", .{ .def_type = .Void } },
+    },
+);
 
-const zig_basic_types = std.StaticStringMap(ZigType).initComptime(.{
+const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
     .{
-        "anyopaque",
-        ZigType{
-            .Opaque = .{
-                .decls = &[_]ZigType.Declaration{},
+        .{
+            "anyopaque",
+            ZigType{
+                .Opaque = .{
+                    .decls = &[_]ZigType.Declaration{},
+                },
             },
         },
-    },
-    .{
-        "c_int",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = 32,
+        .{
+            "c_int",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 32,
+                },
             },
         },
-    },
-    .{
-        "c_uint",
-        ZigType{
-            .Int = .{
-                .signedness = .unsigned,
-                .bits = 32,
+        .{
+            "c_uint",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 32,
+                },
             },
         },
-    },
-    .{
-        "u8",
-        ZigType{
-            .Int = .{
-                .signedness = .unsigned,
-                .bits = 8,
+        .{
+            "u8",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 8,
+                },
             },
         },
-    },
-    .{
-        "i8",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = 8,
+        .{
+            "i8",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 8,
+                },
             },
         },
-    },
-    .{
-        "u16",
-        ZigType{
-            .Int = .{
-                .signedness = .unsigned,
-                .bits = 16,
+        .{
+            "u16",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 16,
+                },
             },
         },
-    },
-    .{
-        "i16",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = 16,
+        .{
+            "i16",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 16,
+                },
             },
         },
-    },
-    .{
-        "u32",
-        ZigType{
-            .Int = .{
-                .signedness = .unsigned,
-                .bits = 32,
+        .{
+            "u32",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 32,
+                },
             },
         },
-    },
-    .{
-        "i32",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = 32,
+        .{
+            "i32",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 32,
+                },
             },
         },
-    },
-    .{
-        "u64",
-        ZigType{
-            .Int = .{
-                .signedness = .unsigned,
-                .bits = 64,
+        .{
+            "u64",
+            ZigType{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = 64,
+                },
             },
         },
-    },
-    .{
-        "i64",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = 64,
+        .{
+            "i64",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = 64,
+                },
             },
         },
-    },
-    .{
-        "usize",
-        ZigType{
-            .Int = .{
-                .signedness = .signed,
-                .bits = @bitSizeOf(usize),
+        .{
+            "usize",
+            ZigType{
+                .Int = .{
+                    .signedness = .signed,
+                    .bits = @bitSizeOf(usize),
+                },
             },
         },
-    },
 
-    .{
-        "f32",
-        ZigType{
-            .Float = .{ .bits = 32 },
+        .{
+            "f32",
+            ZigType{
+                .Float = .{ .bits = 32 },
+            },
         },
-    },
-    .{
-        "f64",
-        ZigType{
-            .Float = .{ .bits = 64 },
+        .{
+            "f64",
+            ZigType{
+                .Float = .{ .bits = 64 },
+            },
         },
-    },
 
-    .{
-        "bool",
-        ZigType{ .Bool = {} },
+        .{
+            "bool",
+            ZigType{ .Bool = {} },
+        },
+        .{
+            "void",
+            ZigType{ .Void = {} },
+        },
     },
-    .{
-        "void",
-        ZigType{ .Void = {} },
-    },
-});
+);
 
 pub const Zdef = struct {
     name: []const u8,

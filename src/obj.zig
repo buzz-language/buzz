@@ -542,11 +542,13 @@ pub const ObjFiber = struct {
         return obj.cast(Self, .Fiber);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(.{
-        .{ "over", buzz_builtin.fiber.over },
-        .{ "cancel", buzz_builtin.fiber.cancel },
-        .{ "isMain", buzz_builtin.fiber.isMain },
-    });
+    const members = std.StaticStringMap(NativeFn).initComptime(
+        .{
+            .{ "over", buzz_builtin.fiber.over },
+            .{ "cancel", buzz_builtin.fiber.cancel },
+            .{ "isMain", buzz_builtin.fiber.isMain },
+        },
+    );
 
     const members_typedef = std.StaticStringMap(
         []const u8,
@@ -638,31 +640,35 @@ pub const ObjPattern = struct {
         return obj.cast(Self, .Pattern);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(if (!is_wasm)
-        .{
-            .{ "match", buzz_builtin.pattern.match },
-            .{ "matchAll", buzz_builtin.pattern.matchAll },
-            .{ "replace", buzz_builtin.pattern.replace },
-            .{ "replaceAll", buzz_builtin.pattern.replaceAll },
-        }
-    else
-        .{
-            .{ "replace", buzz_builtin.pattern.replace },
-            .{ "replaceAll", buzz_builtin.pattern.replaceAll },
-        });
+    const members = std.StaticStringMap(NativeFn).initComptime(
+        if (!is_wasm)
+            .{
+                .{ "match", buzz_builtin.pattern.match },
+                .{ "matchAll", buzz_builtin.pattern.matchAll },
+                .{ "replace", buzz_builtin.pattern.replace },
+                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+            }
+        else
+            .{
+                .{ "replace", buzz_builtin.pattern.replace },
+                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+            },
+    );
 
-    const members_typedef = std.StaticStringMap([]const u8).initComptime(if (!is_wasm)
-        .{
-            .{ "match", "extern Function match(str subject) > [str]?" },
-            .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
-            .{ "replace", "extern Function replace(str subject, str with) > str" },
-            .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
-        }
-    else
-        .{
-            .{ "replace", "extern Function replace(str subject, str with) > str" },
-            .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
-        });
+    const members_typedef = std.StaticStringMap([]const u8).initComptime(
+        if (!is_wasm)
+            .{
+                .{ "match", "extern Function match(str subject) > [str]?" },
+                .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
+                .{ "replace", "extern Function replace(str subject, str with) > str" },
+                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+            }
+        else
+            .{
+                .{ "replace", "extern Function replace(str subject, str with) > str" },
+                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+            },
+    );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objpattern_members.get(method)) |umethod| {
@@ -776,51 +782,55 @@ pub const ObjString = struct {
         }
     }
 
-    pub const members = std.StaticStringMap(NativeFn).initComptime(.{
-        .{ "len", buzz_builtin.str.len },
-        .{ "utf8Len", buzz_builtin.str.utf8Len },
-        .{ "utf8Valid", buzz_builtin.str.utf8Valid },
-        .{ "utf8Codepoints", buzz_builtin.str.utf8Codepoints },
-        .{ "trim", buzz_builtin.str.trim },
-        .{ "byte", buzz_builtin.str.byte },
-        .{ "indexOf", buzz_builtin.str.indexOf },
-        .{ "split", buzz_builtin.str.split },
-        .{ "sub", buzz_builtin.str.sub },
-        .{ "startsWith", buzz_builtin.str.startsWith },
-        .{ "endsWith", buzz_builtin.str.endsWith },
-        .{ "replace", buzz_builtin.str.replace },
-        .{ "repeat", buzz_builtin.str.repeat },
-        .{ "encodeBase64", buzz_builtin.str.encodeBase64 },
-        .{ "decodeBase64", buzz_builtin.str.decodeBase64 },
-        .{ "upper", buzz_builtin.str.upper },
-        .{ "lower", buzz_builtin.str.lower },
-        .{ "hex", buzz_builtin.str.hex },
-        .{ "bin", buzz_builtin.str.bin },
-    });
+    pub const members = std.StaticStringMap(NativeFn).initComptime(
+        .{
+            .{ "len", buzz_builtin.str.len },
+            .{ "utf8Len", buzz_builtin.str.utf8Len },
+            .{ "utf8Valid", buzz_builtin.str.utf8Valid },
+            .{ "utf8Codepoints", buzz_builtin.str.utf8Codepoints },
+            .{ "trim", buzz_builtin.str.trim },
+            .{ "byte", buzz_builtin.str.byte },
+            .{ "indexOf", buzz_builtin.str.indexOf },
+            .{ "split", buzz_builtin.str.split },
+            .{ "sub", buzz_builtin.str.sub },
+            .{ "startsWith", buzz_builtin.str.startsWith },
+            .{ "endsWith", buzz_builtin.str.endsWith },
+            .{ "replace", buzz_builtin.str.replace },
+            .{ "repeat", buzz_builtin.str.repeat },
+            .{ "encodeBase64", buzz_builtin.str.encodeBase64 },
+            .{ "decodeBase64", buzz_builtin.str.decodeBase64 },
+            .{ "upper", buzz_builtin.str.upper },
+            .{ "lower", buzz_builtin.str.lower },
+            .{ "hex", buzz_builtin.str.hex },
+            .{ "bin", buzz_builtin.str.bin },
+        },
+    );
 
     pub const members_typedef = std.StaticStringMap(
         []const u8,
-    ).initComptime(.{
-        .{ "len", "extern Function len() > int" },
-        .{ "utf8Len", "extern Function utf8Len() > int" },
-        .{ "utf8Valid", "extern Function utf8Valid() > bool" },
-        .{ "utf8Codepoints", "extern Function utf8Codepoints() > [str]" },
-        .{ "trim", "extern Function trim() > str" },
-        .{ "byte", "extern Function byte(int at = 0) > int" },
-        .{ "indexOf", "extern Function indexOf(str needle) > int?" },
-        .{ "startsWith", "extern Function startsWith(str needle) > bool" },
-        .{ "endsWith", "extern Function endsWith(str needle) > bool" },
-        .{ "replace", "extern Function replace(str needle, str with) > str" },
-        .{ "split", "extern Function split(str separator) > [str]" },
-        .{ "sub", "extern Function sub(int start, int? len) > str" },
-        .{ "repeat", "extern Function repeat(int n) > str" },
-        .{ "encodeBase64", "extern Function encodeBase64() > str" },
-        .{ "decodeBase64", "extern Function decodeBase64() > str" },
-        .{ "upper", "extern Function upper() > str" },
-        .{ "lower", "extern Function lower() > str" },
-        .{ "hex", "extern Function hex() > str" },
-        .{ "bin", "extern Function bin() > str" },
-    });
+    ).initComptime(
+        .{
+            .{ "len", "extern Function len() > int" },
+            .{ "utf8Len", "extern Function utf8Len() > int" },
+            .{ "utf8Valid", "extern Function utf8Valid() > bool" },
+            .{ "utf8Codepoints", "extern Function utf8Codepoints() > [str]" },
+            .{ "trim", "extern Function trim() > str" },
+            .{ "byte", "extern Function byte(int at = 0) > int" },
+            .{ "indexOf", "extern Function indexOf(str needle) > int?" },
+            .{ "startsWith", "extern Function startsWith(str needle) > bool" },
+            .{ "endsWith", "extern Function endsWith(str needle) > bool" },
+            .{ "replace", "extern Function replace(str needle, str with) > str" },
+            .{ "split", "extern Function split(str separator) > [str]" },
+            .{ "sub", "extern Function sub(int start, int? len) > str" },
+            .{ "repeat", "extern Function repeat(int n) > str" },
+            .{ "encodeBase64", "extern Function encodeBase64() > str" },
+            .{ "decodeBase64", "extern Function decodeBase64() > str" },
+            .{ "upper", "extern Function upper() > str" },
+            .{ "lower", "extern Function lower() > str" },
+            .{ "hex", "extern Function hex() > str" },
+            .{ "bin", "extern Function bin() > str" },
+        },
+    );
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
@@ -1593,24 +1603,26 @@ pub const ObjList = struct {
 
     const members = std.StaticStringMap(
         NativeFn,
-    ).initComptime(.{
-        .{ "append", buzz_builtin.list.append },
-        .{ "clone", buzz_builtin.list.clone },
-        .{ "filter", buzz_builtin.list.filter },
-        .{ "forEach", buzz_builtin.list.forEach },
-        .{ "indexOf", buzz_builtin.list.indexOf },
-        .{ "insert", buzz_builtin.list.insert },
-        .{ "join", buzz_builtin.list.join },
-        .{ "len", buzz_builtin.list.len },
-        .{ "map", buzz_builtin.list.map },
-        .{ "next", buzz_builtin.list.next },
-        .{ "pop", buzz_builtin.list.pop },
-        .{ "reduce", buzz_builtin.list.reduce },
-        .{ "remove", buzz_builtin.list.remove },
-        .{ "reverse", buzz_builtin.list.reverse },
-        .{ "sort", buzz_builtin.list.sort },
-        .{ "sub", buzz_builtin.list.sub },
-    });
+    ).initComptime(
+        .{
+            .{ "append", buzz_builtin.list.append },
+            .{ "clone", buzz_builtin.list.clone },
+            .{ "filter", buzz_builtin.list.filter },
+            .{ "forEach", buzz_builtin.list.forEach },
+            .{ "indexOf", buzz_builtin.list.indexOf },
+            .{ "insert", buzz_builtin.list.insert },
+            .{ "join", buzz_builtin.list.join },
+            .{ "len", buzz_builtin.list.len },
+            .{ "map", buzz_builtin.list.map },
+            .{ "next", buzz_builtin.list.next },
+            .{ "pop", buzz_builtin.list.pop },
+            .{ "reduce", buzz_builtin.list.reduce },
+            .{ "remove", buzz_builtin.list.remove },
+            .{ "reverse", buzz_builtin.list.reverse },
+            .{ "sort", buzz_builtin.list.sort },
+            .{ "sub", buzz_builtin.list.sub },
+        },
+    );
 
     // TODO: find a way to return the same ObjNative pointer for the same type of Lists
     pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
@@ -2474,17 +2486,21 @@ pub const ObjRange = struct {
         return obj.cast(Self, .Range);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(.{
-        .{ "toList", buzz_builtin.range.toList },
-        .{ "len", buzz_builtin.range.len },
-        .{ "invert", buzz_builtin.range.invert },
-    });
+    const members = std.StaticStringMap(NativeFn).initComptime(
+        .{
+            .{ "toList", buzz_builtin.range.toList },
+            .{ "len", buzz_builtin.range.len },
+            .{ "invert", buzz_builtin.range.invert },
+        },
+    );
 
-    const members_typedef = std.StaticStringMap([]const u8).initComptime(.{
-        .{ "toList", "extern Function toList() > [int]" },
-        .{ "len", "extern Function len() > int" },
-        .{ "invert", "extern Function invert() > range" },
-    });
+    const members_typedef = std.StaticStringMap([]const u8).initComptime(
+        .{
+            .{ "toList", "extern Function toList() > [int]" },
+            .{ "len", "extern Function len() > int" },
+            .{ "invert", "extern Function invert() > range" },
+        },
+    );
 
     pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
         if (vm.gc.objrange_members.get(method)) |native| {
@@ -2553,20 +2569,22 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(.{
-        .{ "clone", buzz_builtin.map.clone },
-        .{ "diff", buzz_builtin.map.diff },
-        .{ "filter", buzz_builtin.map.filter },
-        .{ "forEach", buzz_builtin.map.forEach },
-        .{ "intersect", buzz_builtin.map.intersect },
-        .{ "keys", buzz_builtin.map.keys },
-        .{ "map", buzz_builtin.map.map },
-        .{ "reduce", buzz_builtin.map.reduce },
-        .{ "remove", buzz_builtin.map.remove },
-        .{ "size", buzz_builtin.map.size },
-        .{ "sort", buzz_builtin.map.sort },
-        .{ "values", buzz_builtin.map.values },
-    });
+    const members = std.StaticStringMap(NativeFn).initComptime(
+        .{
+            .{ "clone", buzz_builtin.map.clone },
+            .{ "diff", buzz_builtin.map.diff },
+            .{ "filter", buzz_builtin.map.filter },
+            .{ "forEach", buzz_builtin.map.forEach },
+            .{ "intersect", buzz_builtin.map.intersect },
+            .{ "keys", buzz_builtin.map.keys },
+            .{ "map", buzz_builtin.map.map },
+            .{ "reduce", buzz_builtin.map.reduce },
+            .{ "remove", buzz_builtin.map.remove },
+            .{ "size", buzz_builtin.map.size },
+            .{ "sort", buzz_builtin.map.sort },
+            .{ "values", buzz_builtin.map.values },
+        },
+    );
 
     pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
         if (self.methods.get(method)) |native| {
