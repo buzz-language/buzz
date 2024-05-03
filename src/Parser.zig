@@ -525,15 +525,28 @@ pub fn deinit(self: *Self) void {
 }
 
 inline fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    self.reporter.reportErrorAt(error_type, self.ast.tokens.get(self.current_token.?), message);
+    self.reporter.reportErrorAt(
+        error_type,
+        self.ast.tokens.get(self.current_token.?),
+        message,
+    );
 }
 
 pub inline fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    self.reporter.reportErrorAt(error_type, self.ast.tokens.get(self.current_token.? - 1), message);
+    self.reporter.reportErrorAt(
+        error_type,
+        self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
+        message,
+    );
 }
 
 inline fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
-    self.reporter.reportErrorFmt(error_type, self.ast.tokens.get(self.current_token.? - 1), fmt, args);
+    self.reporter.reportErrorFmt(
+        error_type,
+        self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
+        fmt,
+        args,
+    );
 }
 
 pub fn advance(self: *Self) !void {
