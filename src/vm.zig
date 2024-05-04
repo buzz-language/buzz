@@ -3845,6 +3845,10 @@ pub const VM = struct {
                     },
                 ) catch @panic("Out of memory");
 
+                // Prevent collection
+                self.gc.markObj(obj_native.toObj()) catch @panic("Out of memory");
+                obj_native.mark(self.gc);
+
                 if (BuildOptions.jit_debug) {
                     std.debug.print(
                         "Compiled hotspot {s} in function `{s}` in {d} ms\n",
@@ -3932,7 +3936,7 @@ pub const VM = struct {
 
         if (BuildOptions.gc_debug) {
             self.gc.where = if (self.currentFrame()) |current_frame|
-                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
+                self.current_ast.tokens.get(current_frame.closure.function.chunk.lines.items[current_frame.ip - 1])
             else
                 null;
         }
