@@ -14,7 +14,6 @@ const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 
 const Value = _value.Value;
-const valueToStringAlloc = _value.valueToStringAlloc;
 const Obj = _obj.Obj;
 const ObjString = _obj.ObjString;
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -440,7 +439,7 @@ pub const GarbageCollector = struct {
                     "{*} {s} already marked or old\n",
                     .{
                         obj,
-                        (try valueToStringAlloc(self.allocator, Value.fromObj(obj))).items,
+                        (try Value.fromObj(obj).toStringAlloc(self.allocator)).items,
                     },
                 );
             }
@@ -452,7 +451,7 @@ pub const GarbageCollector = struct {
             std.debug.print(
                 "{s}\n",
                 .{
-                    (try valueToStringAlloc(self.allocator, Value.fromObj(obj))).items,
+                    (try Value.fromObj(obj).toStringAlloc(self.allocator)).items,
                 },
             );
         }
