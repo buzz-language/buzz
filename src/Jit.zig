@@ -363,20 +363,15 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
     _ = m.MIR_new_export(self.ctx, @ptrCast(qualified_name.items.ptr));
 
     if (BuildOptions.jit_debug) {
-        var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
-        defer debug_path.deinit();
-        _ = std.mem.replace(u8, qualified_name.items, "/", ".", qualified_name.items);
-        debug_path.writer().print(
-            "./dist/gen/{s}.mod.mir\u{0}",
-            .{
-                qualified_name.items,
-            },
-        ) catch unreachable;
+        _ = std.mem.replace(
+            u8,
+            qualified_name.items,
+            "/",
+            ".",
+            qualified_name.items,
+        );
 
-        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
-        defer _ = std.c.fclose(debug_file);
-
-        m.MIR_output_module(self.ctx, debug_file, module);
+        self.outputModule(qualified_name.items, module);
     }
 }
 
@@ -4643,14 +4638,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     }
 
     if (BuildOptions.jit_debug) {
-        var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
-        defer debug_path.deinit();
-        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{wrapper_name.items}) catch unreachable;
-
-        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
-        defer _ = std.c.fclose(debug_file);
-
-        m.MIR_output_module(self.ctx, debug_file, module);
+        self.outputModule(wrapper_name.items, module);
     }
 
     m.MIR_load_module(self.ctx, module);
@@ -4878,14 +4866,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
     _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.items.ptr));
 
     if (BuildOptions.jit_debug) {
-        var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
-        defer debug_path.deinit();
-        debug_path.writer().print("./dist/gen/zdef-{s}.mod.mir\u{0}", .{zdef.zdef.name}) catch unreachable;
-
-        const debug_file = std.c.fopen(@ptrCast(debug_path.items.ptr), "w").?;
-        defer _ = std.c.fclose(debug_file);
-
-        m.MIR_output_module(self.ctx, debug_file, module);
+        self.outputModule(zdef.zdef.name, module);
     }
 
     m.MIR_load_module(self.ctx, module);
@@ -6298,4 +6279,28 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
     try self.state.?.registers.put(name, count + 1);
 
     return reg;
+}
+
+fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
+    // Output MIR code to .mir file
+    var debug_path = std.ArrayList(u8).init(self.vm.gc.allocator);
+    defer debug_path.deinit();
+    debug_path.writer().print(
+        "./dist/gen/{s}.mod.mir\x00",
+        .{
+            name,
+        },
+    ) catch unreachable;
+
+    const debug_file = std.c.fopen(
+        @ptrCast(debug_path.items.ptr),
+        "w",
+    ).?;
+    defer _ = std.c.fclose(debug_file);
+
+    m.MIR_output_module(
+        self.ctx,
+        debug_file,
+        module,
+    );
 }
