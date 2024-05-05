@@ -180,8 +180,7 @@ pub const Type = enum {
     Range, // range
 };
 
-pub const keywords = std.ComptimeStringMap(
-    Type,
+pub const keywords = std.StaticStringMap(Type).initComptime(
     .{
         .{ "and", .And },
         .{ "any", .Any },

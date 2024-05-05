@@ -114,6 +114,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.NameTooLong,
         error.NoDevice,
         error.NotDir,
+        error.InvalidBatchScriptArg,
         error.ProcessFdQuotaExceeded,
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
