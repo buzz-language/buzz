@@ -40,13 +40,15 @@ const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 
 pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
+    out.print( "\x1b[38;2;255;204;20m\x1b[38;2;255;255;255mWelcome to\x1b[0m \x1B[38;5;210mB\x1b[0m\x1B[38;5;211mu\x1b[0m\x1B[38;5;212mz\x1b[0m\x1B[38;5;213mz\x1b[0m\x1b[38;2;255;204;20m\x1b[38;2;255;255;255m v{s} (\x1b[0m\x1b[1;34m{s}\x1b[0m\x1b[1;20m) 👨‍🚀\x1b[0m\n", .{
+        if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+        BuildOptions.sha,
+    }) catch unreachable;
     out.print(
-        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
-        .{
-            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
-            BuildOptions.sha,
-        },
+        "\x1b[1;20mCopyright (C) \x1b[38;2;153;217;255m2021-present \x1b[38;2;255;204;229mBenoit Giannangeli\x1b[0m\n",
+        .{},
     ) catch unreachable;
+    out.writeAll("\x1b[1;20mType \".help\" for more information.\x1b[0m\n") catch unreachable;
 
     if (full) {
         out.print(
@@ -136,6 +138,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
     var stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
+    const stdin = std.io.getStdIn().reader();
     printBanner(stdout, false);
 
     var buzz_history_path = std.ArrayList(u8).init(allocator);
@@ -163,11 +166,76 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_parser_globals = try parser.globals.clone();
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
+
+    var interrupted: i16 = 0;
+    var executed = std.ArrayList(u8).init(allocator);
+    defer executed.deinit();
+
     while (true) {
         const read_source = ln.linenoise("> ");
+
+        // quick check to prevent segfault.
+        const fmt = std.fmt.allocPrint(allocator, "{any}", .{read_source}) catch continue;
+        if (std.mem.eql(u8, "u8@0", fmt)) {
+            interrupted = interrupted + 1;
+            if (interrupted >= 2) {
+                std.process.exit(0);
+                return;
+            }
+            stderr.print("\x1b[2m(hint: use \"{s}\" or interrupt the signal again to exit the repl)\x1b[22m\n", .{".exit"}) catch unreachable;
+            continue;
+        }
+        allocator.free(fmt);
+
+        // additional check for commands.
         const source = std.mem.span(read_source);
 
+        if (std.mem.eql(u8, ".help", source)) {
+            stdout.writeAll("Welcome to Buzz REPL's help utility!\nIf this is your first time using Buzz, you should definitely check out the documentation at \x1b[38;2;0;102;204mhttps://buzz-lang.dev/guide/\x1b[0m.\n\nCommands:\n.help      Shows this help message\n.editor    Enter editor mode\n.exit      Exit the REPL\n.save      Save all evaluated commands in the session to a file\n.load      Load a file through this REPL\n\nHappy Hacking! 👾\n") catch unreachable;
+            continue;
+        } else if (std.mem.eql(u8, ".exit", source)) {
+            std.process.exit(0);
+            // just in case, either ways process exits.
+            return;
+        } else if (std.mem.eql(u8, ".editor", source)) {
+            // TODO: editor
+            _ = stdin;
+            stdout.print("\x1b[2m// Entering editor mode (Ctrl+D to finsh, Ctrl+C to cancel)\x1b[22m\n", .{}) catch unreachable;
+
+            continue;
+        } else if (std.mem.eql(".load", source)) {
+            // TODO: .load
+
+            continue;
+        } else {
+            // args (if used)
+            var split = std.mem.split(u8, source, " ");
+            const cmd = split.next();
+
+            if (cmd != null) {
+                if (std.mem.eql(u8, cmd.?, ".save")) {
+                    const file = split.next();
+                    if (file != null) {
+                        std.fs.cwd().writeFile(file.?, executed.toOwnedSlice() catch {
+                        stderr.print("\x1b[31mFailed to write file!\x1b[0m\n", .{}) catch unreachable;
+                        continue;
+                    }) catch {
+                        stderr.print("\x1b[31mFailed to write file!\x1b[0m\n", .{}) catch unreachable;
+                        continue;
+                    };
+                    stdout.print("\x1b[32mSuccessfully saved REPL session to file \"{?s}\"!\x1b[0m\n", .{file}) catch unreachable;
+                    continue;
+                } else {
+                        stderr.print("\x1b[31mFailed to save file! No file to export to given.\x1b[0m\n", .{}) catch unreachable;
+                        continue;
+                }
+            }
+            }
+        }
+
         _ = ln.linenoiseHistoryAdd(source);
+        executed.appendSlice(source) catch unreachable;
+        executed.append('\n') catch unreachable;
         _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
 
         if (source.len > 0) {
