@@ -139,6 +139,28 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     const function = closure.function;
     const ast_node = function.node;
 
+    var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
+    defer seen.deinit();
+    if (try ast.usesFiber(
+        ast_node,
+        &seen,
+    )) {
+        if (BuildOptions.jit_debug) {
+            std.debug.print(
+                "Not compiling node {s}#{}, likely because it uses a fiber\n",
+                .{
+                    @tagName(ast.nodes.items(.tag)[ast_node]),
+                    ast_node,
+                },
+            );
+        }
+        _ = self.functions_queue.remove(ast_node);
+        _ = self.objclosures_queue.remove(closure);
+        try self.blacklisted_closures.put(closure, {});
+
+        return error.CantCompile;
+    }
+
     // Remember we need to set this functions fields
     try self.objclosures_queue.put(closure, {});
 
@@ -197,6 +219,27 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
 }
 
 pub fn compileHotSpot(self: *Self, ast: Ast, hotspot_node: Ast.Node.Index) Error!*anyopaque {
+    var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
+    defer seen.deinit();
+    if (try ast.usesFiber(
+        hotspot_node,
+        &seen,
+    )) {
+        if (BuildOptions.jit_debug) {
+            std.debug.print(
+                "Not compiling node {s}#{}, likely because it uses a fiber\n",
+                .{
+                    @tagName(ast.nodes.items(.tag)[hotspot_node]),
+                    hotspot_node,
+                },
+            );
+        }
+
+        try self.blacklisted_hotspots.put(hotspot_node, {});
+
+        return error.CantCompile;
+    }
+
     // Build function surrounding the node
     try self.buildFunction(ast, null, hotspot_node);
 
@@ -4292,7 +4335,25 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
         ),
     );
 
-    _ = try self.generateNode(node);
+    _ = self.generateNode(node) catch |err| {
+        if (err == error.CantCompile) {
+            if (BuildOptions.jit_debug) {
+                std.debug.print(
+                    "Not compiling node {s}#{}, likely because it uses a fiber\n",
+                    .{
+                        @tagName(self.state.?.ast.nodes.items(.tag)[self.state.?.ast_node]),
+                        self.state.?.ast_node,
+                    },
+                );
+            }
+
+            m.MIR_finish_func(self.ctx);
+
+            try self.blacklisted_hotspots.put(self.state.?.ast_node, {});
+        }
+
+        return err;
+    };
 
     // If we reach here, return 0 meaning there was no early return in the hotspot
     self.RET(m.MIR_new_int_op(self.ctx, 0));
