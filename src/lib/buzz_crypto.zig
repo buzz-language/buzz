@@ -59,31 +59,36 @@ pub export fn hash(ctx: *api.NativeCtx) c_int {
             result_hash = h[0..];
         },
         6 => {
-            var h: [std.crypto.hash.sha2.Sha512256.digest_length]u8 = undefined;
-            std.crypto.hash.sha2.Sha512256.hash(data[0..data_len], &h, .{});
+            var h: [std.crypto.hash.sha2.Sha512_224.digest_length]u8 = undefined;
+            std.crypto.hash.sha2.Sha512_224.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
         },
         7 => {
+            var h: [std.crypto.hash.sha2.Sha512_256.digest_length]u8 = undefined;
+            std.crypto.hash.sha2.Sha512_256.hash(data[0..data_len], &h, .{});
+            result_hash = h[0..];
+        },
+        8 => {
             var h: [std.crypto.hash.sha2.Sha512T256.digest_length]u8 = undefined;
             std.crypto.hash.sha2.Sha512T256.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
         },
-        8 => {
+        9 => {
             var h: [std.crypto.hash.sha3.Sha3_224.digest_length]u8 = undefined;
             std.crypto.hash.sha3.Sha3_224.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
         },
-        9 => {
+        10 => {
             var h: [std.crypto.hash.sha3.Sha3_256.digest_length]u8 = undefined;
             std.crypto.hash.sha3.Sha3_256.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
         },
-        10 => {
+        11 => {
             var h: [std.crypto.hash.sha3.Sha3_384.digest_length]u8 = undefined;
             std.crypto.hash.sha3.Sha3_384.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
         },
-        11 => {
+        12 => {
             var h: [std.crypto.hash.sha3.Sha3_512.digest_length]u8 = undefined;
             std.crypto.hash.sha3.Sha3_512.hash(data[0..data_len], &h, .{});
             result_hash = h[0..];
