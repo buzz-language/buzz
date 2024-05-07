@@ -47,7 +47,7 @@ var value = from {
     - `myrange.toList()` transforms a range into a list of integers
     - `myrange.low` and `myrange.high` to get a range bounds
     - works with `foreach`
-- Tracing JIT (https://github.com/buzz-language/buzz/issues/134). Build with `-Djit_hotspot` to enable. Will look for hot loops and compile them.
+- Tracing JIT (https://github.com/buzz-language/buzz/issues/134): will look for hot loops and compile them
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
