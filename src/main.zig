@@ -161,26 +161,18 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             }
 
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-                const parsing_ms = @as(f64, @floatFromInt(parsing_time)) / 1000000;
-                const codegen_ms = @as(f64, @floatFromInt(codegen_time)) / 1000000;
-                const running_ms = @as(f64, @floatFromInt(running_time)) / 1000000;
-                const gc_ms = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-                const jit_ms = if (vm.jit) |jit|
-                    @as(f64, @floatFromInt(jit.jit_time)) / 1000000
-                else
-                    0;
                 std.debug.print(
-                    "\u{001b}[2mParsing: {d} ms\nCodegen: {d} ms\nRun: {d} ms\nJIT: {d} ms\nGC: {d} ms\nTotal: {d} ms\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
+                    "\x1b[2mParsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n\x1b[0m",
                     .{
-                        parsing_ms,
-                        codegen_ms,
-                        running_ms,
-                        jit_ms,
-                        gc_ms,
-                        @as(f64, @floatFromInt(if (!is_wasm) total_timer.read() else 0)) / 1000000,
-                        gc.full_collection_count,
-                        gc.light_collection_count,
-                        gc.max_allocated,
+                        .parsing = std.fmt.fmtDuration(parsing_time),
+                        .codegen = std.fmt.fmtDuration(codegen_time),
+                        .running = std.fmt.fmtDuration(running_time),
+                        .jit = std.fmt.fmtDuration(if (vm.jit) |jit| jit.jit_time else 0),
+                        .gc = std.fmt.fmtDuration(gc.gc_time),
+                        .total = std.fmt.fmtDuration(if (!is_wasm) total_timer.read() else 0),
+                        .gc_full = gc.full_collection_count,
+                        .gc_light = gc.light_collection_count,
+                        .max_alloc = std.fmt.fmtIntSizeDec(gc.max_allocated),
                     },
                 );
             }

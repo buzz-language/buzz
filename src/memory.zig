@@ -229,7 +229,13 @@ pub const GarbageCollector = struct {
         const allocated = try self.allocator.create(T);
 
         if (BuildOptions.gc_debug) {
-            std.debug.print("Allocated @{} {}\n", .{ @intFromPtr(allocated), T });
+            std.debug.print(
+                "Allocated @{} {}\n",
+                .{
+                    std.fmt.fmtIntSizeDec(@intFromPtr(allocated)),
+                    T,
+                },
+            );
         }
 
         if (!is_wasm) {
@@ -375,7 +381,11 @@ pub const GarbageCollector = struct {
         if (BuildOptions.gc_debug) {
             std.debug.print(
                 "(from {}), collected {}, {} allocated\n",
-                .{ self.bytes_allocated + @sizeOf(T), @sizeOf(T), self.bytes_allocated },
+                .{
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated + @sizeOf(T)),
+                    std.fmt.fmtIntSizeDec(@sizeOf(T)),
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
+                },
             );
         }
 
@@ -399,9 +409,9 @@ pub const GarbageCollector = struct {
             std.debug.print(
                 "(from {}), collected {}, {} allocated\n",
                 .{
-                    self.bytes_allocated + n,
-                    n,
-                    self.bytes_allocated,
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated + n),
+                    std.fmt.fmtIntSizeDec(n),
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
                 },
             );
         }
@@ -902,11 +912,11 @@ pub const GarbageCollector = struct {
             }
 
             std.debug.print(
-                "\nSwept {} objects for {} bytes, now {} bytes\n",
+                "\nSwept {} objects for {}, now {}\n",
                 .{
                     obj_count,
-                    @max(swept, self.bytes_allocated) - self.bytes_allocated,
-                    self.bytes_allocated,
+                    std.fmt.fmtIntSizeDec(@max(swept, self.bytes_allocated) - self.bytes_allocated),
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
                 },
             );
         }
@@ -930,7 +940,14 @@ pub const GarbageCollector = struct {
         const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-            std.debug.print("-- gc starts mode {}, {} bytes, {} objects\n", .{ mode, self.bytes_allocated, self.objects.len });
+            std.debug.print(
+                "-- gc starts mode {s}, {}, {} objects\n",
+                .{
+                    @tagName(mode),
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
+                    self.objects.len,
+                },
+            );
 
             // var it = self.active_vms.iterator();
             // dumpStack(it.next().?.key_ptr.*);
@@ -974,12 +991,12 @@ pub const GarbageCollector = struct {
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             std.debug.print(
-                "-- gc end, {} bytes, {} objects, next_gc {}, next_full_gc {}\n",
+                "-- gc end, {}, {} objects, next_gc {}, next_full_gc {}\n",
                 .{
-                    self.bytes_allocated,
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
                     self.objects.len,
-                    self.next_gc,
-                    self.next_full_gc,
+                    std.fmt.fmtIntSizeDec(self.next_gc),
+                    std.fmt.fmtIntSizeDec(self.next_full_gc),
                 },
             );
         }

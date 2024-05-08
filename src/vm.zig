@@ -1956,7 +1956,14 @@ pub const VM = struct {
     fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         var list: *ObjList = self.gc.allocateObject(
             ObjList,
-            ObjList.init(self.gc.allocator, self.readConstant(arg).obj().access(ObjTypeDef, .Type, self.gc).?),
+            ObjList.init(
+                self.gc.allocator,
+                self.readConstant(arg).obj().access(
+                    ObjTypeDef,
+                    .Type,
+                    self.gc,
+                ).?,
+            ),
         ) catch |e| {
             vmPanic(e);
             unreachable;

@@ -292,26 +292,18 @@ fn runSource(
         }
 
         if (BuildOptions.show_perf) {
-            const parsing_ms: f64 = @as(f64, @floatFromInt(parsing_time)) / 1000000;
-            const codegen_ms: f64 = @as(f64, @floatFromInt(codegen_time)) / 1000000;
-            const running_ms: f64 = @as(f64, @floatFromInt(running_time)) / 1000000;
-            const gc_ms: f64 = @as(f64, @floatFromInt(gc.gc_time)) / 1000000;
-            const jit_ms: f64 = if (vm.jit) |jit|
-                @as(f64, @floatFromInt(jit.jit_time)) / 1000000
-            else
-                0;
             std.debug.print(
-                "\u{001b}[2mParsing: {d} ms\nCodegen: {d} ms\nRun: {d} ms\nJIT: {d} ms\nGC: {d} ms\nTotal: {d} ms\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
+                "\u{001b}[2mParsing: {d}\nCodegen: {d}\nRun: {d}\nJIT: {d}\nGC: {d}\nTotal: {d}\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
                 .{
-                    parsing_ms,
-                    codegen_ms,
-                    running_ms,
-                    jit_ms,
-                    gc_ms,
-                    @as(f64, @floatFromInt(total_timer.read())) / 1000000,
+                    std.fmt.fmtDuration(parsing_time),
+                    std.fmt.fmtDuration(codegen_time),
+                    std.fmt.fmtDuration(running_time),
+                    std.fmt.fmtDuration(if (vm.jit) |jit| jit.jit_time else 0),
+                    std.fmt.fmtDuration(gc.gc_time),
+                    std.fmt.fmtDuration(total_timer.read()),
                     gc.full_collection_count,
                     gc.light_collection_count,
-                    gc.max_allocated,
+                    std.fmt.fmtIntSizeDec(gc.max_allocated),
                 },
             );
         }
