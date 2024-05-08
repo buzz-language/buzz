@@ -24,3 +24,7 @@ test "String interpolation" {
 test "Printing empty string" {
     std.print("");
 }
+
+test "formatting" {
+    std.print("{%x:12}");
+}

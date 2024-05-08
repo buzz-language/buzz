@@ -199,7 +199,7 @@ pub const Node = struct {
         Return: Return,
         // The type should be taken from the type_def field and not the token
         SimpleType: void,
-        String: []Node.Index,
+        String: String,
         StringLiteral: *obj.ObjString,
         Subscript: Subscript,
         Throw: Throw,
@@ -375,6 +375,92 @@ pub fn usesFiber(self: Self, node: Node.Index, seen: *std.AutoHashMap(Node.Index
         else => false,
     };
 }
+
+pub const String = struct {
+    elements: []Element,
+
+    pub const Element = struct {
+        element: Node.Index,
+        format: ?std.fmt.Placeholder = null,
+    };
+
+    pub const Error = error{
+        MalformedInterpolationFormat,
+    };
+
+    // Essentially std.fmt.Placeholder.parse but:
+    //     - not comptime
+    //     - no 'argument' part of a zig fmt (since in buzz we directly put the expression there)
+    pub fn parsePlaceholder(str: []const u8) std.fmt.Placeholder {
+        const view = std.unicode.Utf8View.init(str);
+        var parser = std.fmt.Parser{
+            .buf = str,
+            .iter = view.iterator(),
+        };
+
+        // Parse the format specifier
+        const specifier_arg = comptime parser.until(':');
+
+        // Skip the colon, if present
+        if (parser.char()) |ch| {
+            if (ch != ':') {
+                return String.Error.MalformedInterpolationFormat;
+            }
+        }
+
+        // Parse the fill character
+        // The fill parameter requires the alignment parameter to be specified
+        // too
+        const fill = if (parser.peek(1)) |ch|
+            switch (ch) {
+                '<', '^', '>' => parser.char().?,
+                else => ' ',
+            }
+        else
+            ' ';
+
+        // Parse the alignment parameter
+        const alignment: std.fmt.Alignment = if (parser.peek(0)) |ch| init: {
+            switch (ch) {
+                '<', '^', '>' => _ = parser.char(),
+                else => {},
+            }
+            break :init switch (ch) {
+                '<' => .left,
+                '^' => .center,
+                else => .right,
+            };
+        } else .right;
+
+        // Parse the width parameter
+        const width = parser.specifier() catch
+            return String.Error.MalformedInterpolationFormat;
+
+        // Skip the dot, if present
+        if (parser.char()) |ch| {
+            if (ch != '.') {
+                return String.Error.MalformedInterpolationFormat;
+            }
+        }
+
+        // Parse the precision parameter
+        const precision = parser.specifier() catch
+            return String.Error.MalformedInterpolationFormat;
+
+        if (parser.char() != null) {
+            return String.Error.MalformedInterpolationFormat;
+        }
+
+        return std.fmt.Placeholder{
+            .specifier_arg = specifier_arg[0..specifier_arg.len].*,
+            .fill = fill,
+            .alignment = alignment,
+            .arg = undefined,
+            .width = width,
+            .precision = precision,
+        };
+    }
+};
 
 pub const AnonymousObjectType = struct {
     fields: []Field,

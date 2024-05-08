@@ -4549,7 +4549,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
     }
 }
 
-pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
+pub fn objToString(format: ?std.fmt.Placeholder, writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
     return switch (obj.obj_type) {
         .String => {
             const str = ObjString.cast(obj).?.string;

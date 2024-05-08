@@ -236,7 +236,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_SET_MAP_SUBSCRIPT,
         .OP_THROW,
         .OP_IMPORT,
-        .OP_TO_STRING,
         .OP_INSTANCE,
         .OP_FCONTAINER_INSTANCE,
         .OP_STRING_FOREACH,
@@ -256,6 +255,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
 
         .OP_SWAP,
         .OP_HOTSPOT,
+        .OP_TO_STRING,
         => bytesInstruction(instruction, chunk, offset),
 
         .OP_DEFINE_GLOBAL,

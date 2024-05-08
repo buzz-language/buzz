@@ -1078,8 +1078,12 @@ pub const VM = struct {
         );
     }
 
-    fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const str = self.pop().toStringAlloc(self.gc.allocator) catch |e| {
+    fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: OpCode, index: u24) void {
+        const node = self.readInstruction();
+        const string = self.current_ast.nodes.items(.components)[node].String;
+        const format = string.elements[index].format;
+
+        const str = self.pop().toStringAlloc(self.gc.allocator, format) catch |e| {
             vmPanic(e);
             unreachable;
         };

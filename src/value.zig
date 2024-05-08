@@ -165,15 +165,15 @@ pub const Value = packed struct {
         return self;
     }
 
-    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
+    pub fn toStringAlloc(value: Value, allocator: Allocator, format: ?std.fmt.Placeholder) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
         var str = std.ArrayList(u8).init(allocator);
 
-        try value.toString(&str.writer());
+        try value.toString(format, &str.writer());
 
         return str;
     }
 
-    pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: Value, format: ?std.fmt.Placeholder, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         if (self.isObj()) {
             try objToString(writer, self.obj());
 

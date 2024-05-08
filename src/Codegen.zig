@@ -3331,7 +3331,8 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usi
 
         _ = try self.generateNode(element, breaks);
         if (element_type_def.def_type != .String or element_type_def.optional) {
-            try self.emitOpCode(location, .OP_TO_STRING);
+            try self.emitCodeArg(location, .OP_TO_STRING, index);
+            try self.emit(location, node);
         }
 
         if (index >= 1) {
