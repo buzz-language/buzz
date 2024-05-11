@@ -6,7 +6,6 @@ const VM = @import("vm.zig").VM;
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Obj = _obj.Obj;
 const objToString = _obj.objToString;
-const copyObj = _obj.copyObj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
 pub const Float = f64;

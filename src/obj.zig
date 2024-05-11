@@ -1621,6 +1621,7 @@ pub const ObjList = struct {
             .{ "reverse", buzz_builtin.list.reverse },
             .{ "sort", buzz_builtin.list.sort },
             .{ "sub", buzz_builtin.list.sub },
+            .{ "fill", buzz_builtin.list.fill },
         },
     );
 
@@ -1918,6 +1919,69 @@ pub const ObjList = struct {
                 );
 
                 try self.methods.put("sub", native_type);
+
+                return native_type;
+            } else if (mem.eql(u8, method, "fill")) {
+                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the string.
+
+                try parameters.put(
+                    try parser.gc.copyString("value"),
+                    try parser.gc.type_registry.getTypeDef(
+                        .{
+                            .def_type = .Any,
+                        },
+                    ),
+                );
+
+                const start_str = try parser.gc.copyString("start");
+                try parameters.put(
+                    start_str,
+                    try parser.gc.type_registry.getTypeDef(
+                        .{
+                            .def_type = .Integer,
+                            .optional = true,
+                        },
+                    ),
+                );
+
+                const len_str = try parser.gc.copyString("len");
+                try parameters.put(
+                    len_str,
+                    try parser.gc.type_registry.getTypeDef(
+                        .{
+                            .def_type = .Integer,
+                            .optional = true,
+                        },
+                    ),
+                );
+
+                var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
+                try defaults.put(len_str, Value.Null);
+                try defaults.put(start_str, Value.Null);
+
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("fill"),
+                                .parameters = parameters,
+                                .defaults = defaults,
+                                .return_type = obj_list,
+                                .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
+
+                try self.methods.put("fill", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "indexOf")) {

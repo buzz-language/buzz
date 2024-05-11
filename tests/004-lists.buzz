@@ -68,3 +68,13 @@ test "empty list type inferring" {
 
     std.assert(typeof slist == <[str]>);
 }
+
+test "list.fill" {
+    const list = (0..3).toList().fill(42);
+
+    std.assert(list[0] == 42 and list[1] == 42 and list[2] == 42);
+
+    const another = (0..10).toList().fill(42, start: 2, len: 3);
+
+    std.assert(another[2] == 42 and another[3] == 42 and another[4] == 42 and another[1] != 42 and another[5] != 42);
+}

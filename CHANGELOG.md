@@ -48,6 +48,7 @@ var value = from {
     - `myrange.low` and `myrange.high` to get a range bounds
     - works with `foreach`
 - Tracing JIT (https://github.com/buzz-language/buzz/issues/134): will look for hot loops and compile them
+- `list.fill`
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)

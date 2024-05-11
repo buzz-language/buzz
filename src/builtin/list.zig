@@ -409,3 +409,37 @@ pub fn map(ctx: *NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn fill(ctx: *NativeCtx) c_int {
+    const self: *ObjList = ObjList.cast(ctx.vm.peek(3).obj()).?;
+    const value = ctx.vm.peek(2);
+    const start: usize = @intCast(ctx.vm.peek(1).integerOrNull() orelse 0);
+    const count: ?usize = if (ctx.vm.peek(0).integerOrNull()) |c| @intCast(c) else null;
+
+    if (start < 0 or start >= self.items.items.len) {
+        const err = ctx.vm.gc.copyString("`start` is out of bound") catch null;
+        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+
+        return -1;
+    }
+
+    if (count != null and count.? < 0) {
+        const err = ctx.vm.gc.copyString("`count` must greater or equal to 0") catch null;
+        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
+
+        return -1;
+    }
+
+    const limit: usize = if (count != null and start + count.? < self.items.items.len)
+        start + count.?
+    else
+        self.items.items.len;
+
+    for (start..limit) |i| {
+        self.items.items[i] = value;
+    }
+
+    ctx.vm.push(self.toValue());
+
+    return 1;
+}
