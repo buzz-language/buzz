@@ -13,7 +13,7 @@ pub const linenoiseCompletions = extern struct {
 };
 
 // Blocking API.
-pub extern fn linenoise(prompt: [*:0]const u8) [*:0]const u8;
+pub extern fn linenoise(prompt: [*:0]const u8) ?[*:0]const u8;
 
 // Completion API.
 pub const linenoiseCompletionCallback = fn ([*:0]const u8, *linenoiseCompletions) void;

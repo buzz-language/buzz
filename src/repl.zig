@@ -162,7 +162,12 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_type_registry = try gc.type_registry.registry.clone();
     while (true) {
         const read_source = ln.linenoise("> ");
-        const source = std.mem.span(read_source);
+
+        if (read_source == null) {
+            std.process.exit(0);
+        }
+
+        const source = std.mem.span(read_source.?);
 
         _ = ln.linenoiseHistoryAdd(source);
         _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
