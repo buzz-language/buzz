@@ -435,7 +435,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 
             const zdef = try self.gc.allocator.create(Zdef);
             zdef.* = .{
-                .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                .type_def = self.gc.type_registry.void_type,
                 .zig_type = ZigType{ .Void = {} },
                 .name = name,
             };
@@ -710,7 +710,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         and std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node.main_token), "0"))
         // zig fmt: on
         .{
-            .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
+            .type_def = self.gc.type_registry.str_type,
             .zig_type = ZigType{
                 .Pointer = .{
                     .size = .C,
@@ -744,7 +744,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         }
     else
         .{
-            .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .UserData }),
+            .type_def = self.gc.type_registry.ud_type,
             .zig_type = ZigType{
                 .Pointer = .{
                     .size = .C,
@@ -791,8 +791,8 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .return_type = if (return_type_zdef) |return_type|
             return_type.type_def
         else
-            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-        .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            self.gc.type_registry.void_type,
+        .yield_type = self.gc.type_registry.void_type,
         .parameters = std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef).init(self.gc.allocator),
         .defaults = std.AutoArrayHashMap(*o.ObjString, v.Value).init(self.gc.allocator),
         .function_type = .Extern,

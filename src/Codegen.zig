@@ -41,10 +41,6 @@ const NodeGen = *const fn (
     breaks: ?*std.ArrayList(usize),
 ) Error!?*obj.ObjFunction;
 
-fn noGen(_: *Self, _: Ast.Node.Index, _: ?*std.ArrayList(usize)) Error!?*obj.ObjFunction {
-    return null;
-}
-
 current: ?*Frame = null,
 ast: Ast,
 gc: *GarbageCollector,
@@ -232,13 +228,13 @@ pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
 pub fn patchJump(self: *Self, offset: usize) void {
     std.debug.assert(offset < self.currentCode());
 
-    const jump: usize = self.currentCode() - offset - 1;
+    const jump = self.currentCode() - offset - 1;
 
-    if (jump > 16777215) {
+    if (jump > std.math.maxInt(u24)) {
         self.reportError(.jump_too_large, "Jump too large.");
     }
 
-    const original: u32 = self.current.?.function.?.chunk.code.items[offset];
+    const original = self.current.?.function.?.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
     self.current.?.function.?.chunk.code.items[offset] =
@@ -248,7 +244,7 @@ pub fn patchJump(self: *Self, offset: usize) void {
 pub fn patchTryOrJit(self: *Self, offset: usize) void {
     std.debug.assert(offset < self.currentCode());
 
-    const jump: usize = self.currentCode();
+    const jump = self.currentCode();
 
     if (jump > std.math.maxInt(u24)) {
         self.reportError(
@@ -1928,7 +1924,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
             // Key was omitted, put the correct type in the key var declation to avoid raising errors
             switch (iterable_type_def.def_type) {
                 .Map => key_type_def = iterable_type_def.resolved_type.?.Map.key_type,
-                .String, .List => key_type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                .String, .List => key_type_def = self.gc.type_registry.int_type,
                 else => {},
             }
         }
@@ -1967,7 +1963,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(us
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
-                        try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                        self.gc.type_registry.int_type,
                         self.ast.tokens.get(locations[components.value]),
                         value_type_def,
                         "Bad value type",
@@ -3168,11 +3164,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
         self.reporter.reportTypeCheck(
             .range_type,
             null,
-            try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Integer,
-                },
-            ),
+            self.gc.type_registry.int_type,
             self.ast.tokens.get(locations[components.low]),
             type_defs[components.low].?,
             "Bad low range limit type",
@@ -3183,11 +3175,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usiz
         self.reporter.reportTypeCheck(
             .range_type,
             null,
-            try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Integer,
-                },
-            ),
+            self.gc.type_registry.int_type,
             self.ast.tokens.get(locations[components.high]),
             type_defs[components.high].?,
             "Bad high range limit type",
@@ -3501,7 +3489,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
     for (components.clauses) |clause| {
         const error_type = type_defs[clause.type_def].?;
 
-        if (error_type.eql((try self.gc.type_registry.getTypeDef(.{ .def_type = .Any })))) {
+        if (error_type.eql(self.gc.type_registry.any_type)) {
             has_unconditional = true;
         }
 

@@ -141,19 +141,15 @@ pub const Value = packed struct {
         }
 
         if (self.isFloat()) {
-            return try gc.type_registry.getTypeDef(.{ .def_type = .Float });
+            return gc.type_registry.float_type;
         }
 
-        return try gc.type_registry.getTypeDef(
-            .{
-                .def_type = switch (self.getTag()) {
-                    TagBoolean => .Bool,
-                    TagInteger => .Integer,
-                    TagNull, TagVoid => .Void,
-                    else => .Float,
-                },
-            },
-        );
+        return switch (self.getTag()) {
+            TagBoolean => gc.type_registry.bool_type,
+            TagInteger => gc.type_registry.int_type,
+            TagNull, TagVoid => gc.type_registry.void_type,
+            else => gc.type_registry.float_type,
+        };
     }
 
     pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMap(*Obj, void)) !Value {

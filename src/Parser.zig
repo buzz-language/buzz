@@ -767,8 +767,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         .id = obj.ObjFunction.FunctionDef.nextId(),
         .name = try self.gc.copyString(function_name),
         .script_name = try self.gc.copyString(file_name),
-        .return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-        .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+        .return_type = self.gc.type_registry.void_type,
+        .yield_type = self.gc.type_registry.void_type,
         .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
         .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
         .function_type = function_type,
@@ -965,7 +965,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
             // `args` is [str]
             const list_def = obj.ObjList.ListDef.init(
                 self.gc.allocator,
-                try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
+                self.gc.type_registry.str_type,
             );
 
             const list_union: obj.ObjTypeDef.TypeUnion = .{ .List = list_def };
@@ -978,11 +978,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
             );
         },
         else => {
-            local.type_def = try self.gc.type_registry.getTypeDef(
-                obj.ObjTypeDef{
-                    .def_type = .Void,
-                },
-            );
+            local.type_def = self.gc.type_registry.void_type;
         },
     }
 
@@ -1770,7 +1766,7 @@ fn resolvePlaceholderWithRelation(
             } else if (resolved_type.def_type == .Map) {
                 try self.resolvePlaceholder(child, try resolved_type.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry), false);
             } else if (resolved_type.def_type == .String) {
-                try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .String }), false);
+                try self.resolvePlaceholder(child, self.gc.type_registry.str_type, false);
             } else {
                 self.reporter.reportErrorAt(
                     .subscriptable,
@@ -1784,7 +1780,11 @@ fn resolvePlaceholderWithRelation(
             if (resolved_type.def_type == .Map) {
                 try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.key_type, false);
             } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
-                try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }), false);
+                try self.resolvePlaceholder(
+                    child,
+                    self.gc.type_registry.int_type,
+                    false,
+                );
             } else {
                 self.reporter.reportErrorAt(
                     .map_key_type,
@@ -2376,12 +2376,7 @@ fn parseTypeDef(
                 .tag = .SimpleType,
                 .location = self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
-                .type_def = try self.gc.type_registry.getTypeDef(
-                    .{
-                        .optional = false,
-                        .def_type = .Void,
-                    },
-                ),
+                .type_def = self.gc.type_registry.void_type,
                 .components = .{
                     .SimpleType = {},
                 },
@@ -2906,11 +2901,11 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         .return_type = if (return_type) |rt|
             try self.ast.nodes.items(.type_def)[rt].?.toInstance(self.gc.allocator, &self.gc.type_registry)
         else
-            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            self.gc.type_registry.void_type,
         .yield_type = if (yield_type) |yt|
             try self.ast.nodes.items(.type_def)[yt].?.toInstance(self.gc.allocator, &self.gc.type_registry)
         else
-            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            self.gc.type_registry.void_type,
         .parameters = parameters,
         .defaults = defaults,
         .function_type = if (is_extern) .Extern else .Anonymous,
@@ -3328,7 +3323,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
                             common_type = common_type.?.resolved_type.?.ObjectInstance.resolved_type.?.Object.both_conforms(actual_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object) orelse common_type;
                             common_type = try common_type.?.toInstance(self.gc.allocator, &self.gc.type_registry);
                         } else {
-                            common_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            common_type = self.gc.type_registry.any_type;
                         }
                     }
                 }
@@ -3350,7 +3345,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
 
     const list_def = obj.ObjList.ListDef.init(
         self.gc.allocator,
-        item_type orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+        item_type orelse self.gc.type_registry.any_type,
     );
 
     const resolved_type = obj.ObjTypeDef.TypeUnion{ .List = list_def };
@@ -3392,53 +3387,35 @@ fn literal(self: *Self, _: bool) Error!Ast.Node.Index {
             node.components = .{
                 .Boolean = self.ast.tokens.items(.tag)[node.location] == .True,
             };
-            node.type_def = try self.gc.type_registry.getTypeDef(.{
-                .def_type = .Bool,
-            });
+            node.type_def = self.gc.type_registry.bool_type;
         },
         .Null => {
             node.tag = .Null;
             node.components = .{
                 .Null = {},
             };
-            node.type_def = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Void,
-                },
-            );
+            node.type_def = self.gc.type_registry.void_type;
         },
         .Void => {
             node.tag = .Void;
             node.components = .{
                 .Void = {},
             };
-            node.type_def = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Void,
-                },
-            );
+            node.type_def = self.gc.type_registry.void_type;
         },
         .IntegerValue => {
             node.tag = .Integer;
             node.components = .{
                 .Integer = self.ast.tokens.items(.literal_integer)[node.location].?,
             };
-            node.type_def = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Integer,
-                },
-            );
+            node.type_def = self.gc.type_registry.int_type;
         },
         .FloatValue => {
             node.tag = .Float;
             node.components = .{
                 .Float = self.ast.tokens.items(.literal_float)[node.location].?,
             };
-            node.type_def = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Float,
-                },
-            );
+            node.type_def = self.gc.type_registry.float_type;
         },
         else => unreachable,
     }
@@ -3637,7 +3614,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                                 &self.gc.type_registry,
                             );
                         } else {
-                            common_key_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            common_key_type = self.gc.type_registry.any_type;
                         }
                     }
                 }
@@ -3658,7 +3635,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                                 &self.gc.type_registry,
                             );
                         } else {
-                            common_value_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Any });
+                            common_value_type = self.gc.type_registry.any_type;
                         }
                     }
                 }
@@ -3677,8 +3654,8 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
 
     const map_def = obj.ObjMap.MapDef.init(
         self.gc.allocator,
-        key_type_def orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
-        value_type_def orelse try self.gc.type_registry.getTypeDef(.{ .def_type = .Any }),
+        key_type_def orelse self.gc.type_registry.any_type,
+        value_type_def orelse self.gc.type_registry.any_type,
     );
     const resolved_type = obj.ObjTypeDef.TypeUnion{ .Map = map_def };
     const map_type = try self.gc.type_registry.getTypeDef(
@@ -4001,7 +3978,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     }
                 } else if (std.mem.eql(u8, member_name, "high") or std.mem.eql(u8, member_name, "low")) {
                     self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
-                    self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer });
+                    self.ast.nodes.items(.type_def)[dot_node] = self.gc.type_registry.int_type;
                 } else {
                     self.reportError(.property_does_not_exists, "Range property doesn't exist.");
                 }
@@ -4612,9 +4589,7 @@ fn @"or"(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
             .tag = .Binary,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = try self.gc.type_registry.getTypeDef(
-                .{ .def_type = .Bool },
-            ),
+            .type_def = self.gc.type_registry.bool_type,
             .components = .{
                 .Binary = .{
                     .left = left,
@@ -4636,9 +4611,7 @@ fn @"and"(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
             .tag = .Binary,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = try self.gc.type_registry.getTypeDef(
-                .{ .def_type = .Bool },
-            ),
+            .type_def = self.gc.type_registry.bool_type,
             .components = .{
                 .Binary = .{
                     .left = left,
@@ -4763,11 +4736,7 @@ inline fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = if (is_expr)
-                try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Bool,
-                    },
-                )
+                self.gc.type_registry.bool_type
             else
                 (try type_def.cloneOptional(&self.gc.type_registry)),
             .components = if (is_expr)
@@ -4817,11 +4786,7 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
                 .tag = .String,
                 .location = string_token_index,
                 .end_location = string_token_index,
-                .type_def = try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .String,
-                    },
-                ),
+                .type_def = self.gc.type_registry.str_type,
                 .components = .{
                     .String = &[_]Ast.Node.Index{},
                 },
@@ -4975,7 +4940,7 @@ fn function(
         else
             try self.gc.copyString("anonymous"),
         .return_type = undefined,
-        .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+        .yield_type = self.gc.type_registry.void_type,
         .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
         .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
         .function_type = function_type,
@@ -5164,11 +5129,7 @@ fn function(
         null;
 
     if (return_type_node) |rtn| {
-        function_typedef.resolved_type.?.Function.return_type = self.ast.nodes.items(.type_def)[rtn] orelse try self.gc.type_registry.getTypeDef(
-            .{
-                .def_type = .Void,
-            },
-        );
+        function_typedef.resolved_type.?.Function.return_type = self.ast.nodes.items(.type_def)[rtn] orelse self.gc.type_registry.void_type;
         self.ast.nodes.items(.components)[function_signature].FunctionType.return_type = rtn;
     }
 
@@ -5191,11 +5152,11 @@ fn function(
     self.ast.nodes.items(.components)[function_signature].FunctionType.yield_type = yield_type_node;
 
     if (yield_type_node == null) {
-        function_typedef.resolved_type.?.Function.yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        function_typedef.resolved_type.?.Function.yield_type = self.gc.type_registry.void_type;
     }
 
     if (return_type_node == null) {
-        function_typedef.resolved_type.?.Function.return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        function_typedef.resolved_type.?.Function.return_type = self.gc.type_registry.void_type;
     }
 
     // Error set
@@ -5253,7 +5214,7 @@ fn function(
     }
 
     if (return_type_node == null and !function_typedef.resolved_type.?.Function.lambda) {
-        function_typedef.resolved_type.?.Function.return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void });
+        function_typedef.resolved_type.?.Function.return_type = self.gc.type_registry.void_type;
     }
 
     if (function_type == .Extern) {
@@ -5355,7 +5316,7 @@ fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
             .tag = .Pattern,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
+            .type_def = self.gc.type_registry.pat_type,
             .components = .{
                 .Pattern = constant,
             },
@@ -5629,16 +5590,11 @@ fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
-
-    const int_type = try self.gc.type_registry.getTypeDef(.{
-        .def_type = .Integer,
-    });
-
     const high = try self.expression(false);
 
     self.markInitialized();
 
-    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, int_type);
+    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, self.gc.type_registry.int_type);
     const resolved_type = obj.ObjTypeDef.TypeUnion{
         .List = list_def,
     };
@@ -5732,7 +5688,7 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
             .type_def = if (out) |o|
                 self.ast.nodes.items(.type_def)[o]
             else
-                try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                self.gc.type_registry.void_type,
             .components = .{
                 .BlockExpression = statements.items,
             },
@@ -5771,7 +5727,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .LessEqual,
                 .BangEqual,
                 .EqualEqual,
-                => try self.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
+                => self.gc.type_registry.bool_type,
 
                 .Plus => left_type_def orelse right_type_def,
 
@@ -5780,20 +5736,16 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .Ampersand,
                 .Bor,
                 .Xor,
-                => try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                => self.gc.type_registry.int_type,
 
                 .Minus,
                 .Star,
                 .Percent,
                 .Slash,
-                => try self.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = if ((left_type_def != null and left_type_def.?.def_type == .Float) or (right_type_def != null and right_type_def.?.def_type == .Float))
-                            .Float
-                        else
-                            .Integer,
-                    },
-                ),
+                => if ((left_type_def != null and left_type_def.?.def_type == .Float) or (right_type_def != null and right_type_def.?.def_type == .Float))
+                    self.gc.type_registry.float_type
+                else
+                    self.gc.type_registry.int_type,
 
                 else => unreachable,
             },
@@ -6321,7 +6273,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                         .components = .{
                             .Null = {},
                         },
-                        .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                        .type_def = self.gc.type_registry.void_type,
                     },
                 )
             else
@@ -6586,7 +6538,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     const enum_case_type = if (enum_case_type_node) |enum_type|
         try self.ast.nodes.items(.type_def)[enum_type].?.toInstance(self.gc.allocator, &self.gc.type_registry)
     else
-        try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer });
+        self.gc.type_registry.int_type;
 
     try self.consume(.Identifier, "Expected enum name.");
     const enum_name = self.current_token.? - 1;
@@ -6668,7 +6620,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                                 .tag = .Integer,
                                 .location = self.current_token.? - 1,
                                 .end_location = self.current_token.? - 1,
-                                .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                                .type_def = self.gc.type_registry.int_type,
                                 .components = .{
                                     .Integer = case_index,
                                 },
@@ -6686,7 +6638,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                                 .tag = .StringLiteral,
                                 .location = self.current_token.? - 1,
                                 .end_location = self.current_token.? - 1,
-                                .type_def = try self.gc.type_registry.getTypeDef(.{ .def_type = .String }),
+                                .type_def = self.gc.type_registry.str_type,
                                 .components = .{
                                     .StringLiteral = try self.gc.copyString(case_name),
                                 },
@@ -6772,11 +6724,7 @@ fn varDeclaration(
             &self.gc.type_registry,
         )
     else
-        try self.gc.type_registry.getTypeDef(
-            .{
-                .def_type = .Any,
-            },
-        );
+        self.gc.type_registry.any_type;
 
     const slot: usize = try self.parseVariable(
         identifier_consumed,
@@ -8016,7 +7964,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
         key = try self.implicitVarDeclaration(
             try self.insertUtilityToken(Token.identifier("$key")),
-            try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+            self.gc.type_registry.void_type,
             false,
         );
 

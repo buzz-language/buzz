@@ -177,7 +177,10 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
         i += 1;
     }
 
-    ctx.vm.push(if (index) |uindex| Value.fromInteger(@as(i32, @intCast(uindex))) else Value.Null);
+    ctx.vm.push(if (index) |uindex|
+        Value.fromInteger(@as(i32, @intCast(uindex)))
+    else
+        Value.Null);
 
     return 1;
 }

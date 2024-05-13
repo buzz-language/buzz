@@ -386,33 +386,27 @@ pub const VM = struct {
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
-        const list_def = ObjList.ListDef.init(
-            self.gc.allocator,
-            try self.gc.allocateObject(
-                ObjTypeDef,
-                ObjTypeDef{ .def_type = .String },
-            ),
-        );
-
-        const list_def_union: ObjTypeDef.TypeUnion = .{
-            .List = list_def,
-        };
-
-        const list_def_type: *ObjTypeDef = try self.gc.allocateObject(
-            ObjTypeDef,
-            ObjTypeDef{
-                .def_type = .List,
-                .optional = false,
-                .resolved_type = list_def_union,
-            },
-        );
-
         var arg_list = try self.gc.allocateObject(
             ObjList,
             ObjList.init(
                 self.gc.allocator,
                 // TODO: get instance that already exists
-                list_def_type,
+                try self.gc.allocateObject(
+                    ObjTypeDef,
+                    .{
+                        .def_type = .List,
+                        .optional = false,
+                        .resolved_type = .{
+                            .List = ObjList.ListDef.init(
+                                self.gc.allocator,
+                                try self.gc.allocateObject(
+                                    ObjTypeDef,
+                                    ObjTypeDef{ .def_type = .String },
+                                ),
+                            ),
+                        },
+                    },
+                ),
             ),
         );
 
@@ -497,26 +491,23 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, ast: Ast, function: *ObjFunction, args: ?[][:0]u8) Error!void {
-        const fiber_def = ObjFiber.FiberDef{
-            .return_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-            .yield_type = try self.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-        };
-
-        const resolved_type = ObjTypeDef.TypeUnion{
-            .Fiber = fiber_def,
-        };
-
-        const type_def = try self.gc.type_registry.getTypeDef(ObjTypeDef{
-            .optional = false,
-            .def_type = .Fiber,
-            .resolved_type = resolved_type,
-        });
-
         self.current_ast = ast;
+
         self.current_fiber = try self.gc.allocator.create(Fiber);
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
-            type_def,
+            try self.gc.type_registry.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Fiber,
+                    .resolved_type = .{
+                        .Fiber = .{
+                            .return_type = self.gc.type_registry.void_type,
+                            .yield_type = self.gc.type_registry.void_type,
+                        },
+                    },
+                },
+            ),
             null, // parent fiber
             null, // stack_slice
             .OP_CALL, // call_type

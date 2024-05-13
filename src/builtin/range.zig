@@ -8,11 +8,7 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
         obj.ObjList,
         obj.ObjList.init(
             ctx.vm.gc.allocator,
-            ctx.vm.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Integer,
-                },
-            ) catch @panic("Could not instanciate list"),
+            ctx.vm.gc.type_registry.int_type,
         ),
     ) catch @panic("Could not instanciate range");
 

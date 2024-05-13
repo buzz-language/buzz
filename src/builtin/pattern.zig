@@ -85,11 +85,7 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
                 ObjList,
                 ObjList.init(
                     vm.gc.allocator,
-                    try vm.gc.type_registry.getTypeDef(
-                        ObjTypeDef{
-                            .def_type = .String,
-                        },
-                    ),
+                    vm.gc.type_registry.str_type,
                 ),
             );
 

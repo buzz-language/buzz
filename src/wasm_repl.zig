@@ -36,10 +36,7 @@ pub export fn initRepl() *ReplCtx {
 
     const gc = allocator.create(GarbageCollector) catch unreachable;
     gc.* = GarbageCollector.init(allocator);
-    gc.type_registry = TypeRegistry{
-        .gc = gc,
-        .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
-    };
+    gc.type_registry = TypeRegistry.init(gc) catch unreachable;
 
     const imports = allocator.create(std.StringHashMap(Parser.ScriptImport)) catch unreachable;
     imports.* = std.StringHashMap(Parser.ScriptImport).init(allocator);

@@ -139,7 +139,7 @@ pub const max_constants: u24 = std.math.maxInt(u24);
 ast: Ast,
 /// List of opcodes to execute
 code: std.ArrayList(u32),
-/// List of lines
+/// List of locations
 lines: std.ArrayList(Ast.TokenIndex),
 /// List of constants defined in this chunk
 constants: std.ArrayList(Value),
@@ -169,5 +169,5 @@ pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
     try self.constants.append(value);
     if (vm) |uvm| _ = uvm.pop();
 
-    return @as(u24, @intCast(self.constants.items.len - 1));
+    return @intCast(self.constants.items.len - 1);
 }

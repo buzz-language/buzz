@@ -136,12 +136,8 @@ pub const Obj = struct {
                         .resolved_type = .{
                             .Map = ObjMap.MapDef.init(
                                 vm.gc.allocator,
-                                vm.gc.type_registry.getTypeDef(
-                                    .{ .def_type = .String },
-                                ) catch return error.OutOfMemory,
-                                vm.gc.type_registry.getTypeDef(
-                                    .{ .def_type = .Integer },
-                                ) catch return error.OutOfMemory,
+                                vm.gc.type_registry.str_type,
+                                vm.gc.type_registry.int_type,
                             ),
                         },
                     },
@@ -173,9 +169,7 @@ pub const Obj = struct {
 
                 const list_def = ObjList.ListDef.init(
                     vm.gc.allocator,
-                    vm.gc.type_registry.getTypeDef(
-                        .{ .def_type = .Any },
-                    ) catch return error.OutOfMemory,
+                    vm.gc.type_registry.any_type,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .List = list_def };
@@ -207,14 +201,11 @@ pub const Obj = struct {
 
             .Map => {
                 const map = self.access(ObjMap, .Map, vm.gc).?;
-                const any = vm.gc.type_registry.getTypeDef(
-                    .{ .def_type = .Any },
-                ) catch return error.OutOfMemory;
 
                 const map_def = ObjMap.MapDef.init(
                     vm.gc.allocator,
-                    any,
-                    any,
+                    vm.gc.type_registry.any_type,
+                    vm.gc.type_registry.any_type,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -250,14 +241,10 @@ pub const Obj = struct {
                 const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
                 const object_def = instance.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
-                const any = vm.gc.type_registry.getTypeDef(
-                    .{ .def_type = .Any },
-                ) catch return error.OutOfMemory;
-
                 const map_def = ObjMap.MapDef.init(
                     vm.gc.allocator,
-                    any,
-                    any,
+                    vm.gc.type_registry.any_type,
+                    vm.gc.type_registry.any_type,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -294,14 +281,10 @@ pub const Obj = struct {
                 const container = self.access(ObjForeignContainer, .ForeignContainer, vm.gc).?;
                 const container_def = container.type_def.resolved_type.?.ForeignContainer;
 
-                const any = vm.gc.type_registry.getTypeDef(
-                    .{ .def_type = .Any },
-                ) catch return error.OutOfMemory;
-
                 const map_def = ObjMap.MapDef.init(
                     vm.gc.allocator,
-                    any,
-                    any,
+                    vm.gc.type_registry.any_type,
+                    vm.gc.type_registry.any_type,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -344,9 +327,9 @@ pub const Obj = struct {
 
     pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
         return switch (self.obj_type) {
-            .Range => try gc.type_registry.getTypeDef(.{ .def_type = .Range }),
-            .String => try gc.type_registry.getTypeDef(.{ .def_type = .String }),
-            .Pattern => try gc.type_registry.getTypeDef(.{ .def_type = .Pattern }),
+            .Range => gc.type_registry.rg_type,
+            .String => gc.type_registry.str_type,
+            .Pattern => gc.type_registry.pat_type,
             .Fiber => try gc.type_registry.getTypeDef(.{ .def_type = .Fiber }),
             .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
             .Object => ObjObject.cast(self).?.type_def,
@@ -367,7 +350,7 @@ pub const Obj = struct {
                 break :bound try (if (bound.closure) |cls| cls.function.toValue() else bound.native.?.toValue()).typeOf(gc);
             },
             .ForeignContainer => ObjForeignContainer.cast(self).?.type_def,
-            .UserData => try gc.type_registry.getTypeDef(.{ .def_type = .UserData }),
+            .UserData => gc.type_registry.ud_type,
             // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
             // Or since native are ptr to unique function we can keep a map of ptr => typedef
             .Native => unreachable,
@@ -1728,21 +1711,24 @@ pub const ObjList = struct {
                 // `value` arg is of item_type
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("append"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("append"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.void_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("append", native_type);
 
@@ -1753,37 +1739,28 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                const at_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
-                        .def_type = .Integer,
-                        .optional = false,
-                    },
-                );
-
-                try parameters.put(try parser.gc.copyString("at"), at_type);
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("remove"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .optional = true,
-                        .def_type = self.item_type.def_type,
-                        .resolved_type = self.item_type.resolved_type,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                try parameters.put(try parser.gc.copyString("at"), parser.gc.type_registry.int_type);
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("remove"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try parser.gc.type_registry.getTypeDef(.{
+                                    .optional = true,
+                                    .def_type = self.item_type.def_type,
+                                    .resolved_type = self.item_type.resolved_type,
+                                }),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -1791,30 +1768,22 @@ pub const ObjList = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "len")) {
-                const parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("len"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(
-                        ObjTypeDef{
-                            .def_type = .Integer,
-                        },
-                    ),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("len"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.int_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -1837,31 +1806,28 @@ pub const ObjList = struct {
                         },
                     ),
                 );
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("next"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    // When reached end of list, returns null
-                    .return_type = try parser.gc.type_registry.getTypeDef(
-                        ObjTypeDef{
-                            .def_type = .Integer,
-                            .optional = true,
-                        },
-                    ),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("next"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                // When reached end of list, returns null
+                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                    ObjTypeDef{
+                                        .def_type = .Integer,
+                                        .optional = true,
+                                    },
+                                ),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -1876,11 +1842,7 @@ pub const ObjList = struct {
 
                 try parameters.put(
                     try parser.gc.copyString("start"),
-                    try parser.gc.type_registry.getTypeDef(
-                        .{
-                            .def_type = .Integer,
-                        },
-                    ),
+                    parser.gc.type_registry.int_type,
                 );
 
                 const len_str = try parser.gc.copyString("len");
@@ -1897,24 +1859,22 @@ pub const ObjList = struct {
                 var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
                 try defaults.put(len_str, Value.Null);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("sub"),
-                    .parameters = parameters,
-                    .defaults = defaults,
-                    .return_type = obj_list,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("sub"),
+                                .parameters = parameters,
+                                .defaults = defaults,
+                                .return_type = obj_list,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -1929,11 +1889,7 @@ pub const ObjList = struct {
 
                 try parameters.put(
                     try parser.gc.copyString("value"),
-                    try parser.gc.type_registry.getTypeDef(
-                        .{
-                            .def_type = .Any,
-                        },
-                    ),
+                    parser.gc.type_registry.any_type,
                 );
 
                 const start_str = try parser.gc.copyString("start");
@@ -1973,7 +1929,7 @@ pub const ObjList = struct {
                                 .parameters = parameters,
                                 .defaults = defaults,
                                 .return_type = obj_list,
-                                .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                                .yield_type = parser.gc.type_registry.void_type,
                                 .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
@@ -1992,29 +1948,27 @@ pub const ObjList = struct {
 
                 try parameters.put(try parser.gc.copyString("needle"), self.item_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("indexOf"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(
-                        .{
-                            .def_type = .Integer,
-                            .optional = true,
-                        },
-                    ),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("indexOf"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                    .{
+                                        .def_type = .Integer,
+                                        .optional = true,
+                                    },
+                                ),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2027,28 +1981,24 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put(try parser.gc.copyString("separator"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .String }));
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("join"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{
-                        .def_type = .String,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
+                try parameters.put(try parser.gc.copyString("separator"), parser.gc.type_registry.str_type);
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("join"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.str_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2063,49 +2013,53 @@ pub const ObjList = struct {
 
                 try parameters.put(
                     try parser.gc.copyString("index"),
-                    try parser.gc.type_registry.getTypeDef(.{
-                        .def_type = .Integer,
-                    }),
+                    parser.gc.type_registry.int_type,
                 );
 
                 // `value` arg is of item_type
                 try parameters.put(try parser.gc.copyString("value"), self.item_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("insert"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("insert"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("insert", native_type);
 
                 return native_type;
             } else if (mem.eql(u8, method, "pop")) {
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("pop"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("pop"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("pop", native_type);
 
@@ -2116,27 +2070,31 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
-                try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
-
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                try callback_parameters.put(
+                    try parser.gc.copyString("index"),
+                    parser.gc.type_registry.int_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("element"),
+                    self.item_type,
+                );
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.void_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -2147,21 +2105,24 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("forEach"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("forEach"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.void_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("forEach", native_type);
 
@@ -2170,47 +2131,47 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
-
-                try callback_parameters.put(try parser.gc.copyString("index"), try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }));
-                try callback_parameters.put(try parser.gc.copyString("element"), self.item_type);
-
-                var callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = undefined,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    // FIXME: user could provide an .Extern function and JIT will be lost here
-                };
-
                 const map_origin = ObjFunction.FunctionDef.nextId();
-
-                // Mapped type
-                const generic = ObjTypeDef.GenericDef{
-                    .origin = map_origin,
-                    .index = 0,
-                };
-                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
                 const generic_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Generic,
-                        .resolved_type = generic_resolved_type,
+                        .resolved_type = .{
+                            .Generic = .{
+                                .origin = map_origin,
+                                .index = 0,
+                            },
+                        },
                     },
                 );
 
-                callback_method_def.return_type = generic_type;
+                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                try callback_parameters.put(
+                    try parser.gc.copyString("index"),
+                    parser.gc.type_registry.int_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("element"),
+                    self.item_type,
+                );
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = generic_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                // FIXME: user could provide an .Extern function and JIT will be lost here
+                            },
+                        },
                     },
                 );
 
@@ -2235,7 +2196,7 @@ pub const ObjList = struct {
                         .def_type = .List,
                         .resolved_type = new_list_type,
                     }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .yield_type = parser.gc.type_registry.void_type,
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .function_type = .Extern,
                 };
@@ -2247,7 +2208,12 @@ pub const ObjList = struct {
 
                 const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
 
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    ObjTypeDef{
+                        .def_type = .Function,
+                        .resolved_type = resolved_type,
+                    },
+                );
 
                 try self.methods.put("map", native_type);
 
@@ -2260,31 +2226,30 @@ pub const ObjList = struct {
 
                 try callback_parameters.put(
                     try parser.gc.copyString("index"),
-                    try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                    parser.gc.type_registry.int_type,
                 );
+
                 try callback_parameters.put(
                     try parser.gc.copyString("element"),
                     self.item_type,
                 );
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.bool_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -2295,21 +2260,24 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("filter"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_list,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("filter"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_list,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("filter", native_type);
 
@@ -2318,15 +2286,15 @@ pub const ObjList = struct {
                 const reduce_origin = ObjFunction.FunctionDef.nextId();
 
                 // Mapped type
-                const generic = ObjTypeDef.GenericDef{
-                    .origin = reduce_origin,
-                    .index = 0,
-                };
-                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
                 const generic_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Generic,
-                        .resolved_type = generic_resolved_type,
+                        .resolved_type = .{
+                            .Generic = .{
+                                .origin = reduce_origin,
+                                .index = 0,
+                            },
+                        },
                     },
                 );
 
@@ -2334,7 +2302,7 @@ pub const ObjList = struct {
 
                 try callback_parameters.put(
                     try parser.gc.copyString("index"),
-                    try parser.gc.type_registry.getTypeDef(.{ .def_type = .Integer }),
+                    parser.gc.type_registry.int_type,
                 );
                 try callback_parameters.put(
                     try parser.gc.copyString("element"),
@@ -2345,24 +2313,22 @@ pub const ObjList = struct {
                     generic_type,
                 );
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = generic_type,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = generic_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -2380,24 +2346,22 @@ pub const ObjList = struct {
                 var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
                 try generic_types.put(try parser.gc.copyString("T"), generic_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = reduce_origin,
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("reduce"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = generic_type,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = generic_types,
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = reduce_origin,
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("reduce"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = generic_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = generic_types,
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2410,27 +2374,31 @@ pub const ObjList = struct {
 
                 var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
 
-                try callback_parameters.put(try parser.gc.copyString("left"), self.item_type);
-                try callback_parameters.put(try parser.gc.copyString("right"), self.item_type);
-
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
+                try callback_parameters.put(
+                    try parser.gc.copyString("left"),
+                    self.item_type,
+                );
+                try callback_parameters.put(
+                    try parser.gc.copyString("right"),
+                    self.item_type,
+                );
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.bool_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -2441,24 +2409,22 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("sort"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_list,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("sort"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_list,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2469,24 +2435,22 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("clone"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_list,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("clone"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_list,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2497,24 +2461,22 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("reverse"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_list,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("reverse"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_list,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2761,26 +2723,22 @@ pub const ObjMap = struct {
             }
 
             if (mem.eql(u8, method, "size")) {
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("size"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .def_type = .Integer,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("size"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.int_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2795,28 +2753,28 @@ pub const ObjMap = struct {
 
                 try parameters.put(try parser.gc.copyString("at"), self.key_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("remove"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .optional = true,
-                        .def_type = self.value_type.def_type,
-                        .resolved_type = self.value_type.resolved_type,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("remove"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                    .{
+                                        .optional = true,
+                                        .def_type = self.value_type.def_type,
+                                        .resolved_type = self.value_type.resolved_type,
+                                    },
+                                ),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2824,37 +2782,33 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "keys")) {
-                const list_def = ObjList.ListDef.init(
-                    parser.gc.allocator,
-                    self.key_type,
-                );
-
-                const list_def_union: ObjTypeDef.TypeUnion = .{
-                    .List = list_def,
-                };
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("keys"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .def_type = .List,
-                        .optional = false,
-                        .resolved_type = list_def_union,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("keys"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                    .{
+                                        .def_type = .List,
+                                        .optional = false,
+                                        .resolved_type = .{
+                                            .List = ObjList.ListDef.init(
+                                                parser.gc.allocator,
+                                                self.key_type,
+                                            ),
+                                        },
+                                    },
+                                ),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2862,37 +2816,31 @@ pub const ObjMap = struct {
 
                 return native_type;
             } else if (mem.eql(u8, method, "values")) {
-                const list_def = ObjList.ListDef.init(
-                    parser.gc.allocator,
-                    self.value_type,
-                );
-
-                const list_def_union: ObjTypeDef.TypeUnion = .{
-                    .List = list_def,
-                };
-
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("values"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
-                        .def_type = .List,
-                        .optional = false,
-                        .resolved_type = list_def_union,
-                    }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("values"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = try parser.gc.type_registry.getTypeDef(.{
+                                    .def_type = .List,
+                                    .optional = false,
+                                    .resolved_type = .{
+                                        .List = ObjList.ListDef.init(
+                                            parser.gc.allocator,
+                                            self.value_type,
+                                        ),
+                                    },
+                                }),
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2908,24 +2856,22 @@ pub const ObjMap = struct {
                 try callback_parameters.put(try parser.gc.copyString("left"), self.key_type);
                 try callback_parameters.put(try parser.gc.copyString("right"), self.key_type);
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.bool_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -2936,24 +2882,22 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("sort"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_map,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("sort"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_map,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -2971,24 +2915,22 @@ pub const ObjMap = struct {
                     obj_map,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("diff"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_map,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("diff"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_map,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -3006,24 +2948,22 @@ pub const ObjMap = struct {
                     obj_map,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("intersect"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_map,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("intersect"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_map,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -3045,24 +2985,22 @@ pub const ObjMap = struct {
                     self.value_type,
                 );
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.void_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -3073,21 +3011,24 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("forEach"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("forEach"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.void_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("forEach", native_type);
 
@@ -3112,7 +3053,7 @@ pub const ObjMap = struct {
                     .parameters = callback_parameters,
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = undefined,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .yield_type = parser.gc.type_registry.void_type,
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     // FIXME: user could provide an .Extern function and JIT will be lost here
                 };
@@ -3120,27 +3061,27 @@ pub const ObjMap = struct {
                 const map_origin = ObjFunction.FunctionDef.nextId();
 
                 // Mapped type
-                const generic_key = ObjTypeDef.GenericDef{
-                    .origin = map_origin,
-                    .index = 0,
-                };
-                const generic_key_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic_key };
                 const generic_key_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Generic,
-                        .resolved_type = generic_key_resolved_type,
+                        .resolved_type = .{
+                            .Generic = .{
+                                .origin = map_origin,
+                                .index = 0,
+                            },
+                        },
                     },
                 );
 
-                const generic_value = ObjTypeDef.GenericDef{
-                    .origin = map_origin,
-                    .index = 1,
-                };
-                const generic_value_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic_value };
                 const generic_value_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Generic,
-                        .resolved_type = generic_value_resolved_type,
+                        .resolved_type = .{
+                            .Generic = .{
+                                .origin = map_origin,
+                                .index = 1,
+                            },
+                        },
                     },
                 );
 
@@ -3156,10 +3097,11 @@ pub const ObjMap = struct {
                 try entry_def.fields.put("key", generic_key_type);
                 try entry_def.fields.put("value", generic_value_type);
 
-                const entry_def_resolved_type = ObjTypeDef.TypeUnion{ .Object = entry_def };
-
                 const entry_type_def = try parser.gc.type_registry.getTypeDef(
-                    .{ .def_type = .Object, .resolved_type = entry_def_resolved_type },
+                    .{
+                        .def_type = .Object,
+                        .resolved_type = .{ .Object = entry_def },
+                    },
                 );
 
                 callback_method_def.return_type = try entry_type_def.toInstance(
@@ -3167,12 +3109,10 @@ pub const ObjMap = struct {
                     &parser.gc.type_registry,
                 );
 
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{ .Function = callback_method_def },
                     },
                 );
 
@@ -3183,14 +3123,6 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                const new_map_def = ObjMap.MapDef.init(
-                    parser.gc.allocator,
-                    generic_key_type,
-                    generic_value_type,
-                );
-
-                const new_map_type = ObjTypeDef.TypeUnion{ .Map = new_map_def };
-
                 var method_def = ObjFunction.FunctionDef{
                     .id = map_origin,
                     .script_name = try parser.gc.copyString("builtin"),
@@ -3199,9 +3131,15 @@ pub const ObjMap = struct {
                     .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(.{
                         .def_type = .Map,
-                        .resolved_type = new_map_type,
+                        .resolved_type = .{
+                            .Map = ObjMap.MapDef.init(
+                                parser.gc.allocator,
+                                generic_key_type,
+                                generic_value_type,
+                            ),
+                        },
                     }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
+                    .yield_type = parser.gc.type_registry.void_type,
                     .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
                     .function_type = .Extern,
                 };
@@ -3216,12 +3154,10 @@ pub const ObjMap = struct {
                     generic_value_type,
                 );
 
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{ .Function = method_def },
                     },
                 );
 
@@ -3243,24 +3179,22 @@ pub const ObjMap = struct {
                     self.value_type,
                 );
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Bool }),
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = parser.gc.type_registry.bool_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -3271,21 +3205,24 @@ pub const ObjMap = struct {
                     callback_type,
                 );
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("filter"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_map,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
-                const native_type = try parser.gc.type_registry.getTypeDef(ObjTypeDef{ .def_type = .Function, .resolved_type = resolved_type });
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("filter"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_map,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
 
                 try self.methods.put("filter", native_type);
 
@@ -3294,15 +3231,15 @@ pub const ObjMap = struct {
                 const reduce_origin = ObjFunction.FunctionDef.nextId();
 
                 // Mapped type
-                const generic = ObjTypeDef.GenericDef{
-                    .origin = reduce_origin,
-                    .index = 0,
-                };
-                const generic_resolved_type = ObjTypeDef.TypeUnion{ .Generic = generic };
                 const generic_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Generic,
-                        .resolved_type = generic_resolved_type,
+                        .resolved_type = .{
+                            .Generic = .{
+                                .origin = reduce_origin,
+                                .index = 0,
+                            },
+                        },
                     },
                 );
 
@@ -3321,24 +3258,22 @@ pub const ObjMap = struct {
                     generic_type,
                 );
 
-                const callback_method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = generic_type,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                };
-
-                const callback_resolved_type: ObjTypeDef.TypeUnion = .{ .Function = callback_method_def };
-
                 const callback_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = callback_resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                // TODO: is this ok?
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("anonymous"),
+                                .parameters = callback_parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = generic_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                            },
+                        },
                     },
                 );
 
@@ -3356,24 +3291,22 @@ pub const ObjMap = struct {
                 var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
                 try generic_types.put(try parser.gc.copyString("T"), generic_type);
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = reduce_origin,
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("reduce"),
-                    .parameters = parameters,
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = generic_type,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = generic_types,
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = reduce_origin,
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("reduce"),
+                                .parameters = parameters,
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = generic_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = generic_types,
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 
@@ -3384,24 +3317,22 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                const method_def = ObjFunction.FunctionDef{
-                    .id = ObjFunction.FunctionDef.nextId(),
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("clone"),
-                    .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
-                    .return_type = obj_map,
-                    .yield_type = try parser.gc.type_registry.getTypeDef(.{ .def_type = .Void }),
-                    .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
-                    .function_type = .Extern,
-                };
-
-                const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
-
                 const native_type = try parser.gc.type_registry.getTypeDef(
-                    ObjTypeDef{
+                    .{
                         .def_type = .Function,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("clone"),
+                                .parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator),
+                                .return_type = obj_map,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator),
+                                .function_type = .Extern,
+                            },
+                        },
                     },
                 );
 

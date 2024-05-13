@@ -55,7 +55,7 @@ pub fn utf8Codepoints(ctx: *NativeCtx) c_int {
 
     const list_def = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
-        ctx.vm.gc.type_registry.getTypeDef(.{ .def_type = .String }) catch @panic("Could not create list"),
+        ctx.vm.gc.type_registry.str_type,
     );
 
     const list_def_union: ObjTypeDef.TypeUnion = .{
@@ -215,9 +215,7 @@ pub fn split(ctx: *NativeCtx) c_int {
     // std.mem.split(u8, self.string, separator.string);
     const list_def = ObjList.ListDef.init(
         ctx.vm.gc.allocator,
-        ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
-            .def_type = .String,
-        }) catch @panic("Could not create string"),
+        ctx.vm.gc.type_registry.str_type,
     );
 
     const list_def_union: ObjTypeDef.TypeUnion = .{

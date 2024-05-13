@@ -456,9 +456,7 @@ export fn bz_toString(vm: *VM, value: Value) Value {
 
 /// Returns the [str] type
 export fn bz_stringType(vm: *VM) Value {
-    return (vm.gc.type_registry.getTypeDef(
-        ObjTypeDef{ .def_type = .String, .optional = false },
-    ) catch @panic("Out of memory")).toValue();
+    return vm.gc.type_registry.str_type.toValue();
 }
 
 export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
@@ -624,10 +622,7 @@ export fn bz_newVM(self: *VM) ?*VM {
     };
     // FIXME: should share strings between gc
     gc.* = GarbageCollector.init(self.gc.allocator);
-    gc.type_registry = TypeRegistry{
-        .gc = gc,
-        .registry = std.StringHashMap(*ObjTypeDef).init(self.gc.allocator),
-    };
+    gc.type_registry = TypeRegistry.init(gc) catch @panic("Out of memory");
 
     // FIXME: give reference to JIT?
     vm.* = VM.init(gc, self.import_registry, self.flavor) catch {

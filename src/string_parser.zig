@@ -104,11 +104,7 @@ pub const StringParser = struct {
                 .tag = .String,
                 .location = self.parser.ast.nodes.items(.location)[self.elements.items[0]],
                 .end_location = self.parser.ast.nodes.items(.location)[self.elements.getLast()],
-                .type_def = try self.parser.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .String,
-                    },
-                ),
+                .type_def = self.parser.gc.type_registry.str_type,
                 .components = .{
                     .String = self.elements.items,
                 },
@@ -123,11 +119,7 @@ pub const StringParser = struct {
                     .tag = .StringLiteral,
                     .location = self.parser.current_token.? - 1,
                     .end_location = self.parser.current_token.? - 1,
-                    .type_def = try self.parser.gc.type_registry.getTypeDef(
-                        .{
-                            .def_type = .String,
-                        },
-                    ),
+                    .type_def = self.parser.gc.type_registry.str_type,
                     .components = .{
                         .StringLiteral = try self.parser.gc.copyString(chars),
                     },

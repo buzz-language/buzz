@@ -74,10 +74,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
     var import_registry = ImportRegistry.init(allocator);
     var gc = GarbageCollector.init(allocator);
-    gc.type_registry = TypeRegistry{
-        .gc = &gc,
-        .registry = std.StringHashMap(*ObjTypeDef).init(allocator),
-    };
+    gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, flavor);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)

@@ -40,11 +40,43 @@ pub const TypeRegistry = struct {
     gc: *GarbageCollector,
     registry: std.StringHashMap(*ObjTypeDef),
 
-    pub fn init(gc: *GarbageCollector) Self {
-        return .{
+    // Common types we reuse all the time
+    void_type: *ObjTypeDef,
+    str_type: *ObjTypeDef,
+    int_type: *ObjTypeDef,
+    float_type: *ObjTypeDef,
+    bool_type: *ObjTypeDef,
+    any_type: *ObjTypeDef,
+    pat_type: *ObjTypeDef,
+    ud_type: *ObjTypeDef,
+    rg_type: *ObjTypeDef,
+
+    pub fn init(gc: *GarbageCollector) !Self {
+        var self = Self{
             .gc = gc,
             .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
+            .void_type = undefined,
+            .str_type = undefined,
+            .int_type = undefined,
+            .float_type = undefined,
+            .bool_type = undefined,
+            .any_type = undefined,
+            .pat_type = undefined,
+            .ud_type = undefined,
+            .rg_type = undefined,
         };
+
+        self.void_type = try self.getTypeDef(.{ .def_type = .Void });
+        self.str_type = try self.getTypeDef(.{ .def_type = .String });
+        self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
+        self.float_type = try self.getTypeDef(.{ .def_type = .Float });
+        self.bool_type = try self.getTypeDef(.{ .def_type = .Bool });
+        self.any_type = try self.getTypeDef(.{ .def_type = .Any });
+        self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });
+        self.ud_type = try self.getTypeDef(.{ .def_type = .UserData });
+        self.rg_type = try self.getTypeDef(.{ .def_type = .Range });
+
+        return self;
     }
 
     pub fn deinit(self: *Self) void {
