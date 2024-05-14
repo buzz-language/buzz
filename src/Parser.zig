@@ -3521,6 +3521,8 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
                 self.ast.tokens.get(self.ast.nodes.items(.location)[callee]),
                 "Can't be called",
             );
+
+            type_def = self.gc.type_registry.void_type;
         } else {
             const placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
                 .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, start_location),
@@ -3552,7 +3554,11 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
                     .is_async = false,
                     .callee = callee,
                     // We do this because the callee type will change in the dot.call usecase
-                    .callee_type_def = self.ast.nodes.items(.type_def)[callee].?,
+                    .callee_type_def = self.ast.nodes.items(.type_def)[callee] orelse callee_td: {
+                        std.debug.assert(self.reporter.had_error);
+
+                        break :callee_td self.gc.type_registry.void_type;
+                    },
                     .arguments = arguments,
                     .catch_default = catch_default,
                 },
