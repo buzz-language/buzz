@@ -3345,6 +3345,10 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
             }
         }
 
+        if (items.items.len > std.math.maxInt(u24)) {
+            self.reportErrorAtCurrent(.syntax, "Too many elements in list initialization");
+        }
+
         if (self.ast.tokens.items(.tag)[self.current_token.? - 1] != .RightBracket) {
             self.reportErrorAtCurrent(.syntax, "Expected `]`");
         }
@@ -3661,6 +3665,10 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
             if (!self.check(.RightBrace)) {
                 try self.consume(.Comma, "Expected `,` after map entry.");
             }
+        }
+
+        if (entries.items.len > std.math.maxInt(u24)) {
+            self.reportErrorAtCurrent(.syntax, "Too many entries in map initialization");
         }
 
         key_type_def = key_type_def orelse common_key_type;
