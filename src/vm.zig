@@ -444,7 +444,6 @@ pub const VM = struct {
         self.current_fiber.stack_top -= 1;
         return self.current_fiber.stack_top[0];
     }
-
     pub fn peek(self: *Self, distance: u32) Value {
         return (self.current_fiber.stack_top - 1 - distance)[0];
     }
@@ -2009,16 +2008,20 @@ pub const VM = struct {
         );
     }
 
-    fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var list = self.peek(1).obj().access(ObjList, .List, self.gc).?;
-        const list_value = self.peek(0);
+    fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: OpCode, item_count: u24) void {
+        var list = self.peek(item_count).obj().access(ObjList, .List, self.gc).?;
 
-        list.rawAppend(self.gc, list_value) catch {
-            self.panic("Out of memory");
-            unreachable;
-        };
+        var distance: i64 = @intCast(item_count - 1);
+        while (distance >= 0) : (distance -= 1) {
+            const item = self.peek(@intCast(distance));
+            list.rawAppend(self.gc, item) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+        }
 
-        _ = self.pop();
+        // Pop items all at once
+        self.current_fiber.stack_top -= item_count;
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -2059,18 +2062,22 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        var map = self.peek(2).obj().access(ObjMap, .Map, self.gc).?;
-        const key = self.peek(1);
-        const value = self.peek(0);
+    fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, entries_count: u24) void {
+        var map = self.peek(entries_count * 2).obj().access(ObjMap, .Map, self.gc).?;
 
-        map.set(self.gc, key, value) catch {
-            self.panic("Out of memory");
-            unreachable;
-        };
+        var distance: i64 = @intCast((entries_count * 2) - 1);
+        while (distance >= 0) : (distance -= 2) {
+            const key = self.peek(@intCast(distance));
+            const value = self.peek(@intCast(distance - 1));
 
-        _ = self.pop();
-        _ = self.pop();
+            map.set(self.gc, key, value) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+        }
+
+        // Pop entries all at once
+        self.current_fiber.stack_top -= entries_count * 2;
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(

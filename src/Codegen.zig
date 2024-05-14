@@ -260,37 +260,6 @@ pub fn patchTryOrJit(self: *Self, offset: usize) void {
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
-pub fn emitList(
-    self: *Self,
-    location: Ast.TokenIndex,
-) !usize {
-    try self.emitCodeArg(location, .OP_LIST, 0xffffff);
-
-    return self.currentCode() - 1;
-}
-
-pub fn patchList(self: *Self, offset: usize, constant: u24) !void {
-    const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-    const instruction: u8 = @intCast(original >> 24);
-
-    self.current.?.function.?.chunk.code.items[offset] =
-        (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(constant));
-}
-
-pub fn emitMap(self: *Self, location: Ast.TokenIndex) !usize {
-    try self.emitCodeArg(location, .OP_MAP, 0xffffff);
-
-    return self.currentCode() - 1;
-}
-
-pub fn patchMap(self: *Self, offset: usize, map_type_constant: u24) !void {
-    const original: u32 = self.current.?.function.?.chunk.code.items[offset];
-    const instruction: u8 = @intCast(original >> 24);
-
-    self.current.?.function.?.chunk.code.items[offset] =
-        (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(map_type_constant));
-}
-
 pub fn emitReturn(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_VOID);
     try self.emitOpCode(location, .OP_RETURN);
@@ -2623,7 +2592,12 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
     const type_defs = self.ast.nodes.items(.type_def);
 
     const item_type = type_defs[node].?.resolved_type.?.List.item_type;
-    const list_offset = try self.emitList(locations[node]);
+
+    try self.emitCodeArg(
+        locations[node],
+        .OP_LIST,
+        try self.makeConstant(Value.fromObj(type_defs[node].?.toObj())),
+    );
 
     for (components.items) |item| {
         if (item_type.def_type == .Placeholder) {
@@ -2639,13 +2613,16 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize
             );
         } else {
             _ = try self.generateNode(item, breaks);
-
-            try self.emitOpCode(locations[item], .OP_LIST_APPEND);
         }
     }
 
-    const list_type_constant = try self.makeConstant(Value.fromObj(type_defs[node].?.toObj()));
-    try self.patchList(list_offset, list_type_constant);
+    if (components.items.len > 0) {
+        try self.emitCodeArg(
+            locations[node],
+            .OP_LIST_APPEND,
+            @intCast(components.items.len),
+        );
+    }
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -2668,13 +2645,15 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
     else
         null;
 
-    const map_offset = try self.emitMap(locations[node]);
+    try self.emitCodeArg(
+        locations[node],
+        .OP_MAP,
+        try self.makeConstant(Value.fromObj(type_defs[node].?.toObj())),
+    );
 
     for (components.entries) |entry| {
         _ = try self.generateNode(entry.key, breaks);
         _ = try self.generateNode(entry.value, breaks);
-
-        try self.emitOpCode(locations[node], .OP_SET_MAP);
 
         if (type_defs[entry.key].?.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, type_defs[entry.key].?.resolved_type.?.Placeholder);
@@ -2707,8 +2686,13 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*std.ArrayList(usize)
         }
     }
 
-    const map_type_constant = try self.makeConstant(Value.fromObj(type_defs[node].?.toObj()));
-    try self.patchMap(map_offset, map_type_constant);
+    if (components.entries.len > 0) {
+        try self.emitCodeArg(
+            locations[node],
+            .OP_SET_MAP,
+            @intCast(components.entries.len),
+        );
+    }
 
     try self.patchOptJumps(node);
     try self.endScope(node);
