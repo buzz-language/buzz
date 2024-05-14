@@ -65,7 +65,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             self.type_def,
         ),
-    ) catch unreachable;
+    ) catch @panic("Out of memory");
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
@@ -80,7 +80,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
         );
 
         if (ctx.vm.pop().boolean()) {
-            new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch unreachable;
+            new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch @panic("Out of memory");
         }
     }
 
@@ -115,16 +115,6 @@ pub fn map(ctx: *NativeCtx) c_int {
 
     const mapped_type = closure.function.type_def.resolved_type.?.Function.return_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
-    const map_def = ObjMap.MapDef.init(
-        ctx.vm.gc.allocator,
-        mapped_type.fields.get("key").?,
-        mapped_type.fields.get("value").?,
-    );
-
-    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-        .Map = map_def,
-    };
-
     var new_map: *ObjMap = ctx.vm.gc.allocateObject(
         ObjMap,
         ObjMap.init(
@@ -133,14 +123,20 @@ pub fn map(ctx: *NativeCtx) c_int {
                 .{
                     .optional = false,
                     .def_type = .Map,
-                    .resolved_type = resolved_type,
+                    .resolved_type = .{
+                        .Map = ObjMap.MapDef.init(
+                            ctx.vm.gc.allocator,
+                            mapped_type.fields.get("key").?,
+                            mapped_type.fields.get("value").?,
+                        ),
+                    },
                 },
-            ) catch unreachable,
+            ) catch @panic("Out of memory"),
         ),
-    ) catch unreachable; // TODO: handle error
+    ) catch @panic("Out of memory");
 
-    const key_str = ctx.vm.gc.copyString("key") catch unreachable;
-    const value_str = ctx.vm.gc.copyString("value") catch unreachable;
+    const key_str = ctx.vm.gc.copyString("key") catch @panic("Out of memory");
+    const value_str = ctx.vm.gc.copyString("value") catch @panic("Out of memory");
     var it = self.map.iterator();
     while (it.next()) |kv| {
         var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
@@ -157,7 +153,7 @@ pub fn map(ctx: *NativeCtx) c_int {
         const key = entry.fields.get(key_str).?;
         const value = entry.fields.get(value_str).?;
 
-        new_map.set(ctx.vm.gc, key, value) catch unreachable;
+        new_map.set(ctx.vm.gc, key, value) catch @panic("Out of memory");
     }
 
     ctx.vm.push(new_map.toValue());
@@ -216,7 +212,7 @@ pub fn diff(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             lhs.type_def,
         ),
-    ) catch unreachable;
+    ) catch @panic("Out of memory");
 
     var it = lhs.map.iterator();
     while (it.next()) |kv| {
@@ -226,7 +222,7 @@ pub fn diff(ctx: *NativeCtx) c_int {
                 ctx.vm.gc,
                 kv.key_ptr.*,
                 kv.value_ptr.*,
-            ) catch unreachable;
+            ) catch @panic("Out of memory");
         }
     }
 
@@ -245,7 +241,7 @@ pub fn intersect(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             lhs.type_def,
         ),
-    ) catch unreachable;
+    ) catch @panic("Out of memory");
 
     var it = lhs.map.iterator();
     while (it.next()) |kv| {
@@ -255,7 +251,7 @@ pub fn intersect(ctx: *NativeCtx) c_int {
                 ctx.vm.gc,
                 kv.key_ptr.*,
                 kv.value_ptr.*,
-            ) catch unreachable;
+            ) catch @panic("Out of memory");
         }
     }
 
@@ -267,7 +263,7 @@ pub fn intersect(ctx: *NativeCtx) c_int {
 pub fn size(ctx: *NativeCtx) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(self.map.count()))));
+    ctx.vm.push(Value.fromInteger(@intCast(self.map.count())));
 
     return 1;
 }
@@ -291,33 +287,21 @@ pub fn keys(ctx: *NativeCtx) c_int {
     const map_keys = self.map.keys();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     for (map_keys) |key| {
-        result.append(key) catch {
-            const err = ctx.vm.gc.copyString("could not get map keys") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
-
-            return -1;
-        };
+        result.append(key) catch @panic("Out of memory");
     }
 
-    const list_def = ObjList.ListDef.init(
-        ctx.vm.gc.allocator,
-        self.type_def.resolved_type.?.Map.key_type,
-    );
-
-    const list_def_union: ObjTypeDef.TypeUnion = .{
-        .List = list_def,
-    };
-
-    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
-        .def_type = .List,
-        .optional = false,
-        .resolved_type = list_def_union,
-    }) catch {
-        const err = ctx.vm.gc.copyString("could not get map keys") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
-
-        return -1;
-    };
+    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .List,
+            .optional = false,
+            .resolved_type = .{
+                .List = ObjList.ListDef.init(
+                    ctx.vm.gc.allocator,
+                    self.type_def.resolved_type.?.Map.key_type,
+                ),
+            },
+        },
+    ) catch @panic("Out of memory");
 
     // Prevent collection
     ctx.vm.push(list_def_type.toValue());
@@ -325,12 +309,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
     var list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
-    ) catch {
-        const err = ctx.vm.gc.copyString("could not get map keys") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
-
-        return -1;
-    };
+    ) catch @panic("Out of memory");
 
     list.items.deinit();
     list.items = result;
@@ -346,42 +325,25 @@ pub fn values(ctx: *NativeCtx) c_int {
 
     const map_values: []Value = self.map.values();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
-    result.appendSlice(map_values) catch {
-        const err = ctx.vm.gc.copyString("could not get map values") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
+    result.appendSlice(map_values) catch @panic("Out of memory");
 
-        return -1;
-    };
-
-    const list_def = ObjList.ListDef.init(
-        ctx.vm.gc.allocator,
-        self.type_def.resolved_type.?.Map.value_type,
-    );
-
-    const list_def_union: ObjTypeDef.TypeUnion = .{
-        .List = list_def,
-    };
-
-    const list_def_type = ctx.vm.gc.type_registry.getTypeDef(ObjTypeDef{
-        .def_type = .List,
-        .optional = false,
-        .resolved_type = list_def_union,
-    }) catch {
-        const err = ctx.vm.gc.copyString("could not get map values") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
-
-        return -1;
-    };
+    const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
+        ObjTypeDef{
+            .def_type = .List,
+            .optional = false,
+            .resolved_type = .{
+                .List = ObjList.ListDef.init(
+                    ctx.vm.gc.allocator,
+                    self.type_def.resolved_type.?.Map.value_type,
+                ),
+            },
+        },
+    ) catch @panic("Out of memory");
 
     var list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
-    ) catch {
-        const err = ctx.vm.gc.copyString("could not get map values") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.False);
-
-        return -1;
-    };
+    ) catch @panic("Out of memory");
 
     list.items.deinit();
     list.items = result;

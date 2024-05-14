@@ -10,19 +10,19 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.int_type,
         ),
-    ) catch @panic("Could not instanciate range");
+    ) catch @panic("Out of memory");
 
     ctx.vm.push(Value.fromObj(list.toObj()));
 
     if (range.low < range.high) {
         var i: i32 = range.low;
         while (i < range.high) : (i += 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
+            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Out of memory");
         }
     } else {
         var i: i32 = range.low;
         while (i > range.high) : (i -= 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Could not append to list");
+            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Out of memory");
         }
     }
 
@@ -54,7 +54,7 @@ pub fn invert(ctx: *obj.NativeCtx) c_int {
                 .high = range.low,
                 .low = range.high,
             },
-        ) catch @panic("Could not instanciate range")).toObj()),
+        ) catch @panic("Out of memory")).toObj()),
     );
 
     return 1;

@@ -302,21 +302,23 @@ pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
 
     _ = file.write(value.?[0..len]) catch |err| {
         switch (err) {
-            error.AccessDenied => ctx.vm.pushErrorEnum("errors.FileSystemError", "AccessDenied"),
-            error.BrokenPipe => ctx.vm.pushErrorEnum("errors.ReadWriteError", "BrokenPipe"),
-            error.ConnectionResetByPeer => ctx.vm.pushErrorEnum("errors.ReadWriteError", "ConnectionResetByPeer"),
-            error.DeviceBusy => ctx.vm.pushErrorEnum("errors.FileSystemError", "DeviceBusy"),
-            error.DiskQuota => ctx.vm.pushErrorEnum("errors.FileSystemError", "DiskQuota"),
-            error.FileTooBig => ctx.vm.pushErrorEnum("errors.FileSystemError", "FileTooBig"),
+            error.AccessDenied,
+            error.DeviceBusy,
+            error.DiskQuota,
+            error.FileTooBig,
+            error.NoSpaceLeft,
+            error.SystemResources,
+            error.WouldBlock,
+            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+            error.BrokenPipe,
+            error.ConnectionResetByPeer,
+            error.LockViolation,
+            error.NotOpenForWriting,
+            error.OperationAborted,
+            => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
             error.InputOutput => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
             error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
-            error.LockViolation => ctx.vm.pushErrorEnum("errors.ReadWriteError", "LockViolation"),
-            error.NoSpaceLeft => ctx.vm.pushErrorEnum("errors.FileSystemError", "NoSpaceLeft"),
-            error.NotOpenForWriting => ctx.vm.pushErrorEnum("errors.ReadWriteError", "NotOpenForWriting"),
-            error.OperationAborted => ctx.vm.pushErrorEnum("errors.ReadWriteError", "OperationAborted"),
-            error.SystemResources => ctx.vm.pushErrorEnum("errors.FileSystemError", "SystemResources"),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-            error.WouldBlock => ctx.vm.pushErrorEnum("errors.FileSystemError", "WouldBlock"),
         }
 
         return -1;
@@ -343,11 +345,10 @@ pub export fn runFile(ctx: *api.NativeCtx) c_int {
     };
     defer file.close();
 
-    const source = api.VM.allocator.alloc(u8, (file.stat() catch {
-        @panic("Out of memory");
-    }).size) catch {
-        @panic("Out of memory");
-    };
+    const source = api.VM.allocator.alloc(
+        u8,
+        (file.stat() catch @panic("Out of memory")).size,
+    ) catch @panic("Out of memory");
 
     _ = file.readAll(source) catch |err| {
         handleFileReadAllError(ctx, err);
@@ -364,9 +365,9 @@ pub export fn runFile(ctx: *api.NativeCtx) c_int {
 
     // Run
     if (!vm.bz_run(
-        if (source.len > 0) @as([*]const u8, @ptrCast(source)) else null,
+        if (source.len > 0) @ptrCast(source) else null,
         source.len,
-        if (filename.len > 0) @as([*]const u8, @ptrCast(filename)) else null,
+        if (filename.len > 0) @ptrCast(filename) else null,
         filename.len,
     )) {
         ctx.vm.pushError("errors.InterpretError", null);

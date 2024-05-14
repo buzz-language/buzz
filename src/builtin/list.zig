@@ -16,19 +16,10 @@ pub fn append(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const value: Value = ctx.vm.peek(0);
 
-    list.rawAppend(ctx.vm.gc, value) catch {
-        const messageValue: Value = (ctx.vm.gc.copyString("Could not append to list") catch {
-            std.debug.print("Could not append to list", .{});
-            if (!is_wasm) {
-                std.posix.exit(1);
-            } else {
-                unreachable;
-            }
-        }).toValue();
-
-        ctx.vm.push(messageValue);
-        return -1;
-    };
+    list.rawAppend(
+        ctx.vm.gc,
+        value,
+    ) catch @panic("Out of memory");
 
     return 0;
 }
@@ -45,19 +36,11 @@ pub fn insert(ctx: *NativeCtx) c_int {
         index = @as(i32, @intCast(list.items.items.len)) - 1;
     }
 
-    list.rawInsert(ctx.vm.gc, @as(usize, @intCast(index)), value) catch {
-        const messageValue: Value = (ctx.vm.gc.copyString("Could not insert into list") catch {
-            std.debug.print("Could not insert into list", .{});
-            if (!is_wasm) {
-                std.posix.exit(1);
-            } else {
-                unreachable;
-            }
-        }).toValue();
-
-        ctx.vm.push(messageValue);
-        return -1;
-    };
+    list.rawInsert(
+        ctx.vm.gc,
+        @as(usize, @intCast(index)),
+        value,
+    ) catch @panic("Out of memory");
 
     ctx.vm.push(value);
 
@@ -111,14 +94,7 @@ pub fn remove(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
-    ctx.vm.gc.markObjDirty(&list.obj) catch {
-        std.debug.print("Could not remove from list", .{});
-        if (!is_wasm) {
-            std.posix.exit(1);
-        } else {
-            unreachable;
-        }
-    };
+    ctx.vm.gc.markObjDirty(&list.obj) catch @panic("Out of memory");
 
     return 1;
 }
@@ -207,82 +183,52 @@ pub fn join(ctx: *NativeCtx) c_int {
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
-        item.toString(&writer) catch {
-            const err = ctx.vm.gc.copyString("could not stringify item") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
-        };
+        item.toString(&writer) catch @panic("Out of memory");
 
         if (i + 1 < self.items.items.len) {
-            writer.writeAll(separator.string) catch {
-                const err = ctx.vm.gc.copyString("could not join list") catch null;
-                ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-                return -1;
-            };
+            writer.writeAll(separator.string) catch @panic("Out of memory");
         }
     }
 
-    ctx.vm.push((ctx.vm.gc.copyString(result.items) catch {
-        const err = ctx.vm.gc.copyString("could not join list") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }).toValue());
+    ctx.vm.push(
+        (ctx.vm.gc.copyString(result.items) catch @panic("Out of memory")).toValue(),
+    );
 
     return 1;
 }
 
 pub fn sub(ctx: *NativeCtx) c_int {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(2).obj()).?;
-    const start = ctx.vm.peek(1).integer();
-    const upto = ctx.vm.peek(0).integerOrNull();
-
-    if (start < 0 or start >= self.items.items.len) {
-        const err = ctx.vm.gc.copyString("`start` is out of bound") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }
-
-    if (upto != null and upto.? < 0) {
-        const err = ctx.vm.gc.copyString("`len` must greater or equal to 0") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }
+    const start = @min(
+        @max(
+            0,
+            ctx.vm.peek(1).integer(),
+        ),
+        self.items.items.len - 1,
+    );
+    const upto = if (ctx.vm.peek(0).integerOrNull()) |u|
+        @max(0, u)
+    else
+        null;
 
     const limit: usize = if (upto != null and @as(usize, @intCast(start + upto.?)) < self.items.items.len)
-        @as(usize, @intCast(start + upto.?))
+        @intCast(start + upto.?)
     else
         self.items.items.len;
-    const substr = self.items.items[@as(usize, @intCast(start))..limit];
+    const substr = self.items.items[@intCast(start)..limit];
 
-    var list = ctx.vm.gc.allocateObject(ObjList, ObjList{
-        .type_def = self.type_def,
-        .methods = self.methods.clone() catch {
-            const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
-            ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-            return -1;
+    var list = ctx.vm.gc.allocateObject(
+        ObjList,
+        .{
+            .type_def = self.type_def,
+            .methods = self.methods.clone() catch @panic("Out of memory"),
+            .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
         },
-        .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
-    }) catch {
-        const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    ) catch @panic("Out of memory");
 
     ctx.vm.push(list.toValue());
 
-    list.items.appendSlice(substr) catch {
-        const err = ctx.vm.gc.copyString("Could not get sub list") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    };
+    list.items.appendSlice(substr) catch @panic("Out of memory");
 
     return 1;
 }
@@ -292,9 +238,17 @@ pub fn next(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const list_index: Value = ctx.vm.peek(0);
 
-    const next_index: ?i32 = list.rawNext(ctx.vm, list_index.integerOrNull()) catch @panic("Out of memory");
+    const next_index: ?i32 = list.rawNext(
+        ctx.vm,
+        list_index.integerOrNull(),
+    ) catch @panic("Out of memory");
 
-    ctx.vm.push(if (next_index) |unext_index| Value.fromInteger(unext_index) else Value.Null);
+    ctx.vm.push(
+        if (next_index) |unext_index|
+            Value.fromInteger(unext_index)
+        else
+            Value.Null,
+    );
 
     return 1;
 }
@@ -328,7 +282,11 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
 
-        var args = [_]*const Value{ &index_value, &item, &accumulator };
+        var args = [_]*const Value{
+            &index_value,
+            &item,
+            &accumulator,
+        };
 
         buzz_api.bz_call(
             ctx.vm,
@@ -356,7 +314,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             list.type_def,
         ),
-    ) catch unreachable;
+    ) catch @panic("Out of memory");
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
@@ -371,7 +329,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
         );
 
         if (ctx.vm.pop().boolean()) {
-            new_list.rawAppend(ctx.vm.gc, item) catch unreachable;
+            new_list.rawAppend(ctx.vm.gc, item) catch @panic("Out of memory");
         }
     }
 
@@ -391,7 +349,7 @@ pub fn map(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             mapped_type,
         ),
-    ) catch unreachable; // TODO: handle error
+    ) catch @panic("Out of memory");
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
@@ -405,7 +363,7 @@ pub fn map(ctx: *NativeCtx) c_int {
             null,
         );
 
-        new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch unreachable;
+        new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch @panic("Out of memory");
     }
 
     ctx.vm.push(new_list.toValue());
@@ -416,22 +374,19 @@ pub fn map(ctx: *NativeCtx) c_int {
 pub fn fill(ctx: *NativeCtx) c_int {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(3).obj()).?;
     const value = ctx.vm.peek(2);
-    const start: usize = @intCast(ctx.vm.peek(1).integerOrNull() orelse 0);
-    const count: ?usize = if (ctx.vm.peek(0).integerOrNull()) |c| @intCast(c) else null;
-
-    if (start < 0 or start >= self.items.items.len) {
-        const err = ctx.vm.gc.copyString("`start` is out of bound") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }
-
-    if (count != null and count.? < 0) {
-        const err = ctx.vm.gc.copyString("`count` must greater or equal to 0") catch null;
-        ctx.vm.push(if (err) |uerr| uerr.toValue() else Value.fromBoolean(false));
-
-        return -1;
-    }
+    const start: usize = @intCast(
+        @min(
+            @max(
+                0,
+                ctx.vm.peek(1).integerOrNull() orelse 0,
+            ),
+            self.items.items.len - 1,
+        ),
+    );
+    const count: ?usize = if (ctx.vm.peek(0).integerOrNull()) |c|
+        @intCast(@max(0, c))
+    else
+        null;
 
     const limit: usize = if (count != null and start + count.? < self.items.items.len)
         start + count.?
