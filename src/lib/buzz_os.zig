@@ -27,7 +27,8 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
     const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch @panic("Out of memory");
     defer api.VM.allocator.free(key_slice);
 
-    if (std.posix.getenvZ(key_slice)) |value| {
+    // FIXME: don't use std.posix directly
+    if (std.posix.getenv(key_slice)) |value| {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
             @panic("Out of memory");
         });
@@ -96,7 +97,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
-    std.posix.exit(@intCast(exitCode));
+    std.process.exit(@intCast(exitCode));
 
     return 0;
 }

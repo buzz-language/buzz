@@ -56,7 +56,7 @@ pub export fn toInt(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (value.isFloat())
-                @as(i32, @intFromFloat(value.float()))
+                @intFromFloat(value.float())
             else
                 value.integer(),
         ),
@@ -71,7 +71,7 @@ pub export fn toFloat(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromFloat(
             if (value.isInteger())
-                @as(f64, @floatFromInt(value.integer()))
+                @floatFromInt(value.integer())
             else
                 value.float(),
         ),
@@ -219,7 +219,7 @@ pub export fn assert(ctx: *api.NativeCtx) c_int {
         }
 
         if (!is_wasm) {
-            std.posix.exit(1);
+            std.process.exit(1);
         }
     }
 
