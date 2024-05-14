@@ -91,7 +91,7 @@ const BuzzBuildOptions = struct {
     }
 };
 
-fn getBuzzPrefix(b: *Build) []const u8 {
+fn getBuzzPrefix(b: *Build) ![]const u8 {
     return std.posix.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
 }
 
@@ -492,7 +492,7 @@ pub fn build(b: *Build) !void {
                 .{
                     .path = b.fmt(
                         "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
-                        .{getBuzzPrefix(b)},
+                        .{try getBuzzPrefix(b)},
                     ),
                 },
             );
@@ -535,7 +535,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = Build.LazyPath{ .path = "." };
-    run_tests.setEnvironmentVariable("BUZZ_PATH", getBuzzPrefix(b));
+    run_tests.setEnvironmentVariable("BUZZ_PATH", try getBuzzPrefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 

@@ -245,7 +245,7 @@ pub fn main() !void {
         printBanner(std.io.getStdOut().writer(), true);
 
         if (!is_wasm) {
-            std.posix.exit(0);
+            std.process.exit(0);
         }
     }
 
@@ -272,7 +272,7 @@ pub fn main() !void {
         );
 
         if (!is_wasm) {
-            std.posix.exit(0);
+            std.process.exit(0);
         }
     }
 
@@ -314,7 +314,7 @@ pub fn main() !void {
     if (!is_wasm and flavor == .Repl) {
         repl(allocator) catch {
             if (!is_wasm) {
-                std.posix.exit(1);
+                std.process.exit(1);
             }
 
             std.debug.print("REPL stopped", .{});
@@ -327,7 +327,7 @@ pub fn main() !void {
             flavor,
         ) catch {
             if (!is_wasm) {
-                std.posix.exit(1);
+                std.process.exit(1);
             }
 
             std.debug.print("VM stopped", .{});
@@ -339,7 +339,7 @@ pub fn main() !void {
     }
 
     if (!is_wasm) {
-        std.posix.exit(0);
+        std.process.exit(0);
     }
 }
 
@@ -406,7 +406,13 @@ test "Testing behavior" {
                 const reader = test_file.reader();
                 const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
                 defer allocator.free(first_line);
-                const arg0 = std.fmt.allocPrintZ(allocator, "{s}/bin/buzz", .{Parser.buzzPrefix()}) catch unreachable;
+                const arg0 = std.fmt.allocPrintZ(
+                    allocator,
+                    "{s}/bin/buzz",
+                    .{
+                        Parser.buzzPrefix(),
+                    },
+                ) catch unreachable;
                 defer allocator.free(arg0);
 
                 const result = try std.ChildProcess.run(
@@ -449,5 +455,5 @@ test "Testing behavior" {
         fail_count,
     });
 
-    std.posix.exit(if (fail_count == 0) 0 else 1);
+    std.process.exit(if (fail_count == 0) 0 else 1);
 }

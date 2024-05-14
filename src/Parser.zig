@@ -132,11 +132,16 @@ pub fn defaultBuzzPrefix() []const u8 {
 
 var _buzz_path_buffer: [4096]u8 = undefined;
 pub fn buzzPrefix() []const u8 {
-    if (std.posix.getenv("BUZZ_PATH")) |buzz_path| return buzz_path;
+    // FIXME: don't use std.posix directly
+    if (std.posix.getenv("BUZZ_PATH")) |buzz_path| {
+        return buzz_path;
+    }
+
     const path = if (!is_wasm)
         std.fs.selfExePath(&_buzz_path_buffer) catch return defaultBuzzPrefix()
     else
         defaultBuzzPrefix();
+
     const path1 = std.fs.path.dirname(path) orelse defaultBuzzPrefix();
     const path2 = std.fs.path.dirname(path1) orelse defaultBuzzPrefix();
     return path2;
@@ -144,10 +149,16 @@ pub fn buzzPrefix() []const u8 {
 
 var _buzz_path_buffer2: [4096]u8 = undefined;
 /// the returned string can be used only until next call to this function
-pub fn buzzLibPath() []const u8 {
+pub fn buzzLibPath() ![]const u8 {
     const path2 = buzzPrefix();
     const sep = std.fs.path.sep_str;
-    return std.fmt.bufPrint(&_buzz_path_buffer2, "{s}" ++ sep ++ "lib" ++ sep ++ "buzz", .{path2}) catch unreachable;
+    return std.fmt.bufPrint(
+        &_buzz_path_buffer2,
+        "{s}" ++ sep ++ "lib" ++ sep ++ "buzz",
+        .{
+            path2,
+        },
+    ) catch unreachable;
 }
 
 pub const CompileError = error{
@@ -6936,11 +6947,31 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     defer paths.shrinkAndFree(paths.items.len);
 
     for (search_paths) |path| {
-        const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
+        const filled = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            path,
+            "?",
+            file_name,
+        );
         defer self.gc.allocator.free(filled);
-        const suffixed = try std.mem.replaceOwned(u8, self.gc.allocator, filled, "!", "buzz");
+        const suffixed = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            filled,
+            "!",
+            "buzz",
+        );
         defer self.gc.allocator.free(suffixed);
-        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzzLibPath());
+        const prefixed = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            suffixed,
+            "$",
+            try buzzLibPath(),
+        );
+
+        std.debug.print("> {s}\n", .{prefixed});
 
         try paths.append(prefixed);
     }
@@ -6952,7 +6983,13 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
     var paths = std.ArrayList([]const u8).init(self.gc.allocator);
 
     for (lib_search_paths) |path| {
-        const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
+        const filled = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            path,
+            "?",
+            file_name,
+        );
         defer self.gc.allocator.free(filled);
         const suffixed = try std.mem.replaceOwned(
             u8,
@@ -6967,7 +7004,13 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             },
         );
         defer self.gc.allocator.free(suffixed);
-        const prefixed = try std.mem.replaceOwned(u8, self.gc.allocator, suffixed, "$", buzzLibPath());
+        const prefixed = try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            suffixed,
+            "$",
+            try buzzLibPath(),
+        );
 
         try paths.append(prefixed);
     }

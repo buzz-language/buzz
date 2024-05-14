@@ -14,7 +14,12 @@ pub export fn alignOf(ctx: *api.NativeCtx) c_int {
         var msg = std.ArrayList(u8).init(api.VM.allocator);
         defer msg.deinit();
 
-        msg.writer().print("Could not parse zig type `{s}`", .{zig_type_str[0..len]}) catch @panic("Out of memory");
+        msg.writer().print(
+            "Could not parse zig type `{s}`",
+            .{
+                zig_type_str[0..len],
+            },
+        ) catch @panic("Out of memory");
 
         ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
 
@@ -37,7 +42,12 @@ pub export fn sizeOf(ctx: *api.NativeCtx) c_int {
         var msg = std.ArrayList(u8).init(api.VM.allocator);
         defer msg.deinit();
 
-        msg.writer().print("Could not parse zig type `{s}`", .{zig_type_str[0..len]}) catch @panic("Out of memory");
+        msg.writer().print(
+            "Could not parse zig type `{s}`",
+            .{
+                zig_type_str[0..len],
+            },
+        ) catch @panic("Out of memory");
 
         ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
 
