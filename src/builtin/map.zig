@@ -21,9 +21,15 @@ pub fn clone(ctx: *NativeCtx) c_int {
     var new_map = ctx.vm.gc.allocateObject(
         ObjMap,
         ObjMap.init(ctx.vm.gc.allocator, self.type_def),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
     new_map.map.deinit();
-    new_map.map = self.map.clone() catch @panic("Out of memory");
+    new_map.map = self.map.clone() catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(new_map.toValue());
 
@@ -65,7 +71,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             self.type_def,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
@@ -80,7 +89,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
         );
 
         if (ctx.vm.pop().boolean()) {
-            new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch @panic("Out of memory");
+            new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -131,12 +143,24 @@ pub fn map(ctx: *NativeCtx) c_int {
                         ),
                     },
                 },
-            ) catch @panic("Out of memory"),
+            ) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            },
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
-    const key_str = ctx.vm.gc.copyString("key") catch @panic("Out of memory");
-    const value_str = ctx.vm.gc.copyString("value") catch @panic("Out of memory");
+    const key_str = ctx.vm.gc.copyString("key") catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
+    const value_str = ctx.vm.gc.copyString("value") catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
     var it = self.map.iterator();
     while (it.next()) |kv| {
         var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
@@ -153,7 +177,10 @@ pub fn map(ctx: *NativeCtx) c_int {
         const key = entry.fields.get(key_str).?;
         const value = entry.fields.get(value_str).?;
 
-        new_map.set(ctx.vm.gc, key, value) catch @panic("Out of memory");
+        new_map.set(ctx.vm.gc, key, value) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        };
     }
 
     ctx.vm.push(new_map.toValue());
@@ -212,7 +239,10 @@ pub fn diff(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             lhs.type_def,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     var it = lhs.map.iterator();
     while (it.next()) |kv| {
@@ -222,7 +252,10 @@ pub fn diff(ctx: *NativeCtx) c_int {
                 ctx.vm.gc,
                 kv.key_ptr.*,
                 kv.value_ptr.*,
-            ) catch @panic("Out of memory");
+            ) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -241,7 +274,10 @@ pub fn intersect(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             lhs.type_def,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     var it = lhs.map.iterator();
     while (it.next()) |kv| {
@@ -251,7 +287,10 @@ pub fn intersect(ctx: *NativeCtx) c_int {
                 ctx.vm.gc,
                 kv.key_ptr.*,
                 kv.value_ptr.*,
-            ) catch @panic("Out of memory");
+            ) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -287,7 +326,10 @@ pub fn keys(ctx: *NativeCtx) c_int {
     const map_keys = self.map.keys();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
     for (map_keys) |key| {
-        result.append(key) catch @panic("Out of memory");
+        result.append(key) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        };
     }
 
     var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(
@@ -301,7 +343,10 @@ pub fn keys(ctx: *NativeCtx) c_int {
                 ),
             },
         },
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     // Prevent collection
     ctx.vm.push(list_def_type.toValue());
@@ -309,7 +354,10 @@ pub fn keys(ctx: *NativeCtx) c_int {
     var list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     list.items.deinit();
     list.items = result;
@@ -325,7 +373,10 @@ pub fn values(ctx: *NativeCtx) c_int {
 
     const map_values: []Value = self.map.values();
     var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
-    result.appendSlice(map_values) catch @panic("Out of memory");
+    result.appendSlice(map_values) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
         ObjTypeDef{
@@ -338,12 +389,18 @@ pub fn values(ctx: *NativeCtx) c_int {
                 ),
             },
         },
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     var list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list_def_type),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     list.items.deinit();
     list.items = result;

@@ -14,10 +14,12 @@ pub export fn BufferNew(ctx: *api.NativeCtx) c_int {
     const capacity = ctx.vm.bz_peek(0).integer();
 
     const buffer = api.VM.allocator.create(Buffer) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
     buffer.* = Buffer.init(api.VM.allocator, @intCast(capacity)) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
 
     if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(buffer))) |userdata| {
@@ -25,7 +27,8 @@ pub export fn BufferNew(ctx: *api.NativeCtx) c_int {
 
         return 1;
     } else {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 }
 
@@ -254,7 +257,10 @@ pub export fn BufferWrite(ctx: *api.NativeCtx) c_int {
     buffer.write(bytes.?[0..len]) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => @panic("Out of memory"),
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         }
 
         return -1;
@@ -298,7 +304,10 @@ pub export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
     buffer.writeBool(value) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => @panic("Out of memory"),
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         }
 
         return -1;
@@ -377,7 +386,10 @@ pub export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
     buffer.writeInteger(number.integer()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => @panic("Out of memory"),
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         }
 
         return -1;
@@ -393,7 +405,10 @@ pub export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
     buffer.writeUserData(userdata.bz_valueToObjUserData()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => @panic("Out of memory"),
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         }
 
         return -1;
@@ -409,7 +424,10 @@ pub export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
     buffer.writeFloat(number.float()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => @panic("Out of memory"),
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         }
 
         return -1;
@@ -452,7 +470,8 @@ pub export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
     ) else null, buffer.buffer.items.len)) |objstring| {
         ctx.vm.bz_pushString(objstring);
     } else {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 
     return 1;
@@ -508,7 +527,10 @@ inline fn rawWriteZ(
 
         const len = api.VM.bz_zigValueSize(zig_type.?);
 
-        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
+        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
         buffer.buffer.expandToCapacity();
 
         std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
@@ -588,12 +610,18 @@ inline fn rawWriteStruct(
         var len: usize = 0;
         const ptr = api.ObjForeignContainer.bz_containerSlice(value, &len);
 
-        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch @panic("Out of memory");
+        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
+            vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
         buffer.buffer.expandToCapacity();
 
         std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
 
-        buffer.buffer.replaceRange(index, len, ptr[0..len]) catch @panic("Out of memory");
+        buffer.buffer.replaceRange(index, len, ptr[0..len]) catch {
+            vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
 
         index += len;
     }

@@ -24,13 +24,17 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch @panic("Out of memory");
+    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
     defer api.VM.allocator.free(key_slice);
 
     // FIXME: don't use std.posix directly
     if (std.posix.getenv(key_slice)) |value| {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
 
         return 1;
@@ -52,7 +56,8 @@ pub export fn tmpDir(ctx: *api.NativeCtx) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
     ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null, tmp_dir.len) orelse {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     });
 
     return 1;
@@ -68,11 +73,13 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     var random_part = std.ArrayList(u8).init(api.VM.allocator);
     defer random_part.deinit();
     random_part.writer().print("{x}", .{std.crypto.random.int(i32)}) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
 
     var random_part_b64 = std.ArrayList(u8).initCapacity(api.VM.allocator, std.base64.standard.Encoder.calcSize(random_part.items.len)) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
     random_part_b64.expandToCapacity();
     defer random_part_b64.deinit();
@@ -83,11 +90,13 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     defer final.deinit();
 
     final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
 
     ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @as([*]const u8, @ptrCast(final.items)) else null, final.items.len) orelse {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     });
 
     return 1;
@@ -133,7 +142,10 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.WaitTimeOut,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -154,7 +166,8 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
         std.debug.assert(arg_len > 0);
 
         command.append(arg_str.?[0..arg_len]) catch {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         };
     }
 
@@ -247,7 +260,10 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.OperationAborted,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
     }
@@ -363,7 +379,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        // error.OutOfMemory => @panic("Out of memory"),
+        // error.OutOfMemory => {ctx.vm.bz_panic("Out of memory");unreachable;, f memory");unreachable;.len},
 
         // TODO: bug in zig compiler that complains about StreamTooLong and OutOfMemory errors missing when not there, but complains also if they're there
         else => unreachable,
@@ -386,7 +402,8 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
     const reader = stream.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
 
     // bz_string will copy it
@@ -402,7 +419,8 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_pushNull();
     } else {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
     }
 
@@ -429,7 +447,10 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
 
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
 
         error.EndOfStream => {},
     }
@@ -473,7 +494,8 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
                 null,
             buffer.len,
         ) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
     }
 
@@ -517,7 +539,8 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
                 null,
             buffer.len,
         ) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
     }
 

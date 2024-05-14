@@ -128,7 +128,10 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
     }
 }
 
@@ -156,7 +159,8 @@ pub export fn FileReadAll(ctx: *api.NativeCtx) c_int {
     };
 
     ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null, content.len) orelse {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     });
 
     return 1;
@@ -180,7 +184,10 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.StreamTooLong,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -215,7 +222,8 @@ pub export fn FileReadLine(ctx: *api.NativeCtx) c_int {
                 if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
                 ubuffer.len,
             ) orelse {
-                @panic("Out of memory");
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
             },
         );
     } else {
@@ -262,7 +270,8 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
     const reader = file.reader();
 
     var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     };
 
     // bz_string will copy it
@@ -278,7 +287,8 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_pushNull();
     } else {
         ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
     }
 
@@ -347,8 +357,14 @@ pub export fn runFile(ctx: *api.NativeCtx) c_int {
 
     const source = api.VM.allocator.alloc(
         u8,
-        (file.stat() catch @panic("Out of memory")).size,
-    ) catch @panic("Out of memory");
+        (file.stat() catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        }).size,
+    ) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
 
     _ = file.readAll(source) catch |err| {
         handleFileReadAllError(ctx, err);

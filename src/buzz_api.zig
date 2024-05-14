@@ -380,7 +380,10 @@ export fn bz_string(vm: *VM, string: ?[*]const u8, len: usize) ?*ObjString {
 
 export fn bz_stringZ(vm: *VM, string: [*:0]const u8) Value {
     // Keeping the sentinel
-    return (vm.gc.copyString(string[0..(std.mem.len(string) + 1)]) catch @panic("Out of memory")).toValue();
+    return (vm.gc.copyString(string[0..(std.mem.len(string) + 1)]) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_valueToObjString(value: Value) *ObjString {
@@ -476,7 +479,10 @@ export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
             .optional = false,
             .resolved_type = resolved_type,
         },
-    ) catch @panic("Out of memory");
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    };
 
     return typedef.toValue();
 }
@@ -622,7 +628,10 @@ export fn bz_newVM(self: *VM) ?*VM {
     };
     // FIXME: should share strings between gc
     gc.* = GarbageCollector.init(self.gc.allocator);
-    gc.type_registry = TypeRegistry.init(gc) catch @panic("Out of memory");
+    gc.type_registry = TypeRegistry.init(gc) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    };
 
     // FIXME: give reference to JIT?
     vm.* = VM.init(gc, self.import_registry, self.flavor) catch {
@@ -634,6 +643,10 @@ export fn bz_newVM(self: *VM) ?*VM {
 
 export fn bz_deinitVM(_: *VM) void {
     // self.deinit();
+}
+
+export fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) void {
+    vm.panic(msg[0..len]);
 }
 
 export fn bz_compile(
@@ -819,7 +832,10 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
         ObjObjectInstance.init(
             self,
             object,
-            object.type_def.toInstance(self.gc.allocator, &self.gc.type_registry) catch @panic("Out of memory"),
+            object.type_def.toInstance(self.gc.allocator, &self.gc.type_registry) catch {
+                self.panic("Out of memory");
+                unreachable;
+            },
         ),
     ) catch {
         @panic("Could not create error");
@@ -854,8 +870,14 @@ fn instanciateError(
         if (obj_instance.fields.get(message_key) != null) {
             obj_instance.fields.put(
                 message_key,
-                (vm.gc.copyString(msg[0..mlen]) catch @panic("Out of memory")).toValue(),
-            ) catch @panic("Out of memory");
+                (vm.gc.copyString(msg[0..mlen]) catch {
+                    vm.panic("Out of memory");
+                    unreachable;
+                }).toValue(),
+            ) catch {
+                vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -1092,7 +1114,10 @@ export fn bz_valueEqual(self: Value, other: Value) Value {
 }
 
 export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
-    return (self.typeOf(vm.gc) catch @panic("Out of memory")).toValue();
+    return (self.typeOf(vm.gc) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_newMap(vm: *VM, map_type: Value) Value {
@@ -1518,7 +1543,10 @@ export fn bz_checkBuzzType(
         var err = std.ArrayList(u8).init(vm.gc.allocator);
         defer err.deinit();
 
-        const typedef = ObjTypeDef.cast(btype.obj()).?.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+        const typedef = ObjTypeDef.cast(btype.obj()).?.toStringAlloc(vm.gc.allocator) catch {
+            vm.panic("Out of memory");
+            unreachable;
+        };
         defer typedef.deinit();
 
         err.writer().print(
@@ -1527,7 +1555,10 @@ export fn bz_checkBuzzType(
                 typedef.items,
                 ztype.*,
             },
-        ) catch @panic("Out of memory");
+        ) catch {
+            vm.panic("Out of memory");
+            unreachable;
+        };
 
         bz_pushError(
             vm,
@@ -1593,7 +1624,10 @@ export fn bz_readZigValueFromBuffer(
                                     ),
                             ),
                         },
-                    ) catch @panic("Out of memory");
+                    ) catch {
+                        vm.panic("Out of memory");
+                        unreachable;
+                    };
 
                     break :integer userdata.toValue();
                 },
@@ -1679,7 +1713,10 @@ export fn bz_readZigValueFromBuffer(
                 .{
                     .userdata = std.mem.bytesToValue(u64, bytes[0..8]),
                 },
-            ) catch @panic("Out of memory");
+            ) catch {
+                vm.panic("Out of memory");
+                unreachable;
+            };
 
             break :ptr userdata.toValue();
         },
@@ -1709,7 +1746,10 @@ export fn bz_writeZigValueToBuffer(
                 @as(u8, 0));
             const bytes = std.mem.asBytes(&unwrapped);
 
-            buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+            buffer.replaceRange(at, bytes.len, bytes) catch {
+                vm.panic("Out of memory");
+                unreachable;
+            };
         },
         // Integer can just be truncated
         .Int => {
@@ -1718,13 +1758,19 @@ export fn bz_writeZigValueToBuffer(
                     const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
                     const bytes = std.mem.asBytes(&unwrapped);
 
-                    buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                    buffer.replaceRange(at, bytes.len, bytes) catch {
+                        vm.panic("Out of memory");
+                        unreachable;
+                    };
                 },
                 1...32 => {
                     const unwrapped = value.integer();
                     const bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
 
-                    buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                    buffer.replaceRange(at, bytes.len, bytes) catch {
+                        vm.panic("Out of memory");
+                        unreachable;
+                    };
                 },
                 else => {},
             }
@@ -1734,13 +1780,19 @@ export fn bz_writeZigValueToBuffer(
                 const unwrapped = @as(f32, @floatCast(value.float()));
                 const bytes = std.mem.asBytes(&unwrapped);
 
-                buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                buffer.replaceRange(at, bytes.len, bytes) catch {
+                    vm.panic("Out of memory");
+                    unreachable;
+                };
             },
             64 => {
                 const unwrapped = value.float();
                 const bytes = std.mem.asBytes(&unwrapped);
 
-                buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+                buffer.replaceRange(at, bytes.len, bytes) catch {
+                    vm.panic("Out of memory");
+                    unreachable;
+                };
             },
             else => {},
         },
@@ -1762,7 +1814,10 @@ export fn bz_writeZigValueToBuffer(
             const unwrapped = ObjUserData.cast(value.obj()).?.userdata;
             const bytes = std.mem.asBytes(&unwrapped);
 
-            buffer.replaceRange(at, bytes.len, bytes) catch @panic("Out of memory");
+            buffer.replaceRange(at, bytes.len, bytes) catch {
+                vm.panic("Out of memory");
+                unreachable;
+            };
         },
         else => {},
     }
@@ -1793,8 +1848,14 @@ export fn bz_containerInstance(vm: *VM, typedef_value: Value) Value {
         ObjForeignContainer.init(
             vm,
             ObjTypeDef.cast(typedef_value.obj()).?,
-        ) catch @panic("Out of memory"),
-    ) catch @panic("Out of memory")).toValue();
+        ) catch {
+            vm.panic("Out of memory");
+            unreachable;
+        },
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) void {
@@ -1816,7 +1877,10 @@ export fn bz_containerFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len:
             .type_def = type_def,
             .data = ptr[0..len],
         },
-    ) catch @panic("Out of memory"));
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    });
 
     return container.toValue();
 }
@@ -1856,7 +1920,10 @@ export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value {
                 );
                 break :s Value.Void;
             },
-            else => @panic("Out of memory"),
+            else => {
+                vm.panic("Out of memory");
+                unreachable;
+            },
         }
     };
 }
@@ -1867,5 +1934,8 @@ export fn bz_currentFiber(vm: *VM) Value {
         .{
             .fiber = vm.current_fiber,
         },
-    ) catch @panic("Out of memory")).toValue();
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }

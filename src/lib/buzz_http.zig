@@ -3,20 +3,27 @@ const api = @import("buzz_api.zig");
 const http = std.http;
 
 pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
-    const client = api.VM.allocator.create(http.Client) catch @panic("Out of memory");
+    const client = api.VM.allocator.create(http.Client) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
 
     client.* = http.Client{
         .allocator = api.VM.allocator,
     };
 
-    client.initDefaultProxies(api.VM.allocator) catch @panic("Out of memory");
+    client.initDefaultProxies(api.VM.allocator) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
 
     if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
         ctx.vm.bz_pushUserData(userdata);
 
         return 1;
     } else {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 }
 
@@ -41,7 +48,8 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     var uri_len: usize = 0;
     const uri = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&uri_len);
     if (uri == null) {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 
     const header_values = ctx.vm.bz_peek(0);
@@ -55,7 +63,8 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         const value = next_header_value.bz_valueToString(&value_len);
 
         if (key == null or value == null) {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         }
 
         headers.append(
@@ -63,11 +72,20 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
                 .name = key.?[0..key_len],
                 .value = value.?[0..value_len],
             },
-        ) catch @panic("Could not send request");
+        ) catch {
+            ctx.vm.bz_panic("Could not send request", "Could not send request".len);
+            unreachable;
+        };
     }
 
-    const request = api.VM.allocator.create(http.Client.Request) catch @panic("Out of memory");
-    const server_header_buffer = api.VM.allocator.alloc(u8, 16 * 1024) catch @panic("Out of memory");
+    const request = api.VM.allocator.create(http.Client.Request) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
+    const server_header_buffer = api.VM.allocator.alloc(u8, 16 * 1024) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
 
     request.* = client.open(
         method,
@@ -97,7 +115,8 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
 
         return 1;
     } else {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 }
 
@@ -180,7 +199,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
                 ctx.vm,
                 "body".ptr,
                 "body".len,
-            ) orelse @panic("Out of memory"),
+            ) orelse {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         ),
         if (body_raw.items.len == 0)
             api.Value.Null
@@ -190,7 +212,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
                     ctx.vm,
                     body_raw.items.ptr,
                     body_raw.items.len,
-                ) orelse @panic("Out of memory"),
+                ) orelse {
+                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                    unreachable;
+                },
             ),
     );
 
@@ -203,7 +228,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
                 ctx.vm,
                 "status".ptr,
                 "status".len,
-            ) orelse @panic("Out of memory"),
+            ) orelse {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         ),
         api.Value.fromInteger(@intFromEnum(request.response.status)),
     );
@@ -227,7 +255,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
                 ctx.vm,
                 "headers".ptr,
                 "headers".len,
-            ) orelse @panic("Out of memory"),
+            ) orelse {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
         ),
         headers,
     );
@@ -242,14 +273,20 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
                     ctx.vm,
                     header.name.ptr,
                     header.name.len,
-                ) orelse @panic("Out of memory"),
+                ) orelse {
+                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                    unreachable;
+                },
             ),
             api.ObjString.bz_objStringToValue(
                 api.ObjString.bz_string(
                     ctx.vm,
                     header.value.ptr,
                     header.value.len,
-                ) orelse @panic("Out of memory"),
+                ) orelse {
+                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                    unreachable;
+                },
             ),
         );
     }
@@ -261,7 +298,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
 
 fn handleWaitError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
 
         error.CertificateBundleLoadFailure,
         error.CompressionInitializationFailed,
@@ -313,7 +353,10 @@ fn handleStartError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
 
         error.CertificateBundleLoadFailure,
         error.ConnectionRefused,
@@ -339,7 +382,10 @@ fn handleError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleResponseError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
 
         error.TlsFailure,
         error.TlsAlert,

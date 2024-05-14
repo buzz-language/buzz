@@ -59,6 +59,7 @@ pub const VM = opaque {
 
     pub extern fn bz_newVM(self: *VM) *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
+    pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) void;
     pub extern fn bz_compile(
         self: *VM,
         source: ?[*]const u8,
