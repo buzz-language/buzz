@@ -19,7 +19,10 @@ pub export fn alignOf(ctx: *api.NativeCtx) c_int {
             .{
                 zig_type_str[0..len],
             },
-        ) catch @panic("Out of memory");
+        ) catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
 
         ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
 
@@ -47,7 +50,10 @@ pub export fn sizeOf(ctx: *api.NativeCtx) c_int {
             .{
                 zig_type_str[0..len],
             },
-        ) catch @panic("Out of memory");
+        ) catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
 
         ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
 

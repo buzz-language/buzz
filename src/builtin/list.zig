@@ -19,7 +19,10 @@ pub fn append(ctx: *NativeCtx) c_int {
     list.rawAppend(
         ctx.vm.gc,
         value,
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     return 0;
 }
@@ -40,7 +43,10 @@ pub fn insert(ctx: *NativeCtx) c_int {
         ctx.vm.gc,
         @as(usize, @intCast(index)),
         value,
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(value);
 
@@ -61,9 +67,15 @@ pub fn reverse(ctx: *NativeCtx) c_int {
     var new_list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, list.type_def),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
-    new_list.items.appendSlice(list.items.items) catch @panic("Out of memory");
+    new_list.items.appendSlice(list.items.items) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
     std.mem.reverse(Value, new_list.items.items);
 
     ctx.vm.push(new_list.toValue());
@@ -94,7 +106,10 @@ pub fn remove(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
-    ctx.vm.gc.markObjDirty(&list.obj) catch @panic("Out of memory");
+    ctx.vm.gc.markObjDirty(&list.obj) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     return 1;
 }
@@ -167,8 +182,14 @@ pub fn clone(ctx: *NativeCtx) c_int {
     var new_list = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(ctx.vm.gc.allocator, self.type_def),
-    ) catch @panic("Out of memory");
-    new_list.items.appendSlice(self.items.items) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
+    new_list.items.appendSlice(self.items.items) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(new_list.toValue());
 
@@ -183,15 +204,24 @@ pub fn join(ctx: *NativeCtx) c_int {
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
-        item.toString(&writer) catch @panic("Out of memory");
+        item.toString(&writer) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        };
 
         if (i + 1 < self.items.items.len) {
-            writer.writeAll(separator.string) catch @panic("Out of memory");
+            writer.writeAll(separator.string) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
     ctx.vm.push(
-        (ctx.vm.gc.copyString(result.items) catch @panic("Out of memory")).toValue(),
+        (ctx.vm.gc.copyString(result.items) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        }).toValue(),
     );
 
     return 1;
@@ -221,14 +251,23 @@ pub fn sub(ctx: *NativeCtx) c_int {
         ObjList,
         .{
             .type_def = self.type_def,
-            .methods = self.methods.clone() catch @panic("Out of memory"),
+            .methods = self.methods.clone() catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            },
             .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
         },
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(list.toValue());
 
-    list.items.appendSlice(substr) catch @panic("Out of memory");
+    list.items.appendSlice(substr) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     return 1;
 }
@@ -241,7 +280,10 @@ pub fn next(ctx: *NativeCtx) c_int {
     const next_index: ?i32 = list.rawNext(
         ctx.vm,
         list_index.integerOrNull(),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(
         if (next_index) |unext_index|
@@ -314,7 +356,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             list.type_def,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
@@ -329,7 +374,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
         );
 
         if (ctx.vm.pop().boolean()) {
-            new_list.rawAppend(ctx.vm.gc, item) catch @panic("Out of memory");
+            new_list.rawAppend(ctx.vm.gc, item) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -349,7 +397,10 @@ pub fn map(ctx: *NativeCtx) c_int {
             ctx.vm.gc.allocator,
             mapped_type,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
@@ -363,7 +414,10 @@ pub fn map(ctx: *NativeCtx) c_int {
             null,
         );
 
-        new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch @panic("Out of memory");
+        new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        };
     }
 
     ctx.vm.push(new_list.toValue());

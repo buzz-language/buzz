@@ -149,7 +149,8 @@ pub export fn parseUd(ctx: *api.NativeCtx) c_int {
 
         return 1;
     } else {
-        @panic("Out of memory");
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
     }
 }
 
@@ -197,7 +198,8 @@ pub export fn char(ctx: *api.NativeCtx) c_int {
         return 1;
     }
 
-    @panic("Out of memory");
+    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+    unreachable;
 }
 
 pub export fn assert(ctx: *api.NativeCtx) c_int {
@@ -236,7 +238,7 @@ pub export fn buzzPanic(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
 
-    std.debug.print("{s}\n", .{message[0..len]});
+    ctx.vm.bz_panic(message, len);
 
     unreachable;
 }

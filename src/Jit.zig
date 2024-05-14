@@ -4214,7 +4214,10 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4295,7 +4298,10 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     var qualified_name = try self.getQualifiedName(node, false);
     defer qualified_name.deinit();
 
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4383,7 +4389,10 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     defer nativefn_qualified_name.deinit();
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -4894,7 +4903,10 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
 
     try wrapper_name.writer().print("zdef_{s}\x00", .{zdef.zdef.name});
 
-    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch @panic("Out of memory");
+    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
@@ -5026,11 +5038,17 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     try wrapper_protocol_name.writer().print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch @panic("Out of memory");
+    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch @panic("Out of memory");
+    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5235,9 +5253,15 @@ fn buildZdefUnionGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5339,11 +5363,20 @@ fn buildZdefUnionSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(data_name);
-    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5446,9 +5479,15 @@ fn buildZdefContainerGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5534,11 +5573,20 @@ fn buildZdefContainerSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch @panic("Out of memory");
+    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch @panic("Out of memory");
+    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(data_name);
-    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch @panic("Out of memory");
+    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch {
+        self.vm.panic("Out of memory");
+        unreachable;
+    };
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,

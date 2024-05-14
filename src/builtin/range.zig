@@ -10,19 +10,28 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.int_type,
         ),
-    ) catch @panic("Out of memory");
+    ) catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
 
     ctx.vm.push(Value.fromObj(list.toObj()));
 
     if (range.low < range.high) {
         var i: i32 = range.low;
         while (i < range.high) : (i += 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Out of memory");
+            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     } else {
         var i: i32 = range.low;
         while (i > range.high) : (i -= 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch @panic("Out of memory");
+            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            };
         }
     }
 
@@ -54,7 +63,10 @@ pub fn invert(ctx: *obj.NativeCtx) c_int {
                 .high = range.low,
                 .low = range.high,
             },
-        ) catch @panic("Out of memory")).toObj()),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        }).toObj()),
     );
 
     return 1;

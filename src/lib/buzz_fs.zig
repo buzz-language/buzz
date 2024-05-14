@@ -150,7 +150,10 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.OutOfMemory => @panic("Out of memory"),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
     }
 }
 
@@ -318,7 +321,8 @@ pub export fn list(ctx: *api.NativeCtx) c_int {
             if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
             element.name.len,
         ) orelse {
-            @panic("Out of memory");
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
         });
 
         api.ObjList.bz_listAppend(ctx.vm, file_list, ctx.vm.bz_pop());

@@ -6971,8 +6971,6 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             try buzzLibPath(),
         );
 
-        std.debug.print("> {s}\n", .{prefixed});
-
         try paths.append(prefixed);
     }
 
