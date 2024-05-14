@@ -59,7 +59,7 @@ const BuzzGCOptions = struct {
 };
 
 const BuzzBuildOptions = struct {
-    version: []const u8,
+    version: std.SemanticVersion,
     sha: []const u8,
     mimalloc: bool,
     debug: BuzzDebugOptions,
@@ -111,24 +111,7 @@ pub fn build(b: *Build) !void {
     var build_options = BuzzBuildOptions{
         .target = target,
         // Version is latest tag or empty string
-        .version = std.mem.trim(
-            u8,
-            (std.ChildProcess.run(.{
-                .allocator = b.allocator,
-                .argv = &.{
-                    "git",
-                    "describe",
-                    "--tags",
-                    "--abbrev=0",
-                },
-                .cwd = b.pathFromRoot("."),
-                .expand_arg0 = .expand,
-            }) catch {
-                std.debug.print("Warning: failed to get git HEAD", .{});
-                unreachable;
-            }).stdout,
-            "\n \t",
-        ),
+        .version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 0 },
         // Current commit sha
         .sha = std.posix.getenv("GIT_SHA") orelse
             std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
