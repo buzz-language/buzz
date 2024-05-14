@@ -30,9 +30,9 @@ else
 
 fn printBanner(out: std.fs.File.Writer, full: bool) void {
     out.print(
-        "\n👨‍🚀 buzz {s}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "\n👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
-            if (BuildOptions.version.len > 0) BuildOptions.version else "unreleased",
+            BuildOptions.version,
             BuildOptions.sha,
         },
     ) catch unreachable;
