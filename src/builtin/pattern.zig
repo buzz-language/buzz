@@ -79,7 +79,7 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
         else => {
             const output_vector = match_data.getOVectorPointer();
 
-            offset.* = @as(usize, @intCast(output_vector[1]));
+            offset.* = @intCast(output_vector[1]);
 
             results = try vm.gc.allocateObject(
                 ObjList,
@@ -96,7 +96,7 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
             while (i < rc) : (i += 1) {
                 try results.?.items.append(
                     (try vm.gc.copyString(
-                        subject.string[@as(usize, @intCast(output_vector[2 * i]))..@as(usize, @intCast(output_vector[2 * i + 1]))],
+                        subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
                     )).toValue(),
                 );
             }
@@ -190,7 +190,13 @@ fn rawReplaceAll(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *
     var offset: usize = 0;
     var current = subject;
     while (true) {
-        const replaced = try rawReplace(self, vm, current, replacement, &offset);
+        const replaced = try rawReplace(
+            self,
+            vm,
+            current,
+            replacement,
+            &offset,
+        );
 
         if (replaced == current) {
             break;
@@ -212,7 +218,7 @@ pub fn match(ctx: *NativeCtx) c_int {
         ctx.vm,
         subject,
         &offset,
-    ) catch @panic("Could not match pattern")) |results| {
+    ) catch @panic("Out of memory")) |results| {
         ctx.vm.push(results.toValue());
     } else {
         ctx.vm.push(Value.Null);
@@ -234,7 +240,7 @@ pub fn replace(ctx: *NativeCtx) c_int {
             subject,
             replacement,
             &offset,
-        ) catch @panic("Could not replace pattern");
+        ) catch @panic("Out of memory");
 
         ctx.vm.push(result.toValue());
     } else {
@@ -250,7 +256,7 @@ pub fn replace(ctx: *NativeCtx) c_int {
                     @intCast(self.source.len),
                 ),
             ),
-        ) catch @panic("Could not replace pattern");
+        ) catch @panic("Out of memory");
         defer ctx.vm.gc.allocator.free(buffer);
 
         patternReplace(
@@ -265,7 +271,7 @@ pub fn replace(ctx: *NativeCtx) c_int {
         );
 
         ctx.vm.push(
-            (ctx.vm.gc.copyString(buffer) catch @panic("Could not replace pattern")).toValue(),
+            (ctx.vm.gc.copyString(buffer) catch @panic("Out of memory")).toValue(),
         );
     }
 
@@ -280,7 +286,7 @@ pub fn matchAll(ctx: *NativeCtx) c_int {
         self,
         ctx.vm,
         subject,
-    ) catch @panic("Could not match pattern")) |results| {
+    ) catch @panic("Out of memory")) |results| {
         ctx.vm.push(results.toValue());
     } else {
         ctx.vm.push(Value.Null);
@@ -300,7 +306,7 @@ pub fn replaceAll(ctx: *NativeCtx) c_int {
             ctx.vm,
             subject,
             replacement,
-        ) catch @panic("Could not match pattern");
+        ) catch @panic("Out of memory");
 
         ctx.vm.push(result.toValue());
     } else {
@@ -316,7 +322,7 @@ pub fn replaceAll(ctx: *NativeCtx) c_int {
                     @intCast(self.source.len),
                 ),
             ),
-        ) catch @panic("Could not replace pattern");
+        ) catch @panic("Out of memory");
         defer ctx.vm.gc.allocator.free(buffer);
 
         patternReplaceAll(
@@ -331,7 +337,7 @@ pub fn replaceAll(ctx: *NativeCtx) c_int {
         );
 
         ctx.vm.push(
-            (ctx.vm.gc.copyString(buffer) catch @panic("Could not replace pattern")).toValue(),
+            (ctx.vm.gc.copyString(buffer) catch @panic("Out of memory")).toValue(),
         );
     }
 
