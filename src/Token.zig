@@ -217,7 +217,7 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "out", .Out },
         .{ "pat", .Pat },
         .{ "protocol", .Protocol },
-        .{ "range", .Range },
+        .{ "rg", .Range },
         .{ "resolve", .Resolve },
         .{ "resume", .Resume },
         .{ "return", .Return },

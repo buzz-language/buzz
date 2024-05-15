@@ -43,7 +43,7 @@ var value = from {
     - By default, imported symbols from another script will be under `libprefix.XXXX`
     - When importing something, you can still redefine its namespace prefix with `import "..." as mynewnamespace` or remove it altogether with `import "..." _`
 - Ranges are now an actual buzz value (https://github.com/buzz-language/buzz/issues/170)
-    - new `range` type
+    - new `rg` type
     - `myrange.toList()` transforms a range into a list of integers
     - `myrange.low` and `myrange.high` to get a range bounds
     - works with `foreach`

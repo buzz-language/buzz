@@ -2,13 +2,13 @@ import "std";
 
 test "Range" {
     int limit = 10;
-    range rg = 0..limit;
+    rg range = 0..limit;
 
-    std.assert(rg == 0..10, message: "Could compare ranges");
-    std.assert(rg.low == 0, message: "Could get low limit of range");
-    std.assert(rg.high == 10, message: "Could get high limit of range");
+    std.assert(range == 0..10, message: "Could compare ranges");
+    std.assert(range.low == 0, message: "Could get low limit of range");
+    std.assert(range.high == 10, message: "Could get high limit of range");
 
-    [int] list = rg.toList();
+    [int] list = range.toList();
     std.assert(list.len() == 10, message: "Could create list from range");
 
     int sum = 0;
@@ -17,18 +17,18 @@ test "Range" {
     }
     std.assert(sum == 45, message: "Could iterate over range");
 
-    std.assert(rg.len() == 10, message: "Could get range length");
+    std.assert(range.len() == 10, message: "Could get range length");
 }
 
 test "Inverted range" {
     int limit = 0;
-    range rg = 10..limit;
+    rg range = 10..limit;
 
-    std.assert((0..10).invert() == rg, message: "Could invert range");
-    std.assert(rg.low == 10, message: "Could get low limit of range");
-    std.assert(rg.high == 0, message: "Could get high limit of range");
+    std.assert((0..10).invert() == range, message: "Could invert range");
+    std.assert(range.low == 10, message: "Could get low limit of range");
+    std.assert(range.high == 0, message: "Could get high limit of range");
 
-    [int] list = rg.toList();
+    [int] list = range.toList();
     std.assert(list.len() == 10, message: "Could create list from inverted range");
 
     int sum = 0;
@@ -37,5 +37,5 @@ test "Inverted range" {
     }
     std.assert(sum == 55, message: "Could iterate over inverted range");
 
-    std.assert(rg.len() == 10, message: "Could get range length");
+    std.assert(range.len() == 10, message: "Could get range length");
 }
