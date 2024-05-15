@@ -50,6 +50,7 @@ var value = from {
 - Tracing JIT (https://github.com/buzz-language/buzz/issues/134): will look for hot loops and compile them
 - `list.fill`
 - `std.panic` will panic and print current stack trace
+- Loop can have _labels_ that you can `break` or `continue` to (https://github.com/buzz-language/buzz/issues/199)
 
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)

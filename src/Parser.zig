@@ -227,13 +227,13 @@ pub const UpValue = struct {
 
 pub const Frame = struct {
     enclosing: ?*Frame = null,
-    // TODO: make this a multiarray?
     locals: [255]Local,
     local_count: u8 = 0,
-    // TODO: make this a multiarray?
     upvalues: [255]UpValue,
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
+    // Keep track of the node that introduced the scope (useful for labeled break/continue statements)
+    scopes: std.ArrayList(?Ast.Node.Index),
     // If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
@@ -243,6 +243,12 @@ pub const Frame = struct {
 
     in_try: bool = false,
     in_block_expression: ?u32 = null,
+
+    pub fn deinit(self: *Frame) void {
+        self.scopes.deinit();
+        self.constants.deinit();
+        // self.generics ends up in AST node so we don't deinit it
+    }
 
     pub fn resolveGeneric(self: Frame, name: *obj.ObjString) ?*obj.ObjTypeDef {
         if (self.generics) |generics| {
@@ -954,6 +960,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         .enclosing = enclosing,
         .function_node = function_node,
         .constants = std.ArrayList(Value).init(self.gc.allocator),
+        .scopes = std.ArrayList(?Ast.Node.Index).init(self.gc.allocator),
     };
 
     if (function_type == .Extern) {
@@ -1044,18 +1051,22 @@ fn endFrame(self: *Self) Ast.Node.Index {
         }
     }
 
+    self.current.?.deinit();
+
     const current_node = self.current.?.function_node;
     self.current = self.current.?.enclosing;
 
     return current_node;
 }
 
-fn beginScope(self: *Self) void {
+fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
+    try self.current.?.scopes.append(at);
     self.current.?.scope_depth += 1;
 }
 
 fn endScope(self: *Self) ![]Chunk.OpCode {
     const current = self.current.?;
+    _ = current.scopes.pop();
     var closing = std.ArrayList(Chunk.OpCode).init(self.gc.allocator);
     current.scope_depth -= 1;
 
@@ -4653,7 +4664,7 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
 
     try self.consume(.LeftParen, "Expected `(` after `if`.");
 
-    self.beginScope();
+    try self.beginScope(null);
     const condition = try self.expression(false);
     const condition_type_def = self.ast.nodes.items(.type_def)[condition];
 
@@ -4699,7 +4710,7 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         } else if (is_statement) {
             try self.consume(.LeftBrace, "Expected `{` after `else`.");
 
-            self.beginScope();
+            try self.beginScope(null);
             else_branch = try self.block(loop_scope);
             self.ast.nodes.items(.ends_scope)[else_branch.?] = try self.endScope();
         } else {
@@ -4953,7 +4964,7 @@ fn function(
     );
 
     try self.beginFrame(function_type, function_node, this);
-    self.beginScope();
+    try self.beginScope(null);
 
     // The functiont tyepdef is created in several steps, some need already parsed information like return type
     // We create the incomplete type now and enrich it.
@@ -5669,7 +5680,7 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
     try self.consume(.LeftBrace, "Expected `{` at start of block expression");
 
-    self.beginScope();
+    try self.beginScope(null);
     self.current.?.in_block_expression = self.current.?.scope_depth;
 
     var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
@@ -6139,7 +6150,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         try self.consume(.Greater, "Expected `>` after generic types list");
     }
 
-    self.beginScope();
+    try self.beginScope(null);
 
     // Body
     try self.consume(.LeftBrace, "Expected `{` before object body.");
@@ -6458,7 +6469,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         .resolved_type = resolved_type,
     };
 
-    self.beginScope();
+    try self.beginScope(null);
 
     // Body
     try self.consume(.LeftBrace, "Expected `{` before protocol body.");
@@ -7916,7 +7927,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.LeftParen, "Expected `(` after `for`.");
 
-    self.beginScope();
+    try self.beginScope(null);
 
     // Should be either VarDeclaration or expression
     var init_declarations = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
@@ -7957,9 +7968,33 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.RightParen, "Expected `)` after `for` expressions.");
 
-    try self.consume(.LeftBrace, "Expected `{` after `for` definition.");
+    const label = if (try self.match(.Colon)) lbl: {
+        try self.consume(.Identifier, "Expected label after `:`.");
 
-    self.beginScope();
+        break :lbl self.current_token.? - 1;
+    } else null;
+
+    try self.consume(.LeftBrace, "Expected `{`.");
+
+    // We add it before parsing the body so that we can find it on a labeled break/continue statement
+    const for_node = try self.ast.appendNode(
+        .{
+            .tag = .For,
+            .location = start_location,
+            .end_location = undefined,
+            .components = .{
+                .For = .{
+                    .init_declarations = init_declarations.items,
+                    .condition = condition,
+                    .post_loop = post_loop.items,
+                    .body = undefined,
+                    .label = label,
+                },
+            },
+        },
+    );
+
+    try self.beginScope(for_node);
     const body = try self.block(
         .{
             .loop_type = .For,
@@ -7968,22 +8003,11 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
     );
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
-    return try self.ast.appendNode(
-        .{
-            .tag = .For,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .components = .{
-                .For = .{
-                    .init_declarations = init_declarations.items,
-                    .condition = condition,
-                    .post_loop = post_loop.items,
-                    .body = body,
-                },
-            },
-            .ends_scope = try self.endScope(),
-        },
-    );
+    self.ast.nodes.items(.end_location)[for_node] = self.current_token.? - 1;
+    self.ast.nodes.items(.components)[for_node].For.body = body;
+    self.ast.nodes.items(.ends_scope)[for_node] = try self.endScope();
+
+    return for_node;
 }
 
 fn forEachStatement(self: *Self) Error!Ast.Node.Index {
@@ -7991,7 +8015,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.LeftParen, "Expected `(` after `foreach`.");
 
-    self.beginScope();
+    try self.beginScope(null);
 
     var key = try self.varDeclaration(
         false,
@@ -8054,9 +8078,34 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.RightParen, "Expected `)` after `foreach`.");
 
-    try self.consume(.LeftBrace, "Expected `{` after `foreach` definition.");
+    const label = if (try self.match(.Colon)) lbl: {
+        try self.consume(.Identifier, "Expected label after `:`.");
 
-    self.beginScope();
+        break :lbl self.current_token.? - 1;
+    } else null;
+
+    try self.consume(.LeftBrace, "Expected `{`.");
+
+    // We add it before parsing the body so that we can find it on a labeled break/continue statement
+    const foreach_node = try self.ast.appendNode(
+        .{
+            .tag = .ForEach,
+            .location = start_location,
+            .end_location = undefined,
+            .components = .{
+                .ForEach = .{
+                    .key = key,
+                    .value = value.?,
+                    .iterable = iterable,
+                    .body = undefined,
+                    .key_omitted = key_omitted,
+                    .label = label,
+                },
+            },
+        },
+    );
+
+    try self.beginScope(foreach_node);
     const body = try self.block(
         .{
             .loop_type = .ForEach,
@@ -8065,23 +8114,11 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     );
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
-    return try self.ast.appendNode(
-        .{
-            .tag = .ForEach,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .components = .{
-                .ForEach = .{
-                    .key = key,
-                    .value = value.?,
-                    .iterable = iterable,
-                    .body = body,
-                    .key_omitted = key_omitted,
-                },
-            },
-            .ends_scope = try self.endScope(),
-        },
-    );
+    self.ast.nodes.items(.end_location)[foreach_node] = self.current_token.? - 1;
+    self.ast.nodes.items(.components)[foreach_node].ForEach.body = body;
+    self.ast.nodes.items(.ends_scope)[foreach_node] = try self.endScope();
+
+    return foreach_node;
 }
 
 fn whileStatement(self: *Self) Error!Ast.Node.Index {
@@ -8093,9 +8130,31 @@ fn whileStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.RightParen, "Expected `)` after `while` condition.");
 
-    try self.consume(.LeftBrace, "Expected `{` after `if` condition.");
+    const label = if (try self.match(.Colon)) lbl: {
+        try self.consume(.Identifier, "Expected label after `:`.");
 
-    self.beginScope();
+        break :lbl self.current_token.? - 1;
+    } else null;
+
+    try self.consume(.LeftBrace, "Expected `{`.");
+
+    // We add it before parsing the body so that we can find it on a labeled break/continue statement
+    const while_node = try self.ast.appendNode(
+        .{
+            .tag = .While,
+            .location = start_location,
+            .end_location = undefined,
+            .components = .{
+                .While = .{
+                    .condition = condition,
+                    .body = undefined,
+                    .label = label,
+                },
+            },
+        },
+    );
+
+    try self.beginScope(while_node);
     const body = try self.block(
         .{
             .loop_type = .While,
@@ -8104,27 +8163,40 @@ fn whileStatement(self: *Self) Error!Ast.Node.Index {
     );
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
-    return try self.ast.appendNode(
-        .{
-            .tag = .While,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .components = .{
-                .While = .{
-                    .condition = condition,
-                    .body = body,
-                },
-            },
-        },
-    );
+    self.ast.nodes.items(.end_location)[while_node] = self.current_token.? - 1;
+    self.ast.nodes.items(.components)[while_node].While.body = body;
+
+    return while_node;
 }
 
 fn doUntilStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    try self.consume(.LeftBrace, "Expected `{` after `do`.");
+    const label = if (try self.match(.Colon)) lbl: {
+        try self.consume(.Identifier, "Expected label after `:`.");
 
-    self.beginScope();
+        break :lbl self.current_token.? - 1;
+    } else null;
+
+    try self.consume(.LeftBrace, "Expected `{`.");
+
+    // We add it before parsing the body so that we can find it on a labeled break/continue statement
+    const dountil_node = try self.ast.appendNode(
+        .{
+            .tag = .DoUntil,
+            .location = start_location,
+            .end_location = undefined,
+            .components = .{
+                .DoUntil = .{
+                    .condition = undefined,
+                    .body = undefined,
+                    .label = label,
+                },
+            },
+        },
+    );
+
+    try self.beginScope(null);
     const body = try self.block(
         .{
             .loop_type = .Do,
@@ -8141,19 +8213,11 @@ fn doUntilStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.RightParen, "Expected `)` after `until` condition.");
 
-    return try self.ast.appendNode(
-        .{
-            .tag = .DoUntil,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .components = .{
-                .DoUntil = .{
-                    .condition = condition,
-                    .body = body,
-                },
-            },
-        },
-    );
+    self.ast.nodes.items(.end_location)[dountil_node] = self.current_token.? - 1;
+    self.ast.nodes.items(.components)[dountil_node].DoUntil.condition = condition;
+    self.ast.nodes.items(.components)[dountil_node].DoUntil.body = body;
+
+    return dountil_node;
 }
 
 fn returnStatement(self: *Self) Error!Ast.Node.Index {
@@ -8266,7 +8330,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.LeftBrace, "Expected `{` after `try`");
 
-    self.beginScope();
+    try self.beginScope(null);
     const body = try self.block(null);
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
@@ -8280,7 +8344,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
                 self.reportError(.syntax, "Catch clause not allowed after unconditional catch");
             }
 
-            self.beginScope();
+            try self.beginScope(null);
 
             const type_def = try self.parseTypeDef(null, true);
 
@@ -8310,7 +8374,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
         } else if (unconditional_clause == null) {
             try self.consume(.LeftBrace, "Expected `{` after `catch`");
 
-            self.beginScope();
+            try self.beginScope(null);
             unconditional_clause = try self.block(null);
             self.ast.nodes.items(.ends_scope)[unconditional_clause.?] = try self.endScope();
         } else {
@@ -8336,10 +8400,92 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
     );
 }
 
-fn breakStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
+// Go up scopes until it finds a loop node with a matching label
+fn findLabel(self: *Self, label: Ast.TokenIndex) ?struct { node: Ast.Node.Index, depth: u32 } {
+    const tags = self.ast.nodes.items(.tag);
+    const components = self.ast.nodes.items(.components);
+    const lexemes = self.ast.tokens.items(.lexeme);
+
+    var depth = self.current.?.scope_depth - 1;
+    while (depth >= 0) : (depth -= 1) {
+        if (self.current.?.scopes.items[depth]) |scope_node| {
+            switch (tags[scope_node]) {
+                .For => {
+                    if (components[scope_node].For.label) |scope_label| {
+                        if (std.mem.eql(u8, lexemes[scope_label], lexemes[label])) {
+                            return .{
+                                .node = scope_node,
+                                .depth = depth,
+                            };
+                        }
+                    }
+                },
+                .ForEach => {
+                    if (components[scope_node].ForEach.label) |scope_label| {
+                        if (std.mem.eql(u8, lexemes[scope_label], lexemes[label])) {
+                            return .{
+                                .node = scope_node,
+                                .depth = depth,
+                            };
+                        }
+                    }
+                },
+                .While => {
+                    if (components[scope_node].While.label) |scope_label| {
+                        if (std.mem.eql(u8, lexemes[scope_label], lexemes[label])) {
+                            return .{
+                                .node = scope_node,
+                                .depth = depth,
+                            };
+                        }
+                    }
+                },
+                .DoUntil => {
+                    if (components[scope_node].DoUntil.label) |scope_label| {
+                        if (std.mem.eql(u8, lexemes[scope_label], lexemes[label])) {
+                            return .{
+                                .node = scope_node,
+                                .depth = depth,
+                            };
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+
+        if (depth == 0) {
+            break;
+        }
+    }
+
+    return null;
+}
+
+fn breakContinueStatement(self: *Self, @"break": bool, loop_scope: ?LoopScope) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    if (loop_scope == null) {
+    const label = if (try self.match(.Identifier))
+        self.current_token.? - 1
+    else
+        null;
+
+    const label_scope = if (label) |lbl|
+        self.findLabel(lbl)
+    else
+        null;
+
+    if (label != null and label_scope == null) {
+        self.reportErrorFmt(
+            .label_does_not_exists,
+            "Label `{s}` does not exists.",
+            .{
+                self.ast.tokens.items(.lexeme)[label.?],
+            },
+        );
+    }
+
+    if (label == null and loop_scope == null) {
         self.reportError(.syntax, "break is not allowed here.");
     }
 
@@ -8347,41 +8493,40 @@ fn breakStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
 
     return try self.ast.appendNode(
         .{
-            .tag = .Break,
+            .tag = if (@"break") .Break else .Continue,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .ends_scope = if (loop_scope != null)
-                try self.closeScope(loop_scope.?.loop_body_scope)
+            .ends_scope = if (loop_scope != null or label_scope != null)
+                try self.closeScope(
+                    if (label_scope) |scope|
+                        scope.depth + 1
+                    else
+                        loop_scope.?.loop_body_scope,
+                )
             else
                 null,
-            .components = .{
-                .Break = {},
-            },
+            .components = if (@"break")
+                .{
+                    .Break = if (label_scope) |scope|
+                        scope.node
+                    else
+                        null,
+                }
+            else
+                .{
+                    .Continue = if (label_scope) |scope|
+                        scope.node
+                    else
+                        null,
+                },
         },
     );
 }
 
 fn continueStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    return self.breakContinueStatement(false, loop_scope);
+}
 
-    if (loop_scope == null) {
-        self.reportError(.syntax, "continue is not allowed here.");
-    }
-
-    try self.consume(.Semicolon, "Expected `;` after statement.");
-
-    return try self.ast.appendNode(
-        .{
-            .tag = .Continue,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .ends_scope = if (loop_scope != null)
-                try self.closeScope(loop_scope.?.loop_body_scope)
-            else
-                null,
-            .components = .{
-                .Continue = {},
-            },
-        },
-    );
+fn breakStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
+    return self.breakContinueStatement(true, loop_scope);
 }

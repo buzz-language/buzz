@@ -157,9 +157,9 @@ pub const Node = struct {
         Block: []Node.Index,
         BlockExpression: []Node.Index,
         Boolean: bool,
-        Break: void,
+        Break: ?Node.Index,
         Call: Call,
-        Continue: void,
+        Continue: ?Node.Index,
         Dot: Dot,
         DoUntil: WhileDoUntil,
         Enum: Enum,
@@ -458,6 +458,7 @@ pub const For = struct {
     condition: Node.Index,
     post_loop: []Node.Index,
     body: Node.Index,
+    label: ?TokenIndex,
 };
 
 pub const ForEach = struct {
@@ -466,6 +467,7 @@ pub const ForEach = struct {
     value: Node.Index,
     body: Node.Index,
     key_omitted: bool,
+    label: ?TokenIndex,
 };
 
 pub const Function = struct {
@@ -697,6 +699,7 @@ pub const VarDeclaration = struct {
 pub const WhileDoUntil = struct {
     condition: Node.Index,
     body: Node.Index,
+    label: ?TokenIndex,
 };
 
 pub const Zdef = struct {
