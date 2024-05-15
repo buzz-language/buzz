@@ -1,6 +1,7 @@
 # Unreleased
 
 ## Added
+- Tail call optimization (https://github.com/buzz-language/buzz/issues/9)
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
 - Function argument names and object property names can be omitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
@@ -36,7 +37,7 @@ var value = from {
     out result;
 }
 ```
-- `recursive_call_limit` build option limit recursive calls (default to 200)
+- `recursive_call_limit` build option limit recursive calls
 - Compiler will warn about code after a `return` statement
 - Compiler will warn about unreferenced imports (https://github.com/buzz-language/buzz/issues/272)
 - `namespace` (https://github.com/buzz-language/buzz/issues/271): if a script exports at least one symbol, it has to define a namespace for the script with `namespace mynamespace`
@@ -55,11 +56,16 @@ var value = from {
 ## Changed
 - Map type notation has changed from `{K, V}` to `{K: V}`. Similarly map expression with specified typed went from `{<K, V>, ...}` to `{<K: V>, ...}` (https://github.com/buzz-language/buzz/issues/253)
 - `File.readLine`, `File.readAll`, `Socket.readLine`, `Socket.readAll` have now an optional `maxSize` argument
-- Tail call optimization (https://github.com/buzz-language/buzz/issues/9). The effect should be limited for recursive calls since the JIT compiler should kick in pretty quickly in those use cases.
 - Empty list and map without a specified type resolve to `[any]`/`{any: any}` unless the variable declaration context provides the type (https://github.com/buzz-language/buzz/issues/86)
 - Function yield type is now prefixed with `*>`: `fun willYield() > T > Y?` becomes `fun willYield() > T *> Y?` (https://github.com/buzz-language/buzz/issues/257)
+- Temporarily disabled `--tree` and `--fmt`. The AST has been completely reworked and those feature will take some work to come back.
+- `math.random` removed in favor of `std.random`
 
 ## Fixed
+- A bunch of crash after reported error. buzz tries to hit a maximum of syntax/compile errors by continuing after an error has been reported. This can lead to unexpected state and crash.
+- Trying to resolve a global when only its prefix was provided would result in infinite recursion
+- Forbid use of `yield`/`resume`/`resolve` in the global scope
+- Would break on unfinished char literal
 
 # 0.3.0 (10-14-2023)
 ## Added
