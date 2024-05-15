@@ -1,0 +1,66 @@
+import "std";
+
+test "labeled break" {
+	var i = 0;
+	while (i < 100) :here {
+		i = i + 1;
+
+		if (i == 10) {
+			break here;
+		}
+	}
+
+	std.assert(i == 10);
+}
+
+test "labeled break in nested loop" {
+	var i = 0;
+	foreach (int _ in 0..100) :here {
+		var _ = "hello";
+
+		while (i < 100) {
+			i = i + 1;
+
+			if (i == 10) {
+				break here;
+			}
+		}
+	}
+
+	std.assert(i == 10);
+}
+
+test "labeled break in deeply nested loop" {
+	var i = 0;
+	foreach (int j in 0..100) :here {
+		var _ = "hello";
+
+		while (j < 100) {
+			var _ = "bye";
+		
+			while (i < 100) {
+				i = i + 1;
+
+				if (i == 10) {
+					break here;
+				}
+			}
+		}
+	}
+
+	std.assert(i == 10);
+}
+
+test "labeled continue" {
+	var i = 0;
+	foreach (int j in 0..10) :here {
+		if (j == 3) {
+			continue here;
+		}
+
+		i = i + j;
+	}
+
+	std.assert(i == 42);
+}
+

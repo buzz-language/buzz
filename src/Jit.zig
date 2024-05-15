@@ -27,6 +27,14 @@ const OptJump = struct {
     }
 };
 
+const Break = struct {
+    break_label: m.MIR_insn_t,
+    continue_label: m.MIR_insn_t,
+    node: Ast.Node.Index,
+};
+
+const Breaks = std.ArrayList(Break);
+
 const GenState = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
@@ -54,10 +62,12 @@ const GenState = struct {
     // Avoid register name collisions
     registers: std.AutoHashMap([*:0]const u8, usize),
 
-    // Label to jump to when breaking a loop
+    // Label to jump to when breaking a loop without a label
     break_label: m.MIR_insn_t = null,
-    // Label to jump to when continuing a loop
+    // Label to jump to when continuing a loop whithout a label
     continue_label: m.MIR_insn_t = null,
+
+    breaks_label: Breaks,
 
     pub fn deinit(self: *GenState) void {
         self.prototypes.deinit();
@@ -65,6 +75,7 @@ const GenState = struct {
         if (self.try_should_handle) |*try_should_handle| {
             try_should_handle.deinit();
         }
+        self.breaks_label.deinit();
     }
 };
 
@@ -333,6 +344,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
         .ast_node = ast_node,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = closure orelse self.state.?.closure,
+        .breaks_label = Breaks.init(self.vm.gc.allocator),
     };
 
     const tag = self.state.?.ast.nodes.items(.tag)[ast_node];
@@ -2805,6 +2817,16 @@ fn generateWhile(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const previous_continue_label = self.state.?.continue_label;
     self.state.?.continue_label = cond_label;
 
+    if (components.label != null) {
+        try self.state.?.breaks_label.append(
+            .{
+                .node = node,
+                .break_label = out_label,
+                .continue_label = cond_label,
+            },
+        );
+    }
+
     self.append(cond_label);
 
     self.BEQ(
@@ -2822,6 +2844,10 @@ fn generateWhile(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.state.?.break_label = previous_out_label;
     self.state.?.continue_label = previous_continue_label;
 
+    if (components.label != null) {
+        _ = self.state.?.breaks_label.pop();
+    }
+
     return null;
 }
 
@@ -2835,6 +2861,16 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.state.?.break_label = out_label;
     const previous_continue_label = self.state.?.continue_label;
     self.state.?.continue_label = loop_label;
+
+    if (components.label != null) {
+        try self.state.?.breaks_label.append(
+            .{
+                .node = node,
+                .break_label = out_label,
+                .continue_label = loop_label,
+            },
+        );
+    }
 
     self.append(loop_label);
 
@@ -2850,6 +2886,10 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     self.state.?.break_label = previous_out_label;
     self.state.?.continue_label = previous_continue_label;
+
+    if (components.label != null) {
+        _ = self.state.?.breaks_label.pop();
+    }
 
     return null;
 }
@@ -2868,6 +2908,16 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.state.?.break_label = out_label;
     const previous_continue_label = self.state.?.continue_label;
     self.state.?.continue_label = cond_label;
+
+    if (components.label != null) {
+        try self.state.?.breaks_label.append(
+            .{
+                .node = node,
+                .break_label = out_label,
+                .continue_label = cond_label,
+            },
+        );
+    }
 
     if (self.state.?.ast_node != node) {
         // Init expressions (if not hotspot)
@@ -2899,13 +2949,35 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.state.?.break_label = previous_out_label;
     self.state.?.continue_label = previous_continue_label;
 
+    if (components.label != null) {
+        _ = self.state.?.breaks_label.pop();
+    }
+
     return null;
+}
+
+fn findBreakLabel(self: *Self, node: Ast.Node.Index) Break {
+    var i = self.state.?.breaks_label.items.len - 1;
+    while (i >= 0) : (i -= 1) {
+        const brk = self.state.?.breaks_label.items[i];
+
+        if (brk.node == node) {
+            return brk;
+        }
+    }
+
+    // Should not happen: searched when parsing
+    unreachable;
 }
 
 fn generateBreak(self: *Self, break_node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.closeScope(break_node);
 
-    self.JMP(self.state.?.break_label.?);
+    if (self.state.?.ast.nodes.items(.components)[break_node].Break) |label_node| {
+        self.JMP(self.findBreakLabel(label_node).break_label);
+    } else {
+        self.JMP(self.state.?.break_label.?);
+    }
 
     return null;
 }
@@ -2913,7 +2985,11 @@ fn generateBreak(self: *Self, break_node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateContinue(self: *Self, continue_node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.closeScope(continue_node);
 
-    self.JMP(self.state.?.continue_label.?);
+    if (self.state.?.ast.nodes.items(.components)[continue_node].Continue) |label_node| {
+        self.JMP(self.findBreakLabel(label_node).continue_label);
+    } else {
+        self.JMP(self.state.?.continue_label.?);
+    }
 
     return null;
 }
@@ -4040,6 +4116,16 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const previous_continue_label = self.state.?.continue_label;
     self.state.?.continue_label = cond_label;
 
+    if (components.label != null) {
+        try self.state.?.breaks_label.append(
+            .{
+                .node = node,
+                .break_label = out_label,
+                .continue_label = cond_label,
+            },
+        );
+    }
+
     self.append(cond_label);
 
     // Call appropriate `next` method
@@ -4113,6 +4199,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     self.state.?.break_label = previous_out_label;
     self.state.?.continue_label = previous_continue_label;
+
+    if (components.label != null) {
+        _ = self.state.?.breaks_label.pop();
+    }
 
     return null;
 }
@@ -4642,6 +4732,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
         .ast_node = undefined,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = undefined,
+        .breaks_label = Breaks.init(self.vm.gc.allocator),
     };
     defer self.reset();
 
@@ -4930,6 +5021,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
         .ast_node = undefined,
         .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
         .closure = undefined,
+        .breaks_label = Breaks.init(self.vm.gc.allocator),
     };
     defer self.reset();
 

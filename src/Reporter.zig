@@ -108,6 +108,7 @@ pub const Error = enum(u8) {
     import_already_exists = 92,
     code_after_return = 93,
     unused_import = 94,
+    label_does_not_exists = 95,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
