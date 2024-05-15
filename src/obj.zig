@@ -2524,7 +2524,7 @@ pub const ObjRange = struct {
         .{
             .{ "toList", "extern Function toList() > [int]" },
             .{ "len", "extern Function len() > int" },
-            .{ "invert", "extern Function invert() > range" },
+            .{ "invert", "extern Function invert() > rg" },
         },
     );
 
@@ -4025,7 +4025,7 @@ pub const ObjTypeDef = struct {
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
             .Any => try writer.writeAll("any"),
-            .Range => try writer.writeAll("range"),
+            .Range => try writer.writeAll("rg"),
             .Fiber => {
                 try writer.writeAll("fib<");
                 try self.resolved_type.?.Fiber.return_type.toStringRaw(writer, qualified);
