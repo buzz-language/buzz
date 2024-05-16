@@ -10,6 +10,7 @@ const VM = r.VM;
 const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
+const io = @import("io.zig");
 
 pub const Error = error{
     CantCompile,
@@ -157,7 +158,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
         &seen,
     )) {
         if (BuildOptions.jit_debug) {
-            std.debug.print(
+            io.print(
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[ast_node]),
@@ -237,7 +238,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast, hotspot_node: Ast.Node.Index) Error
         &seen,
     )) {
         if (BuildOptions.jit_debug) {
-            std.debug.print(
+            io.print(
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[hotspot_node]),
@@ -370,7 +371,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
         try self.compiled_closures.put(uclosure, {});
 
         if (BuildOptions.jit_debug) {
-            std.debug.print(
+            io.print(
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
                     qualified_name.items,
@@ -383,7 +384,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
         try self.compiled_hotspots.put(ast_node, {});
     } else {
         if (BuildOptions.jit_debug) {
-            std.debug.print(
+            io.print(
                 "Compiling closure `{s}`\n",
                 .{
                     qualified_name.items,
@@ -398,7 +399,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
         self.generateNode(ast_node)) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
-                std.debug.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
+                io.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
             }
 
             m.MIR_finish_func(self.ctx);
@@ -509,7 +510,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         => return Error.CantCompile,
 
         else => {
-            std.debug.print("{} NYI\n", .{tag});
+            io.print("{} NYI\n", .{tag});
             unreachable;
         },
     };
@@ -4434,7 +4435,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     _ = self.generateNode(node) catch |err| {
         if (err == error.CantCompile) {
             if (BuildOptions.jit_debug) {
-                std.debug.print(
+                io.print(
                     "Not compiling node {s}#{}, likely because it uses a fiber\n",
                     .{
                         @tagName(self.state.?.ast.nodes.items(.tag)[self.state.?.ast_node]),
@@ -4692,7 +4693,7 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList
 
         else => {
             if (BuildOptions.debug) {
-                std.debug.print(
+                io.print(
                     "Ast {s} node are not valid hotspots",
                     .{
                         @tagName(tag),
@@ -4715,7 +4716,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        std.debug.print(
+        io.print(
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_element.zdef.name,
@@ -5004,7 +5005,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        std.debug.print(
+        io.print(
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.zdef.name,
@@ -5113,7 +5114,7 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
         // Optional are only allowed on pointers
         .Optional => m.MIR_T_I64,
         else => {
-            std.debug.print("{}\n", .{zig_type});
+            io.print("{}\n", .{zig_type});
             unreachable;
         },
     };

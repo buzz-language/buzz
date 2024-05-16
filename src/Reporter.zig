@@ -8,6 +8,7 @@ const Scanner = @import("Scanner.zig");
 const Ast = @import("Ast.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
+const io = @import("io.zig");
 
 const Self = @This();
 
@@ -181,7 +182,7 @@ pub const Report = struct {
     options: ReportOptions = .{},
 
     pub inline fn reportStderr(self: *Report, reporter: *Self) !void {
-        return self.report(reporter, std.io.getStdErr().writer());
+        return self.report(reporter, io.stdErrWriter);
     }
 
     pub fn report(self: *Report, reporter: *Self, out: anytype) !void {

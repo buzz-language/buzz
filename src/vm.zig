@@ -18,6 +18,7 @@ const Token = @import("Token.zig");
 const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
+const io = @import("io.zig");
 
 const ObjType = _obj.ObjType;
 const Obj = _obj.Obj;
@@ -3849,6 +3850,8 @@ pub const VM = struct {
 
     // Never generated if jit is disabled
     fn OP_HOTSPOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, end_ip: u24) void {
+        if (is_wasm) unreachable;
+
         const node = self.readInstruction();
         const count = (self.hotspots.get(node) orelse 0) + 1;
 
@@ -3884,7 +3887,7 @@ pub const VM = struct {
                 obj_native.mark(self.gc);
 
                 if (BuildOptions.jit_debug) {
-                    std.debug.print(
+                    io.print(
                         "Compiled hotspot {s} in function `{s}` in {d} ms\n",
                         .{
                             @tagName(self.current_ast.nodes.items(.tag)[node]),
@@ -3937,6 +3940,8 @@ pub const VM = struct {
     }
 
     fn OP_HOTSPOT_CALL(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+        if (is_wasm) unreachable;
+
         if (self.callHotspot(
             @ptrCast(
                 @alignCast(
@@ -3968,7 +3973,7 @@ pub const VM = struct {
         const next_arg: u24 = getArg(next_full_instruction);
 
         if (BuildOptions.debug_current_instruction) {
-            std.debug.print(
+            io.print(
                 "{}: {}\n",
                 .{
                     next_current_frame.ip,
@@ -4206,7 +4211,7 @@ pub const VM = struct {
                 };
 
                 if (BuildOptions.jit_debug and success) {
-                    std.debug.print(
+                    io.print(
                         "Compiled function `{s}` in {d} ms\n",
                         .{
                             closure.function.type_def.resolved_type.?.Function.name.string,
@@ -4226,7 +4231,7 @@ pub const VM = struct {
         // Is there a compiled version of it?
         if (native != null) {
             if (BuildOptions.jit_debug) {
-                std.debug.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
+                io.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
             }
 
             try self.callCompiled(
@@ -4270,7 +4275,7 @@ pub const VM = struct {
         }
 
         if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
-            std.debug.print(
+            io.print(
                 "\x1b[33m▶ Test: {s}\x1b[0m\n",
                 .{
                     self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
@@ -4296,7 +4301,7 @@ pub const VM = struct {
         self.current_fiber.frame_count += 1;
 
         if (BuildOptions.jit_debug) {
-            std.debug.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
+            io.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
         }
     }
 
@@ -4312,7 +4317,7 @@ pub const VM = struct {
 
     fn callHotspot(self: *Self, native: NativeFn) bool {
         if (BuildOptions.jit_debug) {
-            std.debug.print("Calling hotspot {*}\n", .{native});
+            io.print("Calling hotspot {*}\n", .{native});
         }
 
         const was_in_native_call = self.currentFrame().?.in_native_call;

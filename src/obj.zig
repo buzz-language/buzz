@@ -22,6 +22,7 @@ const buzz_api = @import("buzz_api.zig");
 const buzz_builtin = @import("builtin.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Ast = @import("Ast.zig");
+const io = @import("io.zig");
 
 pub const pcre = if (!is_wasm) @import("pcre.zig") else void;
 
@@ -1053,13 +1054,13 @@ pub const ObjFunction = struct {
         try gc.markObj(self.name.toObj());
         try gc.markObj(@constCast(self.type_def.toObj()));
         if (BuildOptions.gc_debug) {
-            std.debug.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
+            io.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
         }
         for (self.chunk.constants.items) |constant| {
             try gc.markValue(constant);
         }
         if (BuildOptions.gc_debug) {
-            std.debug.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
+            io.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
         }
     }
 
@@ -4757,7 +4758,7 @@ pub const PlaceholderDef = struct {
 
         if (child.resolved_type.?.Placeholder.parent != null) {
             if (BuildOptions.debug_placeholders) {
-                std.debug.print(
+                io.print(
                     ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
                     .{
                         @intFromPtr(child),
@@ -4776,7 +4777,7 @@ pub const PlaceholderDef = struct {
         child.resolved_type.?.Placeholder.parent_relation = relation;
 
         if (BuildOptions.debug_placeholders) {
-            std.debug.print(
+            io.print(
                 "Linking @{} (root: {}) with @{} as {s}\n",
                 .{
                     @intFromPtr(parent),

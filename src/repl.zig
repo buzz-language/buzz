@@ -38,8 +38,9 @@ const dumpStack = disassembler.dumpStack;
 const DumpState = disassembler.DumpState;
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
+const io = @import("io.zig");
 
-pub fn printBanner(out: std.fs.File.Writer, full: bool) void {
+pub fn printBanner(out: anytype, full: bool) void {
     out.print(
         "\n👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
@@ -131,8 +132,8 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    var stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
+    var stdout = io.stdOutWriter;
+    var stderr = io.stdErrWriter;
     printBanner(stdout, false);
 
     var buzz_history_path = std.ArrayList(u8).init(allocator);
@@ -294,7 +295,7 @@ fn runSource(
         }
 
         if (BuildOptions.show_perf) {
-            std.debug.print(
+            io.print(
                 "\u{001b}[2mParsing: {d}\nCodegen: {d}\nRun: {d}\nJIT: {d}\nGC: {d}\nTotal: {d}\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
                 .{
                     std.fmt.fmtDuration(parsing_time),

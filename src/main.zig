@@ -19,6 +19,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
 const repl = if (!is_wasm) @import("repl.zig").repl else void;
 const wasm_repl = @import("wasm_repl.zig");
+const io = @import("io.zig");
 
 pub export const initRepl_export = wasm_repl.initRepl;
 pub export const runLine_export = wasm_repl.runLine;
@@ -28,7 +29,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-fn printBanner(out: std.fs.File.Writer, full: bool) void {
+fn printBanner(out: anytype, full: bool) void {
     out.print(
         "\n👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
@@ -116,7 +117,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         std.fs.openFileAbsolute(file_name, .{})
     else
         std.fs.cwd().openFile(file_name, .{})) catch {
-        std.debug.print("File not found", .{});
+        io.print("File not found", .{});
         return;
     };
     defer file.close();
@@ -158,7 +159,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             }
 
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
-                std.debug.print(
+                io.print(
                     "\x1b[2mParsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n\x1b[0m",
                     .{
                         .parsing = std.fmt.fmtDuration(parsing_time),
@@ -174,7 +175,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
                 );
             }
         } else {
-            std.debug.print("Formatting and Ast dump is deactivated", .{});
+            io.print("Formatting and Ast dump is deactivated", .{});
             // switch (flavor) {
             //     .Run, .Test => unreachable,
             //     .Fmt => {
@@ -183,7 +184,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             //
             //         try function_node.render(function_node, &formatted.writer(), 0);
             //
-            //         std.debug.print("{s}", .{formatted.items});
+            //         io.print("{s}", .{formatted.items});
             //     },
             //     .Ast => {
             //         var json = std.ArrayList(u8).init(allocator);
@@ -204,7 +205,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
     }
 }
 
-pub fn main() !void {
+pub fn main() u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = builtin.mode == .Debug }){};
     var allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
         gpa.allocator()
@@ -236,32 +237,30 @@ pub fn main() !void {
         },
     ) catch |err| {
         // Report useful error and exit
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        return err;
+        diag.report(io.stdErrWriter, err) catch {};
+        return 1;
     };
     defer res.deinit();
 
     if (res.args.version == 1) {
-        printBanner(std.io.getStdOut().writer(), true);
+        printBanner(io.stdOutWriter, true);
 
-        if (!is_wasm) {
-            std.process.exit(0);
-        }
+        return 0;
     }
 
     if (res.args.help == 1) {
-        std.debug.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
+        io.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
-        try clap.usage(
-            std.io.getStdErr().writer(),
+        clap.usage(
+            io.stdErrWriter,
             clap.Help,
             &params,
-        );
+        ) catch return 1;
 
-        std.debug.print("\n\n", .{});
+        io.print("\n\n", .{});
 
-        try clap.help(
-            std.io.getStdErr().writer(),
+        clap.help(
+            io.stdErrWriter,
             clap.Help,
             &params,
             .{
@@ -269,11 +268,9 @@ pub fn main() !void {
                 .description_indent = 4,
                 .spacing_between_parameters = 0,
             },
-        );
+        ) catch return 1;
 
-        if (!is_wasm) {
-            std.process.exit(0);
-        }
+        return 0;
     }
 
     if (res.args.library.len > 0) {
@@ -281,7 +278,7 @@ pub fn main() !void {
         defer list.shrinkAndFree(list.items.len);
 
         for (res.args.library) |path| {
-            try list.append(path);
+            list.append(path) catch return 1;
         }
 
         Parser.user_library_paths = list.items;
@@ -289,7 +286,9 @@ pub fn main() !void {
 
     var positionals = std.ArrayList([:0]u8).init(allocator);
     for (res.positionals) |pos| {
-        try positionals.append(try allocator.dupeZ(u8, pos));
+        positionals.append(
+            allocator.dupeZ(u8, pos) catch return 1,
+        ) catch return 1;
     }
     defer {
         for (positionals.items) |pos| {
@@ -313,11 +312,7 @@ pub fn main() !void {
 
     if (!is_wasm and flavor == .Repl) {
         repl(allocator) catch {
-            if (!is_wasm) {
-                std.process.exit(1);
-            }
-
-            std.debug.print("REPL stopped", .{});
+            return 1;
         };
     } else if (!is_wasm and positionals.items.len > 0) {
         runFile(
@@ -326,21 +321,15 @@ pub fn main() !void {
             positionals.items[1..],
             flavor,
         ) catch {
-            if (!is_wasm) {
-                std.process.exit(1);
-            }
-
-            std.debug.print("VM stopped", .{});
+            return 1;
         };
     } else if (is_wasm) {
-        std.debug.print("NYI wasm repl", .{});
+        io.print("NYI wasm repl", .{});
     } else {
-        std.debug.print("Nothing to run", .{});
+        io.print("Nothing to run", .{});
     }
 
-    if (!is_wasm) {
-        std.process.exit(0);
-    }
+    return 0;
 }
 
 test "Testing behavior" {
@@ -365,7 +354,7 @@ test "Testing behavior" {
                 const file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
 
-                std.debug.print("{s}\n", .{file.name});
+                io.print("{s}\n", .{file.name});
 
                 var had_error: bool = false;
                 runFile(
@@ -374,13 +363,13 @@ test "Testing behavior" {
                     &[_][:0]u8{},
                     .Test,
                 ) catch {
-                    std.debug.print("\u{001b}[31m[{s} ✕]\u{001b}[0m\n", .{file.name});
+                    io.print("\u{001b}[31m[{s} ✕]\u{001b}[0m\n", .{file.name});
                     had_error = true;
                     fail_count += 1;
                 };
 
                 if (!had_error) {
-                    std.debug.print("\u{001b}[32m[{s} ✓]\u{001b}[0m\n", .{file.name});
+                    io.print("\u{001b}[32m[{s} ✓]\u{001b}[0m\n", .{file.name});
                 }
             }
         }
@@ -428,7 +417,7 @@ test "Testing behavior" {
 
                 if (!std.mem.containsAtLeast(u8, result.stderr, 1, first_line[2..])) {
                     fail_count += 1;
-                    std.debug.print(
+                    io.print(
                         "Expected error `{s}` got `{s}`\n",
                         .{
                             first_line[2..],
@@ -436,21 +425,21 @@ test "Testing behavior" {
                         },
                     );
 
-                    std.debug.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
+                    io.print("\u{001b}[31m[{s}... ✕]\u{001b}[0m\n", .{file.name});
                 } else {
-                    std.debug.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
+                    io.print("\u{001b}[32m[{s}... ✓]\u{001b}[0m\n", .{file.name});
                 }
             }
         }
     }
 
     if (fail_count == 0) {
-        std.debug.print("\n\u{001b}[32m", .{});
+        io.print("\n\u{001b}[32m", .{});
     } else {
-        std.debug.print("\n\u{001b}[31m", .{});
+        io.print("\n\u{001b}[31m", .{});
     }
 
-    std.debug.print("Ran {}, Failed: {}\u{001b}[0m\n", .{
+    io.print("Ran {}, Failed: {}\u{001b}[0m\n", .{
         count,
         fail_count,
     });
