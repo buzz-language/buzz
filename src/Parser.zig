@@ -433,10 +433,8 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // While
     .{ .prefix = null, .infix = null, .precedence = .None }, // For
     .{ .prefix = null, .infix = null, .precedence = .None }, // ForEach
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Switch
     .{ .prefix = null, .infix = null, .precedence = .None }, // Break
     .{ .prefix = null, .infix = null, .precedence = .None }, // Continue
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Default
     .{ .prefix = null, .infix = null, .precedence = .None }, // In
     .{ .prefix = null, .infix = is, .precedence = .IsAs }, // Is
     .{ .prefix = literal, .infix = null, .precedence = .None }, // Integer
@@ -513,7 +511,7 @@ pub fn init(
     imported: bool,
     flavor: RunFlavor,
 ) Self {
-    var self = Self{
+    return .{
         .gc = gc,
         .imports = imports,
         .script_imports = std.StringHashMap(LocalScriptImport).init(gc.allocator),
@@ -524,13 +522,9 @@ pub fn init(
             .allocator = gc.allocator,
             .error_prefix = "Syntax",
         },
-        .ffi = undefined,
+        .ffi = FFI.init(gc),
         .ast = Ast.init(gc.allocator),
     };
-
-    self.ffi = FFI.init(gc);
-
-    return self;
 }
 
 pub fn deinit(self: *Self) void {
@@ -747,13 +741,22 @@ fn synchronize(self: *Self) !void {
             .For,
             .ForEach,
             .Return,
-            .Switch,
             .Throw,
             .Break,
             .Continue,
             .Export,
             .Import,
             .Zdef,
+            .From,
+            .Var,
+            .Yield,
+            .Resume,
+            .Resolve,
+            .Protocol,
+            .Try,
+            .Static,
+            .Extern,
+            .Namespace,
             => return,
             else => {},
         }

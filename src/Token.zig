@@ -132,10 +132,8 @@ pub const Type = enum {
     While, // while
     For, // for
     ForEach, // foreach
-    Switch, // switch
     Break, // break
     Continue, // continue
-    Default, // default
     In, // in
     Is, // is
     IntegerValue, // 123
@@ -191,7 +189,6 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "catch", .Catch },
         .{ "const", .Const },
         .{ "continue", .Continue },
-        .{ "default", .Default },
         .{ "do", .Do },
         .{ "else", .Else },
         .{ "enum", .Enum },
@@ -224,7 +221,6 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "return", .Return },
         .{ "static", .Static },
         .{ "str", .Str },
-        .{ "switch", .Switch },
         .{ "test", .Test },
         .{ "throw", .Throw },
         .{ "true", .True },
