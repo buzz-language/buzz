@@ -111,7 +111,7 @@ pub fn build(b: *Build) !void {
     var build_options = BuzzBuildOptions{
         .target = target,
         // Version is latest tag or empty string
-        .version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 0 },
+        .version = std.SemanticVersion{ .major = 0, .minor = 5, .patch = 0 },
         // Current commit sha
         .sha = std.posix.getenv("GIT_SHA") orelse
             std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
