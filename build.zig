@@ -98,7 +98,7 @@ fn getBuzzPrefix(b: *Build) ![]const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.13.0-dev.73+db890dbae") catch return;
+    const min_zig = std.SemanticVersion.parse("0.13.0-dev.211+6a65561e3") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -273,15 +273,11 @@ pub fn build(b: *Build) !void {
     }
 
     includes.appendSlice(&[_][]const u8{
-        "/usr/local/include",
-        "/usr/include",
         "./vendors/mir",
         "./vendors/mimalloc/include",
     }) catch unreachable;
 
     llibs.appendSlice(&[_][]const u8{
-        "/usr/local/lib",
-        "/usr/lib",
         "./vendors/mir",
     }) catch unreachable;
 
@@ -298,33 +294,9 @@ pub fn build(b: *Build) !void {
     else
         null;
 
-    // If macOS, add homebrew paths
-    if (builtin.os.tag == .macos) {
-        const result = std.ChildProcess.run(
-            .{
-                .allocator = b.allocator,
-                .argv = &[_][]const u8{ "brew", "--prefix" },
-            },
-        ) catch null;
-
-        const prefix = if (result) |r|
-            std.mem.trim(u8, r.stdout, "\n")
-        else
-            std.posix.getenv("HOMEBREW_PREFIX") orelse "/opt/homebrew";
-
-        var include = std.ArrayList(u8).init(b.allocator);
-        include.writer().print("{s}{s}include", .{ prefix, std.fs.path.sep_str }) catch unreachable;
-
-        var lib = std.ArrayList(u8).init(b.allocator);
-        lib.writer().print("{s}{s}lib", .{ prefix, std.fs.path.sep_str }) catch unreachable;
-
-        includes.append(include.items) catch unreachable;
-        llibs.append(lib.items) catch unreachable;
-    }
-
     var exe = b.addExecutable(.{
         .name = "buzz",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = build_mode,
     });
@@ -349,10 +321,10 @@ pub fn build(b: *Build) !void {
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
     for (includes.items) |include| {
-        exe.addIncludePath(.{ .path = include });
+        exe.addIncludePath(b.path(include));
     }
     for (llibs.items) |lib| {
-        exe.addLibraryPath(.{ .path = lib });
+        exe.addLibraryPath(b.path(lib));
     }
     for (sys_libs.items) |slib| {
         // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
@@ -367,20 +339,22 @@ pub fn build(b: *Build) !void {
 
     if (!is_wasm) {
         // Building buzz api library
-        var lib = b.addSharedLibrary(.{
-            .name = "buzz",
-            .root_source_file = .{ .path = "src/buzz_api.zig" },
-            .target = target,
-            .optimize = build_mode,
-        });
+        var lib = b.addSharedLibrary(
+            .{
+                .name = "buzz",
+                .root_source_file = b.path("src/buzz_api.zig"),
+                .target = target,
+                .optimize = build_mode,
+            },
+        );
 
         b.installArtifact(lib);
 
         for (includes.items) |include| {
-            lib.addIncludePath(.{ .path = include });
+            lib.addIncludePath(b.path(include));
         }
         for (llibs.items) |llib| {
-            lib.addLibraryPath(.{ .path = llib });
+            lib.addLibraryPath(b.path(llib));
         }
         for (sys_libs.items) |slib| {
             lib.linkSystemLibrary(slib);
@@ -403,6 +377,7 @@ pub fn build(b: *Build) !void {
                 lib.linkSystemLibrary("bcrypt");
             }
         }
+
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
         if (lib_linenoise) |ln| {
@@ -440,8 +415,16 @@ pub fn build(b: *Build) !void {
         for (libraries) |library| {
             // Copy buzz definitions
             const step = b.addInstallLibFile(
-                .{ .path = b.fmt("src/lib/{s}.buzz", .{library.name}) },
-                b.fmt("buzz/{s}.buzz", .{library.name}),
+                b.path(
+                    b.fmt(
+                        "src/lib/{s}.buzz",
+                        .{library.name},
+                    ),
+                ),
+                b.fmt(
+                    "buzz/{s}.buzz",
+                    .{library.name},
+                ),
             );
             install_step.dependOn(&step.step);
 
@@ -451,7 +434,7 @@ pub fn build(b: *Build) !void {
 
             var std_lib = b.addSharedLibrary(.{
                 .name = library.name,
-                .root_source_file = .{ .path = library.path.? },
+                .root_source_file = b.path(library.path.?),
                 .target = target,
                 .optimize = build_mode,
             });
@@ -462,10 +445,10 @@ pub fn build(b: *Build) !void {
 
             // No need to link anything when building for wasm since everything is static
             for (includes.items) |include| {
-                std_lib.addIncludePath(.{ .path = include });
+                std_lib.addIncludePath(b.path(include));
             }
             for (llibs.items) |llib| {
-                std_lib.addLibraryPath(.{ .path = llib });
+                std_lib.addLibraryPath(b.path(llib));
             }
             for (sys_libs.items) |slib| {
                 std_lib.linkSystemLibrary(slib);
@@ -487,17 +470,6 @@ pub fn build(b: *Build) !void {
             std_lib.linkLibrary(lib);
             std_lib.root_module.addImport("build_options", build_option_module);
 
-            // Adds `$BUZZ_PATH/lib` and `/usr/local/lib/buzz` as search path for other shared lib referenced by this one (libbuzz.dylib most of the time)
-            std_lib.addRPath(
-                .{
-                    .path = b.fmt(
-                        "{s}" ++ std.fs.path.sep_str ++ "lib/buzz",
-                        .{try getBuzzPrefix(b)},
-                    ),
-                },
-            );
-            std_lib.addRPath(.{ .path = "/usr/local/lib/buzz" });
-
             b.default_step.dependOn(&std_lib.step);
 
             library_steps.append(std_lib) catch unreachable;
@@ -505,15 +477,15 @@ pub fn build(b: *Build) !void {
     }
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = build_mode,
     });
     for (includes.items) |include| {
-        tests.addIncludePath(.{ .path = include });
+        tests.addIncludePath(b.path(include));
     }
     for (llibs.items) |llib| {
-        tests.addLibraryPath(.{ .path = llib });
+        tests.addLibraryPath(b.path(llib));
     }
     for (sys_libs.items) |slib| {
         tests.linkSystemLibrary(slib);
@@ -534,7 +506,7 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
-    run_tests.cwd = Build.LazyPath{ .path = "." };
+    run_tests.cwd = b.path(".");
     run_tests.setEnvironmentVariable("BUZZ_PATH", try getBuzzPrefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
@@ -547,15 +519,15 @@ pub fn build(b: *Build) !void {
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
     const copyFiles = b.addWriteFiles();
     copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/config.h.generic" },
+        b.path("vendors/pcre2/src/config.h.generic"),
         "vendors/pcre2/src/config.h",
     );
     copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/pcre2.h.generic" },
+        b.path("vendors/pcre2/src/pcre2.h.generic"),
         "vendors/pcre2/src/pcre2.h",
     );
     copyFiles.addCopyFileToSource(
-        .{ .path = "vendors/pcre2/src/pcre2_chartables.c.dist" },
+        b.path("vendors/pcre2/src/pcre2_chartables.c.dist"),
         "vendors/pcre2/src/pcre2_chartables.c",
     );
 
@@ -564,7 +536,7 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
         .target = target,
         .optimize = optimize,
     });
-    lib.addIncludePath(.{ .path = "src" });
+    lib.addIncludePath(b.path("src"));
     lib.addCSourceFiles(
         .{
             .files = &.{
@@ -619,37 +591,8 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
         },
     );
 
-    lib.addIncludePath(.{ .path = "./vendors/mimalloc/include" });
+    lib.addIncludePath(b.path("./vendors/mimalloc/include"));
     lib.linkLibC();
-
-    if (lib.root_module.resolved_target.?.result.os.tag == .macos) {
-        var macOS_sdk_path = std.ArrayList(u8).init(b.allocator);
-        try macOS_sdk_path.writer().print(
-            "{s}/usr/include",
-            .{
-                (std.ChildProcess.run(.{
-                    .allocator = b.allocator,
-                    .argv = &.{
-                        "xcrun",
-                        "--show-sdk-path",
-                    },
-                    .cwd = b.pathFromRoot("."),
-                    .expand_arg0 = .expand,
-                }) catch {
-                    std.debug.print("Warning: failed to get MacOSX sdk path", .{});
-                    unreachable;
-                }).stdout,
-            },
-        );
-
-        lib.addSystemIncludePath(.{ .path = macOS_sdk_path.items });
-        // Github macos-12 runner (https://github.com/actions/runner-images/blob/main/images/macos/macos-12-Readme.md).
-        lib.addSystemIncludePath(.{ .path = "/Applications/Xcode_14.0.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX14.0.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include" });
-        lib.addSystemIncludePath(.{ .path = "/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk/usr/include" });
-    }
 
     lib.addCSourceFiles(
         .{
@@ -690,7 +633,7 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
         .optimize = optimize,
     });
 
-    lib.addIncludePath(.{ .path = "vendors/linenoise" });
+    lib.addIncludePath(b.path("vendors/linenoise"));
     lib.addCSourceFiles(
         .{
             .files = &.{
@@ -738,7 +681,7 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
     b.getInstallStep().dependOn(&esbuild.step);
 
     const copyRepl = b.addInstallBinFile(
-        .{ .path = "src/repl.html" },
+        b.path("src/repl.html"),
         "repl.html",
     );
     b.getInstallStep().dependOn(&copyRepl.step);
