@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.4.0 (05-16-2024)
+
 ## Added
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
